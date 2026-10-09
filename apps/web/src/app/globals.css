@@ -1611,3 +1611,11 @@ kbd {
 .loader-tip span { display: block; font: 700 11px var(--cond); letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
 .loader-tip p { margin: 0; color: #d4d6d2; font-size: 14px; animation: tipIn 0.4s ease; }
 @keyframes tipIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* Hunger / exhaustion warnings above the health panel. */
+.hud-alerts { position: absolute; left: -3px; bottom: calc(100% + 8px); width: calc(100% + 3px); display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.hud-alert { padding: 6px 10px; background: rgba(40, 28, 8, 0.9); border: 1px solid #6a4a12; border-left: 3px solid var(--accent); font: 500 12px/1.35 var(--sans); color: #f2e2c0; animation: alertPulse 1.6s ease-in-out infinite; }
+.hud-alert b { display: block; font: 700 12px var(--cond); letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); }
+.hud-alert.danger { background: rgba(48, 10, 10, 0.92); border-color: #6e1612; border-left-color: var(--danger); color: #ffd6d2; }
+.hud-alert.danger b { color: var(--danger); }
+@keyframes alertPulse { 50% { opacity: 0.72; } }

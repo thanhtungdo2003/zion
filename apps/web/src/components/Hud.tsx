@@ -139,6 +139,19 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
                 <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
               </div>
             )}
+            {state.life && (() => {
+              const st = state.life.config.stamina;
+              const exhausted = state.life.stamina < st.maximum * 0.1;
+              const starving = state.life.capacity <= st.minimumCapacity + 5;
+              const hungry = !starving && state.life.capacity <= st.maximum * 0.7;
+              if (!exhausted && !starving && !hungry) return null;
+              return (
+                <div className="hud-alerts">
+                  {exhausted && <div className="hud-alert danger"><b>Hết thể lực</b> Không thể chạy và lộn — đứng nghỉ để hồi.</div>}
+                  {(hungry || starving) && <div className={`hud-alert ${starving ? 'danger' : ''}`}><b>{starving ? 'Rất đói' : 'Đang đói'}</b> Ăn đồ chín để bổ sung năng lượng (chuột phải vào thức ăn).</div>}
+                </div>
+              );
+            })()}
             <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title="Roll (C)">
               <kbd>C</kbd>
               <div className="hud-roll-bar">
