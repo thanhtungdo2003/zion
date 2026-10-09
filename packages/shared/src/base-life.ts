@@ -38,7 +38,8 @@ export const DEFAULT_BASE_LIFE: BaseLifeConfig = {
   crops: [{ id: 'potato', item: 'potato', stages: ['/models/plains/potato-field-plants-0.bbmodel', '/models/plains/potato-field-plants-1.bbmodel', '/models/plains/potato-field-plants-done.bbmodel'], probability: 0.35, yieldItem: 'potato', yield: 4 }],
   // 5 × 5 touching 1.5 m plots filling the fenced garden (x −41…−33, z −21…−13).
   plots: Array.from({ length: 25 }, (_, i) => ({ id: `plot_${i}`, x: -40 + (i % 5) * 1.5, z: -20 + Math.floor(i / 5) * 1.5, model: (i + Math.floor(i / 5)) % 2 ? '/models/dists/wet-farmland-plot-unpipe.bbmodel' : '/models/dists/wet-farmland-plot.bbmodel' })),
-  decorations: [{ id: 'kitchen', x: -20, z: 32, model: '/models/materias/l-shaped-kitchen-counter.bbmodel' }],
+  // The kitchen counter is a camp object now (placed in the layout, with collision).
+  decorations: [],
   stations: [{ id: 'campfire', x: -24, z: 33, model: '/models/materias/campfire-embers.bbmodel' }],
   recipes: [{ id: 'mutton', input: 'raw_mutton', output: 'cooked_mutton', durationMs: 4000 }, { id: 'pork', input: 'raw_porkchop', output: 'cooked_porkchop', durationMs: 4000 }, { id: 'potato', input: 'potato', output: 'potato_cooked', durationMs: 4000 }],
   trades: [

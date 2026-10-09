@@ -42,7 +42,8 @@ export const CAMP_ASSET = {
   "shattered-glass-pane": 2037,
   "old-rusty-tank": 2038,
   "rusty-old-helicopter": 2039,
-  "straight-lamp-post": 2040
+  "straight-lamp-post": 2040,
+  "l-shaped-kitchen-counter": 2041
 } as const;
 
 export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
@@ -1970,6 +1971,32 @@ export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
     },
     "tags": [
       "dists"
+    ]
+  },
+  {
+    "id": "camp.l_shaped_kitchen_counter",
+    "numericId": 2041,
+    "name": "l shaped kitchen counter",
+    "category": "block",
+    "model": {
+      "kind": "bbmodel",
+      "path": "materias/l-shaped-kitchen-counter.bbmodel",
+      "unitsPerMeter": 16,
+      "offset": [0, 0, 0]
+    },
+    "colliders": [
+      { "type": "box", "center": [0, 0.47, 0.1875], "halfExtents": [1.0625, 0.47, 0.375] },
+      { "type": "box", "center": [0.6875, 0.47, -0.6875], "halfExtents": [0.375, 0.47, 0.5] }
+    ],
+    "bounds": {
+      "radius": 1.6,
+      "height": 1.4
+    },
+    "render": {
+      "maxDistance": 360
+    },
+    "tags": [
+      "materias"
     ]
   }
 ];

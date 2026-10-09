@@ -339,7 +339,7 @@ export class GameServer {
     if (p.dead) return;
     if (npc.aggro?.fired) return;
     npc.aggro = { target: p, until: now + 15_000 };
-    npc.fireAt = Math.max(npc.fireAt, now + 600);
+    npc.fireAt = Math.max(npc.fireAt, now + 900);
     if (now >= npc.sayAt) {
       npc.sayAt = now + 5000;
       this.broadcastAt(npc.x, npc.z, { t: 'speech', npc: npc.id, text: 'Muốn solo?', duration: 2500, x: npc.x, y: npc.y, z: npc.z });
@@ -363,7 +363,8 @@ export class GameServer {
       if (this.collision.raycast(ox, oy, oz, tx / len, ty / len, tz / len, len, Mask.LineOfSight, this.blastHit)) continue;
       // One warning shot's worth of buckshot, then the shotgun goes away again.
       a.fired = true;
-      a.until = now + 1500;
+      // Keep the shotgun out a moment so everyone sees who fired.
+      a.until = now + 3000;
       const ends: number[] = [];
       let hits = 0;
       for (let i = 0; i < spec.pellets; i++) {
@@ -376,7 +377,11 @@ export class GameServer {
         ends.push(+(ox + dx * end).toFixed(2), +(oy + dy * end).toFixed(2), +(oz + dz * end).toFixed(2));
       }
       this.broadcastAt(ox, oz, { t: 'shot', shooterId: npc.id, w: WeaponId.Shotgun, ox, oy, oz, ends });
-      if (hits) this.damage(npc.id, t, Math.round(hits * spec.damage * 0.4), 'torso', t.state.x, t.state.y + 1, t.state.z, now);
+      // A warning blast: 1–2 damage, but it throws the attacker back.
+      if (hits) {
+        this.damage(npc.id, t, hits > 4 ? 2 : 1, 'torso', t.state.x, t.state.y + 1, t.state.z, now);
+        this.knockback(t, tx, tz, now);
+      }
     }
   }
 
@@ -1225,6 +1230,10 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
+    // Exhausted (under 10% stamina): no sprinting, no rolling.
+    if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    // Staggered by a hit: no steering until it lands.
+    if (now < p.stunUntil) { input = { ...input, mx: 0, mz: 0 }; buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump); }
     if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT)) buttons &= ~Buttons.Sprint;
     if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll)) buttons &= ~Buttons.Roll;
     input = { ...input, b: buttons };
@@ -1346,7 +1355,23 @@ export class GameServer {
   private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number): void {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
-    else this.damage(attacker.id, target as Player, amount, zone, x, y, z, now);
+    else {
+      const t = target as Player;
+      this.damage(attacker.id, t, amount, zone, x, y, z, now);
+      if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now);
+    }
+  }
+
+  /** Shot: thrown off the feet away from the shooter (brief stagger, no steering mid-air). */
+  private knockback(t: Player, dirX: number, dirZ: number, now: number): void {
+    if (t.dead) return;
+    const l = Math.hypot(dirX, dirZ) || 1;
+    t.state.vx = (dirX / l) * 6;
+    t.state.vz = (dirZ / l) * 6;
+    t.state.vy = Math.max(t.state.vy, 3.5);
+    t.state.grounded = false;
+    t.stunUntil = now + 550;
+    t.dirty = true;
   }
 
   private hitZombie(attacker: Player | null, zb: Zombie, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, sourceId = attacker?.id ?? 0): void {

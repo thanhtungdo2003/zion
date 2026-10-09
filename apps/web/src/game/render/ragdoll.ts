@@ -77,6 +77,11 @@ export class Ragdoll {
     return this.age > SETTLE_SEC;
   }
 
+  /** Seconds since the body went limp. */
+  get time(): number {
+    return this.age;
+  }
+
   step(dt: number): void {
     if (this.settled) return;
     this.age += dt;

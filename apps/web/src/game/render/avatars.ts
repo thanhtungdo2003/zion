@@ -241,6 +241,15 @@ export class Avatar {
   private ragdoll: Ragdoll | null = null;
 
   /** Killed: the body goes limp and is thrown back along (kx, kz), parts staying connected. */
+  /** Knocked back by a shot: limp for a moment, then back on the feet (alive). */
+  stagger(kx: number, kz: number, ground: (x: number, z: number) => number): void {
+    if (this.ragdoll) return;
+    this.startRagdoll(kx, kz, 1.6, ground);
+    this.ragdollTemp = !!this.ragdoll;
+  }
+
+  private ragdollTemp = false;
+
   startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): void {
     if (this.ragdoll) return;
     this.model.rotation.set(0, 0, 0);
@@ -250,10 +259,14 @@ export class Avatar {
 
   update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number): void {
     if (this.ragdoll) {
-      if ((flags & EntityFlags.Dead) !== 0) {
+      const dead = (flags & EntityFlags.Dead) !== 0;
+      // A stagger turns into the death ragdoll if the hit was fatal.
+      if (dead) this.ragdollTemp = false;
+      if (dead || (this.ragdollTemp && this.ragdoll.time < 0.85)) {
         this.ragdoll.step(dt);
         return;
       }
+      this.ragdollTemp = false;
       // Respawned: back to the animated skeleton.
       this.ragdoll.release();
       this.ragdoll = null;

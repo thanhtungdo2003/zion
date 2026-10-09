@@ -979,6 +979,8 @@ const P: ReadonlyArray<readonly [number, number, number, number, number, number,
   [2002,8.2,0,56.6,0.3,1,0],
   [2022,7.4,4.35,52.4,0,1,0],
   [2022,10.6,4.35,52.4,0,1,0],
+  [2041,-20,0,32,0,1,0],
+  [2041,-20,0,32,0,1,0],
 ];
 
 export const DEFAULT_CAMP_PARTS: CampPart[] = P.map(([asset, x, y, z, yaw, scale, group]) => (group ? { asset, x, y, z, yaw, scale, group } : { asset, x, y, z, yaw, scale }));

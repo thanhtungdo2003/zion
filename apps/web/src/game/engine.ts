@@ -297,6 +297,13 @@ export class GameEngine {
       take: (w, n) => Math.min(n, this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? '')),
     });
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // GPU reset / driver hiccup: keep the context restorable, and reload if it never comes back.
+    this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.toast({ key: 'raw', vars: { text: 'Mất ngữ cảnh đồ họa, đang khôi phục…' } });
+      this.contextTimer = window.setTimeout(() => window.location.reload(), 4000);
+    });
+    this.renderer.domElement.addEventListener('webglcontextrestored', () => window.clearTimeout(this.contextTimer));
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -831,6 +838,13 @@ export class GameEngine {
       dx /= l;
       dz /= l;
     }
+    // Shot (not bitten) players are thrown back: limp for a moment, like the server's knockback.
+    if (!isZombieId(m.targetId) && !isZombieId(m.attackerId) && m.zone !== 'fire' && m.zone !== 'bite') {
+      const av = m.targetId === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.targetId);
+      const avatar = av && 'avatar' in av ? av.avatar : av;
+      const kind = m.targetId === this.welcome?.playerId ? EntityKind.Player : this.remotes.get(m.targetId)?.entity.kind;
+      if (avatar && kind === EntityKind.Player && !this.local?.dead) avatar.stagger(m.kx ?? dx, m.kz ?? dz, (x, z) => this.groundY(x, z));
+    }
     // Remembered for the ragdoll if this hit turns out to be fatal.
     this.lastHits.set(m.targetId, { kx: m.kx ?? dx, kz: m.kz ?? dz, force: m.force ?? Math.min(6, 1 + m.damage / 12) });
     if (isZombieId(m.targetId)) {
@@ -965,7 +979,11 @@ export class GameEngine {
           av?.startRagdoll(h.kx, h.kz, h.force, (x, z) => this.groundY(x, z));
           this.lastHits.delete(m.playerId);
         }
-        if (m.playerId === this.welcome?.playerId) this.deadSince = performance.now();
+        if (m.playerId === this.welcome?.playerId) {
+          this.deadSince = performance.now();
+          this.inventory.setOpen(false);
+          this.closeDialogue();
+        }
         else if (isZombieId(m.playerId)) {
           // Last hit: blow the body apart.
           const zb = this.zombies.get(m.playerId);
@@ -1072,9 +1090,23 @@ export class GameEngine {
 
   /* ------------------------------------- frame loop -------------------------------------- */
 
+  private frameErrors = 0;
+  private contextTimer = 0;
+
   private frame = (now: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
+    // One bad frame (a stray exception mid-update) must never freeze the view on a white/black
+    // screen: log it, skip to rendering, and keep going.
+    try {
+      this.frameBody(now);
+    } catch (err) {
+      if (this.frameErrors++ < 5) console.error('frame failed', err);
+      try { this.renderer.render(this.scene, this.camera); } catch { /* lost context */ }
+    }
+  };
+
+  private frameBody(now: number): void {
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     this.elapsed += dt;
@@ -1218,7 +1250,7 @@ export class GameEngine {
       this.updateGuides(px, py, pz);
     }
     if (now - this.lastHud > HUD_INTERVAL_MS) this.updateHud(now, px, py, pz, tod, selfFlags);
-  };
+  }
 
   /**
    * Edge-of-screen guides to the camp NPCs: within GUIDE_RANGE but off screen, a small arrow on the
@@ -1329,6 +1361,9 @@ export class GameEngine {
     buttons &= ~Buttons.Attack;
     // No sprinting while reloading.
     if (this.weaponCtl.reloading) buttons &= ~Buttons.Sprint;
+    // Exhausted (under 10% stamina): no sprinting or rolling (the server enforces the same).
+    const life = this.hud.get().life;
+    if (life && life.stamina < life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     let yaw = this.input.yaw;
     let throwDist: number | undefined;
     // Guns can't fire mid-jump (airborne); throwing and melee still can.
@@ -1748,6 +1783,8 @@ export class GameEngine {
 
   /** E: pick up a nearby dropped item, otherwise open the inventory (with the cache if near one). */
   private onInteract(): void {
+    // The dead can't rummage through bags or talk.
+    if (!this.local || this.local.dead) return;
     if (this.hud.get().dialogue) {
       this.closeDialogue();
       return;
@@ -1956,6 +1993,8 @@ export class GameEngine {
   }
 
   private updateCamera(px: number, py: number, pz: number, dt: number): void {
+    // A non-finite position (bad snapshot) would blank the whole view: hold the last camera.
+    if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
     const ty = py + 1.0;
     const f = this.camFocus;

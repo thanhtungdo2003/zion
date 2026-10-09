@@ -83,6 +83,8 @@ export class Player {
   onLeaveSaved: (() => void) | null = null;
   /** Next ammo-cache draw allowed at (ms). */
   cacheReadyAt = 0;
+  /** Knocked back by a shot: movement input ignored until then (ms). */
+  stunUntil = 0;
   /** Base-life config last sent to this client (sent again only when it changes). */
   lifeConfig: object | null = null;
   life!: LifePlayer;
