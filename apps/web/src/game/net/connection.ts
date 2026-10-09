@@ -164,6 +164,19 @@ export class GameConnection {
     this.send(msg);
   }
 
+  /** Downed: call for help / give up. Alive: revive a downed player. */
+  sendDistress(): void {
+    this.send({ t: 'distress' });
+  }
+
+  sendGiveUp(): void {
+    this.send({ t: 'giveup' });
+  }
+
+  sendRevive(id: number): void {
+    this.send({ t: 'revive', id });
+  }
+
   sendReload(): void {
     this.send({ t: 'reload' });
   }

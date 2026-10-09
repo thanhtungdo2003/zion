@@ -249,6 +249,8 @@ export class Avatar {
   }
 
   private ragdollTemp = false;
+  /** Ground height lookup for ragdolls (set by the engine). */
+  ground: ((x: number, z: number) => number) | null = null;
 
   startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): void {
     if (this.ragdoll) return;
@@ -258,8 +260,11 @@ export class Avatar {
   }
 
   update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number): void {
+    // Down (bleeding out) or dead: limp. Starts here too when no hit started it (bites…).
+    const limp = (flags & (EntityFlags.Dead | EntityFlags.Downed)) !== 0;
+    if (limp && !this.ragdoll && this.ground) this.startRagdoll(0, 1, 1, this.ground);
     if (this.ragdoll) {
-      const dead = (flags & EntityFlags.Dead) !== 0;
+      const dead = limp;
       // A stagger turns into the death ragdoll if the hit was fatal.
       if (dead) this.ragdollTemp = false;
       if (dead || (this.ragdollTemp && this.ragdoll.time < 0.85)) {

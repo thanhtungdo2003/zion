@@ -212,7 +212,13 @@ export interface QuestNpcMessage { t: 'questNpcs'; npcs: Array<{ id: number; key
 export interface SpeechMessage { t: 'speech'; npc: number; text: string; duration: number; x: number; y: number; z: number }
 /** Base life state; `config` / world parts are omitted when unchanged (merge into the last one). */
 export interface BaseLifeMessage { t: 'baseLife'; objects?: Array<{ id: string; model: string; x: number; y: number; z: number }>; config?: BaseLifeConfig; plots?: Record<string, { crop: string; stage: number }>; animalLoot?: Array<{ id: string; item: string; quantity: number; x: number; y: number; z: number }>; stamina: number; capacity: number; action: { end: number; kind: string; ms: number } | null }
+/** A downed player called for help (sent to everyone nearby). */
+export interface DistressMessage { t: 'distress'; playerId: number; name: string; x: number; z: number }
+/** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
+export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | DistressMessage
+  | RevivingMessage
   | BaseLifeMessage
   | QuestNpcMessage
   | SpeechMessage
@@ -270,6 +276,8 @@ export const EntityFlags = {
   Flashlight: 1 << 6,
   /** On a ladder. */
   Climbing: 1 << 7,
+  /** Knocked down (health gone): bleeding out until revived or dead; `health` carries the bleed. */
+  Downed: 1 << 8,
 } as const;
 
 export interface SelfState {
@@ -330,7 +338,7 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
   const me = s.self;
   // Self state is sent at full float precision: client-side reconciliation replays inputs from it.
   w.f32(me.x).f32(me.y).f32(me.z).f32(me.vx).f32(me.vy).f32(me.vz);
-  w.u8(me.flags).u8(me.health).u8(Math.min(255, me.stuckTicks));
+  w.u16(me.flags).u8(me.health).u8(Math.min(255, me.stuckTicks));
   w.u8(Math.min(255, me.rollTicks)).u8(Math.min(255, me.rollCooldown)).f32(me.rollYaw);
   const count = Math.min(s.entities.length, MAX_SNAPSHOT_ENTITIES);
   w.u16(count);
@@ -338,7 +346,7 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
     const e = s.entities[i]!;
     w.u32(e.id).u8(e.kind).f32(e.x).f32(e.y).f32(e.z);
     w.i16(quantAngle(e.yaw)).i16(quantAngle(e.pitch));
-    w.u8(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0);
+    w.u16(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0);
   }
   return w.finish();
 }
@@ -357,7 +365,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
     vx: r.f32(),
     vy: r.f32(),
     vz: r.f32(),
-    flags: r.u8(),
+    flags: r.u16(),
     health: r.u8(),
     stuckTicks: r.u8(),
     rollTicks: r.u8(),
@@ -376,7 +384,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
       z: r.f32(),
       yaw: r.i16() / ANGLE_SCALE,
       pitch: r.i16() / ANGLE_SCALE,
-      flags: r.u8(),
+      flags: r.u16(),
       health: r.u8(),
       weapon: r.u8(),
       back: r.u8(),

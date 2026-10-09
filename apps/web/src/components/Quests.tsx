@@ -51,7 +51,8 @@ function Rewards({ q }: { q: Quest }) {
 }
 
 /** Top-left list of accepted quests and their current objective. */
-export function QuestTracker({ quests, position }: { quests: Quest[]; position: [number, number, number] }) {
+export function QuestTracker({ quests, position, onCancel }: { quests: Quest[]; position: [number, number, number]; onCancel: (q: Quest) => void }) {
+  const busy = usePending();
   const open = quests.filter((q) => q.status === 'active' || q.status === 'ready');
   if (!open.length) return null;
   return (
@@ -66,7 +67,12 @@ export function QuestTracker({ quests, position }: { quests: Quest[]; position: 
           <div key={q.id} className={`q-track ${ready ? 'ready' : ''}`}>
             <div className="q-track-title">
               <i className={`q-kind ${q.kind}`} />
-              {q.title}
+              <span>{q.title}</span>
+              {q.allowCancel && (
+                <button className="q-track-cancel" title="Hủy nhiệm vụ" disabled={busy(`quest:${q.id}`)} onClick={() => { if (confirm(`Hủy nhiệm vụ "${q.title}"?`)) onCancel(q); }}>
+                  {busy(`quest:${q.id}`) ? <Spinner /> : '✕'}
+                </button>
+              )}
             </div>
             <div className="q-track-obj">
               {ready ? '✓ Quay lại nhận thưởng' : q.objective}
@@ -241,5 +247,46 @@ export function SideTabs({ active, onQuests, onInventory }: { active: 'quests' |
         <span>Kho đồ</span>
       </button>
     </nav>
+  );
+}
+
+/** Knocked down: the bleed-out bar, a call for help (nearby players get an arrow) and giving up. */
+export function DownedPanel({ bleed, onHelp, onGiveUp }: { bleed: number; onHelp: () => void; onGiveUp: () => void }) {
+  const [calledAt, setCalledAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+  const wait = Math.max(0, Math.ceil((calledAt + 10_000 - now) / 1000));
+  return (
+    <div className="downed-overlay">
+      <div className="downed-card">
+        <h2>Bạn đã gục</h2>
+        <p>Chờ đồng đội tới cấp cứu trước khi mất hết máu.</p>
+        <div className="downed-bar"><div style={{ width: `${Math.max(0, Math.min(100, bleed))}%` }} /></div>
+        <small>Máu cấp cứu {Math.round(bleed)} · còn khoảng {Math.ceil((bleed / 100) * 60)} giây</small>
+        <div className="downed-actions">
+          <button className="btn btn-primary" disabled={wait > 0} onClick={() => { setCalledAt(Date.now()); onHelp(); }}>{wait > 0 ? `Đã gọi (${wait}s)` : 'Gọi cấp cứu'}</button>
+          <button className="btn q-btn-danger" onClick={() => { if (confirm('Tự sát? Mọi nhiệm vụ đang làm sẽ bị hủy và mất vật phẩm nhiệm vụ.')) onGiveUp(); }}>Tự sát</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Reviving a downed player: stay put until the bar fills. */
+export function ReviveBar({ start, end }: { start: number; end: number }) {
+  const [now, setNow] = useState(() => performance.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(performance.now()), 50);
+    return () => clearInterval(t);
+  }, []);
+  const done = Math.max(0, Math.min(1, (now - start) / Math.max(1, end - start)));
+  return (
+    <div className="revive-bar">
+      Đang cấp cứu <small>(đứng yên)</small>
+      <div><i style={{ width: `${done * 100}%` }} /></div>
+    </div>
   );
 }

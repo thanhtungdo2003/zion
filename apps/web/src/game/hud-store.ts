@@ -21,6 +21,10 @@ export interface HudState {
   dialogue: { npc: string; name: string } | null;
   /** Empty garden plot the player stands on (shows the seed panel), or null. */
   plot: string | null;
+  /** Knocked down: bleed-out left (0…100), or null when standing. */
+  downed: number | null;
+  /** Reviving someone: progress window (performance.now ms). */
+  reviving: { start: number; end: number } | null;
   status: 'connecting' | 'loading' | 'playing' | 'dead' | 'disconnected';
   statusDetail: Msg;
   loadProgress: number;
@@ -72,6 +76,8 @@ export function initialHud(): HudState {
     dialogue: null,
     debug: null,
     plot: null,
+    downed: null,
+    reviving: null,
     status: 'connecting',
     statusDetail: { key: 'status.requesting' },
     loadProgress: 0,

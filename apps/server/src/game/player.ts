@@ -85,6 +85,12 @@ export class Player {
   cacheReadyAt = 0;
   /** Knocked back by a shot: movement input ignored until then (ms). */
   stunUntil = 0;
+  /** Knocked down: bleeding out (bleed 100 → 0) until revived or dead. */
+  downed = false;
+  bleed = 0;
+  distressAt = 0;
+  /** Reviving a downed player: done at `until` if both stay put. */
+  reviving: { target: Player; until: number; x: number; z: number } | null = null;
   /** Base-life config last sent to this client (sent again only when it changes). */
   lifeConfig: object | null = null;
   life!: LifePlayer;

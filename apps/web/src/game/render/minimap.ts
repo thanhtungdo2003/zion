@@ -294,7 +294,7 @@ export class Minimap {
 
 /** Map/guide icon for a camp NPC centred on the origin: a white disc with a gun or a red cross. */
 /** Glyphs for the quest NPCs' map/guide icons. */
-export const NPC_GLYPHS: Record<string, string> = { farmer: '🌾', chef: '🍲', colonel: '★', target: '◎', storage: '▦' };
+export const NPC_GLYPHS: Record<string, string> = { farmer: '🌾', chef: '🍲', colonel: '★', target: '◎', storage: '▦', sos: '✚' };
 
 export function drawNpcIcon(ctx: CanvasRenderingContext2D, role: string, r: number, quest = false): void {
   drawNpcDisc(ctx, role, r);
@@ -323,7 +323,7 @@ function drawNpcDisc(ctx: CanvasRenderingContext2D, role: string, r: number): vo
   ctx.fill();
   ctx.stroke();
   if (role !== 'nurse' && role !== 'merchant') {
-    ctx.fillStyle = role === 'colonel' ? '#3a5a2a' : role === 'target' ? '#c07800' : role === 'storage' ? '#6a4a1a' : '#2b2b2b';
+    ctx.fillStyle = role === 'colonel' ? '#3a5a2a' : role === 'target' ? '#c07800' : role === 'storage' ? '#6a4a1a' : role === 'sos' ? '#d4202a' : '#2b2b2b';
     ctx.font = `${Math.round(r * 1.2)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

@@ -60,11 +60,17 @@ export function armorPieces(template: CharacterTemplate, restOf: (bone: string) 
   root.updateMatrixWorld(true);
   const out: Array<{ bone: string; object: Object3D }> = [];
   const wp = new Vector3();
-  const visit = (node: Object3D) => {
+  const visit = (node: Object3D, fallback: string | null = null) => {
     for (const child of [...node.children]) {
+      // A container of left/right pieces (e.g. "leggings" → leg_left / leg_right): split it so
+      // each piece follows its own limb instead of the whole group riding stiffly on the body.
+      if (child.children.some((c) => /right|left/i.test(c.name))) {
+        visit(child, armorBoneFor(child.name) ?? fallback);
+        continue;
+      }
       let bone = armorBoneFor(child.name);
       // Loose geometry under a container group: ride on the head if it sits that high, else the body.
-      if (!bone && (child as { isMesh?: boolean }).isMesh) bone = child.getWorldPosition(wp).y > 1.25 ? 'head' : 'body';
+      if (!bone && (child as { isMesh?: boolean }).isMesh) bone = fallback ?? (child.getWorldPosition(wp).y > 1.25 ? 'head' : 'body');
       const rest = bone ? restOf(bone) : undefined;
       if (bone && rest) {
         child.getWorldPosition(wp);
@@ -77,7 +83,7 @@ export function armorPieces(template: CharacterTemplate, restOf: (bone: string) 
           delete o.userData.restRot;
         });
         out.push({ bone, object: child });
-      } else if (child.children.length) visit(child);
+      } else if (child.children.length) visit(child, fallback);
     }
   };
   visit(root);

@@ -637,6 +637,29 @@ export class GameEngine {
   }
 
   private readonly lastHits = new Map<number, { kx: number; kz: number; force: number }>();
+  /** Help calls from downed players nearby. */
+  private readonly distress = new Map<number, { name: string; x: number; z: number; until: number }>();
+
+  /** A downed player within reviving reach, if any. */
+  private downedNear(): { id: number } | null {
+    const s = this.local?.state;
+    if (!s) return null;
+    for (const [id, r] of this.remotes) {
+      if (r.entity.kind !== EntityKind.Player || !(r.entity.pose.flags & EntityFlags.Downed)) continue;
+      const p = r.avatar.root.position;
+      if (Math.hypot(p.x - s.x, p.z - s.z) <= 2.4) return { id };
+    }
+    return null;
+  }
+
+  callForHelp(): void {
+    this.conn.sendDistress();
+  }
+
+  giveUp(): void {
+    this.conn.sendGiveUp();
+  }
+
   private fireLight: PointLight | null = null;
   private lastDropFix = 0;
 
@@ -720,6 +743,7 @@ export class GameEngine {
     this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel);
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
+    this.localAvatar.ground = (x, z) => this.groundY(x, z);
     this.localAvatar.addTo(this.scene);
     // (Re)send and re-apply the worn armour for this session.
     this.armorKey = '';
@@ -791,6 +815,7 @@ export class GameEngine {
       if (!r) {
         const template = e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Guard ? this.guardTemplate! : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
         r = { entity: new RemoteEntity(e.id, e.kind), avatar: new Avatar(template, false), weapon: 0 };
+        r.avatar.ground = (x, z) => this.groundY(x, z);
         // Four-legged: the whole body faces where it goes (no separate head turn).
         if (e.kind === EntityKind.Animal) r.avatar.rigid = true;
         r.avatar.addTo(this.scene);
@@ -863,7 +888,9 @@ export class GameEngine {
       ParticleFX.blood(this.effects.particles, m.x, m.y, m.z, dx, dz, Math.min(2, 1.1 + m.damage / 30));
       if (m.damage >= 20) this.gore(m.x, m.y, m.z, dx, dz, 0.6);
     } else {
-      ParticleFX.blood(this.effects.particles, m.x, m.y, m.z, dx, dz, 0.8);
+      // Players / NPCs: a clear spray at the wound, bigger for heavy hits (blades, buckshot).
+      ParticleFX.blood(this.effects.particles, m.x, m.y, m.z, dx, dz, Math.min(2, 1.1 + m.damage / 25));
+      if (m.damage >= 25) this.gore(m.x, m.y, m.z, dx, dz, 0.5);
     }
   }
 
@@ -929,6 +956,13 @@ export class GameEngine {
       }
       case 'questNpcs':
         this.questNpcDefinitions = m.npcs;
+        break;
+      case 'distress':
+        this.distress.set(m.playerId, { name: m.name, x: m.x, z: m.z, until: performance.now() + 90_000 });
+        this.toast({ key: 'raw', vars: { text: `${m.name} đang gục và cần cấp cứu!` } });
+        break;
+      case 'reviving':
+        this.hud.set({ reviving: m.target ? { start: performance.now(), end: performance.now() + m.durationMs } : null });
         break;
       case 'speech':
         this.showSpeech(m.npc, m.text, m.duration, m.x, m.y, m.z);
@@ -1262,7 +1296,7 @@ export class GameEngine {
     const h = this.container.clientHeight || window.innerHeight;
     for (const n of this.mapNpcs()) {
       const dist = Math.hypot(n.x - px, n.z - pz);
-      if (dist > GUIDE_RANGE && n.role !== 'target') continue;
+      if (dist > GUIDE_RANGE && n.role !== 'target' && n.role !== 'sos') continue;
       const v = this.guideTmp.set(n.x, py + 1.6, n.z).project(this.camera);
       const behind = v.z > 1;
       if (!behind && Math.abs(v.x) <= 0.92 && Math.abs(v.y) <= 0.9) continue;
@@ -1325,6 +1359,16 @@ export class GameEngine {
         role: n.key, x: n.x, z: n.z,
         quest: quests.some((q) => q.npc === n.key && (q.status === 'ready' || ((q.status === 'available' || q.status === 'cancelled') && !q.locked))),
       })),
+      // Downed players who called for help (until they are up again or gone).
+      ...[...this.distress].filter(([id, d]) => {
+        const r = this.remotes.get(id);
+        const down = r ? (r.entity.pose.flags & EntityFlags.Downed) !== 0 : performance.now() < d.until;
+        if (!down || performance.now() > d.until) this.distress.delete(id);
+        return down;
+      }).map(([id, d]) => {
+        const p = this.remotes.get(id)?.entity.pose;
+        return { role: 'sos', x: p?.x ?? d.x, z: p?.z ?? d.z };
+      }),
       ...(this.storagePos() ? [{ role: 'storage', x: this.storagePos()!.x, z: this.storagePos()!.z }] : []),
       // Where an active quest wants us (private item to pick up, place to reach).
       ...quests.filter((q) => q.status === 'active' && q.target).flatMap((q) => (q.drops?.length ? q.drops : [q.target!]).map((t) => ({ role: 'target', x: t.x, z: t.z }))),
@@ -1356,6 +1400,12 @@ export class GameEngine {
       moveX = 0;
       moveZ = 0;
       buttons &= ~(Buttons.Jump | Buttons.Roll | Buttons.Sprint);
+    }
+    // Down on the ground: no moving, no shooting (the server ignores it too).
+    if (this.hud.get().downed !== null) {
+      moveX = 0;
+      moveZ = 0;
+      buttons = 0;
     }
     const trigger = (buttons & Buttons.Attack) !== 0;
     buttons &= ~Buttons.Attack;
@@ -1734,6 +1784,7 @@ export class GameEngine {
     const lifeHere = this.lifeTarget(px, pz);
     const label: Msg | null = lifeHere ? lifeHere.label : ground
       ? { key: 'interact.pickup', vars: { item: ground.itemId } }
+      : this.downedNear() ? { key: 'interact.revive', vars: { item: this.remoteName(this.downedNear()!.id, EntityKind.Player) } }
       : talk ? { key: 'interact.talk', vars: { item: talk.name } }
       : this.nearStorage && !merchant ? { key: 'interact.storage' }
       : merchant ? { key: 'interact.shop' }
@@ -1784,7 +1835,12 @@ export class GameEngine {
   /** E: pick up a nearby dropped item, otherwise open the inventory (with the cache if near one). */
   private onInteract(): void {
     // The dead can't rummage through bags or talk.
-    if (!this.local || this.local.dead) return;
+    if (!this.local || this.local.dead || this.hud.get().downed !== null) return;
+    const down = this.downedNear();
+    if (down) {
+      this.conn.sendRevive(down.id);
+      return;
+    }
     if (this.hud.get().dialogue) {
       this.closeDialogue();
       return;
@@ -2137,6 +2193,7 @@ export class GameEngine {
       },
       playersNearby: [...this.remotes.values()].filter(r => r.entity.kind === EntityKind.Player).length,
       health: local.health,
+      downed: (flags & EntityFlags.Downed) !== 0 ? local.health : null,
       rollCd: Math.min(1, local.state.rollCooldown / Math.round(DEFAULT_CHARACTER.rollCooldown / TICK_DT)),
       swimming: (flags & EntityFlags.Swimming) !== 0,
       respawnIn: dead ? Math.max(0, Math.ceil((RESPAWN_DELAY_MS - (now - this.deadSince)) / 1000)) : 0,

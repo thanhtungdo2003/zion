@@ -269,7 +269,8 @@ export class GameServer {
     const camp = this.deps.world.generator.camp;
     if (!def || !npc || !camp) return;
     const entity = this.questNpcs.get(npc.id);
-    if (msg.op !== 'retrieve' && (!entity?.inReach(p, npc.interactRange) || Math.abs(p.state.y - entity.y) > 4)) return;
+    // Cancelling works from anywhere (quest tracker); accepting / handing in needs the NPC.
+    if (msg.op !== 'retrieve' && msg.op !== 'cancel' && (!entity?.inReach(p, npc.interactRange) || Math.abs(p.state.y - entity.y) > 4)) return;
     if (msg.op === 'retrieve' && Math.abs(p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)) > 3) return;
     const copy = { journal: structuredClone(p.journal), coins: p.coins, inv: new InventoryModel(p.inv.toJSON()) };
     const now = Date.now();
@@ -878,6 +879,26 @@ export class GameServer {
       case 'reload':
         this.onReload(p);
         return;
+      case 'distress': {
+        // Call for help: everyone within 300 m sees where the downed player lies.
+        const now = Date.now();
+        if (!p.downed || now - p.distressAt < 10_000) return;
+        p.distressAt = now;
+        const text = JSON.stringify({ t: 'distress', playerId: p.id, name: p.username, x: p.state.x, z: p.state.z });
+        for (const o of this.players.values()) if (o !== p && Math.hypot(o.state.x - p.state.x, o.state.z - p.state.z) < 300) o.session.sendText(text);
+        this.reply(p, 'Đã gửi tín hiệu cấp cứu tới người chơi gần đây.');
+        return;
+      }
+      case 'giveup':
+        if (p.downed) this.killPlayer(p, null, this.serverTime);
+        return;
+      case 'revive': {
+        const t = this.players.get(msg.id);
+        if (!t || t === p || !t.downed || p.dead || p.downed || Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) > 2.6) return;
+        p.reviving = { target: t, until: this.serverTime + 4000, x: p.state.x, z: p.state.z };
+        p.session.sendJson({ t: 'reviving', target: t.id, durationMs: 4000 });
+        return;
+      }
       case 'devcoins':
         // Testing aid (like 'settime'): free ZCoin. Never in production.
         if (!this.devTools) { this.flag(p, 'invalid_message', { reason: 'devcoins' }); return; }
@@ -965,7 +986,7 @@ export class GameServer {
         return;
       case 'kill':
         // Respawn command (stuck somewhere): dies on the spot.
-        if (!p.dead) this.damage(null, p, 10_000, 'blast', p.state.x, p.state.y + 1, p.state.z, Date.now());
+        if (!p.dead) this.damage(null, p, 10_000, 'suicide', p.state.x, p.state.y + 1, p.state.z, this.serverTime);
         return;
       case 'npc': {
         if (!this.devTools) { this.reply(p, 'Unknown command /npc. Type /help'); return; }
@@ -1193,6 +1214,7 @@ export class GameServer {
     if (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT)) this.broadcast(this.npcList());
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
+    this.stepDowned(now);
     this.stepRounds(now);
     this.stepStrikes(now);
     this.stepReloads(now);
@@ -1230,6 +1252,8 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
+    // Downed: can't do anything but lie there (and call for help).
+    if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Staggered by a hit: no steering until it lands.
@@ -1409,6 +1433,13 @@ export class GameServer {
   private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void {
     if (t.dead || amount <= 0) return;
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now)); return; }
+    if (t.downed) {
+      // Hitting someone who is down drains what is left of their bleed-out.
+      t.bleed -= amount;
+      this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z });
+      if (t.bleed <= 0 || zone === 'suicide') this.killPlayer(t, attackerId, now);
+      return;
+    }
     // Safe zone: no player-caused damage (guns, melee, grenades) to players inside the camp.
     // (Camp NPCs firing back at whoever shot them are the exception.)
     if (attackerId !== null && !isZombieId(attackerId) && attackerId < NPC_ID_BASE && this.spawns.inSafeZone(t.state.x, t.state.z)) return;
@@ -1427,14 +1458,83 @@ export class GameServer {
     t.dirty = true;
     this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z });
     if (t.health <= 0) {
-      t.dead = true;
-      this.cancelLifeAction(t);
-      t.deadAt = now;
-      t.killerId = attackerId;
-      t.inputs.length = 0;
-      t.state.vx = 0;
-      t.state.vz = 0;
-      this.broadcastNear(t, { t: 'death', playerId: t.id, killerId: attackerId });
+      if (zone === 'suicide') this.killPlayer(t, attackerId, now);
+      else this.knockDown(t, now);
+    }
+  }
+
+  /** Out of health: down on the ground, bleeding out (100 over 60 s) until revived or dead. */
+  private knockDown(t: Player, now: number): void {
+    t.downed = true;
+    t.bleed = 100;
+    t.distressAt = 0;
+    t.reviving = null;
+    this.cancelLifeAction(t);
+    t.state.vx = 0;
+    t.state.vz = 0;
+    t.dirty = true;
+    void now;
+  }
+
+  /** Final death. Active quests are lost, and so are the quest items being carried. */
+  private killPlayer(t: Player, attackerId: number | null, now: number): void {
+    t.downed = false;
+    t.bleed = 0;
+    t.reviving = null;
+    t.health = 0;
+    t.dead = true;
+    this.cancelLifeAction(t);
+    t.deadAt = now;
+    t.killerId = attackerId;
+    t.inputs.length = 0;
+    t.state.vx = 0;
+    t.state.vz = 0;
+    let lost = false;
+    for (const run of Object.values(t.journal)) {
+      if (run.status !== 'active' && run.status !== 'ready') continue;
+      run.status = 'cancelled';
+      run.cargo = {};
+      delete run.location;
+      delete run.drops;
+      lost = true;
+    }
+    for (const it of t.inv.items.filter((i) => i.quest)) { t.inv.remove(it.uid); lost = true; }
+    if (lost) {
+      this.syncLoadout(t);
+      this.sendInv(t);
+      this.sendQuests(t);
+    }
+    t.dirty = true;
+    for (const p of this.players.values()) if (p.reviving?.target === t) { p.reviving = null; p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 }); }
+    this.broadcastNear(t, { t: 'death', playerId: t.id, killerId: attackerId });
+  }
+
+  /** Bleeding out, and revives in progress. */
+  private stepDowned(now: number): void {
+    for (const p of this.players.values()) {
+      if (p.downed) {
+        p.bleed -= (100 / 60) * TICK_DT;
+        if (p.bleed <= 0) this.killPlayer(p, null, now);
+      }
+      const r = p.reviving;
+      if (!r) continue;
+      const t = r.target;
+      const ok = !p.dead && !p.downed && t.downed && this.players.get(t.id) === t
+        && Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) <= 2.6
+        && Math.hypot(p.state.x - r.x, p.state.z - r.z) <= 0.4;
+      if (!ok) {
+        p.reviving = null;
+        p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 });
+        continue;
+      }
+      if (now < r.until) continue;
+      p.reviving = null;
+      p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 });
+      t.downed = false;
+      t.bleed = 0;
+      t.health = 30;
+      t.dirty = true;
+      this.reply(t, `${p.username} đã cứu bạn dậy!`);
     }
   }
 
@@ -1886,7 +1986,7 @@ export class GameServer {
   private onHeal(p: Player, uid: number): void {
     const now = this.serverTime;
     const kit = p.inv.carriedItem(uid);
-    if (p.dead || now < p.healReadyAt || kit?.itemId !== 'medkit' || p.health >= PLAYER_MAX_HEALTH) return;
+    if (p.dead || p.downed || now < p.healReadyAt || kit?.itemId !== 'medkit' || p.health >= PLAYER_MAX_HEALTH) return;
     p.inv.useCharge(uid);
     p.healReadyAt = now + MEDKIT_USE_MS - 300;
     p.health = PLAYER_MAX_HEALTH;
@@ -2005,7 +2105,7 @@ export class GameServer {
           yaw: o.yaw,
           pitch: o.pitch,
           flags: this.flagsOf(o, now),
-          health: o.health,
+          health: o.downed ? Math.ceil(o.bleed) : o.health,
           weapon: o.weapon,
           back: o.backWeapon,
           armor: packArmor(o.armor),
@@ -2027,7 +2127,7 @@ export class GameServer {
         serverTime: now,
         timeOfDay: tod,
         ackSeq: p.lastProcessedSeq,
-        self: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, flags: this.flagsOf(p, now), health: p.health, stuckTicks: s.stuckTicks, rollTicks: s.rollTicks, rollCooldown: s.rollCooldown, rollYaw: s.rollYaw },
+        self: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, flags: this.flagsOf(p, now), health: p.downed ? Math.max(1, Math.ceil(p.bleed)) : p.health, stuckTicks: s.stuckTicks, rollTicks: s.rollTicks, rollCooldown: s.rollCooldown, rollYaw: s.rollYaw },
         entities,
       });
       p.session.sendBinary(frame, true);
@@ -2044,6 +2144,7 @@ export class GameServer {
     if (p.state.rollTicks > 0) f |= EntityFlags.Rolling;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
+    if (p.downed) f |= EntityFlags.Downed;
     return f;
   }
 

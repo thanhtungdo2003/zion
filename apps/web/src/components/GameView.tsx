@@ -6,7 +6,7 @@ import { GameEngine } from '@/game/engine';
 import { HudStore } from '@/game/hud-store';
 import { InventoryStore } from '@/game/inventory/inventory';
 import { Hud } from './Hud';
-import { NpcDialogue, PlantPanel, QuestTracker, SideTabs, StaminaBar } from './Quests';
+import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs, StaminaBar } from './Quests';
 import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
 
 export default function GameView() {
@@ -81,9 +81,11 @@ export default function GameView() {
         inventoryOpen={inv.open || !!hud.dialogue}
         onSetTime={(tod) => engineRef.current?.setTimeOfDay(tod)}
       />
-      {inWorld && <QuestTracker quests={hud.quests} position={hud.position} />}
+      {inWorld && <QuestTracker quests={hud.quests} position={hud.position} onCancel={(q) => engineRef.current?.quest('cancel', q.npc, q.id)} />}
       {inWorld && hud.dialogue && !inv.open && <NpcDialogue side={rail('quests')} npc={hud.dialogue.npc} name={hud.dialogue.name} quests={hud.quests} onOp={(op, q) => engineRef.current?.quest(op, hud.dialogue!.npc, q)} trades={hud.life?.config.trades.filter((t) => t.npc === hud.dialogue!.npc) ?? []} owned={(item) => inv.items.filter((i) => i.itemId === item).reduce((n, i) => n + (i.count ?? 1), 0)} coins={hud.coins} onTrade={(side, id) => engineRef.current?.lifeAction(side, id)} onClose={() => engineRef.current?.closeDialogue()} />}
       {inWorld && hud.life && <StaminaBar life={hud.life} />}
+      {inWorld && hud.downed !== null && <DownedPanel bleed={hud.downed} onHelp={() => engineRef.current?.callForHelp()} onGiveUp={() => engineRef.current?.giveUp()} />}
+      {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} />}
       {inWorld && <ArmorHud state={inv} />}

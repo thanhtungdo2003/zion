@@ -79,6 +79,11 @@ export const sellMessageSchema = z.object({ t: z.literal('sell'), req: u32, uid:
 /** Pick up a dropped ZCoin (the server checks reach). */
 export const pickupCoinMessageSchema = z.object({ t: z.literal('pickcoin'), id: u32 }).strict();
 
+/** Downed: call for help / give up (die now). Alive: start reviving a downed player nearby. */
+export const distressMessageSchema = z.object({ t: z.literal('distress') }).strict();
+export const giveUpMessageSchema = z.object({ t: z.literal('giveup') }).strict();
+export const reviveMessageSchema = z.object({ t: z.literal('revive'), id: u32 }).strict();
+
 /** Testing aid: add 1000 ZCoin to the wallet. */
 export const devCoinsMessageSchema = z.object({ t: z.literal('devcoins') }).strict();
 
@@ -112,6 +117,9 @@ export const lifeMessageSchema = z.object({ t: z.literal('life'), op: z.enum(['p
 export const questMessageSchema = z.object({ t: z.literal('quest'), op: z.enum(['list', 'accept', 'cancel', 'turnin', 'retrieve']), npc: itemId, quest: itemId.optional(), /** retrieve: which placed item. */ index: z.number().int().min(0).max(63).optional() }).strict();
 
 const plainClientMessageSchema = z.discriminatedUnion('t', [
+  distressMessageSchema,
+  giveUpMessageSchema,
+  reviveMessageSchema,
   lifeMessageSchema,
   questMessageSchema,
   reloadMessageSchema,
