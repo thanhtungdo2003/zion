@@ -895,8 +895,8 @@ export class GameServer {
       case 'revive': {
         const t = this.players.get(msg.id);
         if (!t || t === p || !t.downed || p.dead || p.downed || Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) > 2.6) return;
-        p.reviving = { target: t, until: this.serverTime + 4000, x: p.state.x, z: p.state.z };
-        p.session.sendJson({ t: 'reviving', target: t.id, durationMs: 4000 });
+        p.reviving = { target: t, until: this.serverTime + 5000, x: p.state.x, z: p.state.z };
+        p.session.sendJson({ t: 'reviving', target: t.id, durationMs: 5000 });
         return;
       }
       case 'devcoins':
@@ -983,6 +983,11 @@ export class GameServer {
       case 'tp':
         if (!this.devTools) { this.reply(p, `Unknown command /${cmd}. Type /help`); return; }
         this.cmdLocate(p, args[0]);
+        return;
+      case 'down':
+        // Test aid: drop to the ground (knocked down) right away.
+        if (!this.devTools) { this.reply(p, 'Unknown command /down. Type /help'); return; }
+        if (!p.dead && !p.downed) { p.health = 0; this.knockDown(p, this.serverTime); }
         return;
       case 'kill':
         // Respawn command (stuck somewhere): dies on the spot.

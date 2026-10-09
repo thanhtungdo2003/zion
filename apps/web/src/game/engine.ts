@@ -1782,7 +1782,7 @@ export class GameEngine {
     if (open && open.npc !== talk?.npc) this.hud.set({ dialogue: null });
     const ground = this.groundItems?.nearest(px, pz);
     const lifeHere = this.lifeTarget(px, pz);
-    const label: Msg | null = lifeHere ? lifeHere.label : ground
+    const label: Msg | null = this.hud.get().downed !== null ? null : lifeHere ? lifeHere.label : ground
       ? { key: 'interact.pickup', vars: { item: ground.itemId } }
       : this.downedNear() ? { key: 'interact.revive', vars: { item: this.remoteName(this.downedNear()!.id, EntityKind.Player) } }
       : talk ? { key: 'interact.talk', vars: { item: talk.name } }

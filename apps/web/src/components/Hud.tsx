@@ -118,15 +118,15 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
               ))}
             </div>}
           </div>
-          <div className={`hud-health ${state.health <= 30 ? 'low' : ''}`}>
+          <div className={`hud-health ${state.downed !== null ? 'dying' : state.health <= 30 ? 'low' : ''}`}>
             <div className="hud-health-head">
               <span className="hud-health-name">{state.username}</span>
               {state.swimming && <span className="hud-health-tag">{t('hud.swimming')}</span>}
             </div>
             <div className="hud-health-row">
-              <span className="hud-health-num">{state.health}</span>
+              <span className="hud-health-num">{state.downed !== null ? Math.ceil(state.downed) : state.health}</span>
               <div className="health-bar">
-                <div style={{ width: `${state.health}%` }} />
+                <div style={{ width: `${state.downed !== null ? state.downed : state.health}%` }} />
               </div>
             </div>
             {state.life && (

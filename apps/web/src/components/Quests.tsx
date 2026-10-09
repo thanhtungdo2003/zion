@@ -262,7 +262,7 @@ export function DownedPanel({ bleed, onHelp, onGiveUp }: { bleed: number; onHelp
   return (
     <div className="downed-overlay">
       <div className="downed-card">
-        <h2>Bạn đã gục</h2>
+        <h2>Đang hấp hối</h2>
         <p>Chờ đồng đội tới cấp cứu trước khi mất hết máu.</p>
         <div className="downed-bar"><div style={{ width: `${Math.max(0, Math.min(100, bleed))}%` }} /></div>
         <small>Máu cấp cứu {Math.round(bleed)} · còn khoảng {Math.ceil((bleed / 100) * 60)} giây</small>

@@ -1623,7 +1623,7 @@ kbd {
 .hud-guide-icon.sos { color: #fff; background: #d4202a; border-color: #fff; animation: alertPulse 1s ease-in-out infinite; }
 
 /* Knocked down: bleed-out bar and the two choices. */
-.downed-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(80, 0, 0, 0.15), rgba(40, 0, 0, 0.6)); pointer-events: none; z-index: 8; }
+.downed-overlay { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 0 16px 120px; background: radial-gradient(ellipse at center, rgba(80, 0, 0, 0.15), rgba(40, 0, 0, 0.6)); pointer-events: none; z-index: 8; }
 .downed-card { pointer-events: auto; width: min(380px, calc(100vw - 32px)); padding: 18px 20px; background: var(--panel-solid); border: 1px solid var(--line); border-top: 2px solid var(--danger); text-align: center; font-family: var(--sans); }
 .downed-card h2 { margin: 0 0 4px; font: 800 28px/1 var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: var(--danger); }
 .downed-card p { margin: 0 0 12px; color: #c9c9c4; font-size: 13px; }
@@ -1641,3 +1641,8 @@ kbd {
 .q-track-cancel { flex: none; width: 18px; height: 18px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1; cursor: pointer; }
 .q-track-cancel:hover { color: var(--danger); border-color: var(--danger); }
 .q-track-cancel .spinner { width: 10px; height: 10px; }
+
+/* Dying (knocked down): the health bar turns into a red bleed-out bar. */
+.hud-health.dying { border-left-color: var(--danger); animation: alertPulse 1s ease-in-out infinite; }
+.hud-health.dying .hud-health-num { color: var(--danger); }
+.hud-health.dying .health-bar > div { background: var(--danger); transition: width 0.5s linear; }
