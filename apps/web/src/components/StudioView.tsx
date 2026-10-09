@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ContentEditor } from './ContentEditor';
+import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAMP_ASSETS } from '@zion/assets';
 import { ApiError, hasStudioSession, studioContent, studioLoad, studioLogin, studioLogout, studioReset, studioSave, studioSaveContent, studioTerrain, type StudioLayout, type StudioNpcs, type StudioPart } from '@/lib/api';
@@ -465,7 +466,7 @@ export default function StudioView() {
               <input type="password" autoFocus placeholder="Studio password" value={password} onChange={(e) => setPassword(e.target.value)} />
               {error && <p className="error">{error}</p>}
               <button className="btn btn-primary" type="submit" disabled={!password || unlocking}>
-                {unlocking ? 'Checking…' : 'Enter studio'}
+                {unlocking ? <Spinner /> : 'Enter studio'}
               </button>
             </form>
           )}
@@ -671,7 +672,7 @@ export default function StudioView() {
                 </p>
                 <div className="overlay-row">
                   <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-primary" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : 'Publish'}</button>
+                  <button className="btn btn-primary" onClick={() => void publish()} disabled={busy}>{busy ? <Spinner /> : 'Publish'}</button>
                 </div>
               </>
             )}
@@ -681,7 +682,7 @@ export default function StudioView() {
                 <p>Removes every studio edit on the server (parts and NPC spots) and restores the original camp for all players. This cannot be undone.</p>
                 <div className="overlay-row">
                   <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-danger" onClick={() => void resetDefault()} disabled={busy}>Reset</button>
+                  <button className="btn btn-danger" onClick={() => void resetDefault()} disabled={busy}>{busy ? <Spinner /> : 'Reset'}</button>
                 </div>
               </>
             )}
@@ -691,7 +692,7 @@ export default function StudioView() {
                 <p>Reloads the layout currently live on the server.</p>
                 <div className="overlay-row">
                   <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-danger" onClick={() => void discard()} disabled={busy}>Discard</button>
+                  <button className="btn btn-danger" onClick={() => void discard()} disabled={busy}>{busy ? <Spinner /> : 'Discard'}</button>
                 </div>
               </>
             )}

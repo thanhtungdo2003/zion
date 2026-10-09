@@ -1,4 +1,5 @@
 export * from './camp';
+export * from './camp-default';
 export * from './config';
 export * from './noise';
 export * from './fields';

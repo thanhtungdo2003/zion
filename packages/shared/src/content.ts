@@ -221,7 +221,7 @@ export const DEFAULT_CONTENT: GameContent = {
       ambientPublic: false, cooldownMs: 25_000, bubbleMs: 5000,
     },
     {
-      id: 'colonel', name: 'Đại tá Lâm', model: '/models/npcs/special-forces-soldier.bbmodel', weapon: 13, patrolRadius: 4, x: 7, z: 41, combat: { enabled: true, range: 40, fireIntervalMs: 4000 },
+      id: 'colonel', name: 'Đại tá Lâm', model: '/models/npcs/special-forces-soldier.bbmodel', weapon: 13, patrolRadius: 4, x: 0, z: 44.5, combat: { enabled: true, range: 40, fireIntervalMs: 4000 },
       interactRange: 4, greetRange: 10,
       greetings: ['Đứng nghiêm! … Đùa thôi. Có nhiệm vụ đây.', 'Cổng trại do tôi giữ. Cậu đi đâu?', 'Người sống sót à? Tốt, ta cần người.'],
       ambient: ['Giữ vững vị trí!', 'Bên ngoài hàng rào là địa ngục.', 'Ai có tin từ nhà máy điện không?'],

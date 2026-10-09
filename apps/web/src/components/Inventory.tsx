@@ -12,6 +12,8 @@ import {
   type PlacedItem,
 } from '@/game/inventory/inventory';
 import { itemIcons } from '@/game/inventory/icons';
+import { usePending } from '@/game/pending';
+import { Spinner } from './Spinner';
 import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { isTKey } from '@/lib/i18n';
@@ -345,6 +347,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
 export function InventoryPanel({ state, store, coins, side }: { state: InventoryState; store: InventoryStore; coins: number; side?: React.ReactNode }) {
+  const busy = usePending();
   const { t, item } = useSettings();
   const [mouse, setMouse] = useState({ x: -999, y: -999 });
   const [hover, setHover] = useState<{ container: ContainerId; x: number; y: number } | null>(null);
@@ -445,8 +448,10 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
                       onMouseEnter={() => setTip({ def })}
                       onMouseLeave={() => setTip(null)}
                       onMouseDown={(e) => e.stopPropagation()}
+                      disabled={busy(`cache:${id}`)}
                       onClick={() => setFull(store.takeFromCache(id) ? null : id)}
                     >
+                      {busy(`cache:${id}`) && <span className="inv-cache-busy"><Spinner /></span>}
                       <span className="inv-cache-art">
                         <ItemArt def={def} />
                       </span>
@@ -552,6 +557,7 @@ function StashPanel({ grid, items }: { grid: (id: ContainerId) => React.ReactNod
 
 /** Field medic: a paid full heal, and first aid kits for the road. */
 function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: number; onTip: (t: Tip | null) => void }) {
+  const busy = usePending();
   const { t, item } = useSettings();
   const kits = SHOP_STOCK.filter((e) => e.vendor === 'medic');
   return (
@@ -568,8 +574,8 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
             <small>{t('nurse.heal_sub')}</small>
           </span>
           <Coins n={NURSE_HEAL_PRICE} className={coins >= NURSE_HEAL_PRICE ? '' : 'short'} />
-          <button data-nosound className="btn shop-btn" disabled={coins < NURSE_HEAL_PRICE} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onNurseHeal?.()}>
-            {t('nurse.heal_btn')}
+          <button data-nosound className="btn shop-btn" disabled={coins < NURSE_HEAL_PRICE || busy('nurseheal')} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onNurseHeal?.()}>
+            {busy('nurseheal') ? <Spinner /> : t('nurse.heal_btn')}
           </button>
         </div>
         {kits.map((e) => {
@@ -585,8 +591,8 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
                 <small>{`${def.w}×${def.h}`}</small>
               </span>
               <Coins n={e.price} className={coins >= e.price ? '' : 'short'} />
-              <button data-nosound className="btn shop-btn" disabled={coins < e.price} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onBuy?.(e.item)}>
-                {t('shop.buy')}
+              <button data-nosound className="btn shop-btn" disabled={coins < e.price || busy(`buy:${e.item}`)} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onBuy?.(e.item)}>
+                {busy(`buy:${e.item}`) ? <Spinner /> : t('shop.buy')}
               </button>
             </div>
           );
@@ -598,6 +604,7 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
 
 /** Weapon merchant: buy from his stock or sell what you carry, paid in ZCoin (server wallet). */
 function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; store: InventoryStore; coins: number; onTip: (t: Tip | null) => void }) {
+  const busy = usePending();
   const { t, item } = useSettings();
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [tab, setTab] = useState<ShopCategory>('guns');
@@ -633,8 +640,8 @@ function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; stor
                     <small>{def.ammo ? t('inv.rds', { n: def.ammo.capacity }) : `${def.w}×${def.h}`}</small>
                   </span>
                   <Coins n={e.price} className={afford ? '' : 'short'} />
-                  <button data-nosound className="btn shop-btn" disabled={!afford} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onBuy?.(e.item)}>
-                    {t('shop.buy')}
+                  <button data-nosound className="btn shop-btn" disabled={!afford || busy(`buy:${e.item}`)} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onBuy?.(e.item)}>
+                    {busy(`buy:${e.item}`) ? <Spinner /> : t('shop.buy')}
                   </button>
                 </div>
               );
@@ -660,8 +667,8 @@ function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; stor
                   <small>{i.issued ? t('tip.issued') : max ? `${i.count ?? max}/${max}` : t(`cat.${def.category}`)}</small>
                 </span>
                 <Coins n={price} />
-                <button data-nosound className="btn shop-btn" disabled={price <= 0} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onSell?.(i.uid)}>
-                  {t('shop.sell')}
+                <button data-nosound className="btn shop-btn" disabled={price <= 0 || busy(`sell:${i.uid}`)} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onSell?.(i.uid)}>
+                  {busy(`sell:${i.uid}`) ? <Spinner /> : t('shop.sell')}
                 </button>
               </div>
             );

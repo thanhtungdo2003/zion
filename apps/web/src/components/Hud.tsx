@@ -56,6 +56,17 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
 
   // Latest values for the key handler, which is registered once: re-registering on every render
   // would drop it mid-dispatch (the game's own Enter handler re-renders the HUD synchronously).
+  // F3: performance / debug overlay.
+  const [debugOpen, setDebugOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.code !== 'F3') return;
+      e.preventDefault();
+      setDebugOpen((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const keyState = useRef({ chatOpen, inventoryOpen, settingsOpen, status: state.status, onChatOpen });
   keyState.current = { chatOpen, inventoryOpen, settingsOpen, status: state.status, onChatOpen };
   useEffect(() => {
@@ -163,6 +174,25 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
             </div>
           )}
           {state.scoped && <div className="hud-scope" />}
+          {debugOpen && (
+            <div className="hud-debug">
+              <b>F3 · Debug</b>
+              <span>FPS</span><em className={state.fps < 30 ? 'bad' : ''}>{state.fps}</em>
+              <span>Ping</span><em className={state.pingMs > 150 ? 'bad' : ''}>{state.pingMs} ms</em>
+              <span>TPS</span><em className={(state.debug?.tps ?? 30) < 25 ? 'bad' : ''}>{state.debug?.tps ?? '—'}</em>
+              <span>Players</span><em>{state.playersNearby} near · {state.playersOnline} online</em>
+              <span>Entities</span><em>{state.debug?.entities ?? 0} ({state.debug?.zombies ?? 0} zombies)</em>
+              <span>Draw calls</span><em>{state.debug?.drawCalls ?? 0}</em>
+              <span>Triangles</span><em>{state.trianglesK}k</em>
+              <span>GPU mem</span><em>{state.debug?.geometries ?? 0} geo · {state.debug?.textures ?? 0} tex</em>
+              {state.debug?.heapMB != null && <><span>JS heap</span><em>{state.debug.heapMB} MB</em></>}
+              <span>Net in</span><em>{state.debug?.snapshotKB ?? 0} KB</em>
+              <span>Chunks</span><em>{state.chunksLoaded}</em>
+              <span>Position</span><em>{state.position.map((v) => v.toFixed(1)).join(', ')}</em>
+              <span>Chunk</span><em>{state.chunk.join(', ')}</em>
+              <span>Biome</span><em>{state.biome} · {state.surface}</em>
+            </div>
+          )}
           <Coins n={state.coins} className="hud-coins" />
           {state.guides.map((g, i) => (
             <div key={`${g.role}${i}`} className="hud-guide" style={{ left: g.x, top: g.y }}>

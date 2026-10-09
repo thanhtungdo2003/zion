@@ -1,3 +1,4 @@
+import { markPending } from '../pending';
 import {
   ARMOR_CONTAINERS,
   ARMOR_SLOTS,
@@ -139,6 +140,7 @@ export class InventoryStore {
   /** Takes one item from the ammo cache the panel was opened at (server checks reach & stock). */
   takeFromCache(itemId: string): boolean {
     if (!this.hasRoomFor(itemId)) return false;
+    markPending(`cache:${itemId}`);
     this.send?.({ t: 'inv', op: 'cache', item: itemId });
     return true;
   }

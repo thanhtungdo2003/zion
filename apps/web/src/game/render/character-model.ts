@@ -11,6 +11,7 @@ import {
   type Object3D,
 } from 'three';
 import { FACES, type FaceName } from './bbmodel-loader';
+import { cachedFetch } from '@/lib/preload';
 
 /** Served from apps/web/public/models (copy of /models/characters/teen-wasteland-survivor.bbmodel). */
 export const CHARACTER_MODEL_URL = '/models/characters/teen-wasteland-survivor.bbmodel';
@@ -170,7 +171,7 @@ function parseClips(model: RawModel): Map<string, CharacterClip> {
 }
 
 export async function fetchWithProgress(url: string, onProgress?: (p: number) => void): Promise<string> {
-  const res = await fetch(url);
+  const res = await cachedFetch(url);
   if (!res.ok || !res.body) throw new Error(`character model unavailable (${res.status})`);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();

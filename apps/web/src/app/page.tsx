@@ -1,8 +1,11 @@
 'use client';
 
+import { Spinner } from '@/components/Spinner';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { LoadingScreen } from '@/components/LoadingScreen';
+import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
 import Link from 'next/link';
 import { ApiError, login, playAsGuest, refreshSession, register } from '@/lib/api';
@@ -20,6 +23,9 @@ export default function MainMenu() {
   const { t } = useSettings();
   const [session, setSession] = useState(false);
   const [busy, setBusy] = useState(false);
+  // First visit: download every model and sound behind a loading screen (once per page load).
+  const [loading, setLoading] = useState(() => { const st = preloadState(); return st.total === 0 || st.done < st.total; });
+  const doneLoading = useCallback(() => setLoading(false), []);
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
   const [gameMode, setGameMode] = useState<(typeof GAME_MODES)[number]['id']>('survival');
@@ -110,7 +116,7 @@ export default function MainMenu() {
             />
           </label>
           <button className="btn" type="submit" disabled={busy}>
-            {authMode === 'login' ? t('menu.signin_play') : t('menu.create_play')}
+            {busy ? <Spinner /> : authMode === 'login' ? t('menu.signin_play') : t('menu.create_play')}
           </button>
         </form>
       )}
@@ -141,7 +147,7 @@ export default function MainMenu() {
           <span className="menu-mode-caret">{modeOpen ? '▾' : '▴'}</span>
         </button>
         <button className="menu-play" disabled={busy} onClick={play}>
-          {busy ? t('menu.deploying') : t('menu.play')}
+          {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}
         </button>
         {error && <p className="error">{error}</p>}
         <Link className="menu-studio" href="/studio">
@@ -150,6 +156,7 @@ export default function MainMenu() {
       </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {loading && <LoadingScreen onDone={doneLoading} />}
     </main>
   );
 }

@@ -6,14 +6,14 @@ import {
   CharacterController, HUMANOID_RIG, Mask, ZONE_DAMAGE_MULTIPLIER, createCharacterState, makeRayHit,
   type CharacterState, type CollisionWorld,
 } from '@zion/physics';
-import type { CampSite } from '@zion/worldgen';
+import { DEFAULT_CAMP_NPCS, type CampSite } from '@zion/worldgen';
 import { castCombatRay, spreadDirection, type Combatant } from './combat';
 import { PoseHistory, type Player } from './player';
 import { MobBrain } from './mob-ai';
 import { Zombie } from './zombies';
 
 /** Flank the southern vehicle entrance, leaving its centre open. */
-export const GUARD_POSTS = [{ x: -3, z: 47 }, { x: 3, z: 47 }, { x: -3, z: 43 }] as const;
+export const GUARD_POSTS = DEFAULT_CAMP_NPCS.guards;
 const WATCH_RANGE = 32;
 /** Guards stroll around the gate within this radius of their post. */
 const PATROL_RADIUS = 4.5;

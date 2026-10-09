@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ITEMS, NPC_MODELS, STRUCTURE_KIND_IDS, objectiveText, validateContent, type GameContent, type NpcDef, type QuestDef, type QuestObjective } from '@zion/shared';
 import { studioContent, studioSaveContent } from '@/lib/api';
+import { Spinner } from './Spinner';
 
 type Tab = 'quests' | 'npcs' | 'life';
 
@@ -229,7 +230,7 @@ export function ContentEditor() {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <h2 style={{ margin: 0, flex: 1, whiteSpace: 'nowrap', fontSize: 20 }}>Quests & NPCs {dirty && <small style={{ color: '#e0b050' }}>· unsaved</small>}</h2>
         {(['quests', 'npcs', 'life'] as const).map((t) => <button key={t} className="btn" style={{ opacity: tab === t ? 1 : 0.55 }} onClick={() => { setTab(t); setSel(0); }}>{t === 'quests' ? `Quests (${content?.quests.length ?? 0})` : t === 'npcs' ? `NPCs (${content?.npcs.length ?? 0})` : 'Base life'}</button>)}
-        <button className="btn" disabled={busy || !content} onClick={() => void publish()}>Validate & publish</button>
+        <button className="btn" disabled={busy || !content} onClick={() => void publish()}>{busy ? <Spinner /> : 'Validate & publish'}</button>
         <button className="btn" onClick={() => { if (!dirty || confirm('Discard unsaved changes?')) setOpen(false); }}>Close</button>
       </div>
       {!content ? <p>Loading…</p> : tab === 'life' ? (

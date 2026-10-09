@@ -87,6 +87,7 @@ import { occlusionUniforms } from './render/occlusion-fade';
 import { loadWeapons, type WeaponLibrary } from './render/weapons';
 import { CombatEffects } from './render/effects';
 import { itemIcons, renderItemIcons } from './inventory/icons';
+import { clearPending, markPending } from './pending';
 import { ITEMS } from './inventory/items';
 import { WeaponController } from './weapon-controller';
 import { ammoItemFor } from './inventory/items';
@@ -507,10 +508,13 @@ export class GameEngine {
   }
 
   lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot', target: string, choice?: string, uid?: number): void {
+    if (op === 'buy' || op === 'sell') markPending(`trade:${target}:${op}`);
+    if (op === 'plant') markPending('plant');
     this.conn.sendLife(op, target, choice, uid);
   }
 
   quest(op: 'accept' | 'cancel' | 'turnin' | 'retrieve', npc: string, quest: string, index?: number): void {
+    markPending(`quest:${quest}`);
     this.conn.sendQuest(op, npc, quest, index);
   }
 
@@ -749,7 +753,10 @@ export class GameEngine {
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.streaming' }, username: m.username });
   }
 
+  private snapshotCount = 0;
+
   private onSnapshot(s: Snapshot): void {
+    this.snapshotCount++;
     const local = this.local;
     if (!local || !this.welcome) return;
     this.clock.seed(s.serverTime);
@@ -893,6 +900,7 @@ export class GameEngine {
   private onMessage(m: ServerJsonMessage): void {
     switch (m.t) {
       case 'baseLife': {
+        if (m.objects) clearPending('plant');
         // Partial updates: keep whatever this message leaves out.
         const prev = this.hud.get().life;
         const config = m.config ?? prev?.config;
@@ -912,6 +920,7 @@ export class GameEngine {
         this.showSpeech(m.npc, m.text, m.duration, m.x, m.y, m.z);
         break;
       case 'quests': {
+        clearPending('quest:*');
         // Jingles for a quest just taken or just completed.
         const before = new Map(this.hud.get().quests.map((q) => [q.id, q.status]));
         if (before.size) {
@@ -1576,6 +1585,7 @@ export class GameEngine {
   private buy(item: string): void {
     if (!this.inventory.hasRoomFor(item)) return this.toast({ key: 'toast.inventory_full' });
     const req = this.nextTrade++;
+    markPending(`buy:${item}`);
     this.trades.set(req, { buy: item });
     this.conn.sendTrade({ t: 'buy', req, item });
   }
@@ -1587,6 +1597,7 @@ export class GameEngine {
     if (local.health >= PLAYER_MAX_HEALTH) return this.toast({ key: 'toast.full_health' });
     if (this.hud.get().coins < NURSE_HEAL_PRICE) return this.toast({ key: 'toast.no_funds' });
     const req = this.nextTrade++;
+    markPending('nurseheal');
     this.trades.set(req, { heal: true });
     this.conn.sendNurseHeal(req);
   }
@@ -1598,11 +1609,13 @@ export class GameEngine {
     const def = ITEMS[it.itemId];
     void def;
     const req = this.nextTrade++;
+    markPending(`sell:${uid}`);
     this.trades.set(req, { sellUid: uid });
     this.conn.sendTrade({ t: 'sell', req, uid });
   }
 
   private onWallet(m: WalletEvent): void {
+    clearPending('trade:*');
     // NPC trades (no request id): spending coins = a purchase.
     if (m.req === undefined && m.coins < this.hud.get().coins) this.sounds?.play('equip', { volume: 0.7 });
     this.hud.set({ coins: m.coins });
@@ -1610,6 +1623,9 @@ export class GameEngine {
     const trade = this.trades.get(m.req);
     this.trades.delete(m.req);
     if (!trade) return;
+    if (trade.buy) clearPending(`buy:${trade.buy}`);
+    if (trade.sellUid !== undefined) clearPending(`sell:${trade.sellUid}`);
+    if (trade.heal) clearPending('nurseheal');
     if (!m.ok) {
       this.toast({ key: m.reason === 'funds' ? 'toast.no_funds' : m.reason === 'range' ? 'toast.too_far' : m.reason === 'room' ? 'toast.inventory_full' : 'toast.trade_failed' });
       return;
@@ -1754,6 +1770,8 @@ export class GameEngine {
 
   /** The server's copy of our inventory: show it and adopt its magazine counts. */
   private onInventory(m: { items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean }>; equipped: number | null }): void {
+    clearPending('cache:*');
+    clearPending('trade:*');
     this.inventory.applyServer(m.items as PlacedItem[], m.equipped);
     for (const it of m.items) {
       const w = WEAPON_BY_ITEM[it.itemId];
@@ -2036,6 +2054,10 @@ export class GameEngine {
     const elapsed = now - this.lastHud;
     this.fps = Math.round((this.frames * 1000) / Math.max(1, elapsed));
     this.frames = 0;
+    // Server ticks we actually receive per second (snapshot rate).
+    const tps = Math.round((this.snapshotCount * 1000) / Math.max(1, elapsed));
+    this.snapshotCount = 0;
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
     this.lastHud = now;
     const local = this.local!;
     const store = this.store!;
@@ -2064,6 +2086,16 @@ export class GameEngine {
       timeOfDay: tod,
       chunksLoaded: store.chunks.size,
       trianglesK: Math.round(this.renderer.info.render.triangles / 1000),
+      debug: {
+        tps,
+        drawCalls: this.renderer.info.render.calls,
+        geometries: this.renderer.info.memory.geometries,
+        textures: this.renderer.info.memory.textures,
+        entities: this.remotes.size + this.zombies.size,
+        zombies: this.zombies.size,
+        heapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
+        snapshotKB: Math.round(this.conn.bytesIn / 1024),
+      },
       playersNearby: [...this.remotes.values()].filter(r => r.entity.kind === EntityKind.Player).length,
       health: local.health,
       rollCd: Math.min(1, local.state.rollCooldown / Math.round(DEFAULT_CHARACTER.rollCooldown / TICK_DT)),

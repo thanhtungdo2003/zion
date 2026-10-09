@@ -60,6 +60,8 @@ export interface HudState {
   /** Edge-of-screen guides to off-screen camp NPCs (screen px, arrow angle, distance m). */
   /** Roll cooldown left, 0…1 (0 = ready). */
   rollCd: number;
+  /** F3 debug overlay numbers. */
+  debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number } | null;
   guides: Array<{ role: string; x: number; y: number; angle: number; dist: number; quest?: boolean }>;
 }
 
@@ -68,6 +70,7 @@ export function initialHud(): HudState {
     life: null,
     quests: [],
     dialogue: null,
+    debug: null,
     plot: null,
     status: 'connecting',
     statusDetail: { key: 'status.requesting' },

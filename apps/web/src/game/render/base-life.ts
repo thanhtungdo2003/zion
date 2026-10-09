@@ -1,5 +1,6 @@
 import { Group, Mesh, type Scene } from 'three';
 import { loadBBModel } from './bbmodel-loader';
+import { cachedFetch } from '@/lib/preload';
 
 export interface LifeVisual { id: string; model: string; x: number; y: number; z: number }
 /** Shared Blockbench loader; server packets alone determine the visible crop stages. */
@@ -13,7 +14,7 @@ export class BaseLifeRenderer {
     let pending = this.cache.get(path);
     if (!pending) {
       pending = (async () => {
-        const response = await fetch(path);
+        const response = await cachedFetch(path);
         if (!response.ok) throw new Error(`Missing model: ${path}`);
         const parts = await loadBBModel(await response.json(), 16, [0, 0, 0]);
         const root = new Group();

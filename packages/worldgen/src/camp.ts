@@ -1,6 +1,7 @@
 import { CHUNK_SIZE, Rng, hashCombine, quantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type PropInstance } from '@zion/shared';
 import { CAMP_ASSET } from '@zion/assets';
 import { makeColumnSample, type WorldGenerator } from './generator';
+import { DEFAULT_CAMP_NPCS, DEFAULT_CAMP_PARTS } from './camp-default';
 
 export interface CampSite { x: number; y: number; z: number }
 export interface CampPart {
@@ -71,8 +72,8 @@ export interface CampNpcLayout {
 
 /** Camp-local spots where the camp NPCs stand (their tables are placed beside them). */
 export const NPC_STALLS = {
-  merchant: { x: 16, z: -19.4 },
-  nurse: { x: -12.5, z: 15.4 },
+  merchant: DEFAULT_CAMP_NPCS.merchant,
+  nurse: DEFAULT_CAMP_NPCS.nurse,
 } as const;
 
 export function buildCampLayout(): CampPart[] {
@@ -365,7 +366,13 @@ function wallFaceGroups(parts: CampPart[]): CampPart[] {
   return out;
 }
 
-export const CAMP_LAYOUT = wallFaceGroups(buildCampLayout());
+/**
+ * The default camp: the layout published from Camp Studio (see camp-default.ts). The procedural
+ * builder above stays as the original reference design.
+ */
+export const CAMP_LAYOUT: CampPart[] = DEFAULT_CAMP_PARTS;
+/** The original procedural camp (with wall-face groups), kept for tooling and tests. */
+export const PROCEDURAL_CAMP_LAYOUT = (): CampPart[] => wallFaceGroups(buildCampLayout());
 
 export function campChunkProps(site: CampSite, cx: number, cz: number, layout: readonly CampPart[] = CAMP_LAYOUT): PropInstance[] {
   const ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;

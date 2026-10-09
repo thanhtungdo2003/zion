@@ -20,6 +20,7 @@ import {
 import { loadBBModel, type ModelPart } from './bbmodel-loader';
 import { applyOcclusionFade } from './occlusion-fade';
 import { buildProceduralGeometry } from './procedural-models';
+import { cachedFetch } from '@/lib/preload';
 
 export interface AssetVisual {
   def: AssetDefinition;
@@ -141,7 +142,7 @@ export class AssetLibrary {
       case 'bbmodel': {
         const entry = (await this.getManifest()).files[model.path];
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
-        const res = await fetch(entry.url);
+        const res = await cachedFetch(entry.url);
         if (!res.ok) throw new Error(`fetch ${entry.url} failed (${res.status})`);
         return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset) };
       }

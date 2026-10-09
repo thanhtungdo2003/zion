@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three';
 import { bindVolume } from '@/lib/settings';
+import { cachedFetch } from '@/lib/preload';
 
 export const SOUND_FILES = {
   akShot: '/sounds/ak47-shot.mp3',
@@ -73,7 +74,7 @@ export class SoundBank {
     let done = 0;
     await Promise.all(
       names.map(async (name) => {
-        const res = await fetch(SOUND_FILES[name]);
+        const res = await cachedFetch(SOUND_FILES[name]);
         if (!res.ok) throw new Error(`sound ${SOUND_FILES[name]} unavailable (${res.status})`);
         this.buffers.set(name, await this.ctx.decodeAudioData(await res.arrayBuffer()));
         onProgress?.(++done / names.length);

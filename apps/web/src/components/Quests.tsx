@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import type { HudState } from '@/game/hud-store';
 import { itemIcons } from '@/game/inventory/icons';
 import { Coins } from './Inventory';
+import { Spinner } from './Spinner';
+import { usePending } from '@/game/pending';
 
 type Quest = HudState['quests'][number];
 type Op = 'accept' | 'cancel' | 'turnin';
@@ -89,6 +91,8 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
   const [tab, setTab] = useState<'quests' | 'trade'>('quests');
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find((q) => q.id === selId) ?? list.find((q) => q.status !== 'claimed') ?? null;
+  const busy = usePending();
+  const qBusy = !!sel && busy(`quest:${sel.id}`);
   const line = !sel ? 'Hiện ta chưa có việc gì cho cậu. Quay lại sau nhé.'
     : sel.status === 'ready' ? sel.dialogue.complete
     : sel.status === 'active' ? sel.dialogue.progress
@@ -143,10 +147,10 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                   )}
                   <Rewards q={sel} />
                   <div className="q-actions">
-                    {(sel.status === 'available' || sel.status === 'cancelled') && <button className="btn btn-primary" data-nosound onClick={() => onOp('accept', sel.id)}>Nhận nhiệm vụ</button>}
-                    {sel.status === 'ready' && <button className="btn btn-primary" data-nosound onClick={() => onOp('turnin', sel.id)}>Nhận thưởng</button>}
-                    {sel.status === 'active' && <button className="btn btn-primary" data-nosound onClick={() => onOp('turnin', sel.id)}>Giao đồ</button>}
-                    {sel.status === 'active' && sel.allowCancel && <button className="btn q-btn-danger" onClick={() => onOp('cancel', sel.id)}>Hủy</button>}
+                    {(sel.status === 'available' || sel.status === 'cancelled') && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('accept', sel.id)}>{qBusy ? <Spinner /> : 'Nhận nhiệm vụ'}</button>}
+                    {sel.status === 'ready' && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Nhận thưởng'}</button>}
+                    {sel.status === 'active' && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Giao đồ'}</button>}
+                    {sel.status === 'active' && sel.allowCancel && <button className="btn q-btn-danger" disabled={qBusy} onClick={() => onOp('cancel', sel.id)}>Hủy</button>}
                   </div>
                 </>
               )}
@@ -165,8 +169,8 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                   <b>{itemName(t.item)}</b>
                   <small>Có {owned(t.item)} · tối đa {t.quota} lần / đợt</small>
                 </div>
-                {t.buy > 0 && <button className="btn btn-primary" disabled={coins < t.buy} data-nosound onClick={() => onTrade('buy', t.id)}>Mua {t.buy}</button>}
-                {t.sell > 0 && <button className="btn" disabled={owned(t.item) < 1} onClick={() => onTrade('sell', t.id)}>Bán {t.sell}</button>}
+                {t.buy > 0 && <button className="btn btn-primary" disabled={coins < t.buy || busy(`trade:${t.id}:buy`)} data-nosound onClick={() => onTrade('buy', t.id)}>{busy(`trade:${t.id}:buy`) ? <Spinner /> : `Mua ${t.buy}`}</button>}
+                {t.sell > 0 && <button className="btn" disabled={owned(t.item) < 1 || busy(`trade:${t.id}:sell`)} onClick={() => onTrade('sell', t.id)}>{busy(`trade:${t.id}:sell`) ? <Spinner /> : `Bán ${t.sell}`}</button>}
               </div>
             ))}
           </div>
@@ -199,6 +203,7 @@ export function StaminaBar({ life }: { life: NonNullable<HudState['life']> }) {
 
 /** Standing on an empty garden plot: the seeds we carry; click one to plant it. */
 export function PlantPanel({ life, items, onPlant }: { life: NonNullable<HudState['life']>; items: Array<{ itemId: string; count?: number }>; onPlant: (crop: string) => void }) {
+  const busy = usePending();
   const seeds = life.config.crops
     .map((c) => ({ crop: c, n: items.filter((i) => i.itemId === c.item).reduce((s, i) => s + (i.count ?? 1), 0) }))
     .filter((s) => s.n > 0);
@@ -208,7 +213,8 @@ export function PlantPanel({ life, items, onPlant }: { life: NonNullable<HudStat
       {seeds.length ? (
         <div className="plant-grid">
           {seeds.map(({ crop, n }) => (
-            <button key={crop.id} className="plant-slot" title={`Trồng ${itemName(crop.item)}`} onClick={() => onPlant(crop.id)}>
+            <button key={crop.id} className="plant-slot" title={`Trồng ${itemName(crop.item)}`} disabled={busy('plant')} onClick={() => onPlant(crop.id)}>
+              {busy('plant') && <span className="inv-cache-busy"><Spinner /></span>}
               {itemIcons.get(crop.item) ? <img src={itemIcons.get(crop.item)} alt="" /> : itemName(crop.item)}
               <b>{n}</b>
             </button>
