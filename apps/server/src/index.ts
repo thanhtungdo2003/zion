@@ -1,0 +1,245 @@
+import type { LifeWorld } from './game/base-life';
+import { validateContent } from '@zion/shared';
+import { randomInt } from 'node:crypto';
+import { createDefaultRegistry } from '@zion/assets';
+import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
+import { loadConfig } from './config';
+import { defaultMigrationsDir, migrate } from './db/migrate';
+import { createPool } from './db/pool';
+import { GameGateway } from './game/gateway';
+import { GameServer } from './game/game-server';
+import { buildHttpApp } from './http/app';
+import type { HealthReport } from './http/routes/health';
+import { createKeyValueStore } from './infra/kv';
+import { createLogger } from './logger';
+import { Metrics } from './metrics';
+import { AccountRepository } from './repositories/accounts';
+import { AuditLog } from './repositories/audit';
+import { PlayerStateRepository } from './repositories/player-states';
+import { RefreshTokenRepository } from './repositories/refresh-tokens';
+import { WorldRepository } from './repositories/worlds';
+import { CampLayoutRepository } from './repositories/camp-layouts';
+import { CAMP_HALF_SIZE, NPC_STALLS, type CampNpcLayout } from '@zion/worldgen';
+import { GUARD_POSTS } from './game/camp-guards';
+import { AuthService } from './security/auth-service';
+import { TokenService } from './security/tokens';
+import { WorldService } from './world/world-service';
+
+const config = loadConfig();
+const logger = createLogger(config.LOG_LEVEL, config.LOG_PRETTY);
+
+process.on('unhandledRejection', (reason) => logger.error({ err: reason }, 'unhandled promise rejection'));
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'uncaught exception; exiting');
+  process.exit(1);
+});
+
+async function main(): Promise<void> {
+  const db = createPool({ url: config.DATABASE_URL, max: config.DATABASE_POOL_MAX, ssl: config.DATABASE_SSL, logger });
+  await db.query('SELECT 1');
+  if (config.DB_MIGRATE_ON_START) {
+    const applied = await migrate(db, defaultMigrationsDir(), logger);
+    logger.info({ applied }, 'database migrations up to date');
+  }
+  const kv = await createKeyValueStore(config.REDIS_URL, logger);
+  const audit = new AuditLog(db, logger);
+  const metrics = new Metrics();
+
+  // The world record is the source of truth for the seed: once created, it never changes.
+  const worlds = new WorldRepository(db);
+  const requestedSeed = config.WORLD_SEED ? normalizeSeed(config.WORLD_SEED) : randomInt(0, 2 ** 32 - 1);
+  const record = await worlds.findOrCreate({
+    id: config.WORLD_ID,
+    seed: requestedSeed,
+    config: { sizeChunks: config.WORLD_SIZE_CHUNKS, seaLevel: 20 },
+    generatorVersion: GENERATOR_VERSION,
+    worldTimeMs: 0,
+  });
+  if (config.WORLD_SEED && record.seed !== requestedSeed) {
+    logger.warn({ persisted: record.seed, requested: requestedSeed }, 'WORLD_SEED ignored: world already exists with another seed');
+  }
+  const worldConfig: WorldConfig = {
+    seed: record.seed,
+    sizeChunks: record.config.sizeChunks,
+    seaLevel: record.config.seaLevel,
+    generatorVersion: record.generatorVersion,
+  };
+
+  const registry = createDefaultRegistry();
+  const world = new WorldService(worldConfig, registry, config.WORLDGEN_WORKERS, config.CHUNK_CACHE_SIZE, logger);
+  await world.start();
+
+  const tokens = new TokenService(config.JWT_SECRET, config.JWT_ISSUER, config.JWT_AUDIENCE, config.ACCESS_TOKEN_TTL_SEC);
+  const refreshTokens = new RefreshTokenRepository(db);
+  const auth = new AuthService(new AccountRepository(db), refreshTokens, tokens, kv, audit, {
+    refreshTtlDays: config.REFRESH_TOKEN_TTL_DAYS,
+    allowGuest: config.ALLOW_GUEST,
+  });
+
+  const game = new GameServer({
+    config,
+    logger,
+    metrics,
+    audit,
+    world,
+    registry,
+    playerStates: new PlayerStateRepository(db, config.WORLD_ID),
+    worlds,
+    worldId: config.WORLD_ID,
+    initialWorldTimeMs: record.worldTimeMs,
+  });
+
+  const savedLife = await db.query<{ state: LifeWorld }>('SELECT state FROM world_base_life WHERE world_id = $1', [config.WORLD_ID]);
+  if (savedLife.rows[0]) game.lifeWorld = savedLife.rows[0].state;
+  const savedContent = await db.query<{ content: unknown }>('SELECT content FROM game_content WHERE world_id = $1', [config.WORLD_ID]);
+  if (savedContent.rows[0]) {
+    const parsed = validateContent(savedContent.rows[0].content);
+    if (!parsed.ok) throw new Error(`Invalid persisted game content: ${parsed.errors.join('; ')}`);
+    game.applyContent(parsed.content);
+  }
+
+  let gateway: GameGateway | null = null;
+  // Camp Studio: a saved camp layout replaces the generated one, live for everyone.
+  const campLayouts = new CampLayoutRepository(db, config.WORLD_ID);
+  let campUpdatedAt: string | null = null;
+  let campNpcs: CampNpcLayout | null = null;
+  let terrainCache: { size: number; step: number; origin: number; heights: number[]; water: number } | null = null;
+  try {
+    const saved = await campLayouts.load();
+    if (saved) {
+      game.applyCampLayout(saved.parts);
+      game.applyCampNpcs(saved.npcs);
+      campNpcs = saved.npcs;
+      campUpdatedAt = saved.updatedAt;
+      logger.info({ parts: saved.parts.length }, 'camp studio layout loaded');
+    }
+  } catch (err) {
+    logger.error({ err }, 'failed to load camp studio layout (using default)');
+  }
+
+  const app = await buildHttpApp({
+    config,
+    logger,
+    auth,
+    tokens,
+    kv,
+    studio: {
+      getContent: () => game.content,
+      saveContent: async (content) => {
+        await db.query('INSERT INTO game_content (world_id, content) VALUES ($1, $2::jsonb) ON CONFLICT (world_id) DO UPDATE SET content = EXCLUDED.content, updated_at = now()', [config.WORLD_ID, JSON.stringify(content)]);
+        game.applyContent(content);
+      },
+      get: () => {
+        const camp = world.generator.camp;
+        return {
+          parts: world.campLayout,
+          npcs: campNpcs ?? { merchant: { ...NPC_STALLS.merchant }, nurse: { ...NPC_STALLS.nurse }, guards: GUARD_POSTS.map((p) => ({ x: p.x, z: p.z })) },
+          customised: world.campCustomised,
+          camp: camp ? { x: camp.x, y: camp.y, z: camp.z, halfSize: CAMP_HALF_SIZE } : null,
+          updatedAt: campUpdatedAt,
+        };
+      },
+      terrain: () => {
+        const gen = world.generator;
+        const camp = gen.camp;
+        if (!camp) return null;
+        // 1 m grid over ±72 m, heights relative to the camp floor (cached: the ground never changes).
+        if (!terrainCache) {
+          const origin = -72;
+          const size = 145;
+          const heights: number[] = new Array(size * size);
+          for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+            heights[j * size + i] = Math.round((gen.heightAt(camp.x + origin + i, camp.z + origin + j) - camp.y) * 100) / 100;
+          }
+          terrainCache = { size, step: 1, origin, heights, water: gen.seaLevel - camp.y };
+        }
+        return terrainCache;
+      },
+      save: async (parts, npcs, accountId) => {
+        await campLayouts.save(parts, npcs, accountId);
+        campUpdatedAt = new Date().toISOString();
+        campNpcs = npcs;
+        game.applyCampLayout(parts);
+        game.applyCampNpcs(npcs);
+        audit.record({ event: 'studio.save', ...(accountId ? { accountId } : {}), details: { parts: parts.length, via: accountId ? 'account' : 'password' } });
+      },
+      reset: async () => {
+        await campLayouts.clear();
+        campUpdatedAt = null;
+        campNpcs = null;
+        game.applyCampLayout(null);
+        game.applyCampNpcs(null);
+      },
+    },
+    health: {
+      async ready(): Promise<HealthReport> {
+        const checks: HealthReport['checks'] = {};
+        try {
+          await db.query('SELECT 1');
+          checks.database = { ok: true };
+        } catch (err) {
+          checks.database = { ok: false, detail: (err as Error).message };
+        }
+        checks.kv = { ok: await kv.ping(), detail: kv.kind };
+        checks.worldgen = { ok: world.healthy, detail: `${world.readyWorkers} workers, queue ${world.queueLength}` };
+        const tick = metrics.tickStats();
+        checks.simulation = { ok: tick.p99 < 100, detail: `p99 ${tick.p99.toFixed(1)} ms` };
+        return { ok: Object.values(checks).every((c) => c.ok), checks };
+      },
+      metrics: () =>
+        metrics.render({
+          chunk_cache_entries: world.cacheSize,
+          chunk_queue_length: world.queueLength,
+          chunks_generated_total: world.stats.generated,
+          physics_chunks_loaded: game.physics.loadedCount,
+          world_time_of_day: Number(game.timeOfDay().toFixed(4)),
+          ws_sessions: gateway?.connectionCount ?? 0,
+        }),
+    },
+  });
+
+  gateway = new GameGateway(config, logger, metrics, auth, game, audit);
+  gateway.attach(app.server);
+  game.start();
+  await app.listen({ host: config.HOST, port: config.PORT });
+  logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
+
+  const purge = setInterval(() => {
+    refreshTokens.purgeExpired().catch((err: unknown) => logger.error({ err }, 'token purge failed'));
+  }, 6 * 3600_000);
+  purge.unref();
+
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal }, 'graceful shutdown started');
+    const force = setTimeout(() => {
+      logger.error('shutdown timed out; forcing exit');
+      process.exit(1);
+    }, 15_000);
+    force.unref();
+    try {
+      gateway?.stopAccepting();
+      await game.stop();
+      await gateway?.close();
+      await app.close();
+      await world.close();
+      await audit.close();
+      await kv.close();
+      await db.end();
+      logger.info('shutdown complete');
+      process.exit(0);
+    } catch (err) {
+      logger.error({ err }, 'error during shutdown');
+      process.exit(1);
+    }
+  };
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+main().catch((err: unknown) => {
+  logger.fatal({ err }, 'failed to start server');
+  process.exit(1);
+});

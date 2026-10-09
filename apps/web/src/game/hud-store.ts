@@ -1,0 +1,127 @@
+import type { BaseLifeMessage, QuestStateMessage } from '@zion/shared';
+import type { Msg } from '@/lib/i18n';
+
+/** Observable HUD state bridging the imperative engine and React (useSyncExternalStore). */
+export interface ChatLine {
+  id: number;
+  from: string;
+  text: string;
+  /** System lines carry a translatable message instead of player text. */
+  system?: boolean;
+  msg?: Msg;
+}
+
+/** Merged base-life state (every part known once the first full message arrived). */
+export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
+
+export interface HudState {
+  life: LifeState | null;
+  quests: QuestStateMessage['entries'];
+  /** Quest NPC whose dialogue is open (E near them), or null. */
+  dialogue: { npc: string; name: string } | null;
+  /** Empty garden plot the player stands on (shows the seed panel), or null. */
+  plot: string | null;
+  status: 'connecting' | 'loading' | 'playing' | 'dead' | 'disconnected';
+  statusDetail: Msg;
+  loadProgress: number;
+  pointerLocked: boolean;
+  fps: number;
+  pingMs: number;
+  position: [number, number, number];
+  chunk: [number, number];
+  biome: string;
+  surface: string;
+  temperature: number;
+  humidity: number;
+  timeOfDay: number;
+  chunksLoaded: number;
+  trianglesK: number;
+  playersNearby: number;
+  playersOnline: number;
+  health: number;
+  swimming: boolean;
+  username: string;
+  chat: ChatLine[];
+  toast: Msg | null;
+  /** Last time the local player took damage (ms) and how hard (0…1): drives the red vignette. */
+  hurtAt: number;
+  hurtAmount: number;
+  respawnIn: number;
+  /** Magazine of the gun in hand (null when not holding a gun). */
+  ammo: { mag: number; max: number; reserve: number; reload: number | null } | null;
+  /** What E does here (open an ammo cache, pick up an item…), or null. */
+  interact: Msg | null;
+  /** Looking through the sniper scope. */
+  scoped: boolean;
+  /** ZCoin balance (server wallet). */
+  coins: number;
+  /** First aid kit being applied: progress 0…1, or null. */
+  healing: number | null;
+  /** Edge-of-screen guides to off-screen camp NPCs (screen px, arrow angle, distance m). */
+  /** Roll cooldown left, 0…1 (0 = ready). */
+  rollCd: number;
+  guides: Array<{ role: string; x: number; y: number; angle: number; dist: number; quest?: boolean }>;
+}
+
+export function initialHud(): HudState {
+  return {
+    life: null,
+    quests: [],
+    dialogue: null,
+    plot: null,
+    status: 'connecting',
+    statusDetail: { key: 'status.requesting' },
+    loadProgress: 0,
+    pointerLocked: false,
+    fps: 0,
+    pingMs: 0,
+    position: [0, 0, 0],
+    chunk: [0, 0],
+    biome: '—',
+    surface: '—',
+    temperature: 0,
+    humidity: 0,
+    timeOfDay: 0.3,
+    chunksLoaded: 0,
+    trianglesK: 0,
+    playersNearby: 0,
+    playersOnline: 0,
+    health: 100,
+    swimming: false,
+    username: '',
+    chat: [],
+    toast: null,
+    hurtAt: 0,
+    hurtAmount: 0,
+    respawnIn: 0,
+    ammo: null,
+    interact: null,
+    scoped: false,
+    coins: 0,
+    healing: null,
+    guides: [],
+    rollCd: 0,
+  };
+}
+
+export class HudStore {
+  private state: HudState = initialHud();
+  private readonly listeners = new Set<() => void>();
+
+  get = (): HudState => this.state;
+
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  };
+
+  set(patch: Partial<HudState>): void {
+    this.state = { ...this.state, ...patch };
+    for (const fn of this.listeners) fn();
+  }
+
+  pushChat(line: Omit<ChatLine, 'id'>): void {
+    const chat = [...this.state.chat, { ...line, id: Date.now() + Math.random() }].slice(-30);
+    this.set({ chat });
+  }
+}

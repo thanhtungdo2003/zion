@@ -1,0 +1,816 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-09T09:29:46.411Z",
+  "files": {
+    "decor/supply_crate.bbmodel": {
+      "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
+      "sha256": "c5eb16b65f02819aa782b6f96451f86b2d50ec30bf30134c2520dcd40590b97f",
+      "bytes": 6141,
+      "kind": "bbmodel"
+    },
+    "ak47-rifle.bbmodel": {
+      "url": "/assets/models/ak47-rifle.e33716dcbb96.bbmodel",
+      "sha256": "e33716dcbb968942f7fd60188689549a01ae3837097da809465898b92554999a",
+      "bytes": 13735,
+      "kind": "bbmodel"
+    },
+    "ammos/ak-box-762x39.bbmodel": {
+      "url": "/assets/models/ammos_ak-box-762x39.36e045441534.bbmodel",
+      "sha256": "36e04544153484438f7bd254f76df0326bc25a48f18ac728b4d261cf7f03c7a6",
+      "bytes": 14867,
+      "kind": "bbmodel"
+    },
+    "ammos/ammo-box-9mm-30rd.bbmodel": {
+      "url": "/assets/models/ammos_ammo-box-9mm-30rd.26ca53c4f377.bbmodel",
+      "sha256": "26ca53c4f377df13506f23bdd8bb0f028323070ce41af8c4fe5204a92e464a17",
+      "bytes": 14298,
+      "kind": "bbmodel"
+    },
+    "ammos/awm-300wm-box.bbmodel": {
+      "url": "/assets/models/ammos_awm-300wm-box.076fb01b445b.bbmodel",
+      "sha256": "076fb01b445b2e39c92947cfb465b98afeb84f18e4897c79fc0c7c1e900cc386",
+      "bytes": 17059,
+      "kind": "bbmodel"
+    },
+    "ammos/grenade-crate.bbmodel": {
+      "url": "/assets/models/ammos_grenade-crate.e3908bebfade.bbmodel",
+      "sha256": "e3908bebfaded56c7271e3b5be60dacb67af40928789cf80769e3b835b3db906",
+      "bytes": 12744,
+      "kind": "bbmodel"
+    },
+    "ammos/shotgun-shell-box.bbmodel": {
+      "url": "/assets/models/ammos_shotgun-shell-box.c75c85898e5a.bbmodel",
+      "sha256": "c75c85898e5a242167a3f6f3533f5657bf7639be47f7e0b6b19cf58df94c3c5c",
+      "bytes": 11633,
+      "kind": "bbmodel"
+    },
+    "armors/combat-boots.bbmodel": {
+      "url": "/assets/models/armors_combat-boots.05acc1c8b4b4.bbmodel",
+      "sha256": "05acc1c8b4b4f785b5053dd6f6cc4812bee645d6d27d7e6df447298dde5a4211",
+      "bytes": 10010,
+      "kind": "bbmodel"
+    },
+    "armors/combat-helmet.bbmodel": {
+      "url": "/assets/models/armors_combat-helmet.1226423eef9d.bbmodel",
+      "sha256": "1226423eef9d1602cbec6db1c7a816e3e714e5cbab8d7a6ed3b544629712e122",
+      "bytes": 10809,
+      "kind": "bbmodel"
+    },
+    "armors/military-combat-pants.bbmodel": {
+      "url": "/assets/models/armors_military-combat-pants.66e73f1aa336.bbmodel",
+      "sha256": "66e73f1aa336ccc2417e7e5242c4f7741311cf826de4731d3337afdadc26c250",
+      "bytes": 9525,
+      "kind": "bbmodel"
+    },
+    "armors/military-combat-shirt.bbmodel": {
+      "url": "/assets/models/armors_military-combat-shirt.f456f32bd9b5.bbmodel",
+      "sha256": "f456f32bd9b5de465c0518d67f2542ee273436bc27880aa9d3f2f0b4dfca7996",
+      "bytes": 12002,
+      "kind": "bbmodel"
+    },
+    "armors/old-fire-helmet.bbmodel": {
+      "url": "/assets/models/armors_old-fire-helmet.4673313822d5.bbmodel",
+      "sha256": "4673313822d52f69d1ae03adf52b8ef2886eb920e76ece45d37c5c5a2425b50b",
+      "bytes": 9448,
+      "kind": "bbmodel"
+    },
+    "armors/old-firefighter-jacket.bbmodel": {
+      "url": "/assets/models/armors_old-firefighter-jacket.ce0dc23e124d.bbmodel",
+      "sha256": "ce0dc23e124d63b85d88b1eca8c822c7b9f4be85d6517ee2481842a68fe7c2fa",
+      "bytes": 14286,
+      "kind": "bbmodel"
+    },
+    "armors/old-firefighter-pants.bbmodel": {
+      "url": "/assets/models/armors_old-firefighter-pants.e55fcff88766.bbmodel",
+      "sha256": "e55fcff88766492eda019eadd8a1e692d86757a3fb42e5307040151389c77faa",
+      "bytes": 13857,
+      "kind": "bbmodel"
+    },
+    "armors/old-hard-hat.bbmodel": {
+      "url": "/assets/models/armors_old-hard-hat.1b885d6fe9e0.bbmodel",
+      "sha256": "1b885d6fe9e092b25bc29537831d4434d40e55ec3535a475b5068eaeedced1a3",
+      "bytes": 10284,
+      "kind": "bbmodel"
+    },
+    "armors/old-leather-boots.bbmodel": {
+      "url": "/assets/models/armors_old-leather-boots.23befad879a0.bbmodel",
+      "sha256": "23befad879a0e88d11160f14c3afdbf848ed116dda363dd9ee18ff6f02825327",
+      "bytes": 10215,
+      "kind": "bbmodel"
+    },
+    "armors/old-safety-boots.bbmodel": {
+      "url": "/assets/models/armors_old-safety-boots.1f7d9eedacd0.bbmodel",
+      "sha256": "1f7d9eedacd0af706f1de9e669266c675d5c94447f752dda7337cc8493c90a97",
+      "bytes": 9189,
+      "kind": "bbmodel"
+    },
+    "armors/old-thick-leather-tunic.bbmodel": {
+      "url": "/assets/models/armors_old-thick-leather-tunic.c0afd428fe3c.bbmodel",
+      "sha256": "c0afd428fe3c2ef83030e3497b529c8c0ae82fd58f522158755ade152adc10eb",
+      "bytes": 12617,
+      "kind": "bbmodel"
+    },
+    "armors/old-work-safety-pants.bbmodel": {
+      "url": "/assets/models/armors_old-work-safety-pants.e3f8067b181c.bbmodel",
+      "sha256": "e3f8067b181c63a35aa5e5bca6577145a47d85b490300904817f2b463aa2bbd9",
+      "bytes": 9575,
+      "kind": "bbmodel"
+    },
+    "armors/riot-combat-boots.bbmodel": {
+      "url": "/assets/models/armors_riot-combat-boots.1bc0668e461a.bbmodel",
+      "sha256": "1bc0668e461a4b23a50990826aa5fbf1adfcec7b62277c8c288ad33e05fb89a8",
+      "bytes": 9291,
+      "kind": "bbmodel"
+    },
+    "armors/riot-control-helmet.bbmodel": {
+      "url": "/assets/models/armors_riot-control-helmet.956410d75d56.bbmodel",
+      "sha256": "956410d75d562c0fee45e3416c4cbe2b32480458b14e8f2feaf5ee2a95a75854",
+      "bytes": 10512,
+      "kind": "bbmodel"
+    },
+    "armors/riot-protection-jacket.bbmodel": {
+      "url": "/assets/models/armors_riot-protection-jacket.5db2e995f1e8.bbmodel",
+      "sha256": "5db2e995f1e8944592a65ad70e5f7f89469dd8bd0e6216123ae20b17a3044acf",
+      "bytes": 11776,
+      "kind": "bbmodel"
+    },
+    "armors/riot-tactical-pants.bbmodel": {
+      "url": "/assets/models/armors_riot-tactical-pants.5eada4467f26.bbmodel",
+      "sha256": "5eada4467f26281c8ae6fbde9c4591c88a43c3183dda8ae055edf29d120598bf",
+      "bytes": 8403,
+      "kind": "bbmodel"
+    },
+    "armors/scrap-plastic-jeans.bbmodel": {
+      "url": "/assets/models/armors_scrap-plastic-jeans.2e955198a0be.bbmodel",
+      "sha256": "2e955198a0be4fa5a2986061ce3d6d0451bd2b33b6212deb1a1ebe81cf6ca7a4",
+      "bytes": 12687,
+      "kind": "bbmodel"
+    },
+    "armors/tactical-ballistic-helmet.bbmodel": {
+      "url": "/assets/models/armors_tactical-ballistic-helmet.797ef87d771a.bbmodel",
+      "sha256": "797ef87d771ad5d03e9eef684fc2e95dbab6794e444913d32b41b0b3847d6b06",
+      "bytes": 10595,
+      "kind": "bbmodel"
+    },
+    "armors/tactical-boots.bbmodel": {
+      "url": "/assets/models/armors_tactical-boots.c07136202df5.bbmodel",
+      "sha256": "c07136202df566a3d2e564c7978ad664192034753c752a5af6763c4e863ba6f5",
+      "bytes": 9275,
+      "kind": "bbmodel"
+    },
+    "armors/tactical-combat-pants.bbmodel": {
+      "url": "/assets/models/armors_tactical-combat-pants.701181ce9638.bbmodel",
+      "sha256": "701181ce9638ab4a2e2e5ba7d1ac6d590025ac0a0e71cc8d5e003c624fa772d4",
+      "bytes": 10009,
+      "kind": "bbmodel"
+    },
+    "armors/tactical-combat-shirt.bbmodel": {
+      "url": "/assets/models/armors_tactical-combat-shirt.5cbc268cf080.bbmodel",
+      "sha256": "5cbc268cf080b10ed51c612e2388cee6ef52a841cedf1ee65201248a8152bc91",
+      "bytes": 9800,
+      "kind": "bbmodel"
+    },
+    "armors/worn-work-jacket.bbmodel": {
+      "url": "/assets/models/armors_worn-work-jacket.408c351bd19b.bbmodel",
+      "sha256": "408c351bd19b50ac8a8a5ed808e0b11ab94618509f57449bf184aba515f15c23",
+      "bytes": 12679,
+      "kind": "bbmodel"
+    },
+    "characters/teen-wasteland-survivor.bbmodel": {
+      "url": "/assets/models/characters_teen-wasteland-survivor.7d97c8d7790d.bbmodel",
+      "sha256": "7d97c8d7790de7e8394c9af29e14f2f352465738c8ca9970d029648472764e82",
+      "bytes": 134624,
+      "kind": "bbmodel"
+    },
+    "dists/arrow-quiver.bbmodel": {
+      "url": "/assets/models/dists_arrow-quiver.0d172157a901.bbmodel",
+      "sha256": "0d172157a90138b64d21e7da21a205480c2072b3450c52dd7a6dac4d12a7c356",
+      "bytes": 12031,
+      "kind": "bbmodel"
+    },
+    "dists/arrow.bbmodel": {
+      "url": "/assets/models/dists_arrow.29a859eb98bb.bbmodel",
+      "sha256": "29a859eb98bb2aec68cc2607b0672acdca27d8d4068e30e2ff51d8561184a082",
+      "bytes": 6950,
+      "kind": "bbmodel"
+    },
+    "dists/barbed-wire-fence.bbmodel": {
+      "url": "/assets/models/dists_barbed-wire-fence.bf7dda6dd8e0.bbmodel",
+      "sha256": "bf7dda6dd8e0f1aec132ad654956fffa8eb73fe5a9c37daa577c7d358e29ebed",
+      "bytes": 11318,
+      "kind": "bbmodel"
+    },
+    "dists/military-lamp-post.bbmodel": {
+      "url": "/assets/models/dists_military-lamp-post.7b68b6c97d53.bbmodel",
+      "sha256": "7b68b6c97d535b56f4b5c6b58d41b460a5ed41cc53ffc05bd4cfb830f37c5a7a",
+      "bytes": 6268,
+      "kind": "bbmodel"
+    },
+    "dists/military-wooden-crate.bbmodel": {
+      "url": "/assets/models/dists_military-wooden-crate.e5fe66d30e17.bbmodel",
+      "sha256": "e5fe66d30e179427383b8cf51d56d8d90981125904fee82fb136080c432ca1c9",
+      "bytes": 10789,
+      "kind": "bbmodel"
+    },
+    "dists/old-rusty-tank.bbmodel": {
+      "url": "/assets/models/dists_old-rusty-tank.9076ded48751.bbmodel",
+      "sha256": "9076ded48751cee78d018ca60d4eaa9618bdc5c65c62889b08c2d6e810e39074",
+      "bytes": 19197,
+      "kind": "bbmodel"
+    },
+    "dists/rusty-iron-wall-ladder.bbmodel": {
+      "url": "/assets/models/dists_rusty-iron-wall-ladder.c765c4ed04b5.bbmodel",
+      "sha256": "c765c4ed04b5ba2bc2c392637803d0b73dffc1c166f1c3ed3bc70999013bbae6",
+      "bytes": 11378,
+      "kind": "bbmodel"
+    },
+    "dists/rusty-oil-barrel.bbmodel": {
+      "url": "/assets/models/dists_rusty-oil-barrel.90d0c36e892e.bbmodel",
+      "sha256": "90d0c36e892e79a14ca2709abf5e62a5dd58ac209737f16ee2ef5e949007acfa",
+      "bytes": 11687,
+      "kind": "bbmodel"
+    },
+    "dists/rusty-old-helicopter.bbmodel": {
+      "url": "/assets/models/dists_rusty-old-helicopter.ab7cdde233d1.bbmodel",
+      "sha256": "ab7cdde233d1115078ed3d009f2c41acba057db22454f9531095b7d3dc8b38f6",
+      "bytes": 16671,
+      "kind": "bbmodel"
+    },
+    "dists/straight-lamp-post.bbmodel": {
+      "url": "/assets/models/dists_straight-lamp-post.443a63f10d91.bbmodel",
+      "sha256": "443a63f10d910f4ea0b57234561cb3bdb4d5d07bd8a25bd15286367afe7bd198",
+      "bytes": 8611,
+      "kind": "bbmodel"
+    },
+    "dists/wet-farmland-plot-unpipe.bbmodel": {
+      "url": "/assets/models/dists_wet-farmland-plot-unpipe.affc99789f18.bbmodel",
+      "sha256": "affc99789f18b2d29513c1de551d804ca2dbb858652f8a4897252244d4fed228",
+      "bytes": 13349,
+      "kind": "bbmodel"
+    },
+    "dists/wet-farmland-plot.bbmodel": {
+      "url": "/assets/models/dists_wet-farmland-plot.43e64cfb71ad.bbmodel",
+      "sha256": "43e64cfb71ad4885467546c0db91e94cfe4a1cc6e1decd05af113b947b7670f9",
+      "bytes": 16802,
+      "kind": "bbmodel"
+    },
+    "dists/zion-ammo-cache-station.bbmodel": {
+      "url": "/assets/models/dists_zion-ammo-cache-station.889401e377e7.bbmodel",
+      "sha256": "889401e377e72b52e9e2349030bf01738595d6d125403c875d4349c81f2c085e",
+      "bytes": 59021,
+      "kind": "bbmodel"
+    },
+    "frag-grenade.bbmodel": {
+      "url": "/assets/models/frag-grenade.fee10debfc8e.bbmodel",
+      "sha256": "fee10debfc8edc7fd9477db1ffa842d20f0b8b747126229c9dd2a0a7a6e75731",
+      "bytes": 13243,
+      "kind": "bbmodel"
+    },
+    "glock-18.bbmodel": {
+      "url": "/assets/models/glock-18.c5aa76944bdb.bbmodel",
+      "sha256": "c5aa76944bdb6854f340a2ddb6ec9d68e813a4e85a79403c6d64cbd26b49eba5",
+      "bytes": 11840,
+      "kind": "bbmodel"
+    },
+    "hunched-rotting-zombie.bbmodel": {
+      "url": "/assets/models/hunched-rotting-zombie.a70db493b0d8.bbmodel",
+      "sha256": "a70db493b0d8beef5baf3608757663018157c3bcc2049d8efa5e83f173ca297e",
+      "bytes": 40809,
+      "kind": "bbmodel"
+    },
+    "materias/branch-stick.bbmodel": {
+      "url": "/assets/models/materias_branch-stick.42663bafc803.bbmodel",
+      "sha256": "42663bafc8034366a89d1efd08b6328acc0f2c72c07fbb93c18756f9a05d8121",
+      "bytes": 7458,
+      "kind": "bbmodel"
+    },
+    "materias/broken-concrete-wall.bbmodel": {
+      "url": "/assets/models/materias_broken-concrete-wall.f4f4f2714741.bbmodel",
+      "sha256": "f4f4f27147418d52de162273c30bdb1c8fd9eb179ebe8cac2e5f58cdbc97053c",
+      "bytes": 19667,
+      "kind": "bbmodel"
+    },
+    "materias/broken-glass-pane.bbmodel": {
+      "url": "/assets/models/materias_broken-glass-pane.56fe5b0b7de2.bbmodel",
+      "sha256": "56fe5b0b7de2f045056609d2118eb2eda1347dca825457f981adfee162cf0450",
+      "bytes": 9577,
+      "kind": "bbmodel"
+    },
+    "materias/campfire-embers.bbmodel": {
+      "url": "/assets/models/materias_campfire-embers.c917edb803f1.bbmodel",
+      "sha256": "c917edb803f1201eb37808d90cf9a17be6ed3128175eeedd9152e53b13c70854",
+      "bytes": 8272,
+      "kind": "bbmodel"
+    },
+    "materias/car-battery.bbmodel": {
+      "url": "/assets/models/materias_car-battery.f179f4933c1f.bbmodel",
+      "sha256": "f179f4933c1f47030b3e17a80ee1e59c069518a85cf30d1a4d030d4c50cf8d23",
+      "bytes": 7463,
+      "kind": "bbmodel"
+    },
+    "materias/coal-in-old-carton.bbmodel": {
+      "url": "/assets/models/materias_coal-in-old-carton.39c4fc3aa64d.bbmodel",
+      "sha256": "39c4fc3aa64d26c607b393b64101ed9e266f5c71a8839b6a90f8a86d41f81625",
+      "bytes": 12462,
+      "kind": "bbmodel"
+    },
+    "materias/concrete-wall-panel.bbmodel": {
+      "url": "/assets/models/materias_concrete-wall-panel.3ce74b9f6803.bbmodel",
+      "sha256": "3ce74b9f6803931973745b8c66290f8703917e627c598cc925d9cc9c44ca1c1c",
+      "bytes": 16147,
+      "kind": "bbmodel"
+    },
+    "materias/concrete-wall.bbmodel": {
+      "url": "/assets/models/materias_concrete-wall.8e0af9de476c.bbmodel",
+      "sha256": "8e0af9de476c783d84495b43e2d2d6d2ef73fa116ea1d1bf7572c29e8c82cfa5",
+      "bytes": 19441,
+      "kind": "bbmodel"
+    },
+    "materias/cooked-mutton.bbmodel": {
+      "url": "/assets/models/materias_cooked-mutton.6cd42a74f672.bbmodel",
+      "sha256": "6cd42a74f672a39b5bdcb680a8022e39129f522d0e22b9bcf4686026bf630a38",
+      "bytes": 5373,
+      "kind": "bbmodel"
+    },
+    "materias/cooked-porkchop.bbmodel": {
+      "url": "/assets/models/materias_cooked-porkchop.e1b22f52ee33.bbmodel",
+      "sha256": "e1b22f52ee331a3272d1346fdc98b3d432d93d4362b16db4ffadceedb06bc346",
+      "bytes": 5414,
+      "kind": "bbmodel"
+    },
+    "materias/fertilizer-bag.bbmodel": {
+      "url": "/assets/models/materias_fertilizer-bag.ee04b52c2024.bbmodel",
+      "sha256": "ee04b52c2024ac6ebea597d76d0acd615c548c6b33105a6939bf91507a201f3b",
+      "bytes": 7853,
+      "kind": "bbmodel"
+    },
+    "materias/field-tent.bbmodel": {
+      "url": "/assets/models/materias_field-tent.71325ea73078.bbmodel",
+      "sha256": "71325ea7307827d108aa77f25ee8140485215578691ac823650488e10b1c4de8",
+      "bytes": 22281,
+      "kind": "bbmodel"
+    },
+    "materias/glass-pane.bbmodel": {
+      "url": "/assets/models/materias_glass-pane.6ea1e449638b.bbmodel",
+      "sha256": "6ea1e449638bdc64de26241903f2830a62c747ce29a9f27fb287da17678c98cb",
+      "bytes": 4934,
+      "kind": "bbmodel"
+    },
+    "materias/gold-coin-z.bbmodel": {
+      "url": "/assets/models/materias_gold-coin-z.f2f3cf3578e2.bbmodel",
+      "sha256": "f2f3cf3578e287fc7b62537519180fc50c6af89c4ae355326db36b4c766fc358",
+      "bytes": 14639,
+      "kind": "bbmodel"
+    },
+    "materias/iron-fence.bbmodel": {
+      "url": "/assets/models/materias_iron-fence.db385d1ee3cf.bbmodel",
+      "sha256": "db385d1ee3cf6bac79f7abe65ee94b86474147baebd1074b2f73d14d5cca9767",
+      "bytes": 10011,
+      "kind": "bbmodel"
+    },
+    "materias/l-shaped-kitchen-counter.bbmodel": {
+      "url": "/assets/models/materias_l-shaped-kitchen-counter.3316bc913fec.bbmodel",
+      "sha256": "3316bc913fecc274e3c74188c4748d81c252185523f001a4d1e5c67c5472df4d",
+      "bytes": 33143,
+      "kind": "bbmodel"
+    },
+    "materias/large-stone-brick-wall.bbmodel": {
+      "url": "/assets/models/materias_large-stone-brick-wall.2da9a11c172d.bbmodel",
+      "sha256": "2da9a11c172d5c950ae3d204e263c2cc9b8ca4c970ee12924a9283d55004df3c",
+      "bytes": 15263,
+      "kind": "bbmodel"
+    },
+    "materias/lon-cu-nat.bbmodel": {
+      "url": "/assets/models/materias_lon-cu-nat.c37ff1d19d03.bbmodel",
+      "sha256": "c37ff1d19d0387284277f3ff3c8905a309cebbf3d9fa33b6db1eb5b715d72aa9",
+      "bytes": 9811,
+      "kind": "bbmodel"
+    },
+    "materias/medical-table.bbmodel": {
+      "url": "/assets/models/materias_medical-table.38ee382a6a52.bbmodel",
+      "sha256": "38ee382a6a52c020e08ef88b8b33be89e5fa306404f80b25472a2738c421893d",
+      "bytes": 17244,
+      "kind": "bbmodel"
+    },
+    "materias/mossy-concrete-wall.bbmodel": {
+      "url": "/assets/models/materias_mossy-concrete-wall.3ea330149bb8.bbmodel",
+      "sha256": "3ea330149bb8499e8aea06bdca570e52a5ced7ee94cabc0bf30190a32f807528",
+      "bytes": 23581,
+      "kind": "bbmodel"
+    },
+    "materias/nuclear-power-cell.bbmodel": {
+      "url": "/assets/models/materias_nuclear-power-cell.ef1b5c28d4d6.bbmodel",
+      "sha256": "ef1b5c28d4d6f6052db8bb7585289d5242f274754d258cdec910f91461cce651",
+      "bytes": 9580,
+      "kind": "bbmodel"
+    },
+    "materias/old-carton-box.bbmodel": {
+      "url": "/assets/models/materias_old-carton-box.2ba86b2f761f.bbmodel",
+      "sha256": "2ba86b2f761ff2dfd3f420dc7e9ff89db48ea5bcd3eb22e24f92416e6aaa744e",
+      "bytes": 10409,
+      "kind": "bbmodel"
+    },
+    "materias/old-dusty-wood-board.bbmodel": {
+      "url": "/assets/models/materias_old-dusty-wood-board.d19fe5d48848.bbmodel",
+      "sha256": "d19fe5d488480c05bc15c2185985e24db5128de21b1e2427fde8c1f099791a2a",
+      "bytes": 14166,
+      "kind": "bbmodel"
+    },
+    "materias/old-iron-bucket.bbmodel": {
+      "url": "/assets/models/materias_old-iron-bucket.49ca434a49dd.bbmodel",
+      "sha256": "49ca434a49ddf51a7bbfbe626d1ddf7428bfab47e5a76ede4bfa6d47ac7608fc",
+      "bytes": 13159,
+      "kind": "bbmodel"
+    },
+    "materias/old-solar-panel.bbmodel": {
+      "url": "/assets/models/materias_old-solar-panel.cf51dc1222e8.bbmodel",
+      "sha256": "cf51dc1222e85e053eda02ca90ac7d0eb31658abb8dbb15dfae6a55e8e0e7292",
+      "bytes": 8873,
+      "kind": "bbmodel"
+    },
+    "materias/old-water-pipe.bbmodel": {
+      "url": "/assets/models/materias_old-water-pipe.744404cd8d5c.bbmodel",
+      "sha256": "744404cd8d5c12e8e291e8a865e0be52959cbd2104836d971393c1f3256ba8b5",
+      "bytes": 9549,
+      "kind": "bbmodel"
+    },
+    "materias/old-wooden-beam.bbmodel": {
+      "url": "/assets/models/materias_old-wooden-beam.01408ce8271b.bbmodel",
+      "sha256": "01408ce8271b27422954f22faf1298d642b235f0a322c67d1c54146ba0d5e84e",
+      "bytes": 8723,
+      "kind": "bbmodel"
+    },
+    "materias/old-wooden-crate.bbmodel": {
+      "url": "/assets/models/materias_old-wooden-crate.0aa4e715bbfe.bbmodel",
+      "sha256": "0aa4e715bbfee880405e5a2b9df3b13b70b722b2a6bc2d327f28b0ea673a2bed",
+      "bytes": 19872,
+      "kind": "bbmodel"
+    },
+    "materias/perforated-corrugated-sheet.bbmodel": {
+      "url": "/assets/models/materias_perforated-corrugated-sheet.c3152d63a9c9.bbmodel",
+      "sha256": "c3152d63a9c9592f58bdef7f196dbbd1b7bb62c6d003366a50d507b121dfd9c4",
+      "bytes": 9447,
+      "kind": "bbmodel"
+    },
+    "materias/potato-cooked.bbmodel": {
+      "url": "/assets/models/materias_potato-cooked.fcb8bcee184d.bbmodel",
+      "sha256": "fcb8bcee184d03e2199923ecf709682c4890e224fda56603cd543ae0278d6078",
+      "bytes": 7517,
+      "kind": "bbmodel"
+    },
+    "materias/potato.bbmodel": {
+      "url": "/assets/models/materias_potato.2ed7e64e290b.bbmodel",
+      "sha256": "2ed7e64e290be19cae6afe56998df9ae1f62bc204d50e9e236d7ebe5f16facd8",
+      "bytes": 6101,
+      "kind": "bbmodel"
+    },
+    "materias/raw-mutton.bbmodel": {
+      "url": "/assets/models/materias_raw-mutton.b4be06fbb18b.bbmodel",
+      "sha256": "b4be06fbb18b9d9c62ae2190485d120e0e92cbc6f9a5854b3bd11ea2e16c0e28",
+      "bytes": 5069,
+      "kind": "bbmodel"
+    },
+    "materias/raw-porkchop.bbmodel": {
+      "url": "/assets/models/materias_raw-porkchop.63c6645fe173.bbmodel",
+      "sha256": "63c6645fe1735c40d26dbfa5a000f9626ab37f0d947a320789d59d44be521b8d",
+      "bytes": 5079,
+      "kind": "bbmodel"
+    },
+    "materias/rusted-wire-coil.bbmodel": {
+      "url": "/assets/models/materias_rusted-wire-coil.173b460dcb2a.bbmodel",
+      "sha256": "173b460dcb2adec4495f4c344027a273535f6289482ded6906c753fd7e9a2e38",
+      "bytes": 6821,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-corrugated-sheet.bbmodel": {
+      "url": "/assets/models/materias_rusty-corrugated-sheet.378f70b0a451.bbmodel",
+      "sha256": "378f70b0a45165b40261a47f417e23ee0743a253577e3149f5028e2cef853fda",
+      "bytes": 13668,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-iron-bar.bbmodel": {
+      "url": "/assets/models/materias_rusty-iron-bar.989a4a2b306b.bbmodel",
+      "sha256": "989a4a2b306bee24e74c087c4bf2d4146a3ae5324de96022228d45937ca067da",
+      "bytes": 6720,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-metal-plate.bbmodel": {
+      "url": "/assets/models/materias_rusty-metal-plate.8d82a8afeb1a.bbmodel",
+      "sha256": "8d82a8afeb1a2aa3ee157b1f770dabf32cf0900fca46ed23206736640cac5f3f",
+      "bytes": 8326,
+      "kind": "bbmodel"
+    },
+    "materias/sandbag-wall.bbmodel": {
+      "url": "/assets/models/materias_sandbag-wall.a67bd15d1afb.bbmodel",
+      "sha256": "a67bd15d1afbd99499e35084e1883a9ebe60b44699c902a29d68ccdfe43fa807",
+      "bytes": 11524,
+      "kind": "bbmodel"
+    },
+    "materias/shattered-glass-pane.bbmodel": {
+      "url": "/assets/models/materias_shattered-glass-pane.0023b13a53e3.bbmodel",
+      "sha256": "0023b13a53e34323585dc3d05452beee1e5f8917a85a41ec5bf75770a6d457ab",
+      "bytes": 8505,
+      "kind": "bbmodel"
+    },
+    "materias/small-transformer.bbmodel": {
+      "url": "/assets/models/materias_small-transformer.07f68bb89cc1.bbmodel",
+      "sha256": "07f68bb89cc1c3569e1e215de823196904cc1a6774cd9a2139cf15feb977a5ee",
+      "bytes": 12249,
+      "kind": "bbmodel"
+    },
+    "materias/utility-pole.bbmodel": {
+      "url": "/assets/models/materias_utility-pole.a0349bb28a5c.bbmodel",
+      "sha256": "a0349bb28a5c3176625f699d64e45b9cfcea652b3804f83f613609f312df76b2",
+      "bytes": 12932,
+      "kind": "bbmodel"
+    },
+    "materias/water-bottle.bbmodel": {
+      "url": "/assets/models/materias_water-bottle.00cf49d7dced.bbmodel",
+      "sha256": "00cf49d7dcedb4e175de0bfc45aa6abf2643a5883ca850d63dd146d2bc92190a",
+      "bytes": 6498,
+      "kind": "bbmodel"
+    },
+    "materias/weapon-table.bbmodel": {
+      "url": "/assets/models/materias_weapon-table.e3e11fd7c73b.bbmodel",
+      "sha256": "e3e11fd7c73b343098f8d538c9b8cf119f68bb28660c1b87fe09880d0ea9ae63",
+      "bytes": 18339,
+      "kind": "bbmodel"
+    },
+    "materias/wooden-fence.bbmodel": {
+      "url": "/assets/models/materias_wooden-fence.e3e55997c801.bbmodel",
+      "sha256": "e3e55997c801c8cddac15428e3009566e11cddfc7d76e7957e298c5c98dfd3f8",
+      "bytes": 9068,
+      "kind": "bbmodel"
+    },
+    "mobs/brute-zombie.bbmodel": {
+      "url": "/assets/models/mobs_brute-zombie.8aa92419f799.bbmodel",
+      "sha256": "8aa92419f799f574dc86f4d8c55e3277383a79b5c51e6a1fabb1121bd73316c1",
+      "bytes": 27412,
+      "kind": "bbmodel"
+    },
+    "mobs/gaunt-zombie.bbmodel": {
+      "url": "/assets/models/mobs_gaunt-zombie.a5cceb1708e0.bbmodel",
+      "sha256": "a5cceb1708e03bd5c5cdc5af371594dd76c10b4c42b326474660bcb00b535935",
+      "bytes": 31936,
+      "kind": "bbmodel"
+    },
+    "mobs/hunched-rotting-zombie.bbmodel": {
+      "url": "/assets/models/mobs_hunched-rotting-zombie.a70db493b0d8.bbmodel",
+      "sha256": "a70db493b0d8beef5baf3608757663018157c3bcc2049d8efa5e83f173ca297e",
+      "bytes": 40809,
+      "kind": "bbmodel"
+    },
+    "mobs/suffolk-sheep.bbmodel": {
+      "url": "/assets/models/mobs_suffolk-sheep.5d2af38c95ab.bbmodel",
+      "sha256": "5d2af38c95ab0e4736828b26bebb74af9fbd4f324635139d68ec7e3a0f210736",
+      "bytes": 29597,
+      "kind": "bbmodel"
+    },
+    "mobs/tamed-wild-boar.bbmodel": {
+      "url": "/assets/models/mobs_tamed-wild-boar.2d2fc6aeda5b.bbmodel",
+      "sha256": "2d2fc6aeda5bed7bb221ebde556d4b3360d7639cbf7484790ec1e760a580e23f",
+      "bytes": 26769,
+      "kind": "bbmodel"
+    },
+    "npcs/armored-soldier.bbmodel": {
+      "url": "/assets/models/npcs_armored-soldier.79d42564280b.bbmodel",
+      "sha256": "79d42564280b4244af625742e54ff2077995c08b81519e173a70e02f91f2772f",
+      "bytes": 21757,
+      "kind": "bbmodel"
+    },
+    "npcs/curvy-nurse.bbmodel": {
+      "url": "/assets/models/npcs_curvy-nurse.eb37af64e6f1.bbmodel",
+      "sha256": "eb37af64e6f1e4e3af4aaa88cf4739a818cca8a394b3365f86d552395c8353e9",
+      "bytes": 27376,
+      "kind": "bbmodel"
+    },
+    "npcs/farmer.bbmodel": {
+      "url": "/assets/models/npcs_farmer.0ca5f4dd9f85.bbmodel",
+      "sha256": "0ca5f4dd9f8564a0ae7e4b7db79f194cc400af0a8dda43bf25bfb81955cb7edf",
+      "bytes": 31053,
+      "kind": "bbmodel"
+    },
+    "npcs/military-chef-npc.bbmodel": {
+      "url": "/assets/models/npcs_military-chef-npc.37e22300c0f1.bbmodel",
+      "sha256": "37e22300c0f17b8543d5d00bd0a98246abe9ac65f9306cb68654f8e255857385",
+      "bytes": 22666,
+      "kind": "bbmodel"
+    },
+    "npcs/special-forces-soldier.bbmodel": {
+      "url": "/assets/models/npcs_special-forces-soldier.8519fcde91a1.bbmodel",
+      "sha256": "8519fcde91a12fe9c056e9fe1e6b5a2ac99f1999ae6e15881ed59bebff05c608",
+      "bytes": 24981,
+      "kind": "bbmodel"
+    },
+    "npcs/weapon-merchant-npc.bbmodel": {
+      "url": "/assets/models/npcs_weapon-merchant-npc.9738e37ed9bc.bbmodel",
+      "sha256": "9738e37ed9bc1385835e253126ec25aa2a573fcf564715f8b94c0f73612d1a7b",
+      "bytes": 16465,
+      "kind": "bbmodel"
+    },
+    "plains/potato-field-plants-0.bbmodel": {
+      "url": "/assets/models/plains_potato-field-plants-0.8d4bc7b01bfe.bbmodel",
+      "sha256": "8d4bc7b01bfe029b58d6962a137245cf3e87fd98846268890564910b76f64f03",
+      "bytes": 12710,
+      "kind": "bbmodel"
+    },
+    "plains/potato-field-plants-1.bbmodel": {
+      "url": "/assets/models/plains_potato-field-plants-1.c7ca34107f9d.bbmodel",
+      "sha256": "c7ca34107f9db8e182b0922fc1ccab596764786964ca13adf015d2ab3feee47c",
+      "bytes": 12645,
+      "kind": "bbmodel"
+    },
+    "plains/potato-field-plants-done.bbmodel": {
+      "url": "/assets/models/plains_potato-field-plants-done.e8b70b3f1cd6.bbmodel",
+      "sha256": "e8b70b3f1cd643e67deb319268a8b4e37ea375c06dded07bed0ffc27e385566f",
+      "bytes": 18475,
+      "kind": "bbmodel"
+    },
+    "pump-shotgun.bbmodel": {
+      "url": "/assets/models/pump-shotgun.5b7a1b543c38.bbmodel",
+      "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
+      "bytes": 12792,
+      "kind": "bbmodel"
+    },
+    "teen-wasteland-survivor.bbmodel": {
+      "url": "/assets/models/teen-wasteland-survivor.7e02c6153a8f.bbmodel",
+      "sha256": "7e02c6153a8fb6051a1816a3bc079d604a2e6175c2874e0d04cd7a43882a4163",
+      "bytes": 100871,
+      "kind": "bbmodel"
+    },
+    "tools/first-aid-kit.bbmodel": {
+      "url": "/assets/models/tools_first-aid-kit.6186db16d301.bbmodel",
+      "sha256": "6186db16d3016411f0c7162e05c794338d7afd0bcc30ad30f3c54d470dd2163a",
+      "bytes": 7613,
+      "kind": "bbmodel"
+    },
+    "tools/flashlight.bbmodel": {
+      "url": "/assets/models/tools_flashlight.b3efedd13fc3.bbmodel",
+      "sha256": "b3efedd13fc396ad58dab5ec96c7ad498366828981a31404e4f15e3bb0c52449",
+      "bytes": 5213,
+      "kind": "bbmodel"
+    },
+    "tools/shovel.bbmodel": {
+      "url": "/assets/models/tools_shovel.cc1ca1e5bbef.bbmodel",
+      "sha256": "cc1ca1e5bbef61d496ce0ba40114312e9b4afbcf2232576f087cc5dd0653f188",
+      "bytes": 5019,
+      "kind": "bbmodel"
+    },
+    "weapons/ak47-rifle.bbmodel": {
+      "url": "/assets/models/weapons_ak47-rifle.e33716dcbb96.bbmodel",
+      "sha256": "e33716dcbb968942f7fd60188689549a01ae3837097da809465898b92554999a",
+      "bytes": 13735,
+      "kind": "bbmodel"
+    },
+    "weapons/ammo-box-556-nato.bbmodel": {
+      "url": "/assets/models/weapons_ammo-box-556-nato.130c0d81b123.bbmodel",
+      "sha256": "130c0d81b12340bce6aeb4572ff30562f5e4208088819d72ae50dc09239f01ae",
+      "bytes": 10987,
+      "kind": "bbmodel"
+    },
+    "weapons/ammo-box-762x54r.bbmodel": {
+      "url": "/assets/models/weapons_ammo-box-762x54r.47f7240d6055.bbmodel",
+      "sha256": "47f7240d605517bfbde9092c40a50b9edb1427b06632bafa88e296b264f03793",
+      "bytes": 11382,
+      "kind": "bbmodel"
+    },
+    "weapons/arrow-quiver.bbmodel": {
+      "url": "/assets/models/weapons_arrow-quiver.0d172157a901.bbmodel",
+      "sha256": "0d172157a90138b64d21e7da21a205480c2072b3450c52dd7a6dac4d12a7c356",
+      "bytes": 12031,
+      "kind": "bbmodel"
+    },
+    "weapons/arrow.bbmodel": {
+      "url": "/assets/models/weapons_arrow.29a859eb98bb.bbmodel",
+      "sha256": "29a859eb98bb2aec68cc2607b0672acdca27d8d4068e30e2ff51d8561184a082",
+      "bytes": 6950,
+      "kind": "bbmodel"
+    },
+    "weapons/awm-sniper-4x.bbmodel": {
+      "url": "/assets/models/weapons_awm-sniper-4x.d94b10b7ebc3.bbmodel",
+      "sha256": "d94b10b7ebc3bba691f2f4d40516fe2097482134ac27835737030a07a4e9e24e",
+      "bytes": 14550,
+      "kind": "bbmodel"
+    },
+    "weapons/cay-quam.bbmodel": {
+      "url": "/assets/models/weapons_cay-quam.3fcfd1282b7d.bbmodel",
+      "sha256": "3fcfd1282b7d25d3ab0c4594d4acce1a1208a032015ea27a0d956fdd3cfd45d2",
+      "bytes": 9686,
+      "kind": "bbmodel"
+    },
+    "weapons/double-barrel-shotgun.bbmodel": {
+      "url": "/assets/models/weapons_double-barrel-shotgun.33697e71b185.bbmodel",
+      "sha256": "33697e71b185a680b9ffc3f3d0cc5f4fb6925abb96820f097d104458e2ca8e6a",
+      "bytes": 10261,
+      "kind": "bbmodel"
+    },
+    "weapons/flamethrower-fuel-tank.bbmodel": {
+      "url": "/assets/models/weapons_flamethrower-fuel-tank.1dde5aa5fe07.bbmodel",
+      "sha256": "1dde5aa5fe07fa81e843e004b5d5f0b03a68d12f560162a9af211434e8173f4c",
+      "bytes": 17085,
+      "kind": "bbmodel"
+    },
+    "weapons/flamethrower.bbmodel": {
+      "url": "/assets/models/weapons_flamethrower.a7ef476aec81.bbmodel",
+      "sha256": "a7ef476aec813d71fc3a21e68727c74ab1fb822b3ed3f9c67e0f123c28f2808c",
+      "bytes": 14063,
+      "kind": "bbmodel"
+    },
+    "weapons/frag-grenade.bbmodel": {
+      "url": "/assets/models/weapons_frag-grenade.fee10debfc8e.bbmodel",
+      "sha256": "fee10debfc8edc7fd9477db1ffa842d20f0b8b747126229c9dd2a0a7a6e75731",
+      "bytes": 13243,
+      "kind": "bbmodel"
+    },
+    "weapons/glock-18.bbmodel": {
+      "url": "/assets/models/weapons_glock-18.c5aa76944bdb.bbmodel",
+      "sha256": "c5aa76944bdb6854f340a2ddb6ec9d68e813a4e85a79403c6d64cbd26b49eba5",
+      "bytes": 11840,
+      "kind": "bbmodel"
+    },
+    "weapons/grenade-40mm-retail-pack.bbmodel": {
+      "url": "/assets/models/weapons_grenade-40mm-retail-pack.b60528bd6471.bbmodel",
+      "sha256": "b60528bd6471805a356e2fdb1d550d1feba7a3fa132c4bcf10b7dd0a28656b41",
+      "bytes": 15512,
+      "kind": "bbmodel"
+    },
+    "weapons/grenade-launcher-round.bbmodel": {
+      "url": "/assets/models/weapons_grenade-launcher-round.7b25fa039892.bbmodel",
+      "sha256": "7b25fa039892d8f9beba9e71aec7e94b828f83d6e915e8c7f6cb552ab576ca11",
+      "bytes": 7308,
+      "kind": "bbmodel"
+    },
+    "weapons/grenade-launcher.bbmodel": {
+      "url": "/assets/models/weapons_grenade-launcher.56aa68b254ca.bbmodel",
+      "sha256": "56aa68b254cae8bfe4d93cab1ba3f56004cfdf436dda99057b3ba93c6a372983",
+      "bytes": 13191,
+      "kind": "bbmodel"
+    },
+    "weapons/katana.bbmodel": {
+      "url": "/assets/models/weapons_katana.9f189157c33c.bbmodel",
+      "sha256": "9f189157c33c59938f70fda31c9fc5b7f40f09213fcd34e51d0123b0b855ab30",
+      "bytes": 8427,
+      "kind": "bbmodel"
+    },
+    "weapons/m4a1-rifle.bbmodel": {
+      "url": "/assets/models/weapons_m4a1-rifle.95bfe82a968e.bbmodel",
+      "sha256": "95bfe82a968e338c632f9cc43ea4df48de68a2e338955148a2a05bec63532a00",
+      "bytes": 10903,
+      "kind": "bbmodel"
+    },
+    "weapons/modern-crossbow.bbmodel": {
+      "url": "/assets/models/weapons_modern-crossbow.ccf0bca85bdc.bbmodel",
+      "sha256": "ccf0bca85bdc6463e47b236af1bb3a058b7d006380e66558f98377464ace1ecd",
+      "bytes": 16426,
+      "kind": "bbmodel"
+    },
+    "weapons/mp5-smg.bbmodel": {
+      "url": "/assets/models/weapons_mp5-smg.63e40b52e375.bbmodel",
+      "sha256": "63e40b52e3757897f2e037ce9d4127d7d764de950f3623761086e0862a9881ff",
+      "bytes": 10222,
+      "kind": "bbmodel"
+    },
+    "weapons/pump-shotgun.bbmodel": {
+      "url": "/assets/models/weapons_pump-shotgun.5b7a1b543c38.bbmodel",
+      "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
+      "bytes": 12792,
+      "kind": "bbmodel"
+    },
+    "weapons/revolver.bbmodel": {
+      "url": "/assets/models/weapons_revolver.ccc91cd1918f.bbmodel",
+      "sha256": "ccc91cd1918f4c95ddf0d5004d9c3c814ba265aa5641fbaacde018336ccd0e50",
+      "bytes": 10290,
+      "kind": "bbmodel"
+    },
+    "weapons/rocket-launcher.bbmodel": {
+      "url": "/assets/models/weapons_rocket-launcher.25cfeeb7e63d.bbmodel",
+      "sha256": "25cfeeb7e63d5d684a7ba6ab4c90f7a1438435bca7584776b06e43a91bfd3588",
+      "bytes": 10697,
+      "kind": "bbmodel"
+    },
+    "weapons/rocket-missile.bbmodel": {
+      "url": "/assets/models/weapons_rocket-missile.36f2c50957f7.bbmodel",
+      "sha256": "36f2c50957f712e533c3f9f60604522c7c4f62402fe14f508b8760087f63aed6",
+      "bytes": 9784,
+      "kind": "bbmodel"
+    },
+    "weapons/saiga-12-shotgun.bbmodel": {
+      "url": "/assets/models/weapons_saiga-12-shotgun.ff6bd8622d03.bbmodel",
+      "sha256": "ff6bd8622d03dca66a7022b40b79fd539b6d0b843841d71a6376b918a0903a66",
+      "bytes": 11732,
+      "kind": "bbmodel"
+    },
+    "weapons/steyr-aug.bbmodel": {
+      "url": "/assets/models/weapons_steyr-aug.41e197e478d8.bbmodel",
+      "sha256": "41e197e478d8a6f537751c2fc601f2a98500ecafaeea42d4633330439afc4b43",
+      "bytes": 11711,
+      "kind": "bbmodel"
+    },
+    "weapons/svd-dragunov.bbmodel": {
+      "url": "/assets/models/weapons_svd-dragunov.f53f91f06420.bbmodel",
+      "sha256": "f53f91f06420eeb07f2aedac78e883def99a6f8bf012d2c93ade19c1044439c3",
+      "bytes": 14531,
+      "kind": "bbmodel"
+    }
+  }
+}

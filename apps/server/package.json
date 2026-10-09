@@ -1,0 +1,40 @@
+{
+  "name": "@zion/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false --env-file-if-exists=.env src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "migrate": "tsx --env-file-if-exists=.env src/db/migrate-cli.ts",
+    "migrate:prod": "node dist/migrate-cli.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "smoke": "tsx scripts/smoke.ts",
+    "verify:camp": "tsx scripts/verify-camp.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.1",
+    "@fastify/cors": "^10.0.1",
+    "@fastify/helmet": "^13.0.0",
+    "@fastify/rate-limit": "^10.2.1",
+    "@zion/assets": "workspace:*",
+    "@zion/physics": "workspace:*",
+    "@zion/shared": "workspace:*",
+    "@zion/worldgen": "workspace:*",
+    "fastify": "^5.1.0",
+    "ioredis": "^5.4.1",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "pino-pretty": "^13.0.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2"
+  }
+}
