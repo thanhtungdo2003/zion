@@ -1,5 +1,6 @@
 import {
   type InvMessage,
+  type ClientMessage,
   BinaryMessageType,
   PROTOCOL_VERSION,
   decodeChunkBody,
@@ -142,6 +143,8 @@ export class GameConnection {
   sendChat(text: string, channel: 'world' | 'team' = 'world'): void {
     this.send({ t: 'chat', text: text.slice(0, 200), channel });
   }
+
+  sendTutorial(message: Extract<ClientMessage, { t: 'tutorial' }>): void { this.send(message); }
 
   /** Shop trade request (buy / sell one item); the answer is a 'wallet' message. */
   sendTrade(msg: { t: 'buy'; req: number; item: string } | { t: 'sell'; req: number; uid: number }): void {

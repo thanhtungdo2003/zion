@@ -116,10 +116,10 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
             <span className="q-kicker">Zion // Liên lạc</span>
             <h2>{name}</h2>
           </div>
-          <div className="q-tabs">
-            <button className={tab === 'quests' ? 'on' : ''} onClick={() => setTab('quests')}>Nhiệm vụ</button>
+          <div className="q-tabs" data-guide="npc-tabs">
+            <button data-guide="npc-quests" className={tab === 'quests' ? 'on' : ''} onClick={() => setTab('quests')}>Nhiệm vụ</button>
             <button className={tab === 'team' ? 'on' : ''} onClick={() => setTab('team')}><Icon name="lucide:users" /> Đội nhóm</button>
-            {trades.length > 0 && <button className={tab === 'trade' ? 'on' : ''} onClick={() => setTab('trade')}>Mua bán</button>}
+            {trades.length > 0 && <button data-guide="npc-trade" className={tab === 'trade' ? 'on' : ''} onClick={() => setTab('trade')}>Mua bán</button>}
           </div>
           <button className="q-close" onClick={onClose} title="Đóng (Esc)"><Icon name="lucide:x" /></button>
         </header>
@@ -158,7 +158,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                     </div>
                   )}
                   <Rewards q={sel} />
-                  <div className="q-actions">
+                  <div className="q-actions" data-guide="quest-actions">
                     {(sel.status === 'available' || sel.status === 'cancelled') && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('accept', sel.id)}>{qBusy ? <Spinner /> : sel.team ? 'Đội trưởng nhận nhiệm vụ' : 'Nhận nhiệm vụ'}</button>}
                     {sel.status === 'ready' && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Nhận thưởng'}</button>}
                     {sel.status === 'active' && !sel.team && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Giao đồ'}</button>}

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import './globals.css';
+import { BrowserControls } from '@/components/BrowserControls';
 
 export const metadata: Metadata = {
   title: 'ZION — The Last Light',
@@ -16,7 +17,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><BrowserControls />{children}</body>
     </html>
   );
 }

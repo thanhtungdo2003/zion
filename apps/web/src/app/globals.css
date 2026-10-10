@@ -695,6 +695,7 @@ button {
 .team-chat-log b { color: #5fe089; }
 .team-lobby-chat form { display: flex; gap: 6px; margin-top: 10px; }
 .team-lobby-chat input { width: 0; flex: 1; min-width: 0; padding: 8px; background: #0b0c0d; border: 1px solid var(--line); color: var(--text); font: 12px var(--sans); }
+.team-lobby-chat form > .btn { flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; }
 .team-lobby-chat .btn svg { width: 16px; height: 16px; }
 .team-deploy { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); }
 .menu.has-team .menu-launch { width: 300px; }
@@ -1590,7 +1591,7 @@ kbd {
 .hud-roll-bar div { height: 100%; background: var(--accent); }
 .hud-roll:not(.cooling) .hud-roll-bar div { background: var(--ok); }
 
-/* NPC speech bubble (positioned by the engine each frame). */
+/* Character speech bubble (positioned by the engine each frame). */
 .speech-bubble {
   position: absolute;
   left: 0;
@@ -1606,6 +1607,11 @@ kbd {
   pointer-events: none;
   z-index: 2;
   will-change: transform;
+}
+
+.speech-bubble.player-speech {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .speech-bubble::after {
@@ -1808,7 +1814,7 @@ kbd {
 .hud-health.dying .health-bar > div { background: var(--danger); transition: width 0.5s linear; }
 
 /* Character-led cinematic onboarding */
-.tutorial { position: absolute; inset: 0; z-index: 85; pointer-events: none; font-family: var(--sans); }
+.tutorial { position: absolute; inset: 0; z-index: 180; pointer-events: none; font-family: var(--sans); }
 .tutorial-shade { position: absolute; inset: 0; background: rgba(5, 6, 7, .62); }
 .tutorial-walk::before { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5, 6, 7, .55), transparent 40%); }
 /* Spotlight: the outside dims, the target itself is brightened and framed with amber brackets. */

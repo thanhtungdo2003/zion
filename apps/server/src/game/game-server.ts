@@ -1,4 +1,5 @@
 import { SharedChests } from './chests';
+import { recordZombieKill, tutorialProgress, tutorialProtected, updateTutorial } from './tutorial';
 import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
@@ -625,10 +626,10 @@ export class GameServer {
     for (const p of this.players.values()) this.sendLife(p);
   }
 
-  private cancelLifeAction(p: Player): void {
-    if (p.lifeAction?.kind === 'plant' || p.lifeAction?.kind === 'harvest') this.plotLocks.delete(p.lifeAction.target);
+  private cancelLifeAction(p: Player, notify = true): void {
+    if ((p.lifeAction?.kind === 'plant' || p.lifeAction?.kind === 'harvest') && this.plotLocks.get(p.lifeAction.target) === p.id) this.plotLocks.delete(p.lifeAction.target);
     p.lifeAction = null;
-    this.sendLife(p);
+    if (notify) this.sendLife(p);
   }
 
   private sendLife(p: Player): void {
@@ -745,6 +746,7 @@ export class GameServer {
         const updated = world.animals?.[id];
         if (updated) { Object.assign(animal.record, updated); world.animals![id] = animal.record; }
       }
+      owner.life.tutorial = p.life.tutorial;
       p.life = owner.life;
       p.journal = owner.journal;
       p.coins = owner.coins;
@@ -913,6 +915,7 @@ export class GameServer {
     this.sendQuests(player);
     this.sendTeam(player);
     this.sendLife(player);
+    player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
     session.sendJson(this.npcList());
     session.sendJson({ t: 'coins', drops: [...this.coinDrops].map(([id, c]) => ({ id, x: c.x, y: c.y, z: c.z, amount: c.amount })) });
@@ -925,8 +928,7 @@ export class GameServer {
     if (!p) return;
     session.player = null;
     if (this.players.get(p.id) !== p) return;
-    if (p.lifeAction?.kind === 'plant') this.plotLocks.delete(p.lifeAction.target);
-    p.lifeAction = null;
+    this.cancelLifeAction(p, false);
     p.active = false;
     this.players.delete(p.id);
     this.deps.teams?.position(p.accountId, null);
@@ -953,6 +955,11 @@ export class GameServer {
 
   handleMessage(session: ClientSession, msg: ClientMessage): void {
     const p = session.player;
+    if (p && msg.t === 'tutorial') {
+      updateTutorial(p, msg, this.serverTime);
+      p.session.sendJson({ t: 'tutorialState', ...tutorialProgress(p) });
+      return;
+    }
     if (!p || p.questBusy) return;
     switch (msg.t) {
       case 'life':
@@ -1255,8 +1262,7 @@ export class GameServer {
       if (p.lifeAction && Math.hypot(p.state.x - p.lifeAction.x, p.state.z - p.lifeAction.z) > 0.05) this.cancelLifeAction(p);
       if (p.lifeAction && Date.now() >= p.lifeAction.end && !this.lifeBusy) {
         const a = p.lifeAction;
-        p.lifeAction = null;
-        if (a.kind === 'plant' || a.kind === 'harvest') this.plotLocks.delete(a.target);
+        this.cancelLifeAction(p, false);
         void this.commitLife(p, { t: 'life', op: a.kind, target: a.target, choice: a.choice }, true, a.cookBatch);
       }
       if (p.questBusy) continue;
@@ -1376,6 +1382,7 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
+    if (tutorialProtected(p, this.serverTime)) buttons &= ~Buttons.Attack;
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     if (p.reloadUid || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
@@ -1506,7 +1513,7 @@ export class GameServer {
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else {
       const t = target as Player;
-      if (this.allied(attacker, t)) return;
+      if (this.allied(attacker, t) || tutorialProtected(t, this.serverTime)) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now);
       if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now);
     }
@@ -1542,13 +1549,15 @@ export class GameServer {
     };
     this.broadcastAt(zb.state.x, zb.state.z, msgHit);
     if (res.killed) {
+      const firstKill = attacker ? recordZombieKill(attacker) : false;
       if (attacker) {
         this.queueQuestEvent(attacker, { type: 'kill', target: 'zombie' });
         void this.deps.teams?.progress(attacker.accountId, { x: zb.state.x, z: zb.state.z }).catch((err: unknown) => this.log.error({ err }, 'team kill progress failed'));
       }
       this.broadcastAt(zb.state.x, zb.state.z, { t: 'death', playerId: zb.id, killerId: sourceId || null });
       // Some zombies drop a ZCoin where they fell; whoever picks it up gets it.
-      if (Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
+      if (firstKill || Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
+      if (firstKill && attacker) attacker.session.sendJson({ t: 'tutorialState', ...tutorialProgress(attacker) });
     }
   }
 
@@ -1562,7 +1571,7 @@ export class GameServer {
   private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void {
     const attacker = attackerId !== null ? this.players.get(attackerId) : undefined;
     if (attacker && this.allied(attacker, t)) return;
-    if (t.dead || amount <= 0) return;
+    if (t.dead || amount <= 0 || tutorialProtected(t, this.serverTime)) return;
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now)); return; }
     if (t.downed) {
       // Hitting someone who is down drains what is left of their bleed-out.
@@ -1643,7 +1652,7 @@ export class GameServer {
   /** Bleeding out, and revives in progress. */
   private stepDowned(now: number): void {
     for (const p of this.players.values()) {
-      if (p.downed) {
+      if (p.downed && !tutorialProtected(p, now)) {
         p.bleed -= (100 / 60) * TICK_DT;
         if (p.bleed <= 0) this.killPlayer(p, null, now);
       }

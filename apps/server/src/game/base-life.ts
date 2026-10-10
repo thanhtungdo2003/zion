@@ -1,10 +1,11 @@
-import { InventoryModel, type BaseLifeConfig, type CookingBatch } from '@zion/shared';
+import { InventoryModel, type BaseLifeConfig, type CookingBatch, type TutorialProgress } from '@zion/shared';
 export interface LifePlayer {
   stamina: number;
   capacity: number;
   quotas: Record<string, { start: number; used: number; blockedUntil: number }>;
   /** Fed until then: capacity does not drain. */
   fullUntil?: number;
+  tutorial?: TutorialProgress;
 }
 export interface PlotState { crop: string; stage: number }
 export interface AnimalRecord { health: number; x: number; y: number; z: number; loot: number; diedAt?: number }

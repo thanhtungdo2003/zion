@@ -1,4 +1,5 @@
 import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
+import type { ClientMessage } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
 import { mobileAimScore } from './mobile-aim';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -536,6 +537,8 @@ export class GameEngine {
     this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.hud.get().mapOpen;
   }
 
+  tutorial(message: Extract<ClientMessage, { t: 'tutorial' }>): void { this.conn.sendTutorial(message); }
+
   setMapOpen(open: boolean): void {
     this.hud.set({ mapOpen: open });
     this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open;
@@ -1028,6 +1031,9 @@ export class GameEngine {
       case 'reviving':
         this.hud.set({ reviving: m.target ? { start: performance.now(), end: performance.now() + m.durationMs } : null });
         break;
+      case 'tutorialState':
+        this.hud.set({ tutorial: m });
+        break;
       case 'speech':
         this.showSpeech(m.npc, m.text, m.duration, m.x, m.y, m.z);
         break;
@@ -1066,9 +1072,14 @@ export class GameEngine {
         clearPending('quest:team_*');
         break;
       }
-      case 'chat':
-        this.hud.pushChat({ from: m.from, text: m.text, system: m.system });
+      case 'chat': {
+        this.hud.pushChat({ from: m.from, text: m.text, system: m.system, channel: m.channel });
+        if (!m.system && (m.channel ?? 'world') === 'world') {
+          const position = m.fromId === this.welcome?.playerId ? this.localAvatar?.root.position : this.remotes.get(m.fromId)?.avatar.root.position;
+          if (position) this.showSpeech(m.fromId, m.text, Math.min(8000, Math.max(4000, m.text.length * 65)), position.x, position.y, position.z, true);
+        }
         break;
+      }
       case 'hit':
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
@@ -1455,16 +1466,16 @@ export class GameEngine {
 
   private guidesKey = '';
 
-  /** NPC speech bubbles: crisp HTML over the canvas, following the speaker. */
-  private bubbles: Array<{ el: HTMLDivElement; npc: number; x: number; y: number; z: number; until: number }> = [];
+  /** Speech bubbles follow rendered character positions, including world chat. */
+  private bubbles: Array<{ el: HTMLDivElement; npc: number; x: number; y: number; z: number; until: number; player: boolean }> = [];
 
-  private showSpeech(npc: number, text: string, duration: number, x: number, y: number, z: number): void {
-    for (const b of this.bubbles.filter((b) => b.npc === npc)) b.until = 0;
+  private showSpeech(npc: number, text: string, duration: number, x: number, y: number, z: number, player = false): void {
+    this.bubbles = this.bubbles.filter((b) => { if (b.npc !== npc) return true; b.el.remove(); return false; });
     const el = document.createElement('div');
-    el.className = 'speech-bubble';
+    el.className = player ? 'speech-bubble player-speech' : 'speech-bubble';
     el.textContent = text;
     this.container.appendChild(el);
-    this.bubbles.push({ el, npc, x, y, z, until: performance.now() + duration });
+    this.bubbles.push({ el, npc, x, y, z, until: performance.now() + duration, player });
   }
 
   private updateSpeech(now: number): void {
@@ -1473,10 +1484,13 @@ export class GameEngine {
     const h = this.container.clientHeight || window.innerHeight;
     this.bubbles = this.bubbles.filter((b) => {
       if (now >= b.until) { b.el.remove(); return false; }
-      const pose = this.remotes.get(b.npc)?.entity.pose;
+      const self = b.npc === this.welcome?.playerId;
+      const pose = self ? this.localAvatar?.root.position : this.remotes.get(b.npc)?.avatar.root.position;
+      if (b.player && !pose) { b.el.remove(); return false; }
       if (pose) { b.x = pose.x; b.y = pose.y; b.z = pose.z; }
       const v = this.guideTmp.set(b.x, b.y + 2.35, b.z).project(this.camera);
-      const visible = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+      const near = !b.player || this.camera.position.distanceToSquared(pose!) <= 35 * 35;
+      const visible = near && !(b.player && self && this.firstPerson) && v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       b.el.style.display = visible ? '' : 'none';
       if (visible) b.el.style.transform = `translate(${Math.round((v.x + 1) * 0.5 * w)}px, ${Math.round((1 - v.y) * 0.5 * h)}px) translate(-50%, -100%)`;
       b.el.style.opacity = b.until - now < 300 ? String((b.until - now) / 300) : '1';

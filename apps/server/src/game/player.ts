@@ -1,4 +1,5 @@
 import type { LifePlayer, TimedAction } from './base-life';
+import type { TutorialId } from '@zion/shared';
 import type { QuestEvent, QuestJournal } from './quests';
 import { CHUNK_SIZE, InventoryModel, NO_ARMOR, PLAYER_MAX_HEALTH, STARTING_ZCOIN, type ArmorLoadout, type InputMessage, type MeleeSpec } from '@zion/shared';
 import { HUMANOID_RIG, createCharacterState, type CharacterState } from '@zion/physics';
@@ -93,6 +94,7 @@ export class Player {
   lifeConfig: object | null = null;
   life!: LifePlayer;
   lifeAction: TimedAction | null = null;
+  tutorialActive: { id: TutorialId; until: number } | null = null;
   /** Earliest server time the next first aid kit may heal. */
   healReadyAt = 0;
   wireReadyAt = 0;

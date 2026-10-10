@@ -1,4 +1,4 @@
-import type { BaseLifeMessage, QuestStateMessage, TeamView } from '@zion/shared';
+import type { BaseLifeMessage, QuestStateMessage, TeamView, TutorialProgress } from '@zion/shared';
 import type { Msg } from '@/lib/i18n';
 
 /** Observable HUD state bridging the imperative engine and React (useSyncExternalStore). */
@@ -16,6 +16,7 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  tutorial: TutorialProgress | null;
   mapOpen: boolean;
   team: TeamView | null;
   tutorialAnchor: { x: number; y: number };
@@ -76,6 +77,7 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    tutorial: null,
     mapOpen: false,
     team: null,
     tutorialAnchor: { x: 0, y: 0 },

@@ -4,6 +4,9 @@ import { ACESFilmicToneMapping, AmbientLight, Box3, Clock, DirectionalLight, Gro
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HudState } from '@/game/hud-store';
 import { Icon } from './Icon';
+import type { ClientMessage, TutorialId } from '@zion/shared';
+import type { InventoryState } from '@/game/inventory/inventory';
+import { discoveryLesson, lessonContextOpen, type DiscoveryLesson } from '@/game/discovery-tutorial';
 
 /** Fired (e.g. from the settings panel) to replay the tutorial from the first step. */
 export const TUTORIAL_RESTART_EVENT = 'zion:tutorial-restart';
@@ -90,35 +93,69 @@ function DirectionArrow() {
   </svg>;
 }
 
-export function Onboarding({ hud, onBlock }: { hud: HudState; onBlock: (block: boolean) => void }) {
+export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState; inventory: InventoryState; onBlock: (block: boolean) => void; onGuide: (message: Extract<ClientMessage, { t: 'tutorial' }>) => void }) {
   const key = `zion:onboarding:v1:${hud.username}`;
   const [step, setStep] = useState(0); const [done, setDone] = useState(true);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [zone, setZone] = useState<Target | null>(null);
-  useEffect(() => { if (hud.username) { try { const saved = localStorage.getItem(key); setDone(saved === 'done'); setStep(saved && saved !== 'done' ? Math.min(steps.length - 1, Math.max(0, Number(saved) || 0)) : 0); } catch { setDone(false); } } }, [key, hud.username]);
+  const [lesson, setLesson] = useState<DiscoveryLesson | null>(null), [lessonStep, setLessonStep] = useState(0);
+  const [replay, setReplay] = useState(false);
+  const [ready, setReady] = useState(false);
+  const initialized = useRef(''), localSeen = useRef(new Set<TutorialId>());
   useEffect(() => {
-    const restart = () => { setStep(0); setDone(false); setZone(null); try { localStorage.setItem(key, '0'); } catch { /* storage unavailable */ } };
+    if (!hud.username || !hud.tutorial || initialized.current === key) return;
+    initialized.current = key; localSeen.current.clear(); setLesson(null); setReplay(false); setReady(true);
+    try {
+      const saved = localStorage.getItem(key);
+      setDone(saved === 'done' || hud.tutorial.seen.includes('intro'));
+      setStep(saved && saved !== 'done' ? Math.min(steps.length - 1, Math.max(0, Number(saved) || 0)) : 0);
+    } catch { setDone(hud.tutorial.seen.includes('intro')); }
+  }, [key, hud.username, hud.tutorial]);
+  useEffect(() => {
+    const restart = () => { setStep(0); setDone(false); setZone(null); setLesson(null); setReplay(true); localSeen.current.clear(); try { localStorage.setItem(key, '0'); } catch { /* storage unavailable */ } };
     window.addEventListener(TUTORIAL_RESTART_EVENT, restart);
     return () => window.removeEventListener(TUTORIAL_RESTART_EVENT, restart);
   }, [key]);
-  const cur = steps[step];
+  useEffect(() => {
+    if (!ready || !done || hud.status !== 'playing' || !hud.tutorial || initialized.current !== key || hud.downed !== null) return;
+    if (lesson) { if (!lessonContextOpen(lesson, hud, inventory)) setLesson(null); return; }
+    const seen = new Set([...(!replay ? hud.tutorial.seen : []), ...localSeen.current]);
+    const found = discoveryLesson(hud, inventory, seen);
+    if (found) { localSeen.current.add(found.id); setLesson(found); setLessonStep(0); }
+  }, [done, hud, inventory, lesson, key, replay, ready]);
+  const currentSteps = lesson?.steps ?? steps;
+  const currentIndex = lesson ? lessonStep : step;
+  const cur: Step = currentSteps[currentIndex];
   const walking = !!cur.walk;
   const passive = walking || !!cur.wait;
-  const active = !done && hud.status === 'playing';
+  const active = (!done || !!lesson) && hud.status === 'playing';
+  const guideId = active ? lesson?.id ?? 'intro' : null;
+  useEffect(() => {
+    if (!guideId) return;
+    onGuide({ t: 'tutorial', op: 'open', id: guideId, replay });
+    const heartbeat = window.setInterval(() => onGuide({ t: 'tutorial', op: 'heartbeat' }), 10_000);
+    return () => { clearInterval(heartbeat); onGuide({ t: 'tutorial', op: 'close' }); };
+  }, [guideId, replay, onGuide]);
   const target = cur.walk ? hud.tutorialTargets.find((t) => t.id === cur.walk) : undefined;
-  const next = useCallback(() => { const n = step + 1; if (n >= steps.length) { setDone(true); try { localStorage.setItem(key, 'done'); } catch { /* storage unavailable */ } } else { setStep(n); try { localStorage.setItem(key, String(n)); } catch { /* storage unavailable */ } } }, [step, key]);
+  const next = useCallback(() => {
+    if (lesson) { if (lessonStep + 1 >= lesson.steps.length) setLesson(null); else setLessonStep((n) => n + 1); return; }
+    const n = step + 1;
+    if (n >= steps.length) { setDone(true); try { localStorage.setItem(key, 'done'); } catch { /* storage unavailable */ } }
+    else { setStep(n); try { localStorage.setItem(key, String(n)); } catch { /* storage unavailable */ } }
+  }, [step, key, lesson, lessonStep]);
   useEffect(() => { onBlock(active && !passive); return () => onBlock(false); }, [active, passive, onBlock]);
   useEffect(() => {
     if (!active || !cur.focus) { setRect(null); return; }
     let lit: Element | null = null;
     const update = () => {
-      const el = document.querySelector(cur.focus!);
+      const target = document.querySelector(cur.focus!);
+      const el = target ?? (lesson ? document.querySelector(lesson.context === 'npc' ? '.q-dialog' : lesson.context === 'inventory' ? '.inv-panel' : '.hud-health') : null);
       if (el !== lit) { lit?.classList.remove('tutorial-lit'); el?.classList.add('tutorial-lit'); lit = el; }
       setRect(el?.getBoundingClientRect() ?? null);
     };
     update(); const timer = window.setInterval(update, 250);
     return () => { clearInterval(timer); lit?.classList.remove('tutorial-lit'); };
-  }, [active, cur.focus]);
+  }, [active, cur.focus, lesson]);
   useEffect(() => {
     if (active && cur.walk && target && target.distance < ZONES[cur.walk].reach) { setZone(cur.walk); next(); }
   }, [active, cur.walk, target, next]);
@@ -142,14 +179,14 @@ export function Onboarding({ hud, onBlock }: { hud: HudState; onBlock: (block: b
     <section className="tutorial-dialog" style={rect && rect.top > window.innerHeight / 2 && !passive ? { top: '6%', bottom: 'auto' } : undefined} aria-label="Hướng dẫn tân thủ" aria-live="polite">
       <GuidePortrait />
       <div className="tutorial-body">
-        <header><small>CATTAIL // NGƯỜI ĐỒNG HÀNH</small><span>{String(step + 1).padStart(2, '0')}/{String(steps.length).padStart(2, '0')}</span></header>
-        <div className="tutorial-progress">{steps.map((_, i) => <i key={i} className={i < step ? 'done' : i === step ? 'on' : ''} />)}</div>
+        <header><small>CATTAIL // NGƯỜI ĐỒNG HÀNH</small><span>{String(currentIndex + 1).padStart(2, '0')}/{String(currentSteps.length).padStart(2, '0')}</span></header>
+        <div className="tutorial-progress">{currentSteps.map((_, i) => <i key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'on' : ''} />)}</div>
         <h2>{cur.title}</h2><p>{cur.text}</p>
         <footer>
           {passive
             ? <strong><Icon name="game-icons:compass" /> {cur.wait ? 'Đang chờ bạn nhận nhiệm vụ' : 'Di chuyển đến vị trí được chỉ dẫn'}</strong>
-            : <button className="btn btn-primary" onClick={next}>{step === steps.length - 1 ? 'Bắt đầu sinh tồn' : 'Tiếp tục'} <Icon name="lucide:arrow-right" /></button>}
-          <button type="button" className="tutorial-skip" onClick={() => { setDone(true); try { localStorage.setItem(key, 'done'); } catch { /* storage unavailable */ } }}>Bỏ qua</button>
+            : <button className="btn btn-primary" onClick={next}>{currentIndex === currentSteps.length - 1 ? lesson ? 'Đã hiểu' : 'Bắt đầu sinh tồn' : 'Tiếp tục'} <Icon name="lucide:arrow-right" /></button>}
+          <button type="button" className="tutorial-skip" onClick={() => { if (lesson) { setLesson(null); return; } setDone(true); try { localStorage.setItem(key, 'done'); } catch { /* storage unavailable */ } }}>Bỏ qua</button>
         </footer>
       </div>
     </section>

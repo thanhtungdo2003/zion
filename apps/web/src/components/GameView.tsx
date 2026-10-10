@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { WEAPON_BY_ITEM, weaponSpec } from '@zion/shared';
+import { WEAPON_BY_ITEM, weaponSpec, type ClientMessage } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { MobileControls, type TouchControlsPort } from './MobileControls';
 import { GameEngine } from '@/game/engine';
@@ -74,6 +74,7 @@ export default function GameView() {
   const blockTutorial = useCallback((block: boolean) => {
     setTutorialBlocked(block); engineRef.current?.setTutorialBlocked(block);
   }, []);
+  const guideTutorial = useCallback((message: Extract<ClientMessage, { t: 'tutorial' }>) => engineRef.current?.tutorial(message), []);
 
   const inWorld = hud.status === 'playing' || hud.status === 'dead';
   useEffect(() => {
@@ -131,7 +132,7 @@ export default function GameView() {
       {inWorld && hud.downed !== null && <DownedPanel bleed={hud.downed} onHelp={() => engineRef.current?.callForHelp()} onGiveUp={() => engineRef.current?.giveUp()} />}
       {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
-      {inWorld && <Onboarding hud={hud} onBlock={blockTutorial} />}
+      {inWorld && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}

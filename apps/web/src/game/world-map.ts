@@ -1,5 +1,13 @@
 import type { WorldAtlas, WorldInfo } from '@zion/shared';
 import { currentAccount, getWorldAtlas } from '@/lib/api';
+import type { MapCamera } from './map-camera';
+
+function savedCamera(value: unknown): MapCamera | null {
+  if (!value || typeof value !== 'object') return null;
+  const c = value as MapCamera;
+  return Number.isFinite(c.x) && Number.isFinite(c.z) && Number.isFinite(c.scale) && c.scale > 0
+    ? { x: c.x, z: c.z, scale: Math.max(0.025, Math.min(8, c.scale)) } : null;
+}
 
 export const MAP_ICONS = [
   { id: 'lucide:flag', name: 'Cờ' }, { id: 'lucide:house', name: 'Nhà' },
@@ -44,11 +52,12 @@ export class Exploration {
 export interface MapState {
   world: WorldInfo | null; atlas: WorldAtlas | null; error: string | null;
   locations: MapLocation[]; arrows: boolean; revision: number;
+  camera: MapCamera | null;
 }
 
 /** Personal map notebook, saved per account and world in this browser. */
 export class WorldMapStore {
-  private state: MapState = { world: null, atlas: null, error: null, locations: [], arrows: true, revision: 0 };
+  private state: MapState = { world: null, atlas: null, error: null, locations: [], arrows: true, revision: 0, camera: null };
   exploration = new Exploration();
   private key = '';
   private listeners = new Set<() => void>();
@@ -66,16 +75,17 @@ export class WorldMapStore {
     this.flush();
     this.key = `zion.map.v1:${currentAccount()?.id ?? 'guest'}:${world.worldId}:${world.cosmeticSeed}:${world.generatorVersion}:${world.sizeChunks}`;
     this.exploration = new Exploration(); this.fixedGuides = {}; this.lastPosition = '';
-    let locations: MapLocation[] = [], arrows = true;
+    let locations: MapLocation[] = [], arrows = true, camera: MapCamera | null = null;
     try {
       const saved = JSON.parse(localStorage.getItem(this.key) ?? 'null');
       if (saved) {
         this.exploration = new Exploration(saved.rows ?? []);
         locations = (saved.locations ?? []).filter((m: MapLocation) => !m.fixed && typeof m.id === 'string' && typeof m.name === 'string' && Number.isFinite(m.x) && Number.isFinite(m.z) && MAP_ICONS.some((i) => i.id === m.icon)).slice(0, 100);
         this.fixedGuides = saved.fixedGuides ?? {}; arrows = saved.arrows !== false;
+        camera = savedCamera(saved.camera);
       }
     } catch { /* Empty or unavailable browser storage. */ }
-    this.emit({ world, atlas: null, error: null, locations, arrows });
+    this.emit({ world, atlas: null, error: null, locations, arrows, camera });
     this.updateFixed([]);
     void this.loadAtlas();
   }
@@ -128,11 +138,16 @@ export class WorldMapStore {
   }
   remove(id: string): void { this.emit({ locations: this.state.locations.filter((m) => m.fixed || m.id !== id) }); this.saveSoon(); }
   setArrows(arrows: boolean): void { this.emit({ arrows }); this.saveSoon(); }
+  setCamera(value: MapCamera): void {
+    const camera = savedCamera(value);
+    if (!camera || (camera.x === this.state.camera?.x && camera.z === this.state.camera?.z && camera.scale === this.state.camera?.scale)) return;
+    this.emit({ camera }); this.saveSoon();
+  }
   private saveSoon(): void { if (!this.timer) this.timer = setTimeout(() => this.flush(), 3000); }
   flush(): void {
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     if (!this.key) return;
-    try { localStorage.setItem(this.key, JSON.stringify({ rows: this.exploration.serialize(), locations: this.state.locations.filter((m) => !m.fixed), fixedGuides: this.fixedGuides, arrows: this.state.arrows })); } catch { /* Keep playing if browser storage is full. */ }
+    try { localStorage.setItem(this.key, JSON.stringify({ rows: this.exploration.serialize(), locations: this.state.locations.filter((m) => !m.fixed), fixedGuides: this.fixedGuides, arrows: this.state.arrows, camera: this.state.camera })); } catch { /* Keep playing if browser storage is full. */ }
   }
   dispose(): void { this.flush(); this.generation++; }
 }

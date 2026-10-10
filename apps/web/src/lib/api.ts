@@ -1,4 +1,4 @@
-import type { GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
+import type { AtlasTile, GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
@@ -8,6 +8,11 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000
 export async function getWorldAtlas(): Promise<WorldAtlas> {
   await ensureAccess();
   return request<WorldAtlas>('/api/game/atlas', { auth: true });
+}
+
+export async function getAtlasTile(x: number, z: number): Promise<AtlasTile> {
+  await ensureAccess();
+  return request<AtlasTile>(`/api/game/atlas/${x}/${z}`, { auth: true });
 }
 
 export interface AccountInfo {

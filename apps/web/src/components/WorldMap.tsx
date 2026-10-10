@@ -4,13 +4,50 @@ import type { HudState } from '@/game/hud-store';
 import { MAP_ICONS, type WorldMapStore } from '@/game/world-map';
 import { mapToScreen, screenToMap, zoomMap, type MapCamera } from '@/game/map-camera';
 import { Icon } from './Icon';
+import { AtlasTiles } from '@/game/atlas-tiles';
+
+function decodeRaster(source: { pixels: number; rgb: string }): HTMLCanvasElement {
+  const cv = document.createElement('canvas'); cv.width = cv.height = source.pixels;
+  const ctx = cv.getContext('2d')!, data = ctx.createImageData(cv.width, cv.height), rgb = atob(source.rgb);
+  for (let i = 0; i < cv.width * cv.height; i++) {
+    data.data[i * 4] = rgb.charCodeAt(i * 3); data.data[i * 4 + 1] = rgb.charCodeAt(i * 3 + 1); data.data[i * 4 + 2] = rgb.charCodeAt(i * 3 + 2); data.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(data, 0, 0);
+  return cv;
+}
 
 export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: HudState; onClose: () => void }) {
   const state = useSyncExternalStore(store.subscribe, store.get, store.get);
   const host = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), close = useRef<HTMLButtonElement>(null);
   const [size, setSize] = useState({ width: 600, height: 500 });
-  const [camera, setCamera] = useState<MapCamera>(() => ({ x: state.world?.camp?.x ?? hud.position[0], z: state.world?.camp?.z ?? hud.position[2], scale: 0.2 }));
-  const fitted = useRef(false);
+  const [camera, setCamera] = useState<MapCamera>(() => state.camera ?? ({ x: state.world?.camp?.x ?? hud.position[0], z: state.world?.camp?.z ?? hud.position[2], scale: 0.2 }));
+  const fitted = useRef(!!state.camera);
+  const tiles = useRef<AtlasTiles | null>(null);
+  const tileRasters = useRef(new Map<string, HTMLCanvasElement>());
+  const [tileRevision, setTileRevision] = useState(0);
+  useEffect(() => {
+    if (!state.world) return;
+    const cache = new AtlasTiles(state.world.worldId, () => setTileRevision((n) => n + 1));
+    tiles.current = cache;
+    const rasters = tileRasters.current;
+    return () => { cache.dispose(); rasters.clear(); tiles.current = null; };
+  }, [state.world]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!state.world || camera.scale < 0.75) { tiles.current?.setVisible([]); return; }
+      const tl = screenToMap(0, 0, size.width, size.height, camera), br = screenToMap(size.width, size.height, size.width, size.height, camera);
+      const count = Math.ceil(state.world.sizeChunks * state.world.chunkSize / 256), keys: Array<{ key: string; distance: number }> = [];
+      for (let z = Math.max(0, Math.floor(tl.z / 256)); z <= Math.min(count - 1, Math.floor(br.z / 256)); z++) {
+        for (let x = Math.max(0, Math.floor(tl.x / 256)); x <= Math.min(count - 1, Math.floor(br.x / 256)); x++) {
+          keys.push({ key: `${x}:${z}`, distance: Math.hypot(x * 256 + 128 - camera.x, z * 256 + 128 - camera.z) });
+        }
+      }
+      tiles.current?.setVisible(keys.sort((a, b) => a.distance - b.distance).slice(0, 64).map((k) => k.key));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [camera, size, state.world]);
+  useEffect(() => { if (fitted.current) store.setCamera(camera); }, [camera, store]);
+  useEffect(() => { void store.loadAtlas(); return () => store.flush(); }, [store]);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ x: number; z: number } | null>(null);
   const [name, setName] = useState(''), [icon, setIcon] = useState<string>(MAP_ICONS[0].id);
@@ -34,13 +71,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
   }, []);
   useEffect(() => {
     if (!state.atlas) return;
-    const cv = document.createElement('canvas'); cv.width = cv.height = state.atlas.pixels;
-    const ctx = cv.getContext('2d')!;
-    const data = ctx.createImageData(cv.width, cv.height), rgb = atob(state.atlas.rgb);
-    for (let i = 0; i < cv.width * cv.height; i++) {
-      data.data[i * 4] = rgb.charCodeAt(i * 3); data.data[i * 4 + 1] = rgb.charCodeAt(i * 3 + 1); data.data[i * 4 + 2] = rgb.charCodeAt(i * 3 + 2); data.data[i * 4 + 3] = 255;
-    }
-    ctx.putImageData(data, 0, 0); raster.current = cv;
+    raster.current = decodeRaster(state.atlas);
   }, [state.atlas]);
   useEffect(() => {
     const cv = canvas.current, atlas = state.atlas;
@@ -62,11 +93,30 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     const origin = to(0, 0), worldSize = state.world ? state.world.sizeChunks * state.world.chunkSize : 4096;
     ctx.fillStyle = '#26352b'; ctx.fillRect(origin.x, origin.y, worldSize * camera.scale, worldSize * camera.scale);
     if (atlas && raster.current) { ctx.imageSmoothingEnabled = true; ctx.drawImage(raster.current, origin.x, origin.y, atlas.size * camera.scale, atlas.size * camera.scale); }
+    if (camera.scale >= 0.75 && tiles.current) {
+      for (const key of tileRasters.current.keys()) if (!tiles.current.tiles.has(key)) tileRasters.current.delete(key);
+      for (const [key, tile] of tiles.current.tiles) {
+        const p = to(tile.x, tile.z), side = tile.size * camera.scale;
+        if (p.x + side < 0 || p.y + side < 0 || p.x > size.width || p.y > size.height) continue;
+        let image = tileRasters.current.get(key);
+        if (!image) { image = decodeRaster(tile); tileRasters.current.set(key, image); }
+        ctx.imageSmoothingEnabled = false; ctx.drawImage(image, p.x, p.y, side, side);
+      }
+    }
     if (atlas) for (const building of atlas.structures) {
       const p = to(building.x, building.z), r = Math.max(1.5, building.radius * camera.scale * 0.65);
       if (p.x < -r || p.y < -r || p.x > size.width + r || p.y > size.height + r) continue;
       ctx.fillStyle = '#685b44'; ctx.strokeStyle = '#b6a37c'; ctx.lineWidth = 0.7;
       ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2); ctx.strokeRect(p.x - r, p.y - r, r * 2, r * 2);
+    }
+    if (atlas?.campParts) for (const part of atlas.campParts) {
+      const p = to(part.x, part.z), radius = Math.hypot(part.halfX, part.halfZ) * camera.scale;
+      if (p.x < -radius || p.y < -radius || p.x > size.width + radius || p.y > size.height + radius) continue;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-part.yaw);
+      ctx.fillStyle = '#8b7958'; ctx.strokeStyle = '#ddc48a'; ctx.lineWidth = 0.8;
+      const hx = part.halfX * camera.scale, hz = part.halfZ * camera.scale;
+      ctx.fillRect(-hx, -hz, hx * 2, hz * 2); ctx.strokeRect(-hx, -hz, hx * 2, hz * 2);
+      ctx.restore();
     }
     ctx.restore();
     // Survey grid stays subtle; unknown terrain remains black beneath it.
@@ -76,7 +126,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     for (let x = Math.ceil(tl.x / grid) * grid; x < br.x; x += grid) { const p = to(x, 0); ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, size.height); ctx.stroke(); ctx.fillText(String(x), p.x + 4, 14); }
     for (let z = Math.ceil(tl.z / grid) * grid; z < br.z; z += grid) { const p = to(0, z); ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(size.width, p.y); ctx.stroke(); ctx.fillText(String(z), 4, p.y - 4); }
     if (camp) { const c = to(camp.x, camp.z); ctx.beginPath(); ctx.arc(c.x, c.y, 1000 * camera.scale, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,176,0,.45)'; ctx.setLineDash([5, 7]); ctx.stroke(); }
-  }, [camera, size, state.atlas, state.world, state.revision, store]);
+  }, [camera, size, state.atlas, state.world, state.revision, store, tileRevision]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;

@@ -78,4 +78,21 @@ describe('personal map notebook', () => {
     const changed = new WorldMapStore(); changed.initialize({ ...world, cosmeticSeed: 456 });
     expect(changed.known(3000, 3000)).toBe(false); changed.dispose();
   });
+  it('restores zoom and pan and isolates the saved view by world', () => {
+    const map = new WorldMapStore(); map.initialize(world);
+    map.setCamera({ x: 1800, z: 1900, scale: 3.5 }); map.dispose();
+    const reload = new WorldMapStore(); reload.initialize(world);
+    expect(reload.get().camera).toEqual({ x: 1800, z: 1900, scale: 3.5 });
+    reload.setCamera({ x: NaN, z: 0, scale: 1 });
+    expect(reload.get().camera?.x).toBe(1800);
+    reload.setCamera({ x: 1800, z: 1900, scale: 100 });
+    expect(reload.get().camera?.scale).toBe(8);
+    reload.initialize({ ...world, cosmeticSeed: 456 });
+    expect(reload.get().camera).toBeNull(); reload.dispose();
+  });
+  it('ignores malformed stored camera values', () => {
+    localStorage.setItem('zion.map.v1:alpha:world:123:1:128', JSON.stringify({ camera: { x: 'bad', z: 100, scale: 0 } }));
+    const map = new WorldMapStore(); map.initialize(world);
+    expect(map.get().camera).toBeNull(); map.dispose();
+  });
 });
