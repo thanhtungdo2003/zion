@@ -1,4 +1,4 @@
-import { InventoryModel, type BaseLifeConfig } from '@zion/shared';
+import { InventoryModel, type BaseLifeConfig, type CookingBatch } from '@zion/shared';
 export interface LifePlayer {
   stamina: number;
   capacity: number;
@@ -10,7 +10,7 @@ export interface PlotState { crop: string; stage: number }
 export interface AnimalRecord { health: number; x: number; y: number; z: number; loot: number; diedAt?: number }
 export interface LifeWorld { animals?: Record<string, AnimalRecord>; plots: Record<string, PlotState>; nextGrowth: number }
 export interface LifeOwner { inv: InventoryModel; coins: number; life: LifePlayer }
-export interface TimedAction { kind: 'plant' | 'cook' | 'harvest'; target: string; choice: string; x: number; z: number; end: number }
+export interface TimedAction { kind: 'plant' | 'cook' | 'harvest'; target: string; choice: string; x: number; z: number; end: number; ms: number; cookBatch?: CookingBatch }
 export class BaseLife {
   constructor(readonly config: BaseLifeConfig) {}
   initial(): LifePlayer { return { stamina: this.config.stamina.maximum, capacity: this.config.stamina.maximum, quotas: {} }; }
@@ -47,13 +47,26 @@ export class BaseLife {
     }
     return true;
   }
-  cook(owner: LifeOwner, id: string): boolean {
-    const recipe = this.config.recipes.find((r) => r.id === id);
-    if (!recipe) return false;
+  cook(owner: LifeOwner, batch: CookingBatch): Array<{ item: string; quantity: number }> | null {
+    if (!batch.quantity || !batch.entries.length) return null;
     const inv = new InventoryModel(owner.inv.toJSON());
-    if (!inv.takeItems(recipe.input, 1) || !inv.add(recipe.output)) return false;
+    // Validate the exact ingredients captured at the start, before changing any real inventory.
+    for (const entry of batch.entries) {
+      const recipe = this.config.recipes.find((r) => r.id === entry.recipe);
+      if (!recipe || recipe.input !== entry.input || recipe.output !== entry.output) return null;
+      for (const uid of entry.uids) {
+        const item = inv.carriedItem(uid);
+        if (!item || item.itemId !== entry.input || item.issued) return null;
+        inv.remove(uid);
+      }
+    }
+    const result: Array<{ item: string; quantity: number }> = [];
+    for (const entry of batch.entries) {
+      for (const _uid of entry.uids) if (!inv.add(entry.output)) return null;
+      result.push({ item: entry.output, quantity: entry.uids.length });
+    }
     owner.inv.load(inv.toJSON());
-    return true;
+    return result;
   }
   trade(owner: LifeOwner, id: string, side: 'buy' | 'sell', now: number): boolean {
     const trade = this.config.trades.find((t) => t.id === id);

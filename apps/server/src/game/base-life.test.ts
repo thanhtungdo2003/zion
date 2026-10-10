@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_BASE_LIFE, InventoryModel } from '@zion/shared';
+import { DEFAULT_BASE_LIFE, InventoryModel, planCooking } from '@zion/shared';
 import { BaseLife, type LifeOwner, type LifeWorld } from './base-life';
 function setup() {
   const config = structuredClone(DEFAULT_BASE_LIFE);
@@ -37,13 +37,56 @@ describe('base life authoritative transactions', () => {
     expect(engine.harvest(world, owner, 'plot_0')).toBeNull();
     expect(world.plots.plot_0?.stage).toBe(2);
   });
-  it('cooks one raw item into one cooked item and rejects replay', () => {
-    const { engine, owner } = setup(); owner.inv.add('raw_mutton');
-    expect(engine.cook(owner, 'mutton')).toBe(true);
+  it('cooks every kind of ingredient in one batch, scales duration and rejects replay', () => {
+    const { engine, owner, config } = setup();
+    owner.inv.add('raw_mutton'); owner.inv.add('raw_mutton');
+    owner.inv.add('raw_porkchop'); owner.inv.add('potato');
+    config.recipes[1]!.durationMs = 6000;
+    const batch = planCooking(config, owner.inv.items)!;
+    expect(batch.quantity).toBe(4);
+    expect(batch.durationMs).toBe(18_000);
+    expect(engine.cook(owner, batch)).toEqual([
+      { item: 'cooked_mutton', quantity: 2 },
+      { item: 'cooked_porkchop', quantity: 1 },
+      { item: 'potato_cooked', quantity: 1 },
+    ]);
     expect(owner.inv.countOf('raw_mutton')).toBe(0);
-    expect(owner.inv.countOf('cooked_mutton')).toBe(1);
-    expect(engine.cook(owner, 'mutton')).toBe(false);
-    expect(owner.inv.countOf('cooked_mutton')).toBe(1);
+    expect(owner.inv.countOf('raw_porkchop')).toBe(0);
+    expect(owner.inv.countOf('potato')).toBe(0);
+    expect(owner.inv.countOf('cooked_mutton')).toBe(2);
+    expect(engine.cook(owner, batch)).toBeNull();
+    expect(owner.inv.countOf('cooked_mutton')).toBe(2);
+    expect(planCooking(config, owner.inv.items)).toBeNull();
+  });
+  it('excludes stored and issued food and keeps new ingredients for the next batch', () => {
+    const { engine, owner, config } = setup();
+    owner.inv.add('raw_mutton');
+    const stored = owner.inv.add('potato')!; stored.container = 'stash_1';
+    owner.inv.add('raw_porkchop', 1, true);
+    const batch = planCooking(config, owner.inv.items)!;
+    expect(batch.quantity).toBe(1);
+    owner.inv.add('raw_mutton');
+    expect(engine.cook(owner, batch)).toEqual([{ item: 'cooked_mutton', quantity: 1 }]);
+    expect(owner.inv.countOf('raw_mutton')).toBe(1);
+    expect(owner.inv.items.find((i) => i.uid === stored.uid)?.itemId).toBe('potato');
+    expect(owner.inv.items.some((i) => i.itemId === 'raw_porkchop' && i.issued)).toBe(true);
+  });
+  it('rejects a batch atomically if an ingredient was removed while cooking', () => {
+    const { engine, owner, config } = setup();
+    owner.inv.add('raw_mutton');
+    const potato = owner.inv.add('potato')!;
+    const batch = planCooking(config, owner.inv.items)!;
+    owner.inv.remove(potato.uid);
+    const before = owner.inv.toJSON();
+    expect(engine.cook(owner, batch)).toBeNull();
+    expect(owner.inv.toJSON()).toEqual(before);
+  });
+  it('can cook a full backpack by freeing all ingredients before adding outputs', () => {
+    const { engine, owner, config } = setup();
+    while (owner.inv.add('potato')) { /* fill backpack */ }
+    const batch = planCooking(config, owner.inv.items)!;
+    expect(engine.cook(owner, batch)).toEqual([{ item: 'potato_cooked', quantity: batch.quantity }]);
+    expect(owner.inv.countOf('potato_cooked')).toBe(batch.quantity);
   });
   it('shares buy and sell quota, preserves it on reconnect, and rejects requests until both window and cooldown expire', () => {
     const { engine, config, owner } = setup(); const t = config.trades[0]!;

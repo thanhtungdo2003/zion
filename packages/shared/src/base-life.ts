@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isStash, type PlacedItem } from './inventory';
 const id = z.string().regex(/^[a-z0-9_]{1,40}$/);
 const positive = z.number().finite().positive();
 const quantity = z.number().int().min(1).max(999);
@@ -28,6 +29,29 @@ export const baseLifeSchema = z.object({
   stamina: z.object({ maximum: positive, minimumCapacity: positive, sprintPerSecond: positive, attack: positive, roll: positive, regeneration: positive, capacityDecay: z.number().min(0).max(1), foodRecovery: positive, rollCooldown: positive.max(30) }).strict(),
 }).strict();
 export type BaseLifeConfig = z.infer<typeof baseLifeSchema>;
+export interface CookingBatch {
+  entries: Array<{ recipe: string; input: string; output: string; uids: number[] }>;
+  quantity: number;
+  durationMs: number;
+}
+
+/** One batch contains every cookable item currently carried; each ingredient is used once. */
+export function planCooking(config: BaseLifeConfig, items: readonly PlacedItem[]): CookingBatch | null {
+  const entries: CookingBatch['entries'] = [];
+  const usedInputs = new Set<string>();
+  let quantity = 0;
+  let durationMs = 0;
+  for (const recipe of config.recipes) {
+    if (usedInputs.has(recipe.input)) continue;
+    usedInputs.add(recipe.input);
+    const uids = items.filter((i) => i.itemId === recipe.input && !i.issued && !isStash(i.container)).map((i) => i.uid);
+    if (!uids.length) continue;
+    entries.push({ recipe: recipe.id, input: recipe.input, output: recipe.output, uids });
+    quantity += uids.length;
+    durationMs += recipe.durationMs * uids.length;
+  }
+  return quantity ? { entries, quantity, durationMs } : null;
+}
 /** Livestock pen (camp-local, inside its wooden fence at x −44…−36, z −9…3). */
 const PEN = { minX: -43.2, maxX: -36.8, minZ: -8.2, maxZ: 2.2 };
 export const DEFAULT_BASE_LIFE: BaseLifeConfig = {

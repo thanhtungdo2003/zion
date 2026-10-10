@@ -112,6 +112,7 @@ import { PropRenderer } from './render/props';
 import { SkySystem } from './render/sky';
 import { buildTerrainGeometry, buildWaterGeometry } from './render/terrain';
 import { VegetationRenderer } from './render/vegetation';
+import { planCooking } from '@zion/shared';
 import { createOceanGeometry, createWaterMaterial, getWaterUniforms, snapOcean } from './render/water';
 import { ChunkStore } from './world/chunk-store';
 import { VisionCone } from './vision-cone';
@@ -838,6 +839,7 @@ export class GameEngine {
         let zb = this.zombies.get(e.id);
         if (!zb) {
           zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon))), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
+          zb.avatar.ground = (x, z) => this.groundY(x, z);
           zb.avatar.addTo(this.scene);
           this.zombies.set(e.id, zb);
         }
@@ -896,13 +898,6 @@ export class GameEngine {
       const l = Math.hypot(dx, dz) || 1;
       dx /= l;
       dz /= l;
-    }
-    // Shot (not bitten) players are thrown back: limp for a moment, like the server's knockback.
-    if (!isZombieId(m.targetId) && !isZombieId(m.attackerId) && m.zone !== 'fire' && m.zone !== 'bite') {
-      const av = m.targetId === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.targetId);
-      const avatar = av && 'avatar' in av ? av.avatar : av;
-      const kind = m.targetId === this.welcome?.playerId ? EntityKind.Player : this.remotes.get(m.targetId)?.entity.kind;
-      if (avatar && kind === EntityKind.Player && !this.local?.dead) avatar.stagger(m.kx ?? dx, m.kz ?? dz, (x, z) => this.groundY(x, z));
     }
     // Remembered for the ragdoll if this hit turns out to be fatal.
     this.lastHits.set(m.targetId, { kx: m.kx ?? dx, kz: m.kz ?? dz, force: m.force ?? Math.min(6, 1 + m.damage / 12) });
@@ -1053,16 +1048,17 @@ export class GameEngine {
           this.closeDialogue();
         }
         else if (isZombieId(m.playerId)) {
-          // Last hit: blow the body apart.
+          // Same connected, limp-body death simulation as the player.
           const zb = this.zombies.get(m.playerId);
           if (zb) {
             zb.dead = true;
             this.sounds?.stop(zb);
           }
-          if (zb && this.debris) {
-            const p = zb.entity.pose;
-            zb.avatar.shatter(this.debris, zb.lastHit ?? { x: p.x, y: p.y + 1, z: p.z, zone: 'torso', damage: 20, kx: 0, kz: 0, force: 2 });
+          if (zb) {
+            const hit = zb.lastHit ?? { kx: 0, kz: 1, force: 2 };
+            zb.avatar.startRagdoll(hit.kx, hit.kz, hit.force, (x, z) => this.groundY(x, z));
           }
+          this.lastHits.delete(m.playerId);
           break;
         }
         else {
@@ -1897,7 +1893,6 @@ export class GameEngine {
     const near = (o: { x: number; z: number }) => Math.hypot(o.x - x, o.z - z) <= range;
     const loot = life.animalLoot.find(near);
     if (loot) return { label: { key: 'interact.loot', vars: { item: `${loot.quantity}× ${name(loot.item)}` } }, run: () => this.lifeAction('loot', loot.id) };
-    const has = (item: string) => this.inventory.get().items.some((i) => i.itemId === item);
     // Nearest first: the garden plots touch each other.
     for (const o of life.objects.filter(near).sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z))) {
       if (life.config.plots.some((p) => p.id === o.id)) {
@@ -1910,8 +1905,8 @@ export class GameEngine {
         continue;
       }
       if (life.config.stations.some((p) => p.id === o.id)) {
-        const recipe = life.config.recipes.find((r) => has(r.input));
-        if (recipe) return { label: { key: 'interact.cook', vars: { item: name(recipe.input) } }, run: () => this.lifeAction('cook', o.id, recipe.id) };
+        const batch = planCooking(life.config, this.inventory.get().items);
+        if (batch) return { label: { key: 'interact.cook_all', vars: { n: batch.quantity, seconds: Math.ceil(batch.durationMs / 1000) } }, run: () => this.lifeAction('cook', o.id) };
         return { label: { key: 'interact.need_food', vars: { item: '' } } };
       }
     }

@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
-import { DEFAULT_BASE_LIFE } from '@zion/shared';
+import { DEFAULT_BASE_LIFE, planCooking, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
 import {
@@ -620,7 +620,7 @@ export class GameServer {
 
   /** Per-player stamina / timed action (small; sent every second). */
   private lifeStats(p: Player): { stamina: number; capacity: number; action: { end: number; kind: string; ms: number } | null } {
-    return { stamina: p.life.stamina, capacity: p.life.capacity, action: p.lifeAction ? { end: p.lifeAction.end, kind: p.lifeAction.kind, ms: p.lifeAction.kind === 'plant' ? this.life.config.plantingMs : p.lifeAction.kind === 'harvest' ? (this.life.config.harvestMs ?? 3000) : (this.life.config.recipes.find((r) => r.id === p.lifeAction!.choice)?.durationMs ?? 4000) } : null };
+    return { stamina: p.life.stamina, capacity: p.life.capacity, action: p.lifeAction ? { end: p.lifeAction.end, kind: p.lifeAction.kind, ms: p.lifeAction.ms } : null };
   }
 
   private async onLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>): Promise<void> {
@@ -636,23 +636,32 @@ export class GameServer {
         const crop = this.life.config.crops.find((c) => c.id === state?.crop);
         if (!crop || !state || state.stage < crop.stages.length - 1 || this.plotLocks.has(spot.id)) return;
         this.plotLocks.set(spot.id, p.id);
-        p.lifeAction = { kind: 'harvest', target: msg.target, choice: crop.id, x: p.state.x, z: p.state.z, end: Date.now() + (this.life.config.harvestMs ?? 3000) };
+        const ms = this.life.config.harvestMs ?? 3000;
+        p.lifeAction = { kind: 'harvest', target: msg.target, choice: crop.id, x: p.state.x, z: p.state.z, end: Date.now() + ms, ms };
         this.sendLife(p);
         return;
       }
-      const recipe = this.life.config.recipes.find((r) => r.id === msg.choice);
+      if (msg.op === 'cook') {
+        const batch = planCooking(this.life.config, p.inv.items);
+        if (!batch) return;
+        p.lifeAction = { kind: 'cook', target: msg.target, choice: '', x: p.state.x, z: p.state.z,
+          end: Date.now() + batch.durationMs, ms: batch.durationMs, cookBatch: batch };
+        this.sendLife(p);
+        return;
+      }
       const crop = this.life.config.crops.find((c) => c.id === msg.choice);
-      const item = msg.op === 'plant' ? crop?.item : recipe?.input;
+      const item = crop?.item;
       if (!item || !p.inv.countOf(item)) return;
       if (msg.op === 'plant') this.plotLocks.set(spot.id, p.id);
-      p.lifeAction = { kind: msg.op, target: msg.target, choice: msg.choice!, x: p.state.x, z: p.state.z, end: Date.now() + (msg.op === 'plant' ? this.life.config.plantingMs : recipe!.durationMs) };
+      const ms = this.life.config.plantingMs;
+      p.lifeAction = { kind: 'plant', target: msg.target, choice: msg.choice!, x: p.state.x, z: p.state.z, end: Date.now() + ms, ms };
       this.sendLife(p);
       return;
     }
     await this.commitLife(p, msg, false);
   }
 
-  private async commitLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>, timed: boolean): Promise<void> {
+  private async commitLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>, timed: boolean, cooking?: CookingBatch): Promise<void> {
     if (p.dead || p.questBusy || this.lifeBusy) return;
     const camp = this.deps.world.generator.camp;
     if (!camp) return;
@@ -661,6 +670,7 @@ export class GameServer {
     const close = (spot: { x: number; z: number } | undefined, range: number) => spot && Math.abs(p.state.y - camp.y) <= 3 && Math.hypot(p.state.x - camp.x - spot.x, p.state.z - camp.z - spot.z) <= range;
     let ok = false;
     let event: { type: 'plant' | 'harvest' | 'cook' | 'collect'; target: string; quantity: number } | null = null;
+    const cookingEvents: Array<{ type: 'cook'; target: string; quantity: number }> = [];
     if (msg.op === 'plant' && timed && close(this.life.config.plots.find((s) => s.id === msg.target), this.life.config.interactionRange)) {
       ok = this.life.plant(world, owner, msg.target, msg.choice ?? '');
       if (ok) event = { type: 'plant', target: msg.choice!, quantity: 1 };
@@ -669,10 +679,10 @@ export class GameServer {
       ok = !!result;
       if (!result) p.session.sendJson({ t: 'error', code: 'invalid_message', message: 'Inventory full', fatal: false });
       if (result) event = { type: 'harvest', target: result.item, quantity: result.quantity };
-    } else if (msg.op === 'cook' && timed && close(this.life.config.stations.find((s) => s.id === msg.target), this.life.config.interactionRange)) {
-      ok = this.life.cook(owner, msg.choice ?? '');
-      const recipe = this.life.config.recipes.find((r) => r.id === msg.choice);
-      if (ok && recipe) event = { type: 'cook', target: recipe.output, quantity: 1 };
+    } else if (msg.op === 'cook' && timed && cooking && close(this.life.config.stations.find((s) => s.id === msg.target), this.life.config.interactionRange)) {
+      const result = this.life.cook(owner, cooking);
+      ok = !!result;
+      if (result) for (const item of result) cookingEvents.push({ type: 'cook', target: item.item, quantity: item.quantity });
     } else if (msg.op === 'buy' || msg.op === 'sell') {
       const trade = this.life.config.trades.find((t) => t.id === msg.target);
       const npc = this.content.npcs.find((n) => n.id === trade?.npc);
@@ -688,6 +698,7 @@ export class GameServer {
     } else if (msg.op === 'eat') ok = this.life.eat(owner, msg.uid ?? -1);
     if (!ok) return;
     if (event) this.quests.event(owner, event, Date.now());
+    for (const cooked of cookingEvents) this.quests.event(owner, cooked, Date.now());
     p.questBusy = true;
     this.lifeBusy = true;
     try {
@@ -1199,7 +1210,7 @@ export class GameServer {
         const a = p.lifeAction;
         p.lifeAction = null;
         if (a.kind === 'plant' || a.kind === 'harvest') this.plotLocks.delete(a.target);
-        void this.commitLife(p, { t: 'life', op: a.kind, target: a.target, choice: a.choice }, true);
+        void this.commitLife(p, { t: 'life', op: a.kind, target: a.target, choice: a.choice }, true, a.cookBatch);
       }
       if (p.questBusy) continue;
       if (!(p.lastButtons & Buttons.Sprint)) this.life.rest(p.life, TICK_DT);
