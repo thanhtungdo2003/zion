@@ -1,10 +1,12 @@
 import { BufferAttribute, BufferGeometry, Color } from 'three';
-import { CHUNK_SIZE, dequantizeHeight, heightIndex, lodStep, type ChunkData } from '@zion/shared';
+import { CHUNK_SIZE, Surface, dequantizeHeight, heightIndex, lodStep, type ChunkData } from '@zion/shared';
 import { terrainCellIndices } from '@zion/physics';
 import { applyUnderwater, jitter, surfaceColor } from './palette';
+import { vegetationPatch } from './vegetation-pattern';
 
 const SKIRT_DEPTH = [1.5, 4, 10];
 const color = new Color();
+const mossColor = new Color(0x527c32);
 
 /**
  * Builds the visual terrain mesh for a chunk in chunk-local coordinates. The triangulation is
@@ -12,7 +14,7 @@ const color = new Color();
  * collide with. Normals use the one-vertex border ring sent by the server, so lighting is
  * seamless across chunks. Vertical skirts hide cracks between neighbouring LODs.
  */
-export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number): BufferGeometry {
+export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeticSeed = 0): BufferGeometry {
   const n = chunk.verts;
   const step = lodStep(chunk.lod);
   const ox = chunk.cx * CHUNK_SIZE;
@@ -40,6 +42,13 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number): Buffer
       nrm[v * 3 + 2] = nz * inv;
 
       surfaceColor(chunk.surface[v]!, chunk.temperature[v]! / 255, chunk.humidity[v]! / 255, color);
+      const surface = chunk.surface[v]!;
+      const humidity = chunk.humidity[v]! / 255;
+      if (humidity > 0.5 && (surface === Surface.ForestFloor || surface === Surface.JungleFloor
+        || surface === Surface.Rock || surface === Surface.Mud)) {
+        const cover = vegetationPatch(ox + i * step, oz + j * step, 12, cosmeticSeed ^ 0xb8);
+        color.lerp(mossColor, Math.max(0, Math.min(1, (cover - 0.4) * 4)) * (humidity - 0.5) * 1.5);
+      }
       const wq = chunk.water[v]!;
       const waterTop = wq ? Math.max(dequantizeHeight(wq), seaLevel) : seaLevel;
       applyUnderwater(color, waterTop - h);

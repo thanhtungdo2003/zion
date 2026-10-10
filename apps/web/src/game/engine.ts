@@ -774,7 +774,7 @@ export class GameEngine {
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
-    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel);
+    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed);
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);
@@ -2257,7 +2257,7 @@ export class GameEngine {
       const prev = this.meshes.get(key);
       if (prev) this.disposeChunkMeshes(prev);
       const seaLevel = this.welcome!.world.seaLevel;
-      const terrain = new Mesh(buildTerrainGeometry(chunk, seaLevel), this.terrainMaterial);
+      const terrain = new Mesh(buildTerrainGeometry(chunk, seaLevel, this.welcome!.world.cosmeticSeed), this.terrainMaterial);
       terrain.position.set(chunk.cx * CHUNK_SIZE, 0, chunk.cz * CHUNK_SIZE);
       terrain.receiveShadow = true;
       terrain.castShadow = chunk.lod === 0;
