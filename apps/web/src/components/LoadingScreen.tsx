@@ -17,7 +17,7 @@ export const TIPS = [
   'Trung sĩ Bếp Tư bán thịt chín và khoai nướng nếu bạn không kịp nấu.',
   'Đại tá Lâm canh cổng bằng súng phóng lựu và giao nhiệm vụ chiến đấu.',
   'Vật phẩm nhiệm vụ có dấu "!" vàng — giữ trong ba lô để giao cho NPC.',
-  'Mũi tên ◎ ở mép màn hình chỉ chính xác vị trí món đồ nhiệm vụ.',
+  'Mũi tên nhiệm vụ chỉ vị trí món đồ cần tìm; hướng dẫn tân thủ có mũi tên lớn quanh nhân vật.',
   'Kho cá nhân ở khu nhà kho cạnh thương nhân vũ khí: 3 trang chứa đồ riêng.',
   'Ba lô đầy khi nhận thưởng? Phần thưởng sẽ được gửi vào kho cá nhân.',
   'Đặt đèn pin vào ô "Tay phụ" — đèn tự bật khi bạn ở nơi tối.',

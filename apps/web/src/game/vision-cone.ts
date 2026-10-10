@@ -98,6 +98,11 @@ export class VisionCone {
     scene.add(this.overlay);
   }
 
+  /** The darkening pass only reads in the top-down view. */
+  setOverlay(on: boolean): void {
+    this.overlay.visible = on;
+  }
+
   /** eye = world eye position; feetY = ground under the player; yaw/pitch = aim (yaw 0 → −Z). */
   update(ex: number, ey: number, ez: number, yaw: number, pitch: number, night: number, camera: Camera, feetY: number, world?: CollisionWorld | null): void {
     this.origin.set(ex, ey, ez);

@@ -1,3 +1,6 @@
+import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
+import { settingsStore } from '@/lib/settings';
+import { ViewModel } from './render/viewmodel';
 import { BaseLifeRenderer } from './render/base-life';
 import { NPC_MODELS, type QuestNpcMessage } from '@zion/shared';
 import {
@@ -127,6 +130,9 @@ const CAM_YAW = Math.PI / 4;
 const CAM_PITCH = 52 * (Math.PI / 180);
 /** Fixed camera distance: a medium-wide view. */
 const CAM_DIST = 17;
+/** First-person: lens and scoped lens (degrees). */
+const FP_FOV = 75;
+const FP_SCOPE_FOV = 22;
 
 /** Sniper scope: how far the view pans towards the cursor, how fast, and the extra zoom-out. */
 const SCOPE_PAN_GAIN = 0.55;
@@ -284,6 +290,10 @@ export class GameEngine {
   private deadSince = 0;
   private disposed = false;
   private chatOpen = false;
+  private tutorialBlocked = false;
+  /** First-person view (settings); top-down otherwise. */
+  private firstPerson = false;
+  private viewModel: ViewModel | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -485,6 +495,7 @@ export class GameEngine {
     this.input.dispose();
     this.resize.disconnect();
     this.vision?.dispose();
+    this.viewModel?.dispose();
     this.debris?.dispose();
     this.effects?.dispose();
     this.sounds?.dispose();
@@ -505,13 +516,18 @@ export class GameEngine {
     this.minimap = canvas && this.welcome ? new Minimap(canvas, this.welcome.world.seaLevel, this.registry) : null;
   }
 
+  setTutorialBlocked(blocked: boolean): void {
+    this.tutorialBlocked = blocked;
+    this.input.suspended = blocked || this.chatOpen || this.inventory.get().open;
+  }
+
   setChatOpen(open: boolean): void {
     this.chatOpen = open;
-    this.input.suspended = open || this.inventory.get().open;
+    this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open;
   }
 
   setInventoryOpen(open: boolean): void {
-    this.input.suspended = open || this.chatOpen;
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen;
   }
 
   lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot', target: string, choice?: string, uid?: number): void {
@@ -581,12 +597,12 @@ export class GameEngine {
    * (us first, then the nearest other players; a small fixed pool of lights).
    */
   private updateFlashlights(): void {
-    type Carrier = { x: number; y: number; z: number; yaw: number; dark: number };
+    type Carrier = { x: number; y: number; z: number; yaw: number; dark: number; pitch?: number };
     const l = this.local;
     // Slot 0 is always ours (the shadow-casting light), 1–3 the nearest other carriers.
     let mine: Carrier | null = null;
     if (l && !l.dead && this.inventory.get().items.some((i) => i.container === 'offhand' && i.itemId === 'flashlight')) {
-      mine = { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.input.yaw, dark: this.darkness(l.state.x, l.state.y, l.state.z) };
+      mine = { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.input.yaw, dark: this.darkness(l.state.x, l.state.y, l.state.z), pitch: this.firstPerson ? this.input.pitch : undefined };
     }
     const others: Carrier[] = [...this.remotes.values()]
       .filter((r) => r.entity.kind === EntityKind.Player && (r.entity.pose.flags & EntityFlags.Flashlight) && !(r.entity.pose.flags & EntityFlags.Dead))
@@ -599,6 +615,7 @@ export class GameEngine {
       const c = slots[i];
       // On only where it is actually dark (night, under a roof, away from lamps).
       if (!c || c.dark < 0.45) { t.intensity = 0; return; }
+      if (c.pitch !== undefined) { this.aimTorch(t, c); return; }
       const fx = -Math.sin(c.yaw);
       const fz = -Math.cos(c.yaw);
       const oy = c.y + 1.3;
@@ -613,6 +630,23 @@ export class GameEngine {
       t.distance = hit ? Math.max(2, wall + 1.2) : 26;
       t.intensity = 60 * Math.min(1, (c.dark - 0.45) / 0.3 + 0.35);
     });
+  }
+
+  /** First person: the beam follows the view (yaw and pitch) from the eye, like a head/gun light. */
+  private aimTorch(t: SpotLight, c: { yaw: number; pitch?: number; dark: number }): void {
+    const cam = this.camera.position;
+    const p = c.pitch ?? 0;
+    const fx = -Math.sin(c.yaw) * Math.cos(p);
+    const fy = Math.sin(p);
+    const fz = -Math.cos(c.yaw) * Math.cos(p);
+    const hit = this.store?.collision.raycast(cam.x, cam.y, cam.z, fx, fy, fz, 26, Mask.LineOfSight, this.torchHit);
+    const wall = hit ? this.torchHit.t : 26;
+    // Slightly below and right of the eye (the gun), never past a wall right in front.
+    const lead = Math.max(0.1, Math.min(0.5, wall - 0.2));
+    t.position.set(cam.x + fx * lead + Math.cos(c.yaw) * 0.15, cam.y - 0.15 + fy * lead, cam.z + fz * lead - Math.sin(c.yaw) * 0.15);
+    t.target.position.set(cam.x + fx * 12, cam.y + fy * 12, cam.z + fz * 12);
+    t.distance = hit ? Math.max(2, wall + 1.2) : 26;
+    t.intensity = 60 * Math.min(1, (c.dark - 0.45) / 0.3 + 0.35);
   }
 
   private readonly torchHit = makeRayHit();
@@ -803,7 +837,7 @@ export class GameEngine {
       if (e.kind === EntityKind.Zombie) {
         let zb = this.zombies.get(e.id);
         if (!zb) {
-          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n)), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
+          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon))), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
           zb.avatar.addTo(this.scene);
           this.zombies.set(e.id, zb);
         }
@@ -1076,6 +1110,9 @@ export class GameEngine {
       case 'armorHit':
         if (m.broke) this.toast({ key: 'toast.armor_broken' });
         break;
+      case 'chest':
+        this.inventory.applyChest(m);
+        break;
       case 'inv':
         this.onInventory(m);
         break;
@@ -1145,6 +1182,7 @@ export class GameEngine {
     this.lastFrame = now;
     this.elapsed += dt;
     this.frames++;
+    this.applyViewMode();
 
     const local = this.local;
     const store = this.store;
@@ -1227,6 +1265,19 @@ export class GameEngine {
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.input.pitch);
     this.localAvatar?.update(px, py, pz, this.input.yaw, selfFlags, dt, this.elapsed);
+    if (this.localAvatar && this.firstPerson) this.localAvatar.root.visible = false;
+    if (this.viewModel) {
+      const axes = this.input.axes();
+      this.viewModel.set(this.inventory.equippedItemId(), this.weapons);
+      this.viewModel.update(dt, {
+        visible: this.firstPerson && !this.scoped && !local.dead,
+        moving: axes.mx !== 0 || axes.mz !== 0,
+        sprint: (this.input.buttons() & Buttons.Sprint) !== 0,
+        reloading: this.weaponCtl.reloading,
+        yaw: this.input.yaw,
+        pitch: this.input.pitch,
+      });
+    }
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
@@ -1291,6 +1342,20 @@ export class GameEngine {
    * screen border points at them, with their icon and distance.
    */
   private updateGuides(px: number, py: number, pz: number): void {
+    const camp = this.welcome?.world.camp;
+    const questNpc = this.questNpcDefinitions.find((n) => this.hud.get().quests.some((q) => q.npc === n.key && !q.locked && (q.status === 'available' || q.status === 'cancelled'))) ?? this.questNpcDefinitions[0];
+    const merchant = this.npcs.find((n) => n.role === 'merchant');
+    const targets = [questNpc ? { id: 'quest', x: questNpc.x, z: questNpc.z } : null, merchant ? { id: 'shop', x: merchant.x, z: merchant.z } : null, camp ? { id: 'gate', x: camp.x, z: camp.z + camp.halfSize - 3 } : null].filter((n): n is { id: string; x: number; z: number } => n !== null);
+    const anchor = this.guideTmp.set(px, py + 1, pz).project(this.camera);
+    const anchorX = this.firstPerson ? 0 : anchor.x, anchorY = this.firstPerson ? -0.25 : anchor.y;
+    this.hud.set({ tutorialAnchor: { x: (anchorX + 1) * this.container.clientWidth / 2, y: (1 - anchorY) * this.container.clientHeight / 2 }, tutorialTargets: targets.map((n) => {
+      const dx = n.x - px, dz = n.z - pz;
+      // Screen-space bearing: x right, y down. First person: relative to the view direction.
+      const yaw = this.input.yaw;
+      const screenX = this.firstPerson ? Math.cos(yaw) * dx - Math.sin(yaw) * dz : Math.cos(CAM_YAW) * dx - Math.sin(CAM_YAW) * dz;
+      const screenY = this.firstPerson ? Math.sin(yaw) * dx + Math.cos(yaw) * dz : Math.sin(CAM_PITCH) * (Math.sin(CAM_YAW) * dx + Math.cos(CAM_YAW) * dz);
+      return { ...n, distance: Math.hypot(dx, dz), angle: Math.atan2(-screenX, screenY) };
+    }) });
     const guides: HudState['guides'] = [];
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
@@ -1387,8 +1452,9 @@ export class GameEngine {
       wz /= len;
     }
     const y = this.input.yaw;
-    const mx = Math.max(-1, Math.min(1, wx * Math.cos(y) - wz * Math.sin(y)));
-    const mz = Math.max(-1, Math.min(1, -wx * Math.sin(y) - wz * Math.cos(y)));
+    // First person: WASD is already relative to where the character looks.
+    const mx = this.firstPerson ? a.mx : Math.max(-1, Math.min(1, wx * Math.cos(y) - wz * Math.sin(y)));
+    const mz = this.firstPerson ? a.mz : Math.max(-1, Math.min(1, -wx * Math.sin(y) - wz * Math.cos(y)));
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
@@ -1432,8 +1498,10 @@ export class GameEngine {
       }
     } else if (action === 'melee' && spec?.kind === 'melee') {
       const variant = this.localAvatar?.slash() ?? 1;
+      this.viewModel?.swing(variant);
       this.slashAt(local.state.x, local.state.y, local.state.z, this.input.yaw, weapon, variant);
     } else if (action === 'throw') {
+      this.viewModel?.throw();
       // Land somewhere random inside the red circle around the cursor.
       const t = this.throwAim;
       if (t.r > 0) {
@@ -1490,6 +1558,7 @@ export class GameEngine {
     const spec = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>];
     const local = this.local;
     if (spec?.kind !== 'gun' || !local) return;
+    this.viewModel?.kick(spec.pellets > 1 ? 1.3 : 1);
     const s = local.state;
     const yaw = this.input.yaw;
     const fx = -Math.sin(yaw);
@@ -1733,6 +1802,8 @@ export class GameEngine {
     this.toast(box ? { key: 'toast.out_of_ammo_box', vars: { item: box } } : { key: 'toast.out_of_ammo' });
   }
 
+  private nearChest: string | null = null;
+
   /** Is the player next to an ammo cache station? Scanned a few times a second. */
   private scanStations(px: number, pz: number, now: number): void {
     if (now - this.lastStationScan < 200 || !this.store) return;
@@ -1740,14 +1811,22 @@ export class GameEngine {
     const id = CAMP_ASSET['zion-ammo-cache-station'];
     const camp = this.welcome?.world.camp;
     let near: 'field' | 'camp' | null = null;
+    let closestChest = CHEST_REACH * CHEST_REACH;
+    this.nearChest = null;
     for (const chunk of this.store.chunks.values()) {
       if (chunk.lod !== 0) continue;
       for (const prop of chunk.props) {
-        if (prop.asset !== id) continue;
+        if (prop.asset !== id && !CHEST_ASSETS.has(prop.asset)) continue;
         const t = propTransform(chunk, prop);
+        const chestDistance = (t.x - px) ** 2 + (t.z - pz) ** 2;
+        const inCampChest = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
+        if (CHEST_ASSETS.has(prop.asset) && !(prop.asset === id && inCampChest) && chestDistance <= closestChest && Math.abs(t.y - (this.local?.state.y ?? t.y)) <= 2.5) {
+          closestChest = chestDistance; this.nearChest = chestKey(prop.asset, t.x, t.y, t.z);
+        }
+        if (prop.asset !== id) continue;
         if ((t.x - px) ** 2 + (t.z - pz) ** 2 >= STATION_REACH * STATION_REACH) continue;
         const inCamp = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
-        near = inCamp ? 'camp' : 'field';
+        near = inCamp ? 'camp' : null;
       }
     }
     this.station = near;
@@ -1786,6 +1865,7 @@ export class GameEngine {
       ? { key: 'interact.pickup', vars: { item: ground.itemId } }
       : this.downedNear() ? { key: 'interact.revive', vars: { item: this.remoteName(this.downedNear()!.id, EntityKind.Player) } }
       : talk ? { key: 'interact.talk', vars: { item: talk.name } }
+      : this.nearChest ? { key: 'interact.chest' }
       : this.nearStorage && !merchant ? { key: 'interact.storage' }
       : merchant ? { key: 'interact.shop' }
       : nurse ? { key: 'interact.nurse' }
@@ -1858,6 +1938,7 @@ export class GameEngine {
       this.hud.set({ dialogue: this.nearQuestNpc });
       return;
     }
+    if (this.nearChest) { this.inventory.openChest(this.nearChest); return; }
     this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearStorage ? 'stash' : this.station);
   }
 
@@ -1978,6 +2059,16 @@ export class GameEngine {
 
   private updateAimInner(px: number, py: number, pz: number): void {
     if (!this.input.locked || this.input.suspended || this.local?.dead) return;
+    if (this.firstPerson) {
+      // Mouse look sets yaw/pitch directly; no aim assist. The aim point (grenades, launchers) is
+      // where the view centre meets the ground plane, or far ahead when looking up.
+      this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
+      this.aimPlane.constant = -py;
+      if (!this.raycaster.ray.intersectPlane(this.aimPlane, this.aimPoint) || this.aimPoint.distanceToSquared(this.camera.position) > 60 * 60) {
+        this.aimPoint.copy(this.raycaster.ray.direction).multiplyScalar(60).add(this.camera.position);
+      }
+      return;
+    }
     this.ndc.set(this.input.pointer.x, this.input.pointer.y);
     this.raycaster.setFromCamera(this.ndc, this.camera);
     this.aimPlane.constant = -(py + 1.0);
@@ -2021,15 +2112,16 @@ export class GameEngine {
       if (!zb.avatar.root.visible || pose.flags & EntityFlags.Dead) continue;
       const zp = zb.avatar.root.position;
       if ((zp.x - px) ** 2 + (zp.z - pz) ** 2 > 60 * 60) continue;
-      this.hitBox.min.set(zp.x - 0.45, zp.y, zp.z - 0.45);
-      this.hitBox.max.set(zp.x + 0.45, zp.y + 1.85, zp.z + 0.45);
+      const scale = zb.avatar.root.scale.x;
+      this.hitBox.min.set(zp.x - 0.45 * scale, zp.y, zp.z - 0.45 * scale);
+      this.hitBox.max.set(zp.x + 0.45 * scale, zp.y + 1.85 * scale, zp.z + 0.45 * scale);
       if (!ray.intersectBox(this.hitBox, this.tmpB)) continue;
       const d = this.tmpB.distanceToSquared(ray.origin);
       if (d >= best) continue;
       best = d;
       found = true;
       // Keep the hovered height (head vs body) but aim at the body's centre line.
-      this.hoverPoint.set(zp.x, Math.min(zp.y + 1.7, Math.max(zp.y + 0.4, this.tmpB.y)), zp.z);
+      this.hoverPoint.set(zp.x, Math.min(zp.y + 1.7 * scale, Math.max(zp.y + 0.4 * scale, this.tmpB.y)), zp.z);
     }
     // Livestock: a low, wide box; aim at the middle of the body.
     for (const r of this.remotes.values()) {
@@ -2048,10 +2140,64 @@ export class GameEngine {
     return found ? this.hoverPoint : null;
   }
 
+  /** Follows the first-person setting: camera lens, mouse capture, cone overlay, own body. */
+  private applyViewMode(): void {
+    const settings = settingsStore.get();
+    const fp = settings.firstPerson;
+    this.input.sensitivity = settings.mouseSens * 0.00004;
+    const hud = this.hud.get();
+    this.input.freeCursor = fp && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
+    if (fp === this.firstPerson) return;
+    this.firstPerson = fp;
+    this.input.setFirstPerson(fp);
+    this.input.pitch = 0;
+    this.vision?.setOverlay(!fp);
+    if (fp && !this.viewModel) {
+      // The camera must be in the scene for its children (the held weapon) to render.
+      if (!this.camera.parent) this.scene.add(this.camera);
+      this.viewModel = new ViewModel(this.camera);
+    }
+    if (this.localAvatar) this.localAvatar.root.visible = true;
+    this.camera.fov = fp ? FP_FOV : 40;
+    this.camera.near = fp ? 0.05 : 0.5;
+    this.camera.updateProjectionMatrix();
+    this.camFocusInit = false;
+  }
+
   private updateCamera(px: number, py: number, pz: number, dt: number): void {
     // A non-finite position (bad snapshot) would blank the whole view: hold the last camera.
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
+    if (this.firstPerson) {
+      // Smooth the eye: prediction corrections and step-ups would otherwise jolt the whole view.
+      const eye = py + DEFAULT_CHARACTER.eyeHeight;
+      const f = this.camFocus;
+      if (!this.camFocusInit || (f.x - px) ** 2 + (f.z - pz) ** 2 > 25) {
+        f.set(px, eye, pz);
+        this.camFocusInit = true;
+      } else {
+        const kh = 1 - Math.exp(-dt * 30);
+        const kv = 1 - Math.exp(-dt * 12);
+        f.x += (px - f.x) * kh;
+        f.z += (pz - f.z) * kh;
+        f.y += (eye - f.y) * kv;
+      }
+      this.scopeZoom += ((this.scoped ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
+      const fov = FP_FOV + (FP_SCOPE_FOV - FP_FOV) * this.scopeZoom;
+      if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      // Eye slightly ahead of the head so the near plane never clips the face/hat.
+      cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
+      // Screen shake is much stronger up close: a quarter of it is plenty in first person.
+      const shake = (this.effects?.shake ?? 0) * 0.25;
+      if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
+      cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+      // Nothing is see-through in first person: park the fade target far below the world and let
+      // every faded prop ease back to solid.
+      occlusionUniforms.uFadeCam.value.copy(cam.position);
+      occlusionUniforms.uFadeTarget.value.set(0, -1e5, 0);
+      this.props?.updateOcclusion(1e9, -1e5, 1e9, cam.position.x, cam.position.y, cam.position.z, dt);
+      return;
+    }
     const ty = py + 1.0;
     const f = this.camFocus;
     // Smooth follow; snap on first frame and on teleports/respawns.

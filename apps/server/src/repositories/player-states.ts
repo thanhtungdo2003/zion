@@ -1,3 +1,5 @@
+import { withTransaction, type DbClient } from '../db/pool';
+import type { ChestData } from '@zion/shared';
 import type { LifePlayer, LifeWorld } from '../game/base-life';
 import { STARTING_ZCOIN, type InventoryData } from '@zion/shared';
 import type { QuestJournal } from '../game/quests';
@@ -25,6 +27,14 @@ export class PlayerStateRepository {
     private readonly worldId: string,
   ) {}
 
+  resetQuestJournals(accountId?: string): Promise<void> {
+    const next = this.writing.then(async () => {
+      await this.db.query("UPDATE player_states SET quest_journal = '{}'::jsonb WHERE world_id = $1 AND ($2::uuid IS NULL OR account_id = $2::uuid)", [this.worldId, accountId ?? null]);
+    });
+    this.writing = next.catch(() => undefined);
+    return next;
+  }
+
   async load(accountId: string): Promise<PlayerStateRecord | null> {
     let pending: Promise<void>;
     do { pending = this.writing; await pending; } while (pending !== this.writing);
@@ -36,6 +46,25 @@ export class PlayerStateRepository {
     return r ? { accountId, x: r.pos_x, y: r.pos_y, z: r.pos_z, yaw: r.yaw, health: r.health, coins: r.coins, inventory: r.inventory, journal: r.quest_journal, life: r.life_state } : null;
   }
 
+  async loadChest(id: string): Promise<ChestData | null> {
+    let pending: Promise<void>;
+    do { pending = this.writing; await pending; } while (pending !== this.writing);
+    const result = await this.db.query<{ state: ChestData }>('SELECT state FROM world_chests WHERE world_id = $1 AND chest_id = $2', [this.worldId, id]);
+    return result.rows[0]?.state ?? null;
+  }
+
+  /** Chest and survivor commit together: a crash cannot duplicate or lose a transferred item. */
+  saveChestAndPlayer(id: string, chest: ChestData, player?: PlayerStateRecord): Promise<void> {
+    const snapshot = structuredClone(chest);
+    const survivor = player ? structuredClone(player) : undefined;
+    const next = this.writing.then(() => withTransaction(this.db, async (client) => {
+      if (survivor) await this.writeMany([survivor], undefined, client);
+      await client.query('INSERT INTO world_chests (world_id, chest_id, state) VALUES ($1, $2, $3::jsonb) ON CONFLICT (world_id, chest_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()', [this.worldId, id, JSON.stringify(snapshot)]);
+    }));
+    this.writing = next.catch(() => undefined);
+    return next;
+  }
+
   /** Batched upsert (one round trip) using array parameters — still fully parameterised. */
   saveMany(states: readonly PlayerStateRecord[], worldLife?: LifeWorld): Promise<void> {
     const snapshot = structuredClone(states);
@@ -45,9 +74,9 @@ export class PlayerStateRepository {
     return next;
   }
 
-  private async writeMany(states: readonly PlayerStateRecord[], worldLife?: LifeWorld): Promise<void> {
+  private async writeMany(states: readonly PlayerStateRecord[], worldLife?: LifeWorld, executor: Db | DbClient = this.db): Promise<void> {
     if (states.length === 0) return;
-    await this.db.query(
+    await executor.query(
       `WITH saved_life AS (
          INSERT INTO world_base_life (world_id, state) SELECT $1, $12::jsonb WHERE $12::jsonb IS NOT NULL
          ON CONFLICT (world_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()

@@ -1,4 +1,6 @@
 'use client';
+import { Icon } from './Icon';
+import { ChestPanel } from './ChestPanel';
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -431,7 +433,8 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
           {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
           {state.station === 'shop' && <ShopPanel state={state} store={store} coins={coins} onTip={setTip} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
-          {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && (
+          {state.station === 'chest' && <ChestPanel state={state} store={store} />}
+          {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && state.station !== 'chest' && (
             <section className="inv-box inv-cache">
               <header>
                 <span>{t(state.station === 'camp' ? 'inv.camp_title' : 'inv.cache_title')}</span>
@@ -502,7 +505,7 @@ function EquipmentPanel({ state, store, grid }: { state: InventoryState; store: 
       <header>
         <span>{t('inv.equipment')}</span>
         <small className="inv-equip-stats">
-          🛡 <b>−{Math.round(armorProtection(worn) * 100)}%</b> · ⚖ <b>{kg.toFixed(1)} kg</b> · {t('inv.speed')} <b>{Math.round(armorSpeedFactor(worn) * 100)}%</b>
+          <Icon name="game-icons:shield" /> <b>−{Math.round(armorProtection(worn) * 100)}%</b> · <Icon name="lucide:weight" /> <b>{kg.toFixed(1)} kg</b> · {t('inv.speed')} <b>{Math.round(armorSpeedFactor(worn) * 100)}%</b>
         </small>
       </header>
       <div className="inv-equip-body">
@@ -568,7 +571,7 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
       </header>
       <div className="shop-list">
         <div className="shop-row">
-          <span className="shop-art nurse-cross">✚</span>
+          <span className="shop-art nurse-cross"><Icon name="game-icons:medical-pack" /></span>
           <span className="shop-name">
             {t('nurse.heal')}
             <small>{t('nurse.heal_sub')}</small>
@@ -703,7 +706,7 @@ export function ArmorHud({ state }: { state: InventoryState }) {
         const f = it ? (it.count ?? max) / max : 0;
         return (
           <div key={slot} className={`armor-hud-slot ${def ? '' : 'empty'} ${def && f <= 0 ? 'broken' : ''}`} title={def ? `${item(def.id)} · ${Math.ceil(it!.count ?? max)}/${max}` : slot}>
-            {def ? <ItemArt def={def} /> : <span className="armor-hud-ph">{slot === 'head' ? '⛑' : slot === 'chest' ? '🦺' : slot === 'legs' ? '👖' : '🥾'}</span>}
+            {def ? <ItemArt def={def} /> : <span className="armor-hud-ph"><Icon name={slot === 'head' ? 'game-icons:helmet' : slot === 'chest' ? 'game-icons:armor-vest' : slot === 'legs' ? 'game-icons:trousers' : 'game-icons:boots'} /></span>}
             {def && (
               <div className="inv-dur">
                 <div style={{ width: `${Math.max(0, f) * 100}%`, background: durabilityColor(f) }} />

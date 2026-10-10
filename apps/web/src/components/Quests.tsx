@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from './Icon';
 
 import { ITEMS } from '@zion/shared';
 import { useEffect, useState } from 'react';
@@ -70,14 +71,14 @@ export function QuestTracker({ quests, position, onCancel }: { quests: Quest[]; 
               <span>{q.title}</span>
               {q.allowCancel && (
                 <button className="q-track-cancel" title="Hủy nhiệm vụ" disabled={busy(`quest:${q.id}`)} onClick={() => { if (confirm(`Hủy nhiệm vụ "${q.title}"?`)) onCancel(q); }}>
-                  {busy(`quest:${q.id}`) ? <Spinner /> : '✕'}
+                  {busy(`quest:${q.id}`) ? <Spinner /> : <Icon name="lucide:x" />}
                 </button>
               )}
             </div>
             <div className="q-track-obj">
-              {ready ? '✓ Quay lại nhận thưởng' : q.objective}
+              {ready ? <><Icon name="lucide:check" /> Quay lại nhận thưởng</> : q.objective}
               {!ready && q.stages > 1 && <em> · {q.stage + 1}/{q.stages}</em>}
-              {dist !== null && <em className="q-dist"> ⌖ {dist} m</em>}
+              {dist !== null && <em className="q-dist"><Icon name="lucide:map-pin" /> {dist} m</em>}
             </div>
             {!ready && <Progress q={q} />}
           </div>
@@ -118,7 +119,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
             <button className={tab === 'quests' ? 'on' : ''} onClick={() => setTab('quests')}>Nhiệm vụ</button>
             {trades.length > 0 && <button className={tab === 'trade' ? 'on' : ''} onClick={() => setTab('trade')}>Mua bán</button>}
           </div>
-          <button className="q-close" onClick={onClose} title="Đóng (Esc)">✕</button>
+          <button className="q-close" onClick={onClose} title="Đóng (Esc)"><Icon name="lucide:x" /></button>
         </header>
 
         {tab === 'quests' ? (
@@ -131,7 +132,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                   <span>{q.title}</span>
                   {q.status === 'ready' && <b className="q-badge">!</b>}
                   {q.status === 'active' && <small>Đang làm</small>}
-                  {q.status === 'claimed' && <small>✓</small>}
+                  {q.status === 'claimed' && <small><Icon name="lucide:check" /></small>}
                 </button>
               ))}
             </nav>

@@ -124,6 +124,22 @@ describe('world generation', () => {
 });
 
 describe('abandoned structures', () => {
+  it('adds 50% more sites while preserving original sites and non-overlapping footprints', async () => {
+    const { allStructures, structureInCell, structuresNear } = await import('./structures');
+    const gen = new WorldGenerator({ ...CONFIG, generatorVersion: 2 }, registry);
+    const original = [];
+    const cells = Math.ceil(gen.worldSize / 100);
+    for (let gz = 0; gz < cells; gz++) for (let gx = 0; gx < cells; gx++) {
+      const site = structureInCell(gen, gx, gz); if (site) original.push(site);
+    }
+    const sites = allStructures(gen);
+    expect(sites.length).toBe(Math.round(original.length * 1.5));
+    for (const site of original) expect(sites).toContain(site);
+    for (const site of sites) {
+      expect(structuresNear(gen, site.x, site.z)).toContain(site);
+      for (const other of sites) if (other !== site) expect(Math.hypot(site.x - other.x, site.z - other.z)).toBeGreaterThanOrEqual(site.radius + other.radius + 10);
+    }
+  });
   it('are seeded, kept away from the camp and from each other', async () => {
     const { structureInCell } = await import('./structures');
     const a = new WorldGenerator({ ...CONFIG, generatorVersion: 2 }, registry);

@@ -252,3 +252,7 @@ export function studioContent(): Promise<GameContent> {
 export function studioSaveContent(content: GameContent): Promise<GameContent> {
   return studioRequest('/api/studio/content', { method: 'POST', body: JSON.stringify(content) });
 }
+
+export interface PlayerProgress { id: string; username: string; journal: Record<string, { status: string; stage: number; progress: number }> }
+export function studioPlayers(): Promise<PlayerProgress[]> { return studioRequest('/api/studio/players'); }
+export function studioResetProgress(accountId?: string): Promise<{ ok: boolean }> { return studioRequest('/api/studio/players/reset', { method: 'POST', body: JSON.stringify(accountId ? { accountId } : { all: true }) }); }

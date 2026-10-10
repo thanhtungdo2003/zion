@@ -16,3 +16,5 @@ export * from './inventory';
 export * from './content';
 
 export * from './base-life';
+
+export * from './chests';

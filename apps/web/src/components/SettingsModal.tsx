@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from './Icon';
 
 import { useEffect, type ReactNode } from 'react';
 import { settingsStore, useSettings } from '@/lib/settings';
@@ -18,7 +19,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, children }: Props) {
-  const { lang, volume, t } = useSettings();
+  const { lang, volume, firstPerson, mouseSens, t } = useSettings();
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +62,7 @@ export function SettingsModal({ open, onClose, children }: Props) {
               >
                 <b>{l.native}</b>
                 <small>{l.label}</small>
-                <i aria-hidden>{lang === l.id ? '■' : '□'}</i>
+                <i aria-hidden><Icon name={lang === l.id ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>
@@ -81,6 +82,33 @@ export function SettingsModal({ open, onClose, children }: Props) {
               onChange={(e) => settingsStore.set({ volume: Number(e.target.value) / 100 })}
             />
             <em>{Math.round(volume * 100)}%</em>
+          </label>
+        </section>
+
+        <section className="set-section">
+          <h3>
+            <span>03</span> {t('settings.view')}
+          </h3>
+          <div className="set-langs" role="radiogroup" aria-label={t('settings.view')}>
+            {([false, true] as const).map((fp) => (
+              <button
+                key={String(fp)}
+                type="button"
+                role="radio"
+                aria-checked={firstPerson === fp}
+                className="set-lang"
+                onClick={() => settingsStore.set({ firstPerson: fp })}
+              >
+                <b>{fp ? 'FPP' : 'TPP'}</b>
+                <small>{t(fp ? 'settings.view_first' : 'settings.view_third')}</small>
+                <i aria-hidden><Icon name={firstPerson === fp ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
+          <label className="set-slider" style={{ marginTop: 12 }}>
+            <span>{t('settings.sensitivity')}</span>
+            <input type="range" min={1} max={100} value={mouseSens} onChange={(e) => settingsStore.set({ mouseSens: Number(e.target.value) })} />
+            <em>{mouseSens}</em>
           </label>
         </section>
 

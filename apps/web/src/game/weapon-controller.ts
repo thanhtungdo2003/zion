@@ -40,9 +40,16 @@ export class WeaponController {
 
   /** The server's magazine count for a gun (ignored mid-reload, when our own timer is running). */
   syncMag(weapon: number, rounds: number): void {
-    if (this.reloadWeapon === weapon) return;
+    if (this.reloadWeapon === weapon) {
+      // Mid-reload: the server may already have finished it (and used up the last box), so keep
+      // its count for when our timer ends instead of re-drawing from boxes that are gone.
+      this.serverDuringReload = rounds;
+      return;
+    }
     this.mags.set(weapon, rounds);
   }
+
+  private serverDuringReload: number | null = null;
 
   setReloadMs(weapon: number, ms: number): void {
     if (ms > 0) this.reloadMs.set(weapon, ms);
@@ -66,11 +73,13 @@ export class WeaponController {
       const spec = this.gun(w);
       if (spec) {
         const mag = this.mag(w, spec);
-        this.mags.set(w, mag + this.ammo.take(w, spec.magazine - mag));
+        const rounds = this.serverDuringReload;
+        this.mags.set(w, rounds !== null ? rounds : mag + this.ammo.take(w, spec.magazine - mag));
       }
       this.reloadWeapon = 0;
+      this.serverDuringReload = null;
     }
-    if (this.reloadWeapon && this.reloadWeapon !== weapon) this.reloadWeapon = 0; // swapping cancels
+    if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; } // swapping cancels
     if (!canAct || !trigger) return 'none';
 
     if (weapon === WeaponId.None) return 'melee';
@@ -110,6 +119,7 @@ export class WeaponController {
       return;
     }
     this.reloadWeapon = weapon;
+    this.serverDuringReload = null;
     this.reloadStart = now;
     const ms = this.reloadMs.get(weapon) ?? spec.reloadMs;
     this.reloadEnd = now + ms;

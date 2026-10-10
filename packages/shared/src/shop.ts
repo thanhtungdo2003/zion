@@ -2,12 +2,12 @@
  * ZCoin economy shared by client (shop UI) and server (authoritative wallet). ZCoin are gold
  * coins: for now players start with a purse and pick up coins some zombies drop; jobs come later.
  */
-export const STARTING_ZCOIN = 500;
+export const STARTING_ZCOIN = 100;
 /** Chance that a dead zombie drops ZCoin on the spot (collected by walking over it). */
-export const ZOMBIE_COIN_DROP_CHANCE = 0.85;
+export const ZOMBIE_COIN_DROP_CHANCE = 0.05;
 /** A drop holds a random number of ZCoin in this range (inclusive). */
 export const ZOMBIE_COIN_DROP_MIN = 1;
-export const ZOMBIE_COIN_DROP_MAX = 10;
+export const ZOMBIE_COIN_DROP_MAX = 5;
 /** How long a dropped coin lies on the ground before it is gone (ms). */
 export const COIN_DROP_LIFETIME_MS = 5 * 60_000;
 /** Walking this close to a coin picks it up automatically (m). */

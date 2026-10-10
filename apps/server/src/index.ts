@@ -124,6 +124,8 @@ async function main(): Promise<void> {
     tokens,
     kv,
     studio: {
+      playerProgress: async () => (await db.query('SELECT a.id, a.username, p.quest_journal AS journal FROM player_states p JOIN accounts a ON a.id = p.account_id WHERE p.world_id = $1 ORDER BY a.username', [config.WORLD_ID])).rows,
+      resetPlayerProgress: (accountId) => game.resetPlayerProgress(accountId),
       getContent: () => game.content,
       saveContent: async (content) => {
         await db.query('INSERT INTO game_content (world_id, content) VALUES ($1, $2::jsonb) ON CONFLICT (world_id) DO UPDATE SET content = EXCLUDED.content, updated_at = now()', [config.WORLD_ID, JSON.stringify(content)]);

@@ -15,6 +15,8 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  tutorialAnchor: { x: number; y: number };
+  tutorialTargets: Array<{ id: string; x: number; z: number; angle: number; distance: number }>;
   life: LifeState | null;
   quests: QuestStateMessage['entries'];
   /** Quest NPC whose dialogue is open (E near them), or null. */
@@ -71,6 +73,8 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    tutorialAnchor: { x: 0, y: 0 },
+    tutorialTargets: [],
     life: null,
     quests: [],
     dialogue: null,

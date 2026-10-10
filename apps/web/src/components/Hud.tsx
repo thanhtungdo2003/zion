@@ -1,9 +1,10 @@
 'use client';
+import { Icon } from './Icon';
 
 import { itemIcons } from '@/game/inventory/icons';
-import { NPC_GLYPHS } from '@/game/render/minimap';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { SettingsModal } from '@/components/SettingsModal';
+import { TUTORIAL_RESTART_EVENT } from '@/components/Onboarding';
 import type { HudState } from '@/game/hud-store';
 import { useSettings } from '@/lib/settings';
 import { Coins } from './Inventory';
@@ -42,7 +43,7 @@ function phase(tod: number): TKey {
 }
 
 export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime }: Props) {
-  const { t, tm } = useSettings();
+  const { t, tm, firstPerson } = useSettings();
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -210,7 +211,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
           {state.guides.map((g, i) => (
             <div key={`${g.role}${i}`} className="hud-guide" style={{ left: g.x, top: g.y }}>
               <i className="hud-guide-arrow" style={{ transform: `rotate(${g.angle}rad)` }} />
-              <span className={`hud-guide-icon ${g.role}`}>{g.role === 'nurse' ? '✚' : g.role === 'merchant' ? <GunGlyph /> : (NPC_GLYPHS[g.role] ?? '?')}{g.quest && <b className="hud-guide-quest">!</b>}</span>
+              <span className={`hud-guide-icon ${g.role}`}><Icon name={g.role === 'nurse' ? 'game-icons:medical-pack' : g.role === 'merchant' ? 'game-icons:pistol-gun' : g.role === 'farmer' ? 'game-icons:wheat' : g.role === 'chef' ? 'game-icons:cooking-pot' : g.role === 'storage' ? 'game-icons:locked-chest' : 'game-icons:compass'} />{g.quest && <b className="hud-guide-quest"><Icon name="lucide:circle-alert" /></b>}</span>
               <small>{g.dist >= 100 ? `${(g.dist / 1000).toFixed(1)} km` : `${g.dist} m`}</small>
             </div>
           ))}
@@ -289,7 +290,31 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
         </div>
       )}
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        {state.status === 'playing' && (
+          <section className="set-section">
+            <h3>
+              <span>04</span> {t('settings.tutorial')}
+            </h3>
+            <button
+              type="button"
+              className="btn set-tutorial"
+              onClick={() => {
+                setSettingsOpen(false);
+                window.dispatchEvent(new Event(TUTORIAL_RESTART_EVENT));
+              }}
+            >
+              <Icon name="game-icons:compass" /> {t('settings.tutorial_run')}
+            </button>
+          </section>
+        )}
+      </SettingsModal>
+
+      {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && (
+        <div className={`fp-crosshair${state.scoped ? ' scoped' : ''}`} aria-hidden>
+          <i /><i /><i /><i />
+        </div>
+      )}
 
       {state.status === 'dead' && (
         <div className="overlay">
@@ -319,14 +344,5 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
         </div>
       )}
     </div>
-  );
-}
-
-/** Small pistol silhouette for the weapon merchant's guide icon. */
-function GunGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
-      <path d="M1 4h13v3H7l-1 6H3l1-6H1z" fill="currentColor" />
-    </svg>
   );
 }

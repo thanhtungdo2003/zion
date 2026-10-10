@@ -84,6 +84,7 @@ export class ZombieAvatar {
   constructor(
     private readonly template: CharacterTemplate,
     private readonly onGore: GoreCallback,
+    scale = 1,
   ) {
     this.model = template.root.clone(true);
     this.model.traverse((o) => {
@@ -94,6 +95,7 @@ export class ZombieAvatar {
         this.bones.set(o.name, { node: o, restPos: o.position.clone(), restRot: o.rotation.clone() });
       }
     });
+    this.root.scale.setScalar(scale);
     this.root.add(this.model);
     this.root.visible = false;
   }

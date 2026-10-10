@@ -49,3 +49,5 @@ export function zombieVariant(packed: number): ZombieVariant {
 export function zombieMaxHealth(variant: ZombieVariant): number {
   return variant === ZombieVariant.Brute ? 240 : ZOMBIE_MAX_HEALTH;
 }
+
+export function zombieScale(variant: ZombieVariant): number { return variant === ZombieVariant.Brute ? 1.5 : 1; }

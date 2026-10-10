@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from '@/components/Icon';
 
 import { Spinner } from '@/components/Spinner';
 import dynamic from 'next/dynamic';
@@ -144,7 +145,7 @@ export default function MainMenu() {
         <button className="menu-mode" onClick={() => setModeOpen((v) => !v)} aria-expanded={modeOpen}>
           <small>{t('menu.mode')}</small>
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
-          <span className="menu-mode-caret">{modeOpen ? '▾' : '▴'}</span>
+          <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>
         </button>
         <button className="menu-play" disabled={busy} onClick={play}>
           {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}

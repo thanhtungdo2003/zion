@@ -1,7 +1,7 @@
 import { MAX_LAG_COMPENSATION_MS } from '@zion/shared';
 import {
   DEFAULT_CHARACTER,
-  HUMANOID_BOUNDS,
+  rigBounds,
   Mask,
   ZONE_DAMAGE_MULTIPLIER,
   makeRayHit,
@@ -85,10 +85,11 @@ export function castCombatRay<T extends Combatant>(
     if (!target.history.sample(rewindTo, pose)) continue;
     // Broad phase: distance from the ray to the bounding sphere around the rewound pose.
     const cx = pose.x - ox;
-    const cy = pose.y + HUMANOID_BOUNDS.centerY - oy;
+    const bounds = rigBounds(target.rig);
+    const cy = pose.y + bounds.centerY - oy;
     const cz = pose.z - oz;
     const along = cx * dx + cy * dy + cz * dz;
-    const br = HUMANOID_BOUNDS.radius + 0.4; // crawling zombies stretch further
+    const br = bounds.radius;
     if (along < -br || along > range + br) continue;
     const perp2 = cx * cx + cy * cy + cz * cz - along * along;
     if (perp2 > br * br) continue;

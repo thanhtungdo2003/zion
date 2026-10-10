@@ -6,6 +6,7 @@ import { GameEngine } from '@/game/engine';
 import { HudStore } from '@/game/hud-store';
 import { InventoryStore } from '@/game/inventory/inventory';
 import { Hud } from './Hud';
+import { Onboarding } from './Onboarding';
 import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs, StaminaBar } from './Quests';
 import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
 
@@ -33,6 +34,8 @@ export default function GameView() {
   useEffect(() => {
     engineRef.current?.setInventoryOpen(inv.open);
   }, [inv.open]);
+
+  const blockTutorial = useCallback((block: boolean) => engineRef.current?.setTutorialBlocked(block), []);
 
   const inWorld = hud.status === 'playing' || hud.status === 'dead';
   useEffect(() => {
@@ -87,6 +90,7 @@ export default function GameView() {
       {inWorld && hud.downed !== null && <DownedPanel bleed={hud.downed} onHelp={() => engineRef.current?.callForHelp()} onGiveUp={() => engineRef.current?.giveUp()} />}
       {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
+      {inWorld && <Onboarding hud={hud} onBlock={blockTutorial} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}

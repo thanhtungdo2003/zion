@@ -1,3 +1,4 @@
+import type { ChestStateMessage } from '../chests';
 import type { BaseLifeConfig } from '../base-life';
 import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
@@ -217,6 +218,7 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | ChestStateMessage
   | DistressMessage
   | RevivingMessage
   | BaseLifeMessage

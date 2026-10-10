@@ -1,3 +1,5 @@
+import { SharedChests } from './chests';
+import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE } from '@zion/shared';
@@ -26,7 +28,6 @@ import {
   ZOMBIE_COIN_DROP_MIN,
   ITEMS,
   WEAPON_BY_ITEM,
-  CACHE_STOCK,
   CAMP_CACHE_STOCK,
   defaultLoadout,
   maxCount,
@@ -135,6 +136,7 @@ export class GameServer {
   lifeWorld: LifeWorld = { plots: {}, nextGrowth: 0 };
   private life = new BaseLife(DEFAULT_BASE_LIFE);
   private lifeBusy = false;
+  private readonly chests: SharedChests;
   private animals = new Map<string, Livestock>();
   private plotLocks = new Map<string, number>();
   content: GameContent = structuredClone(DEFAULT_CONTENT);
@@ -182,6 +184,14 @@ export class GameServer {
   private persisting: Promise<void> | null = null;
 
   constructor(private readonly deps: GameServerDeps) {
+    this.chests = new SharedChests({
+      near: (p, id) => this.chestNear(p, id),
+      load: (id) => deps.playerStates.loadChest(id),
+      commit: (id, data, p, inventory) => deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life) } : undefined),
+      sync: (p) => { p.reloadAt = 0; this.syncLoadout(p); this.sendInv(p); },
+      finish: (p) => this.finishQuestMutation(p),
+      error: (err) => this.log.error({ err }, 'shared chest transaction failed'),
+    }, () => this.serverTime, () => Math.floor(this.worldTimeMs / this.dayLengthMs));
     this.log = deps.logger.child({ module: 'game' });
     const gen = deps.world.generator;
     this.collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
@@ -244,6 +254,16 @@ export class GameServer {
       });
       p.dirty = true;
     }
+  }
+
+  async resetPlayerProgress(accountId?: string): Promise<void> {
+    const players = [...this.players.values()].filter((p) => !accountId || p.accountId === accountId);
+    if (players.some((p) => p.questBusy)) throw new Error('Player transaction in progress; retry shortly');
+    for (const p of players) p.questBusy = true;
+    try {
+      await this.deps.playerStates.resetQuestJournals(accountId);
+      for (const p of players) { p.journal = {}; p.questEvents = []; this.sendQuests(p); }
+    } finally { for (const p of players) p.questBusy = false; }
   }
 
   private sendQuests(p: Player): void {
@@ -1126,6 +1146,7 @@ export class GameServer {
     this.tick++;
     this.worldTimeMs += TICK_MS;
     const now = this.serverTime;
+    this.chests.step();
 
     if (!this.lifeBusy && this.life.growth(this.lifeWorld, Date.now())) {
       for (const p of this.players.values()) this.sendLife(p);
@@ -1853,7 +1874,7 @@ export class GameServer {
 
   private stepReloads(now: number): void {
     for (const p of this.activeScratch) {
-      if (!p.reloadAt || now < p.reloadAt) continue;
+      if (p.questBusy || !p.reloadAt || now < p.reloadAt) continue;
       p.reloadAt = 0;
       const gun = p.inv.equippedItem();
       const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
@@ -1867,6 +1888,10 @@ export class GameServer {
 
   private onInventory(p: Player, msg: InvMessage): void {
     if (p.dead && msg.op !== 'move' && msg.op !== 'equip') return;
+    switch (msg.op) {
+      case 'chestOpen': case 'chestClose': case 'chestSearch': case 'chestPut': case 'chestTake':
+        void this.chests.handle(p, msg); return;
+    }
     let changed = false;
     switch (msg.op) {
       case 'move': {
@@ -1911,7 +1936,7 @@ export class GameServer {
         if (Date.now() < p.cacheReadyAt) break;
         p.cacheReadyAt = Date.now() + 1500;
         const kind = this.cacheNear(p);
-        const stock: readonly string[] = kind === 'camp' ? CAMP_CACHE_STOCK : kind === 'field' ? CACHE_STOCK : [];
+        const stock: readonly string[] = kind === 'camp' ? CAMP_CACHE_STOCK : [];
         if (!stock.includes(msg.item)) break;
         changed = p.inv.add(msg.item, undefined, true) !== null;
         break;
@@ -1920,6 +1945,24 @@ export class GameServer {
     if (changed) this.syncLoadout(p);
     // Always answer with the true state, so a rejected move snaps back on the client.
     this.sendInv(p);
+  }
+
+  private chestNear(p: Player, id: string): { field: boolean } | null {
+    if (!p.active || p.dead || p.downed) return null;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const chunk = this.deps.world.peek(p.chunkX + dx, p.chunkZ + dz, 0)?.data;
+      if (!chunk) continue;
+      for (const prop of chunk.props) {
+        if (!CHEST_ASSETS.has(prop.asset)) continue;
+        const t = propTransform(chunk, prop);
+        if (chestKey(prop.asset, t.x, t.y, t.z) !== id || Math.hypot(t.x - p.state.x, t.z - p.state.z) > CHEST_REACH || Math.abs(t.y - p.state.y) > 2.5) continue;
+        const camp = this.deps.world.generator.camp;
+        const field = !(camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= CAMP_HALF_SIZE + 4);
+        if (!field && prop.asset === CAMP_ASSET['zion-ammo-cache-station']) continue;
+        return { field };
+      }
+    }
+    return null;
   }
 
   /** Is the player next to an ammo cache station, and is it the camp's (ammo only) or a field one? */

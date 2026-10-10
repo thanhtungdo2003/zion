@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-09T16:13:49.526Z",
+  "generatedAt": "2026-10-10T04:31:57.725Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -560,6 +560,12 @@
       "bytes": 40809,
       "kind": "bbmodel"
     },
+    "mobs/mossy-skeleton.bbmodel": {
+      "url": "/assets/models/mobs_mossy-skeleton.b121ffe3be30.bbmodel",
+      "sha256": "b121ffe3be30db3fb051f9af30b580a066dfac8cea254efd76539e094db69394",
+      "bytes": 21715,
+      "kind": "bbmodel"
+    },
     "mobs/suffolk-sheep.bbmodel": {
       "url": "/assets/models/mobs_suffolk-sheep.5d2af38c95ab.bbmodel",
       "sha256": "5d2af38c95ab0e4736828b26bebb74af9fbd4f324635139d68ec7e3a0f210736",
@@ -631,6 +637,12 @@
       "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
       "bytes": 12792,
       "kind": "bbmodel"
+    },
+    "specials/cattail_girl-plants_vs_zombies.glb": {
+      "url": "/assets/models/specials_cattail_girl-plants_vs_zombies.694ad3b3473e.glb",
+      "sha256": "694ad3b3473e518fb59a136934b33b1e56dacd3ff909d62f82b2ddd0c72c9e94",
+      "bytes": 136716,
+      "kind": "glb"
     },
     "teen-wasteland-survivor.bbmodel": {
       "url": "/assets/models/teen-wasteland-survivor.7e02c6153a8f.bbmodel",

@@ -12,6 +12,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@iconify-json/game-icons": "^1.2.4",
+    "@iconify-json/lucide": "^1.2.142",
+    "@iconify/react": "^6.0.2",
     "@zion/assets": "workspace:*",
     "@zion/physics": "workspace:*",
     "@zion/shared": "workspace:*",

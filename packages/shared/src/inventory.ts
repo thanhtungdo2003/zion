@@ -376,12 +376,11 @@ export function defaultLoadout(): InventoryData {
     if (mag !== undefined) item.mag = mag;
     m.items.push(item);
   };
-  put('ak47', 'primary', 0, 0);
   put('gl18', 'secondary', 0, 0);
   put('grenade', 'grenades', 0, 0);
   put('grenade', 'grenades', 1, 0);
-  put('ammo_762', 'backpack', 6, 0);
-  put('ammo_9mm', 'backpack', 7, 0);
+  for (let i = 0; i < 5; i++) put('potato_cooked', 'backpack', 3 + i, 0);
+  put('potato', 'backpack', 3, 1);
   put('medkit', 'backpack', 0, 0);
   return { items: m.items, equipped: 1 };
 }

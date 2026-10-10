@@ -188,11 +188,16 @@ describe('server inventory model', () => {
   it('enforces grid rules, ammo, charges and armour wear', async () => {
     const { InventoryModel, defaultLoadout } = await import('./index');
     const inv = new InventoryModel(defaultLoadout());
-    expect(inv.equippedItem()?.itemId).toBe('ak47');
-    expect(inv.equippedItem()?.mag).toBe(30);
+    expect(inv.equippedItem()?.itemId).toBe('gl18');
+    expect(inv.equippedItem()?.mag).toBe(17);
+    expect(inv.items.filter((i) => i.itemId === 'grenade')).toHaveLength(2);
+    expect(inv.items.filter((i) => i.itemId === 'potato_cooked')).toHaveLength(5);
+    expect(inv.items.filter((i) => i.itemId === 'potato')).toHaveLength(1);
+    expect(inv.items).toHaveLength(10);
+    expect(inv.add('ammo_762')).toBeTruthy();
     // Overlapping move is refused; a free spot is accepted.
     const box = inv.items.find((i) => i.itemId === 'ammo_762')!;
-    expect(inv.move(box.uid, 'backpack', 7, 0, false)).toBe(false);
+    expect(inv.move(box.uid, 'backpack', 3, 0, false)).toBe(false);
     expect(inv.move(box.uid, 'backpack', 3, 3, false)).toBe(true);
     // Ammo comes out of boxes and empty boxes vanish.
     expect(inv.ammoFor('ak47')).toBe(30);

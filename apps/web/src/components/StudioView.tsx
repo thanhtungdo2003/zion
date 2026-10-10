@@ -1,4 +1,5 @@
 'use client';
+import { Icon } from './Icon';
 
 import Link from 'next/link';
 import { ContentEditor } from './ContentEditor';
@@ -489,7 +490,7 @@ export default function StudioView() {
     <div className="studio-root">
       <header className="studio-bar">
         <Link href="/" className="studio-back" title="Back to menu">
-          ←
+          <Icon name="lucide:arrow-left" />
         </Link>
         <h1>Camp Studio</h1>
         <ContentEditor />
@@ -498,10 +499,10 @@ export default function StudioView() {
         <div className="studio-spacer" />
         <div className="studio-seg">
           <button className={mode === 'translate' ? 'on' : ''} onClick={() => setMode('translate')} title="Move along X / Y / Z (G)">
-            ✥ Move
+            <Icon name="lucide:move" /> Move
           </button>
           <button className={mode === 'rotate' ? 'on' : ''} onClick={() => setMode('rotate')} title="Rotate (E)">
-            ⟳ Rotate
+            <Icon name="lucide:rotate-cw" /> Rotate
           </button>
         </div>
         <button className="btn" onClick={undo} disabled={!history.current.undo.length} title="Undo (Ctrl+Z)">
@@ -521,7 +522,7 @@ export default function StudioView() {
           </select>
         </label>
         <button className="btn" onClick={() => setModal('help')}>
-          ?
+          <Icon name="lucide:circle-help" />
         </button>
         <button className="btn" onClick={() => setModal('discard')} disabled={!dirty || busy}>
           Discard
@@ -651,9 +652,9 @@ export default function StudioView() {
         )}
         {selParts.length > 0 && (
           <div className="studio-actions">
-            <button className="btn" onClick={() => rotateSelected(-15)}>⟲ 15°</button>
-            <button className="btn" onClick={() => rotateSelected(15)}>⟳ 15°</button>
-            <button className="btn" onClick={() => rotateSelected(90)}>⟳ 90°</button>
+            <button className="btn" onClick={() => rotateSelected(-15)}><Icon name="lucide:rotate-ccw" /> 15°</button>
+            <button className="btn" onClick={() => rotateSelected(15)}><Icon name="lucide:rotate-cw" /> 15°</button>
+            <button className="btn" onClick={() => rotateSelected(90)}><Icon name="lucide:rotate-cw" /> 90°</button>
             <button className="btn" onClick={() => duplicate(selParts.map(strip), Math.max(snap, 1))}>Duplicate</button>
             <button className="btn btn-danger" onClick={removeSelected}>Demolish</button>
           </div>

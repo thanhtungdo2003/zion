@@ -10,7 +10,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
-  `connect-src 'self' ${api} ${wsOrigin}${isDev ? ' ws://localhost:3000 ws://127.0.0.1:3000' : ''}`,
+  `connect-src 'self' blob: ${api} ${wsOrigin}${isDev ? ' ws://localhost:3000 ws://127.0.0.1:3000' : ''}`,
   "worker-src 'self' blob:",
   "object-src 'none'",
   "frame-ancestors 'none'",

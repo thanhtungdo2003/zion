@@ -11,6 +11,8 @@ import type { HttpDeps } from '../app';
 
 /** What the Camp Studio needs from the game: the live layout and a way to change it. */
 export interface StudioBackend {
+  playerProgress(): Promise<unknown>;
+  resetPlayerProgress(accountId?: string): Promise<void>;
   getContent(): GameContent;
   saveContent(content: GameContent): Promise<void>;
   get(): { parts: readonly CampPart[]; npcs: CampNpcLayout; customised: boolean; camp: { x: number; y: number; z: number; halfSize: number } | null; updatedAt: string | null };
@@ -102,6 +104,13 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     return issueToken(secret);
   });
 
+  app.get('/api/studio/players', { preHandler: guard }, async () => studio.playerProgress());
+  app.post('/api/studio/players/reset', { preHandler: guard }, async (req, reply) => {
+    const parsed = z.object({ accountId: z.string().uuid().optional(), all: z.boolean().optional() }).strict().safeParse(req.body);
+    if (!parsed.success || (!parsed.data.accountId && parsed.data.all !== true) || (parsed.data.accountId && parsed.data.all)) return reply.code(400).send({ error: 'invalid_scope' });
+    await studio.resetPlayerProgress(parsed.data.accountId);
+    return { ok: true };
+  });
   app.get('/api/studio/content', { preHandler: guard }, async (_req, reply) => {
     reply.header('cache-control', 'no-store');
     return studio.getContent();

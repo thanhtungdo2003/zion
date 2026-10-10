@@ -109,3 +109,15 @@ export function raycastRig(
 
 /** Conservative bounding sphere of the rig (for broad-phase target selection). */
 export const HUMANOID_BOUNDS = { centerY: 0.9, radius: 1.0 } as const;
+
+const boundsCache = new WeakMap<readonly RigPart[], { centerY: number; radius: number }>();
+/** Covers scaled/crawling rigs as well as ordinary humanoids. Cached per immutable rig. */
+export function rigBounds(rig: readonly RigPart[]): { centerY: number; radius: number } {
+  const cached = boundsCache.get(rig); if (cached) return cached;
+  let bottom = Infinity, top = -Infinity;
+  for (const p of rig) { bottom = Math.min(bottom, p.a[1] - p.r, p.b[1] - p.r); top = Math.max(top, p.a[1] + p.r, p.b[1] + p.r); }
+  const centerY = Number.isFinite(bottom) ? (bottom + top) / 2 : 0;
+  let radius = 0;
+  for (const p of rig) for (const endpoint of [p.a, p.b]) radius = Math.max(radius, Math.hypot(endpoint[0], endpoint[1] - centerY, endpoint[2]) + p.r);
+  const bounds = { centerY, radius }; boundsCache.set(rig, bounds); return bounds;
+}

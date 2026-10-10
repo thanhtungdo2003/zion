@@ -101,7 +101,13 @@ const cell = z.number().int().min(0).max(16);
  * move an item, put an item in hand (uid null = empty hands), drop it on the ground, pick a
  * ground item up (`id`), or take one item from a nearby ammo cache (`item`).
  */
+const chestId = z.string().regex(/^\d{4}:-?\d+:-?\d+:-?\d+$/).max(100);
 export const invMessageSchema = z.discriminatedUnion('op', [
+  z.object({ t: z.literal('inv'), op: z.literal('chestOpen'), id: chestId }).strict(),
+  z.object({ t: z.literal('inv'), op: z.literal('chestClose') }).strict(),
+  z.object({ t: z.literal('inv'), op: z.literal('chestSearch'), id: chestId }).strict(),
+  z.object({ t: z.literal('inv'), op: z.literal('chestPut'), id: chestId, uid: u32, revision: u32 }).strict(),
+  z.object({ t: z.literal('inv'), op: z.literal('chestTake'), id: chestId, uid: u32, revision: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('move'), uid: u32, c: containerId, x: cell, y: cell, r: z.boolean() }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('equip'), uid: u32.nullable() }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('drop'), uid: u32 }).strict(),

@@ -1,3 +1,4 @@
+import { zombieScale } from '@zion/shared';
 import {
   CHUNK_SIZE,
   ENTITY_INTEREST_RADIUS_CHUNKS,
@@ -20,6 +21,7 @@ import {
   ZOMBIE_RIG,
   createCharacterState,
   makeRayHit,
+  type RigPart,
   type CharacterParams,
   type CharacterState,
   type CollisionWorld,
@@ -40,6 +42,11 @@ const ATTACK_MS = 1200;
 /** Wind-up: the bite lands this long after the attack animation starts (if still in reach). */
 const BITE_DELAY_MS = 700;
 
+function scaledRig(rig: readonly RigPart[]): readonly RigPart[] {
+  return rig.map((p) => ({ ...p, a: [p.a[0] * 1.5, p.a[1] * 1.5, p.a[2] * 1.5], b: [p.b[0] * 1.5, p.b[1] * 1.5, p.b[2] * 1.5], r: p.r * 1.5 }));
+}
+const BRUTE_RIG = scaledRig(ZOMBIE_RIG);
+const BRUTE_CRAWL_RIG = scaledRig(ZOMBIE_CRAWL_RIG);
 const ZOMBIE_PARAMS: CharacterParams = {
   ...DEFAULT_CHARACTER,
   walkSpeed: 2.2,
@@ -106,7 +113,7 @@ export class Zombie {
   }
 
   get rig() {
-    return isCrawling(this.limbs) ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG;
+    return this.variant === ZombieVariant.Brute ? (isCrawling(this.limbs) ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (isCrawling(this.limbs) ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
   }
 }
 
@@ -133,11 +140,11 @@ export class ZombieDirector {
   ) { this.navigation = new ZombieNavigation(collision); }
 
   /** Controller for a given ground speed (crawlers move slower depending on limbs left). */
-  private controller(speed: number): CharacterController {
-    const key = Math.round(speed * 10);
+  private controller(speed: number, scale = 1): CharacterController {
+    const key = Math.round(speed * 10) * 10 + Math.round(scale * 2);
     let c = this.controllers.get(key);
     if (!c) {
-      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, walkSpeed: speed, sprintSpeed: speed });
+      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, radius: ZOMBIE_PARAMS.radius * scale, height: ZOMBIE_PARAMS.height * scale, walkSpeed: speed, sprintSpeed: speed });
       this.controllers.set(key, c);
     }
     return c;
@@ -216,11 +223,11 @@ export class ZombieDirector {
    */
   private separate(players: readonly Player[]): void {
     const list = [...this.zombies.values()].filter((z) => !z.dead);
-    const R = 0.75;
     for (let i = 0; i < list.length; i++) {
       const a = list[i]!.state;
       for (let j = i + 1; j < list.length; j++) {
         const b = list[j]!.state;
+        const R = 0.375 * (zombieScale(list[i]!.variant) + zombieScale(list[j]!.variant));
         const dx = b.x - a.x;
         const dz = b.z - a.z;
         const d2 = dx * dx + dz * dz;
@@ -234,6 +241,7 @@ export class ZombieDirector {
         b.vx += nx * push;
         b.vz += nz * push;
       }
+      const R = 0.375 * (zombieScale(list[i]!.variant) + 1);
       for (const p of players) {
         if (!p.active || p.dead) continue;
         const dx = a.x - p.state.x;
@@ -306,7 +314,7 @@ export class ZombieDirector {
 
     // Attack when in reach.
     const t = z.target;
-    const inReach = t && dist < ATTACK_RANGE && Math.abs(s.y - t.state.y) < 1.2 &&
+    const inReach = t && dist < ATTACK_RANGE * zombieScale(z.variant) && Math.abs(s.y - t.state.y) < 1.2 &&
       this.collision.lineOfSight(s.x, s.y + 0.9, s.z, t.state.x, t.state.y + 0.9, t.state.z,
         Mask.LineOfSight, this.attackHit);
     // A started bite resolves after its wind-up: only if the victim is still within reach.
@@ -329,7 +337,7 @@ export class ZombieDirector {
     const staggered = now < z.staggerUntil;
     const speed = this.speedFor(z, night, chasing);
     const move = !!waypoint && !staggered && speed > 0 &&
-      !(inReach && dist <= ATTACK_RANGE * 0.7) && waypointDist > (chasing ? 0.1 : 0.5);
+      !(inReach && dist <= ATTACK_RANGE * zombieScale(z.variant) * 0.7) && waypointDist > (chasing ? 0.1 : 0.5);
     const idleRandom = !chasing && Math.random() < 0.3; // wanderers shuffle in fits and starts
     // Brake before corners; steer along the checked corridor while the visual facing turns smoothly.
     const approachSpeed = Math.min(speed, Math.sqrt(2 * ZOMBIE_PARAMS.groundAccel * waypointDist) * 0.65);
@@ -337,14 +345,14 @@ export class ZombieDirector {
   }
 
   private stepPhysics(z: Zombie, mz: number, speed: number, yaw = z.yaw): void {
-    this.controller(Math.max(speed, 0.3)).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
+    this.controller(Math.max(speed, 0.3), zombieScale(z.variant)).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
   }
 
   /** Applies a hit. Returns what happened so the caller can broadcast it. */
   /** Victim within biting range (distance, height and line of sight). */
   private canBite(z: Zombie, v: Player): boolean {
     const s = z.state;
-    return Math.hypot(v.state.x - s.x, v.state.z - s.z) < ATTACK_RANGE + 0.2 && Math.abs(s.y - v.state.y) < 1.2 &&
+    return Math.hypot(v.state.x - s.x, v.state.z - s.z) < ATTACK_RANGE * zombieScale(z.variant) + 0.2 && Math.abs(s.y - v.state.y) < 1.2 &&
       this.collision.lineOfSight(s.x, s.y + 0.9, s.z, v.state.x, v.state.y + 0.9, v.state.z, Mask.LineOfSight, this.attackHit);
   }
 

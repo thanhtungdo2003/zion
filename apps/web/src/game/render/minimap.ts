@@ -1,3 +1,4 @@
+import gameIcons from '@iconify-json/game-icons/icons.json';
 import { BIOME_MAP_COLORS, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 
@@ -293,8 +294,19 @@ export class Minimap {
 }
 
 /** Map/guide icon for a camp NPC centred on the origin: a white disc with a gun or a red cross. */
-/** Glyphs for the quest NPCs' map/guide icons. */
-export const NPC_GLYPHS: Record<string, string> = { farmer: '🌾', chef: '🍲', colonel: '★', target: '◎', storage: '▦', sos: '✚' };
+const NPC_ICONS: Record<string, string> = { farmer: 'wheat', chef: 'cooking-pot', colonel: 'rank-3', target: 'on-target', storage: 'locked-chest', sos: 'medical-pack', nurse: 'medical-pack', merchant: 'pistol-gun' };
+const npcImages = new Map<string, HTMLImageElement>();
+function npcImage(role: string): HTMLImageElement | undefined {
+  const name = NPC_ICONS[role] ?? 'compass';
+  const cached = npcImages.get(name);
+  if (cached) return cached.complete && cached.naturalWidth ? cached : undefined;
+  const data = gameIcons.icons[name as keyof typeof gameIcons.icons];
+  if (!data) return undefined;
+  const img = new Image();
+  img.src = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" color="#233024">${data.body}</svg>`)}`;
+  npcImages.set(name, img);
+  return undefined;
+}
 
 export function drawNpcIcon(ctx: CanvasRenderingContext2D, role: string, r: number, quest = false): void {
   drawNpcDisc(ctx, role, r);
@@ -322,30 +334,6 @@ function drawNpcDisc(ctx: CanvasRenderingContext2D, role: string, r: number): vo
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  if (role !== 'nurse' && role !== 'merchant') {
-    ctx.fillStyle = role === 'colonel' ? '#3a5a2a' : role === 'target' ? '#c07800' : role === 'storage' ? '#6a4a1a' : role === 'sos' ? '#d4202a' : '#2b2b2b';
-    ctx.font = `${Math.round(r * 1.2)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(NPC_GLYPHS[role] ?? '?', 0, r * 0.08);
-    return;
-  }
-  if (role === 'nurse') {
-    ctx.fillStyle = '#d4202a';
-    const a = r * 0.62;
-    const b = r * 0.22;
-    ctx.fillRect(-b, -a, 2 * b, 2 * a);
-    ctx.fillRect(-a, -b, 2 * a, 2 * b);
-    return;
-  }
-  // Pistol silhouette: barrel + slide, grip.
-  ctx.fillStyle = '#2b2b2b';
-  ctx.fillRect(-r * 0.62, -r * 0.38, r * 1.24, r * 0.34);
-  ctx.beginPath();
-  ctx.moveTo(-r * 0.5, -r * 0.06);
-  ctx.lineTo(-r * 0.1, -r * 0.06);
-  ctx.lineTo(-r * 0.2, r * 0.6);
-  ctx.lineTo(-r * 0.58, r * 0.6);
-  ctx.closePath();
-  ctx.fill();
+  const img = npcImage(role);
+  if (img) ctx.drawImage(img, -r * 0.72, -r * 0.72, r * 1.44, r * 1.44);
 }

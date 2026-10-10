@@ -31,6 +31,7 @@ export interface Structure {
  * by a seeded priority, so sites never collide.
  */
 const CELL = 100;
+export const STRUCTURE_DENSITY_MULTIPLIER = 1.5;
 /** Minimum clear ground between two structures' footprints (m). */
 const GAP = 10;
 const SALT = 0x57c;
@@ -444,8 +445,8 @@ function buildCell(gen: WorldGenerator, gx: number, gz: number): Structure | nul
   }
 }
 
-function chooseSite(gen: WorldGenerator, gx: number, gz: number): Structure | null {
-  const rng = new Rng(hash3(gen.seed, gx, gz, SALT));
+function chooseSite(gen: WorldGenerator, gx: number, gz: number, salt = SALT): Structure | null {
+  const rng = new Rng(hash3(gen.seed, gx, gz, salt));
   if (rng.next() > 0.92) return null;
   let total = 0;
   for (const [, w] of WEIGHTS) total += w;
@@ -467,9 +468,9 @@ function chooseSite(gen: WorldGenerator, gx: number, gz: number): Structure | nu
     if (gen.camp && Math.hypot(x - gen.camp.x, z - gen.camp.z) < CAMP_CLEARANCE + approx) continue;
     const base = flatBase(gen, x, z, approx, kind === 'town' ? 9 : kind === 'house_small' || kind === 'house_large' ? 5 : 7);
     if (base === null) continue;
-    const b = new Builder(new Rng(hash3(gen.seed, gx, gz, SALT + 1)));
+    const b = new Builder(new Rng(hash3(gen.seed, gx, gz, salt + 1)));
     const radius = Math.min(MAX_RADIUS, BUILD[kind](b));
-    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius, parts: b.parts, gid: hash3(gen.seed, gx, gz, SALT + 3) };
+    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius, parts: b.parts, gid: hash3(gen.seed, gx, gz, salt + 3) };
   }
   return null;
 }
@@ -494,6 +495,8 @@ function flatBase(gen: WorldGenerator, x: number, z: number, r: number, toleranc
 
 /** Structures whose footprint may reach a point or area. */
 export function structuresNear(gen: WorldGenerator, x: number, z: number, extra = 0): Structure[] {
+  allStructures(gen);
+  const extraCells = extraCache.get(gen);
   const out: Structure[] = [];
   const gx = Math.floor(x / CELL);
   const gz = Math.floor(z / CELL);
@@ -502,6 +505,7 @@ export function structuresNear(gen: WorldGenerator, x: number, z: number, extra 
     for (let dx = -reach; dx <= reach; dx++) {
       const s = structureInCell(gen, gx + dx, gz + dz);
       if (s && Math.hypot(s.x - x, s.z - z) <= s.radius + extra) out.push(s);
+      for (const added of extraCells?.get(`${gx + dx}:${gz + dz}`) ?? []) if (Math.hypot(added.x - x, added.z - z) <= added.radius + extra) out.push(added);
     }
   }
   return out;
@@ -509,6 +513,7 @@ export function structuresNear(gen: WorldGenerator, x: number, z: number, extra 
 
 /** Every structure in the world (scans all cells once; cached per generator). */
 const allCache = new WeakMap<WorldGenerator, Structure[]>();
+const extraCache = new WeakMap<WorldGenerator, Map<string, Structure[]>>();
 export function allStructures(gen: WorldGenerator): Structure[] {
   let list = allCache.get(gen);
   if (list) return list;
@@ -518,7 +523,27 @@ export function allStructures(gen: WorldGenerator): Structure[] {
     const s = structureInCell(gen, gx, gz);
     if (s) list.push(s);
   }
+  // Preserve all original sites. Fill vacant dry ground until the world has 50% more sites.
+  // A spatial index keeps terrain/chunk queries local, even though the target is global.
+  const extras = new Map<string, Structure[]>();
+  extraCache.set(gen, extras);
   allCache.set(gen, list);
+  const target = Math.round(list.length * STRUCTURE_DENSITY_MULTIPLIER);
+  const cells = Array.from({ length: n * n }, (_, i) => ({ gx: i % n, gz: Math.floor(i / n) }));
+  cells.sort((a, b) => priority(gen, a.gx, a.gz) - priority(gen, b.gx, b.gz));
+  const raw = gen.rawTerrain;
+  gen.rawTerrain = true;
+  try {
+    for (let pass = 0; pass < 24 && list.length < target; pass++) for (const cell of cells) {
+      if (list.length >= target) break;
+      const candidate = chooseSite(gen, cell.gx, cell.gz, SALT + 0x1000 + pass * 17);
+      if (!candidate || list.some((s) => Math.hypot(candidate.x - s.x, candidate.z - s.z) < candidate.radius + s.radius + GAP)) continue;
+      list.push(candidate);
+      const key = `${cell.gx}:${cell.gz}`;
+      let entries = extras.get(key); if (!entries) extras.set(key, entries = []);
+      entries.push(candidate);
+    }
+  } finally { gen.rawTerrain = raw; }
   return list;
 }
 

@@ -1,3 +1,4 @@
+import type { ChestStateMessage } from '@zion/shared';
 import { markPending } from '../pending';
 import {
   ARMOR_CONTAINERS,
@@ -43,12 +44,13 @@ export interface HeldItem {
 
 export interface InventoryState {
   open: boolean;
+  chest: ChestStateMessage | null;
   items: PlacedItem[];
   held: HeldItem | null;
   /** uid of the item in hand (hotbar selection), or null for empty hands. */
   equipped: number | null;
   /** Opened at an ammo cache station / trader: which side panel is shown. */
-  station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | null;
+  station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null;
 }
 
 /**
@@ -57,7 +59,8 @@ export interface InventoryState {
  * (optimistic, using the same shared grid rules) and corrected if the server disagrees.
  */
 export class InventoryStore {
-  private state: InventoryState = { open: false, items: [], held: null, equipped: null, station: null };
+  private state: InventoryState = { chest: null, open: false, items: [], held: null, equipped: null, station: null };
+  private chestId: string | null = null;
   private readonly listeners = new Set<() => void>();
   /** Sends an inventory request to the server (wired by the engine). */
   send: ((msg: InvMessage) => void) | null = null;
@@ -84,8 +87,29 @@ export class InventoryStore {
     this.set({ items: held ? items.filter((i) => i.uid !== held.uid) : items, equipped });
   }
 
-  setOpen(open: boolean, station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | null = null): void {
+  openChest(id: string): void {
+    this.returnHeld();
+    this.chestId = id;
+    this.set({ open: true, station: 'chest', chest: null });
+    this.send?.({ t: 'inv', op: 'chestOpen', id });
+  }
+
+  applyChest(message: ChestStateMessage): void {
+    if (message.id !== this.chestId) return;
+    if (message.closed) { this.setOpen(false); return; }
+    this.set({ chest: message });
+  }
+
+  chestAction(op: 'chestSearch' | 'chestTake' | 'chestPut', uid = 0): void {
+    const chest = this.state.chest;
+    if (!chest || chest.busy || chest.searchRemainingMs > 0) return;
+    if (op === 'chestSearch') this.send?.({ t: 'inv', op, id: chest.id });
+    else this.send?.({ t: 'inv', op, id: chest.id, uid, revision: chest.revision });
+  }
+
+  setOpen(open: boolean, station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null = null): void {
     if (!open) this.returnHeld();
+    if ((!open || station !== 'chest') && this.chestId) { this.chestId = null; this.send?.({ t: 'inv', op: 'chestClose' }); this.set({ chest: null }); }
     this.set({ open, station: open ? station : null });
   }
 
