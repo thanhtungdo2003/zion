@@ -1,5 +1,5 @@
 import { withTransaction, type DbClient } from '../db/pool';
-import type { ChestData } from '@zion/shared';
+import type { ChestData, TeamRecord } from '@zion/shared';
 import type { LifePlayer, LifeWorld } from '../game/base-life';
 import { STARTING_ZCOIN, type InventoryData } from '@zion/shared';
 import type { QuestJournal } from '../game/quests';
@@ -51,6 +51,23 @@ export class PlayerStateRepository {
     do { pending = this.writing; await pending; } while (pending !== this.writing);
     const result = await this.db.query<{ state: ChestData }>('SELECT state FROM world_chests WHERE world_id = $1 AND chest_id = $2', [this.worldId, id]);
     return result.rows[0]?.state ?? null;
+  }
+
+  async loadTeams(): Promise<TeamRecord[]> {
+    const result = await this.db.query<{ state: TeamRecord }>('SELECT state FROM world_teams WHERE world_id = $1', [this.worldId]);
+    return result.rows.map((r) => r.state);
+  }
+
+  /** Team progress and the claimant's wallet commit atomically, preventing duplicate rewards. */
+  saveTeam(id: string, team: TeamRecord | null, player?: PlayerStateRecord): Promise<void> {
+    const snapshot = structuredClone(team), survivor = player ? structuredClone(player) : undefined;
+    const next = this.writing.then(() => withTransaction(this.db, async (client) => {
+      if (survivor) await this.writeMany([survivor], undefined, client);
+      if (snapshot) await client.query('INSERT INTO world_teams (world_id, team_id, state) VALUES ($1, $2, $3::jsonb) ON CONFLICT (world_id, team_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()', [this.worldId, id, JSON.stringify(snapshot)]);
+      else await client.query('DELETE FROM world_teams WHERE world_id = $1 AND team_id = $2', [this.worldId, id]);
+    }));
+    this.writing = next.catch(() => undefined);
+    return next;
   }
 
   /** Chest and survivor commit together: a crash cannot duplicate or lose a transferred item. */

@@ -2,6 +2,7 @@ import type { ChestStateMessage } from '../chests';
 import type { BaseLifeConfig } from '../base-life';
 import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
+import type { TeamStateMessage } from '../teams';
 
 /* ------------------------------------------------------------------------------------------ */
 /* JSON (text frame) messages — infrequent control/event traffic.                              */
@@ -48,6 +49,7 @@ export interface ChatBroadcast {
   from: string;
   fromId: number;
   text: string;
+  channel?: 'world' | 'team';
   /** A server reply (command output), shown greyed out without a sender. */
   system?: boolean;
 }
@@ -219,7 +221,7 @@ export interface PlayerInfoEvent {
 
 export interface QuestStateMessage {
   t: 'quests';
-  entries: Array<{ id: string; npc: string; title: string; description: string; kind: 'daily' | 'long'; dialogue: { offer: string; accept: string; progress: string; complete: string }; rewards: { coins: number; items: Array<{ item: string; count: number }> }; allowCancel: boolean; locked: boolean; stage: number; stages: number; goal: number; objective: string; status: string; progress: number; retrievalItem?: string; retrievalModel?: string; target?: { x: number; z: number; radius: number }; /** Quest items lying in the world for this player (exact spots). */ drops?: Array<{ x: number; z: number }> }>;
+  entries: Array<{ team?: boolean; id: string; npc: string; title: string; description: string; kind: 'daily' | 'long'; dialogue: { offer: string; accept: string; progress: string; complete: string }; rewards: { coins: number; items: Array<{ item: string; count: number }> }; allowCancel: boolean; locked: boolean; stage: number; stages: number; goal: number; objective: string; status: string; progress: number; retrievalItem?: string; retrievalModel?: string; target?: { x: number; z: number; radius: number }; /** Quest items lying in the world for this player (exact spots). */ drops?: Array<{ x: number; z: number }> }>;
 }
 
 export interface QuestNpcMessage { t: 'questNpcs'; npcs: Array<{ id: number; key: string; name: string; model: string; x: number; y: number; z: number }> }
@@ -231,6 +233,7 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | TeamStateMessage
   | VegetationMessage
   | ChestStateMessage
   | DistressMessage

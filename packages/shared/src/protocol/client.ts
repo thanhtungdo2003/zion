@@ -60,7 +60,7 @@ export const pingMessageSchema = z
   .strict();
 
 export const chatMessageSchema = z
-  .object({ t: z.literal('chat'), text: z.string().min(1).max(MAX_CHAT_LENGTH) })
+  .object({ t: z.literal('chat'), text: z.string().min(1).max(MAX_CHAT_LENGTH), channel: z.enum(['world', 'team']).optional() })
   .strict();
 
 export const respawnMessageSchema = z.object({ t: z.literal('respawn') }).strict();

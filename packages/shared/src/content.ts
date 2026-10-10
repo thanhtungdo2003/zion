@@ -31,10 +31,10 @@ export const objectiveSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('interact'), target: id, count }).strict(),
   /** Kill zombies anywhere. */
   z.object({ type: z.literal('kill'), target: z.enum(['zombie']), count }).strict(),
-  /** Reach the nearest structure of a kind (an abandoned camp, factory…). */
+  /** Reach a randomly assigned structure of a kind (an abandoned camp, factory…). */
   z.object({ type: z.literal('visit'), structure: z.enum(STRUCTURE_KIND_IDS), location: id.optional() }).strict(),
   /**
-   * A private item appears at the nearest structure of a kind (only this player sees it); pick it
+   * A private item appears at a randomly assigned structure of a kind (only this player sees it); pick it
    * up. `count` copies are placed.
    */
   z.object({ type: z.literal('retrieve'), item: id, structure: z.enum(STRUCTURE_KIND_IDS), location: id.optional(), count }).strict(),

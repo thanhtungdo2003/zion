@@ -34,6 +34,12 @@ Open http://localhost:3000 and click **Play as guest**. Then click into the canv
 
 To run everything in containers instead, use `docker compose --profile app up --build`.
 
+Teams are available from **Đội nhóm** in the main lobby. Create a public team or share its eight-character invite code; up to five survivors can join. The leader can rename the team, change visibility, remove members, or transfer leadership. Everyone marks ready before the leader deploys the team. The lobby displays each member's character. Private team chat is available in the lobby and survival HUD; teammates have green minimap dots and directional edge markers and cannot damage each other.
+
+The farmer, chef and colonel each offer a daily and a permanent mission under their **Đội nhóm** tab. The leader accepts for at least two members. Participants rally at a randomly assigned building, collect shared mission packages, clear zombies in that area, and return to the NPC for individual ZCoin rewards. Packages do not use inventory space. Only the roster present at acceptance can earn that mission's reward; each participant claims once. Daily missions reset at 00:00 UTC (07:00 Vietnam); permanent missions persist. Team membership, private chat and mission progress survive server restarts; readiness resets.
+
+This feature requires migration `012_teams.sql` (`pnpm db:migrate`, or automatic migration with `DB_MIGRATE_ON_START=true`). Deploy server and client together: the protocol version is now 12.
+
 ### Useful scripts
 
 | Command | What it does |

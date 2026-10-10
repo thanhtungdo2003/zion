@@ -544,9 +544,9 @@ export class GameEngine {
     this.conn.sendQuest(op, npc, quest, index);
   }
 
-  sendChat(text: string): void {
+  sendChat(text: string, channel: 'world' | 'team' = 'world'): void {
     const t = text.trim();
-    if (t) this.conn.sendChat(t);
+    if (t) this.conn.sendChat(t, channel);
   }
 
   requestRespawn(): void {
@@ -1031,10 +1031,7 @@ export class GameEngine {
           else if (m.entries.some((q) => q.status === 'active' && (before.get(q.id) === 'available' || before.get(q.id) === 'cancelled'))) this.sounds?.play('questAccept', { volume: 0.7 });
         }
         this.hud.set({ quests: m.entries });
-        this.privateQuestRenderer ??= new BaseLifeRenderer(this.scene);
-        // Our quest items lying in the world, each at its exact spot (only we see them).
-        const objects = m.entries.flatMap((q) => q.status === 'active' && q.retrievalModel ? (q.drops ?? []).map((d, i) => ({ id: `${q.id}#${i}`, model: q.retrievalModel!, x: d.x, y: this.groundY(d.x, d.z), z: d.z })) : []);
-        void this.privateQuestRenderer.update(objects).catch((err: unknown) => console.error('Private quest model loading failed', err));
+        this.renderQuestDrops(m.entries);
         break;
       }
       case 'pong':
@@ -1046,6 +1043,20 @@ export class GameEngine {
         for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind));
         this.hud.set({ playersOnline: m.players.length });
         break;
+      case 'teamState': {
+        const previous = this.hud.get().team;
+        const seen = new Set(previous?.id === m.team?.id ? previous?.chat.map((line) => line.id) : []);
+        if (previous?.id !== m.team?.id) this.hud.set({ chat: this.hud.get().chat.filter((line) => line.channel !== 'team') });
+        for (const line of m.team?.chat ?? []) if (!seen.has(line.id)) this.hud.pushChat({ from: line.from, text: line.text, channel: 'team' });
+        const quests = [...this.hud.get().quests.filter((q) => !q.team), ...m.quests];
+        const before = new Map(this.hud.get().quests.map((q) => [q.id, q.status]));
+        if (m.quests.some((q) => q.status === 'claimed' && before.get(q.id) !== 'claimed')) this.sounds?.play('questComplete', { volume: 0.7 });
+        else if (m.quests.some((q) => q.status === 'active' && before.get(q.id) === 'available')) this.sounds?.play('questAccept', { volume: 0.7 });
+        this.hud.set({ team: m.team, quests });
+        this.renderQuestDrops(quests);
+        clearPending('quest:team_*');
+        break;
+      }
       case 'chat':
         this.hud.pushChat({ from: m.from, text: m.text, system: m.system });
         break;
@@ -1364,9 +1375,11 @@ export class GameEngine {
     }
     if (now - this.lastMinimap > 330 && this.minimap) {
       this.lastMinimap = now;
-      const others = [...this.remotes.values()].filter((r) => r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map((r) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
+      const teamIds = new Set(this.hud.get().team?.members.map((m) => m.entityId));
+      const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null);
+      const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).map((m) => ({ x: m.x!, z: m.z! }));
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates);
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
@@ -1667,6 +1680,7 @@ export class GameEngine {
     }
     for (const r of this.remotes.values()) {
       if (r.entity.pose.flags & EntityFlags.Dead || !r.avatar.root.visible) continue;
+      if (this.hud.get().team?.members.some((m) => m.entityId === r.entity.id)) continue;
       const q = r.avatar.root.position;
       if (r.entity.kind === EntityKind.Animal) test(q.x, q.y, q.z, 0.6, 1.0);
       else test(q.x, q.y, q.z, 0.35, 1.85);
@@ -1844,6 +1858,13 @@ export class GameEngine {
       const s = this.local?.state;
       if (s && this.effects) for (let i = 0; i < 14; i++) this.effects.particles.glow.emit({ x: s.x + (Math.random() - 0.5) * 0.8, y: s.y + 0.3 + Math.random() * 1.4, z: s.z + (Math.random() - 0.5) * 0.8, vy: 1.2, life: 0.9, size: 0.12, sizeEnd: 0.02, color: [0.45, 1, 0.55], colorEnd: [0.2, 0.8, 0.3], alpha: 0.9 });
     }
+  }
+
+  private renderQuestDrops(entries: HudState['quests']): void {
+    this.privateQuestRenderer ??= new BaseLifeRenderer(this.scene);
+    // Our quest items lying in the world, each at its exact spot (only we see them).
+    const objects = entries.flatMap((q) => q.status === 'active' && q.retrievalModel ? (q.drops ?? []).map((d, i) => ({ id: `${q.id}#${i}`, model: q.retrievalModel!, x: d.x, y: this.groundY(d.x, d.z), z: d.z })) : []);
+    void this.privateQuestRenderer.update(objects).catch((err: unknown) => console.error('Private quest model loading failed', err));
   }
 
   private onOutOfAmmo(weapon: number): void {

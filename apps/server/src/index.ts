@@ -8,6 +8,7 @@ import { defaultMigrationsDir, migrate } from './db/migrate';
 import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { GameServer } from './game/game-server';
+import { TeamService } from './game/teams';
 import { buildHttpApp } from './http/app';
 import type { HealthReport } from './http/routes/health';
 import { createKeyValueStore } from './infra/kv';
@@ -76,14 +77,17 @@ async function main(): Promise<void> {
     allowGuest: config.ALLOW_GUEST,
   });
 
+  const playerStates = new PlayerStateRepository(db, config.WORLD_ID);
+  const teams = new TeamService(await playerStates.loadTeams(), (id, team, player) => playerStates.saveTeam(id, team, player));
   const game = new GameServer({
+    teams,
     config,
     logger,
     metrics,
     audit,
     world,
     registry,
-    playerStates: new PlayerStateRepository(db, config.WORLD_ID),
+    playerStates,
     worlds,
     worldId: config.WORLD_ID,
     initialWorldTimeMs: record.worldTimeMs,
@@ -118,6 +122,7 @@ async function main(): Promise<void> {
   }
 
   const app = await buildHttpApp({
+    teams,
     config,
     logger,
     auth,

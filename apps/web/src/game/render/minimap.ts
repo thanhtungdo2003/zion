@@ -5,6 +5,15 @@ import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 /** Chunk raster resolution (px per metre): enough for trees, rocks and building outlines. */
 const PX_PER_M = 2;
 
+/** Rotate a world offset with the map and keep distant markers on its edge. */
+export function mapMarker(ox: number, oz: number, yaw: number, edge: number): { x: number; y: number; off: boolean } {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  let x = ox * c - oz * s, y = ox * s + oz * c;
+  const off = Math.max(Math.abs(x), Math.abs(y)) > edge;
+  if (off) { const k = edge / Math.max(Math.abs(x), Math.abs(y)); x *= k; y *= k; }
+  return { x, y, off };
+}
+
 type PropShape = { kind: 'tree' | 'shrub' | 'rock' | 'dot'; r: number } | { kind: 'boxes'; boxes: Array<{ cx: number; cz: number; hx: number; hz: number; yaw: number }> };
 
 const TREE_GENERATORS = new Set(['spruce', 'broadleaf', 'birch', 'jungle', 'palm', 'dead', 'willow', 'cactus']);
@@ -162,6 +171,7 @@ export class Minimap {
     npcs: ReadonlyArray<{ role: string; x: number; z: number; quest?: boolean }> = [],
     /** The spawn camp: always shown, pinned to the map edge (pointing at it) when far away. */
     spawn: { x: number; z: number } | null = null,
+    teammates: ReadonlyArray<{ x: number; z: number }> = [],
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -242,21 +252,22 @@ export class Minimap {
     ctx.restore();
     ctx.restore();
     if (spawn) this.drawSpawn(ctx, W, (spawn.x - px) * scale, (spawn.z - pz) * scale, upYaw);
+    teammates.forEach((mate, i) => {
+      const { x, y, off } = mapMarker((mate.x - px) * scale, (mate.z - pz) * scale, upYaw, W / 2 - 10);
+      ctx.save(); ctx.translate(W / 2 + x, W / 2 + y);
+      ctx.fillStyle = '#5fe089'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
+      if (off) {
+        ctx.save(); ctx.rotate(Math.atan2(y, x)); ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(4, -4); ctx.lineTo(4, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+      ctx.beginPath(); ctx.arc(0, 0, off ? 5 : 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#092414'; ctx.fillText(String(i + 1), 0, 0);
+      ctx.restore();
+    });
   }
 
   /** Spawn marker in screen space: on the map if visible, else on the border pointing towards it. */
   private drawSpawn(ctx: CanvasRenderingContext2D, W: number, ox: number, oz: number, upYaw: number): void {
-    const c = Math.cos(upYaw);
-    const s = Math.sin(upYaw);
-    let x = ox * c - oz * s;
-    let y = ox * s + oz * c;
-    const edge = W / 2 - 9;
-    const off = Math.abs(x) > edge || Math.abs(y) > edge;
-    if (off) {
-      const k = edge / Math.max(Math.abs(x), Math.abs(y));
-      x *= k;
-      y *= k;
-    }
+    const { x, y, off } = mapMarker(ox, oz, upYaw, W / 2 - 9);
     ctx.save();
     ctx.translate(W / 2 + x, W / 2 + y);
     if (off) {

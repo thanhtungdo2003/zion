@@ -14,7 +14,7 @@ interface Props {
   state: HudState;
   onMinimap: (canvas: HTMLCanvasElement | null) => void;
   onChatOpen: (open: boolean) => void;
-  onChat: (text: string) => void;
+  onChat: (text: string, channel: 'world' | 'team') => void;
   onRespawn: () => void;
   onResume: () => void;
   onLeave: () => void;
@@ -48,6 +48,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [chatChannel, setChatChannel] = useState<'world' | 'team'>('world');
   const input = useRef<HTMLInputElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const showWorld = state.status === 'playing' || state.status === 'dead';
@@ -104,7 +105,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
     if (e.key === 'Enter') {
-      if (draft.trim()) onChat(draft);
+      if (draft.trim()) onChat(draft, state.team ? chatChannel : 'world');
       closeChat();
     } else if (e.key === 'Escape') closeChat();
   };
@@ -171,8 +172,9 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
               );
             })()}
             <div className="hud-panel chat">
+              {state.team && <div className="chat-channels"><button className={chatChannel === 'world' ? 'on' : ''} onPointerDown={(e) => e.preventDefault()} onClick={() => setChatChannel('world')}>Thế giới</button><button className={chatChannel === 'team' ? 'on' : ''} onPointerDown={(e) => e.preventDefault()} onClick={() => setChatChannel('team')}><i /> Đội · {state.team.name}</button></div>}
               <div className="chat-log">
-                {state.chat.slice(-8).map((l) => (
+                {state.chat.filter((l) => l.system || (l.channel ?? 'world') === (state.team ? chatChannel : 'world')).slice(-8).map((l) => (
                   <div key={l.id} style={l.system ? { color: 'var(--muted)' } : undefined}>
                     {!l.system && <b>{l.from}: </b>}
                     {l.msg ? tm(l.msg.key === 'chat.died' && !l.msg.vars?.name ? { ...l.msg, vars: { name: t('chat.someone') } } : l.msg) : l.text}
@@ -192,6 +194,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
               )}
             </div>
           </div>
+          {state.team && <div className="team-hud"><span className="q-label"><Icon name="lucide:users" /> {state.team.name}</span>{state.team.members.filter((m) => m.name !== state.username).map((m) => <div key={m.accountId}><i /><span>{m.name}</span><small>{m.downed ? 'Cần cứu!' : m.health !== undefined && m.inGame ? `${m.health} HP` : m.online ? 'Ở sảnh' : 'Offline'}</small></div>)}</div>}
           {state.toast && <div className="toast">{tm(state.toast)}</div>}
           {state.interact && !inventoryOpen && (
             <div className="hud-interact">

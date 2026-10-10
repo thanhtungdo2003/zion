@@ -54,7 +54,7 @@ function Rewards({ q }: { q: Quest }) {
 /** Top-left list of accepted quests and their current objective. */
 export function QuestTracker({ quests, position, onCancel }: { quests: Quest[]; position: [number, number, number]; onCancel: (q: Quest) => void }) {
   const busy = usePending();
-  const open = quests.filter((q) => q.status === 'active' || q.status === 'ready');
+  const open = quests.filter((q) => !q.locked && (q.status === 'active' || q.status === 'ready'));
   if (!open.length) return null;
   return (
     <div className="q-tracker">
@@ -68,7 +68,7 @@ export function QuestTracker({ quests, position, onCancel }: { quests: Quest[]; 
           <div key={q.id} className={`q-track ${ready ? 'ready' : ''}`}>
             <div className="q-track-title">
               <i className={`q-kind ${q.kind}`} />
-              <span>{q.title}</span>
+              <span>{q.team ? '[Đội] ' : ''}{q.title}</span>
               {q.allowCancel && (
                 <button className="q-track-cancel" title="Hủy nhiệm vụ" disabled={busy(`quest:${q.id}`)} onClick={() => { if (confirm(`Hủy nhiệm vụ "${q.title}"?`)) onCancel(q); }}>
                   {busy(`quest:${q.id}`) ? <Spinner /> : <Icon name="lucide:x" />}
@@ -92,15 +92,16 @@ const STATUS_ORDER: Record<string, number> = { ready: 0, active: 1, available: 2
 
 /** Conversation with a quest NPC: a quest list on the left, the selected quest (or trading) on the right. */
 export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, coins, onTrade, side }: { side?: React.ReactNode; npc: string; name: string; quests: Quest[]; onOp: (op: Op, quest: string) => void; onClose: () => void; trades: Trade[]; owned: (item: string) => number; coins: number; onTrade: (side: 'buy' | 'sell', id: string) => void }) {
+  const [tab, setTab] = useState<'quests' | 'team' | 'trade'>('quests');
+  const [teamKind, setTeamKind] = useState<'daily' | 'long'>('daily');
   const list = quests
-    .filter((q) => q.npc === npc && (q.status !== 'available' && q.status !== 'cancelled' ? true : !q.locked))
+    .filter((q) => q.npc === npc && (tab === 'team' ? q.team && q.kind === teamKind : !q.team) && (q.team || (q.status !== 'available' && q.status !== 'cancelled' ? true : !q.locked)))
     .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
-  const [tab, setTab] = useState<'quests' | 'trade'>('quests');
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find((q) => q.id === selId) ?? list.find((q) => q.status !== 'claimed') ?? null;
   const busy = usePending();
   const qBusy = !!sel && busy(`quest:${sel.id}`);
-  const line = !sel ? 'Hiện ta chưa có việc gì cho cậu. Quay lại sau nhé.'
+  const line = !sel ? tab === 'team' ? 'Tập hợp đội của các cậu ở sảnh. Ta có những chuyến đi cần cả đội phối hợp; đội trưởng hãy đến nhận lệnh.' : 'Hiện ta chưa có việc gì cho cậu. Quay lại sau nhé.'
     : sel.status === 'ready' ? sel.dialogue.complete
     : sel.status === 'active' ? sel.dialogue.progress
     : sel.status === 'claimed' ? sel.dialogue.complete : sel.dialogue.offer;
@@ -117,19 +118,22 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
           </div>
           <div className="q-tabs">
             <button className={tab === 'quests' ? 'on' : ''} onClick={() => setTab('quests')}>Nhiệm vụ</button>
+            <button className={tab === 'team' ? 'on' : ''} onClick={() => setTab('team')}><Icon name="lucide:users" /> Đội nhóm</button>
             {trades.length > 0 && <button className={tab === 'trade' ? 'on' : ''} onClick={() => setTab('trade')}>Mua bán</button>}
           </div>
           <button className="q-close" onClick={onClose} title="Đóng (Esc)"><Icon name="lucide:x" /></button>
         </header>
 
-        {tab === 'quests' ? (
+        {tab !== 'trade' ? (
           <div className="q-body">
             <nav className="q-list">
+              {tab === 'team' && <div className="team-quest-tabs"><button className={teamKind === 'daily' ? 'on' : ''} onClick={() => setTeamKind('daily')}>Hằng ngày</button><button className={teamKind === 'long' ? 'on' : ''} onClick={() => setTeamKind('long')}>Dài hạn</button></div>}
+              {tab === 'team' && !quests.some((q) => q.team) && <div className="q-empty">Tham gia đội ở sảnh chính để mở nhiệm vụ chung. Đội cần ít nhất 2 thành viên.</div>}
               {list.length === 0 && <div className="q-empty">Không có nhiệm vụ</div>}
               {list.map((q) => (
                 <button key={q.id} className={`q-entry ${q.status} ${sel?.id === q.id ? 'sel' : ''}`} onClick={() => setSelId(q.id)}>
                   <i className={`q-kind ${q.kind}`} />
-                  <span>{q.title}</span>
+                  <span>{q.team ? '[Đội] ' : ''}{q.title}</span>
                   {q.status === 'ready' && <b className="q-badge">!</b>}
                   {q.status === 'active' && <small>Đang làm</small>}
                   {q.status === 'claimed' && <small><Icon name="lucide:check" /></small>}
@@ -145,6 +149,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                     <span className={`q-tag ${sel.kind}`}>{sel.kind === 'daily' ? 'Hằng ngày' : 'Dài hạn'}</span>
                   </div>
                   <p className="q-desc">{sel.description}</p>
+                  {sel.team && <p className="q-desc">Đội trưởng nhận nhiệm vụ khi có ít nhất 2 thành viên. Tiến độ dùng chung; mỗi người tham gia nhận thưởng riêng.{sel.kind === 'daily' ? ' Làm mới lúc 07:00 mỗi ngày (giờ Việt Nam).' : ' Không hết hạn theo ngày.'}</p>}
                   {sel.status !== 'claimed' && (
                     <div className="q-objective">
                       <span className="q-label">Mục tiêu{sel.stages > 1 ? ` · bước ${Math.min(sel.stage + 1, sel.stages)}/${sel.stages}` : ''}</span>
@@ -154,9 +159,9 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                   )}
                   <Rewards q={sel} />
                   <div className="q-actions">
-                    {(sel.status === 'available' || sel.status === 'cancelled') && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('accept', sel.id)}>{qBusy ? <Spinner /> : 'Nhận nhiệm vụ'}</button>}
-                    {sel.status === 'ready' && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Nhận thưởng'}</button>}
-                    {sel.status === 'active' && <button className="btn btn-primary" data-nosound disabled={qBusy} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Giao đồ'}</button>}
+                    {(sel.status === 'available' || sel.status === 'cancelled') && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('accept', sel.id)}>{qBusy ? <Spinner /> : sel.team ? 'Đội trưởng nhận nhiệm vụ' : 'Nhận nhiệm vụ'}</button>}
+                    {sel.status === 'ready' && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Nhận thưởng'}</button>}
+                    {sel.status === 'active' && !sel.team && <button className="btn btn-primary" data-nosound disabled={qBusy || sel.locked} onClick={() => onOp('turnin', sel.id)}>{qBusy ? <Spinner /> : 'Giao đồ'}</button>}
                     {sel.status === 'active' && sel.allowCancel && <button className="btn q-btn-danger" disabled={qBusy} onClick={() => onOp('cancel', sel.id)}>Hủy</button>}
                   </div>
                 </>

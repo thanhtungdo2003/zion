@@ -100,7 +100,7 @@ export default function GameView() {
         onMinimap={attachMinimap}
         onChatOpen={(open) => { setChatOpen(open); engineRef.current?.setChatOpen(open); }}
         chatRequest={chatRequest}
-        onChat={(text) => engineRef.current?.sendChat(text)}
+        onChat={(text, channel) => engineRef.current?.sendChat(text, channel)}
         onRespawn={() => engineRef.current?.requestRespawn()}
         onResume={() => engineRef.current?.lockPointer()}
         onLeave={() => router.push('/')}

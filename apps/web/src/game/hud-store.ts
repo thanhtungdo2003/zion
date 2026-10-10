@@ -1,8 +1,9 @@
-import type { BaseLifeMessage, QuestStateMessage } from '@zion/shared';
+import type { BaseLifeMessage, QuestStateMessage, TeamView } from '@zion/shared';
 import type { Msg } from '@/lib/i18n';
 
 /** Observable HUD state bridging the imperative engine and React (useSyncExternalStore). */
 export interface ChatLine {
+  channel?: 'world' | 'team';
   id: number;
   from: string;
   text: string;
@@ -15,6 +16,7 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  team: TeamView | null;
   tutorialAnchor: { x: number; y: number };
   tutorialTargets: Array<{ id: string; x: number; z: number; angle: number; distance: number }>;
   life: LifeState | null;
@@ -73,6 +75,7 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    team: null,
     tutorialAnchor: { x: 0, y: 0 },
     tutorialTargets: [],
     life: null,

@@ -10,6 +10,8 @@ import type { Logger } from '../logger';
 import { AuthError, type AuthService } from '../security/auth-service';
 import type { AccessClaims, TokenService } from '../security/tokens';
 import { registerAuthRoutes } from './routes/auth';
+import { registerTeamRoutes } from './routes/teams';
+import type { TeamService } from '../game/teams';
 import { registerGameRoutes } from './routes/game';
 import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
@@ -18,6 +20,7 @@ export interface HttpDeps {
   config: AppConfig;
   logger: Logger;
   auth: AuthService;
+  teams?: TeamService;
   tokens: TokenService;
   kv: KeyValueStore;
   health: HealthProvider;
@@ -109,6 +112,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
 
   registerHealthRoutes(app, deps.health, config.METRICS_TOKEN);
   registerAuthRoutes(app, deps);
+  registerTeamRoutes(app, deps);
   registerGameRoutes(app, deps);
   registerStudioRoutes(app, deps);
   return app;

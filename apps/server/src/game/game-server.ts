@@ -5,6 +5,9 @@ import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
+import { type TeamService, TeamError } from './teams';
+import { TEAM_QUESTS } from '@zion/shared';
+import { chooseMissionStructure } from './mission-locations';
 import {
   Buttons,
   CHUNK_SIZE,
@@ -120,6 +123,7 @@ const MAX_PLAYERS = 256;
 const MAX_STEP_DISTANCE = DEFAULT_CHARACTER.sprintSpeed * TICK_DT * 3 + 0.5;
 
 export interface GameServerDeps {
+  teams?: TeamService;
   config: AppConfig;
   logger: Logger;
   metrics: Metrics;
@@ -165,7 +169,7 @@ export class GameServer {
   private readonly epoch = performance.now();
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
-  private readonly grenades: Array<{ id: number; ownerId: number; s: ProjectileState; explodeAt: number }> = [];
+  private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number }> = [];
   private nextGrenadeId = 1;
   readonly zombies: ZombieDirector;
   readonly guards: CampGuardDirector;
@@ -264,12 +268,8 @@ export class GameServer {
       const configured = this.life.config.locations?.find((l) => l.id === o.location);
       if (configured) { r.location = { x: configured.x, z: configured.z, radius: configured.radius }; continue; }
       const camp = this.deps.world.generator.camp;
-      let best = Infinity;
-      for (const loc of allStructures(this.deps.world.generator)) {
-        if (loc.kind !== o.structure || (camp && Math.hypot(loc.x - camp.x, loc.z - camp.z) < CAMP_HALF_SIZE + loc.radius)) continue;
-        const d = Math.hypot(loc.x - p.state.x, loc.z - p.state.z);
-        if (d < best) { best = d; r.location = { x: loc.x, z: loc.z, radius: loc.radius }; }
-      }
+      const loc = chooseMissionStructure(allStructures(this.deps.world.generator), o.structure, camp);
+      if (loc) r.location = { x: loc.x, z: loc.z, radius: loc.radius };
     }
   }
 
@@ -308,15 +308,16 @@ export class GameServer {
       const entity = this.questNpcs.get(n.id)!;
       return { id: entity.id, key: n.id, name: n.name, model: n.model, x: entity.x, y: entity.y, z: entity.z };
     }) });
-    p.session.sendJson({ t: 'quests', entries: this.content.quests.filter((q) => q.enabled).map((q) => {
+    p.session.sendJson({ t: 'quests', entries: [...this.content.quests.filter((q) => q.enabled).map((q) => {
       const r = p.journal[q.id];
       const o = q.objectives[r?.stage ?? 0];
       return { id: q.id, npc: q.npc, title: q.title, description: q.description, kind: q.kind, dialogue: q.dialogue, rewards: q.rewards, allowCancel: q.allowCancel !== false, locked: q.prereq.some((id) => p.journal[id]?.status !== 'claimed'), stage: r?.stage ?? 0, stages: q.objectives.length, goal: o && 'count' in o ? o.count : 1, objective: o ? objectiveText(o) : '', status: r?.status ?? 'available', progress: r?.progress ?? 0, ...(r?.status === 'active' && o?.type === 'retrieve' ? { retrievalItem: o.item, retrievalModel: this.life.config.itemModels?.[o.item] } : {}), ...(r?.location ? { target: r.location } : {}), ...(r?.status === 'active' && r.drops?.length ? { drops: r.drops } : {}) };
-    }) });
+    }), ...(this.deps.teams?.questViews(p.accountId) ?? [])] });
   }
 
   private async onQuest(p: Player, msg: Extract<ClientMessage, { t: 'quest' }>): Promise<void> {
     if (p.dead || p.questBusy) return;
+    if (msg.quest?.startsWith('team_')) { await this.onTeamQuest(p, msg); return; }
     if (msg.op === 'list') { this.sendQuests(p); return; }
     const def = this.content.quests.find((q) => q.id === msg.quest && q.npc === msg.npc);
     const npc = this.content.npcs.find((n) => n.id === msg.npc);
@@ -354,6 +355,36 @@ export class GameServer {
       if (entity) p.session.sendJson({ t: 'speech', npc: entity.id, text: line, duration: npc.bubbleMs, x: entity.x, y: entity.y, z: entity.z });
     } catch (err) { this.log.error({ err, accountId: p.accountId }, 'quest transaction failed'); }
     finally { this.finishQuestMutation(p); }
+  }
+
+  private allied(a: Player, b: Player): boolean { return this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+
+  private sendTeam(p: Player): void {
+    p.session.sendJson({ t: 'teamState', team: this.deps.teams?.view(p.accountId) ?? null, quests: this.deps.teams?.questViews(p.accountId) ?? [] });
+  }
+
+  private async onTeamQuest(p: Player, msg: Extract<ClientMessage, { t: 'quest' }>): Promise<void> {
+    const teams = this.deps.teams, def = TEAM_QUESTS.find((q) => q.id === msg.quest && q.npc === msg.npc);
+    const npc = this.content.npcs.find((n) => n.id === msg.npc), entity = npc && this.questNpcs.get(npc.id);
+    if (!teams || !def || !npc || p.downed || msg.op === 'list') return;
+    if (msg.op !== 'retrieve' && msg.op !== 'cancel' && (!entity?.inReach(p, npc.interactRange) || Math.abs(p.state.y - entity.y) > 4)) return;
+    if (msg.op === 'retrieve' && Math.abs(p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)) > 3) return;
+    const camp = this.deps.world.generator.camp;
+    const target = msg.op === 'accept' ? chooseMissionStructure(allStructures(this.deps.world.generator), def.structure, camp) : undefined;
+    p.questBusy = true;
+    let coins: number | undefined;
+    try {
+      const changed = await teams.quest(p.accountId, def.id, msg.op, { target, index: msg.index, x: p.state.x, z: p.state.z, reward: () => {
+        coins = p.coins + def.coins;
+        return { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life) };
+      } });
+      if (changed && coins !== undefined) { p.coins = coins; p.dirty = true; p.session.sendJson({ t: 'wallet', coins: p.coins }); }
+      if (changed && entity && msg.op !== 'retrieve') p.session.sendJson({ t: 'speech', npc: entity.id, text: msg.op === 'accept' ? `${def.offer} Đi cùng nhau và nhớ trở về!` : msg.op === 'turnin' ? 'Cả đội đã hoàn thành xuất sắc. Phần thưởng của cậu đây; các đồng đội cũng có phần riêng.' : 'Ta sẽ chờ đội các cậu sẵn sàng cho lần tới.', duration: npc.bubbleMs, x: entity.x, y: entity.y, z: entity.z });
+    } catch (err) { if (err instanceof TeamError) this.reply(p, err.message); else this.log.error({ err }, 'team quest transaction failed'); }
+    finally {
+      this.finishQuestMutation(p);
+      for (const member of this.players.values()) if (member === p || this.allied(p, member)) this.sendTeam(member);
+    }
   }
 
   private readonly pendingSaves = new Map<string, Promise<void>>();
@@ -880,6 +911,7 @@ export class GameServer {
     this.syncVegetation(player);
     this.sendInv(player);
     this.sendQuests(player);
+    this.sendTeam(player);
     this.sendLife(player);
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
     session.sendJson(this.npcList());
@@ -897,6 +929,7 @@ export class GameServer {
     p.lifeAction = null;
     p.active = false;
     this.players.delete(p.id);
+    this.deps.teams?.position(p.accountId, null);
     if (this.byAccount.get(p.accountId) === p) this.byAccount.delete(p.accountId);
     this.grid.remove(p);
     this.deps.metrics.players = this.players.size;
@@ -935,7 +968,7 @@ export class GameServer {
         if (session.pingBucket.take()) session.sendJson({ t: 'pong', id: msg.id, ct: msg.ct, st: this.serverTime });
         return;
       case 'chat':
-        this.onChat(p, msg.text);
+        this.onChat(p, msg.text, msg.channel);
         return;
       case 'respawn':
         this.onRespawn(p);
@@ -1016,7 +1049,7 @@ export class GameServer {
     p.inputs.push(msg);
   }
 
-  private onChat(p: Player, raw: string): void {
+  private onChat(p: Player, raw: string, channel: 'world' | 'team' = 'world'): void {
     const s = p.session;
     if (!s.chatBucket.take()) {
       this.flag(p, 'chat_spam');
@@ -1025,6 +1058,13 @@ export class GameServer {
     }
     const text = sanitizeChat(raw);
     if (!text) return;
+    if (channel === 'team') {
+      if (!this.deps.teams?.forAccount(p.accountId)) { this.reply(p, 'Bạn chưa tham gia đội.'); return; }
+      void this.deps.teams.action(p.accountId, p.username, { op: 'chat', text }).then(() => {
+        for (const member of this.players.values()) if (member === p || this.allied(p, member)) this.sendTeam(member);
+      }).catch((err: unknown) => this.reply(p, err instanceof Error ? err.message : 'Không gửi được tin nhắn đội.'));
+      return;
+    }
     // Slash commands are handled here and never broadcast.
     if (text.startsWith('/')) {
       this.onCommand(p, text.slice(1).trim());
@@ -1204,6 +1244,8 @@ export class GameServer {
       if (!p.active || p.questBusy) continue;
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
       if (p.dead) {
+        this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
+        if (this.tick % TICK_RATE === 0) this.sendTeam(p);
         // Dead players' inputs are acknowledged but ignored.
         const last = p.inputs[p.inputs.length - 1];
         if (last) p.lastProcessedSeq = last.s;
@@ -1242,6 +1284,11 @@ export class GameServer {
       p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw);
       this.grid.update(p);
       p.streamer.setCenter(p.chunkX, p.chunkZ);
+      this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed });
+      if (this.tick % TICK_RATE === 0) {
+        this.sendTeam(p);
+        void this.deps.teams?.progress(p.accountId).catch((err: unknown) => this.log.error({ err }, 'team rally progress failed'));
+      }
     }
 
     if (this.tick % PHYSICS_UPDATE_TICKS === 0) {
@@ -1436,7 +1483,7 @@ export class GameServer {
 
   private resolveStrike(p: Player, now: number, renderTime: number | undefined, blade?: MeleeSpec): void {
     const range = blade?.range ?? MELEE.range;
-    const candidates: Combatant[] = [...this.grid.query(p.chunkX, p.chunkZ, 1, this.scratch), ...this.zombies.near(p.state.x, p.state.z, range + 2), ...this.animals.values()];
+    const candidates: Combatant[] = [...this.grid.query(p.chunkX, p.chunkZ, 1, this.scratch).filter((t) => !this.allied(p, t)), ...this.zombies.near(p.state.x, p.state.z, range + 2), ...this.animals.values()];
     {
       const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
       const npc = this.peacefulNpcs().find((n) => {
@@ -1459,6 +1506,7 @@ export class GameServer {
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else {
       const t = target as Player;
+      if (this.allied(attacker, t)) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now);
       if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now);
     }
@@ -1494,7 +1542,10 @@ export class GameServer {
     };
     this.broadcastAt(zb.state.x, zb.state.z, msgHit);
     if (res.killed) {
-      if (attacker) this.queueQuestEvent(attacker, { type: 'kill', target: 'zombie' });
+      if (attacker) {
+        this.queueQuestEvent(attacker, { type: 'kill', target: 'zombie' });
+        void this.deps.teams?.progress(attacker.accountId, { x: zb.state.x, z: zb.state.z }).catch((err: unknown) => this.log.error({ err }, 'team kill progress failed'));
+      }
       this.broadcastAt(zb.state.x, zb.state.z, { t: 'death', playerId: zb.id, killerId: sourceId || null });
       // Some zombies drop a ZCoin where they fell; whoever picks it up gets it.
       if (Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
@@ -1509,6 +1560,8 @@ export class GameServer {
   }
 
   private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void {
+    const attacker = attackerId !== null ? this.players.get(attackerId) : undefined;
+    if (attacker && this.allied(attacker, t)) return;
     if (t.dead || amount <= 0) return;
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now)); return; }
     if (t.downed) {
@@ -1630,7 +1683,7 @@ export class GameServer {
     const oz = s.z;
     const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
     const candidates: Combatant[] = [
-      ...this.grid.query(p.chunkX, p.chunkZ, Math.ceil(spec.range / CHUNK_SIZE), this.scratch),
+      ...this.grid.query(p.chunkX, p.chunkZ, Math.ceil(spec.range / CHUNK_SIZE), this.scratch).filter((t) => !this.allied(p, t)),
       ...this.zombies.near(ox, oz, spec.range + 2),
       ...this.animals.values(),
     ];
@@ -1691,6 +1744,7 @@ export class GameServer {
     const g = {
       id: this.nextGrenadeId++,
       ownerId: p.id,
+      owner: p,
       s: { x: ox, y: oy, z: oz, vx: fx * h + s.vx * carry, vy: Math.sin(spec.elevation) * speed, vz: fz * h + s.vz * carry, resting: false },
       explodeAt: now + spec.fuseMs,
     };
@@ -1706,12 +1760,13 @@ export class GameServer {
       stepProjectile(g.s, this.collision, GRENADE_GRAVITY, TICK_DT);
       if (now < g.explodeAt) continue;
       this.grenades.splice(i, 1);
-      this.explode(g.id, g.s.x, g.s.y, g.s.z, spec.radius, spec.damage, this.players.get(g.ownerId) ?? null, 'grenade', now);
+      this.explode(g.id, g.s.x, g.s.y, g.s.z, spec.radius, spec.damage, g.owner, 'grenade', now);
     }
   }
 
   /** Blast damage with linear falloff; cover blocks it for players. */
   private explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade' | 'grenade40' | 'rocket', now: number): void {
+    const liveOwner = owner && this.players.get(owner.id) === owner ? owner : null;
     this.vegetation.explode(x, y, z, radius, now);
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
@@ -1726,10 +1781,10 @@ export class GameServer {
       if (d >= radius) continue;
       const k = 1 - d / radius;
       zb.state.vy += 4 * k;
-      this.hitZombie(owner, zb, Math.round(damage * k), 'torso', zb.state.x, zb.state.y + 0.8, zb.state.z, tx, tz, 9 * k, now);
+      this.hitZombie(liveOwner, zb, Math.round(damage * k), 'torso', zb.state.x, zb.state.y + 0.8, zb.state.z, tx, tz, 9 * k, now);
     }
     for (const t of this.grid.query(cx, cz, 1, this.scratch)) {
-      if (!t.active || t.dead) continue;
+      if (!t.active || t.dead || (owner && this.allied(owner, t))) continue;
       const tx = t.state.x - x;
       const ty = t.state.y + 0.9 - (y + 0.3);
       const tz = t.state.z - z;
@@ -1738,13 +1793,13 @@ export class GameServer {
       if (d > 0.3 && this.collision.raycast(x, y + 0.3, z, tx / d, ty / d, tz / d, d, Mask.LineOfSight, this.blastHit)) continue;
       this.damage(owner?.id ?? null, t, Math.round(damage * (1 - d / radius)), 'blast', t.state.x, t.state.y + 0.9, t.state.z, now);
     }
-    if (owner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, owner, now);
+    if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
     // Livestock caught in the blast (credited to the thrower).
-    if (owner) for (const animal of this.animals.values()) {
+    if (liveOwner) for (const animal of this.animals.values()) {
       if (animal.dead) continue;
       const d = Math.hypot(animal.state.x - x, animal.state.y + 0.5 - (y + 0.3), animal.state.z - z);
       if (d >= radius) continue;
-      this.hitAnimal(owner, animal, Math.round(damage * (1 - d / radius)), now);
+      this.hitAnimal(liveOwner, animal, Math.round(damage * (1 - d / radius)), now);
     }
   }
 
@@ -1796,7 +1851,7 @@ export class GameServer {
       const sz = r.vz * TICK_DT;
       const len = Math.hypot(sx, sy, sz) || 1e-6;
       const candidates: Combatant[] = [
-        ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), 1, this.scratch),
+        ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), 1, this.scratch).filter((t) => !this.allied(r.owner, t)),
         ...this.zombies.near(r.x, r.z, len + 3),
         ...this.animals.values(),
       ];
@@ -1822,7 +1877,7 @@ export class GameServer {
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
       this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target });
       if (r.spec.blast) {
-        this.explode(r.id, r.x, r.y, r.z, r.spec.blast.radius, r.spec.blast.damage, owner, r.spec.kind === 'rocket' ? 'rocket' : 'grenade40', now);
+        this.explode(r.id, r.x, r.y, r.z, r.spec.blast.radius, r.spec.blast.damage, r.owner, r.spec.kind === 'rocket' ? 'rocket' : 'grenade40', now);
       } else if (hit.target && hit.zone && owner) {
         const k = Math.hypot(r.vx, r.vz) || 1;
         this.hitTarget(owner, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, r.vx / k, r.vz / k, 3, now);

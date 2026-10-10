@@ -1,4 +1,4 @@
-import type { GameContent } from '@zion/shared';
+import type { GameContent, TeamAction, TeamLobby } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
@@ -140,6 +140,15 @@ async function ensureAccess(): Promise<void> {
 export async function getGameTicket(): Promise<TicketResponse> {
   await ensureAccess();
   return request<TicketResponse>('/api/game/ticket', { method: 'POST', auth: true, body: JSON.stringify({}) });
+}
+
+export async function getTeamLobby(): Promise<TeamLobby> {
+  await ensureAccess();
+  return request<TeamLobby>('/api/teams', { auth: true });
+}
+export async function teamAction(action: TeamAction): Promise<TeamLobby> {
+  await ensureAccess();
+  return request<TeamLobby>('/api/teams', { method: 'POST', auth: true, body: JSON.stringify(action) });
 }
 
 export function currentAccount(): AccountInfo | null {

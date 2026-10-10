@@ -11,6 +11,9 @@ import { SettingsModal } from '@/components/SettingsModal';
 import Link from 'next/link';
 import { ApiError, login, playAsGuest, refreshSession, register } from '@/lib/api';
 import { useSettings } from '@/lib/settings';
+import { currentAccount, getTeamLobby, teamAction } from '@/lib/api';
+import { TeamLobby } from '@/components/TeamLobby';
+import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
@@ -40,6 +43,51 @@ export default function MainMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [lobby, setLobby] = useState<Lobby | null>(null);
+  const [teamBusy, setTeamBusy] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [entryIntent, setEntryIntent] = useState<'play' | 'team'>('play');
+  const launchSeen = useRef<string | null | undefined>(undefined);
+  const teamVersion = useRef(0);
+  const teamWorking = useRef(false);
+  const team = lobby?.team;
+  const me = currentAccount()?.id;
+  const leader = !!team && team.leaderId === me;
+
+  const applyLobby = useCallback((next: Lobby) => {
+    const launch = next.team?.launchId ?? null;
+    const deploy = launchSeen.current !== undefined && launch && launch !== launchSeen.current && Date.now() - (next.team?.launchedAt ?? 0) < 30_000;
+    launchSeen.current = launch;
+    setLobby(next);
+    if (deploy) router.push('/play');
+  }, [router]);
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      const version = teamVersion.current;
+      try {
+        if (!teamWorking.current) {
+          const next = await getTeamLobby();
+          if (active && version === teamVersion.current) { applyLobby(next); setTeamError(null); }
+        }
+      } catch (err) { if (active) setTeamError(err instanceof Error ? err.message : 'Không kết nối được sảnh đội.'); }
+      if (active) timer = setTimeout(() => { void poll(); }, 2000);
+    };
+    void poll();
+    return () => { active = false; clearTimeout(timer); };
+  }, [session, applyLobby]);
+
+  const manageTeam = async (action: TeamAction) => {
+    if (teamWorking.current) return;
+    teamWorking.current = true; teamVersion.current++; setTeamBusy(true); setTeamError(null);
+    try { applyLobby(await teamAction(action)); }
+    catch (err) { setTeamError(err instanceof Error ? err.message : 'Không cập nhật được đội.'); }
+    finally { teamWorking.current = false; setTeamBusy(false); }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -82,8 +130,10 @@ export default function MainMenu() {
 
   // Returning players resume; first-time guests choose their name before account creation.
   const play = () => {
+    if (session && !lobby) return;
+    if (team) { void manageTeam({ op: 'launch' }); return; }
     if (session) void run(() => Promise.resolve());
-    else { setError(null); setNameError(null); setNameOpen(true); }
+    else { setEntryIntent('play'); setError(null); setNameError(null); setNameOpen(true); }
   };
 
   const submitName = async (e: FormEvent) => {
@@ -97,7 +147,8 @@ export default function MainMenu() {
     try {
       await playAsGuest(name);
       setSession(true);
-      router.push('/play');
+      if (entryIntent === 'team') { setNameOpen(false); setTeamOpen(true); setBusy(false); }
+      else router.push('/play');
     } catch (err) {
       if (err instanceof ApiError && err.code === 'username_taken') setNameError(t('menu.name_taken'));
       else if (err instanceof ApiError && err.code === 'invalid_request') setNameError(t('menu.name_rules'));
@@ -112,17 +163,21 @@ export default function MainMenu() {
   };
 
   return (
-    <main className="menu">
+    <main className={`menu${team ? ' has-team' : ''}${teamOpen ? ' team-panel-open' : ''}`}>
       <div className="menu-bigword" aria-hidden>
         ZION
       </div>
-      <MenuStage />
+      <MenuStage members={team?.members.map((m) => m.name)} />
 
       <header className="menu-top">
         <div className="menu-brand">
           ZI<span>O</span>N<small>The Last Light</small>
         </div>
         <div className="menu-top-actions">
+          <button className="menu-account" disabled={!sessionReady || busy} onClick={() => {
+            if (!session) { setEntryIntent('team'); setNameError(null); setNameOpen(true); }
+            else setTeamOpen(!teamOpen);
+          }}><Icon name="lucide:users" /> {team ? `${team.members.length}/5 · ${team.name}` : 'Đội nhóm'}</button>
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden focusable="false">
               <path
@@ -169,6 +224,8 @@ export default function MainMenu() {
         </form>
       )}
 
+      {session && teamOpen && <TeamLobby lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
+
       <div className="menu-launch">
         {modeOpen && (
           <ul className="menu-modes" role="listbox">
@@ -194,9 +251,11 @@ export default function MainMenu() {
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
           <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>
         </button>
-        <button className="menu-play" disabled={busy || !sessionReady} onClick={play}>
-          {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}
+        {team && <div className="team-deploy"><span className="q-label">{team.name} · {team.members.filter((m) => m.ready).length}/{team.members.length} sẵn sàng</span><button className={`btn ${team.members.find((m) => m.accountId === me)?.ready ? '' : 'btn-primary'}`} disabled={teamBusy} onClick={() => { void manageTeam({ op: 'ready', ready: !team.members.find((m) => m.accountId === me)?.ready }); }}>{team.members.find((m) => m.accountId === me)?.ready ? 'Hủy sẵn sàng' : 'Sẵn sàng sinh tồn'}</button><small>{leader ? 'Đội trưởng triển khai khi mọi người đã sẵn sàng.' : 'Chờ đội trưởng triển khai. Cả đội sẽ tự động vào game.'}</small></div>}
+        <button className="menu-play" disabled={busy || !sessionReady || (session && !lobby) || teamBusy || (!!team && (!leader || team.members.some((m) => !m.ready || !m.online)))} onClick={play}>
+          {busy || teamBusy ? <><Spinner /> {t('menu.deploying')}</> : team ? 'Triển khai đội' : t('menu.play')}
         </button>
+        {teamError && !teamOpen && <p className="error">{teamError}</p>}
         {error && <p className="error">{error}</p>}
         <Link className="menu-studio" href="/studio">
           {t('menu.studio')}

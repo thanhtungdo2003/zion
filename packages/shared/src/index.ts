@@ -18,3 +18,4 @@ export * from './content';
 export * from './base-life';
 
 export * from './chests';
+export * from './teams';

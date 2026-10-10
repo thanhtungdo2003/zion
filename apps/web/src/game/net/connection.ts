@@ -139,8 +139,8 @@ export class GameConnection {
     this.send({ t: 'ping', id: ++this.pingId, ct: performance.now() });
   }
 
-  sendChat(text: string): void {
-    this.send({ t: 'chat', text: text.slice(0, 200) });
+  sendChat(text: string, channel: 'world' | 'team' = 'world'): void {
+    this.send({ t: 'chat', text: text.slice(0, 200), channel });
   }
 
   /** Shop trade request (buy / sell one item); the answer is a 'wallet' message. */
