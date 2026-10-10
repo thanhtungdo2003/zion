@@ -107,6 +107,12 @@ export class LocalPlayer {
       this.correction.x = this.correction.y = this.correction.z = 0;
       copyCharacterState(s, this.prev);
     } else if (err > 1e-4) {
+      // Both interpolation endpoints must move with the corrected simulation. Otherwise the
+      // visual offset compensates only `state`, and each snapshot jolts the rendered position
+      // by the un-interpolated part of the correction, even during ordinary running.
+      this.prev.x -= ex;
+      this.prev.y -= ey;
+      this.prev.z -= ez;
       this.correction.x += ex;
       this.correction.y += ey;
       this.correction.z += ez;

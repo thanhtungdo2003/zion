@@ -1821,8 +1821,8 @@ export class GameEngine {
 
   private onWallet(m: WalletEvent): void {
     clearPending('trade:*');
-    // NPC trades (no request id): spending coins = a purchase.
-    if (m.req === undefined && m.coins < this.hud.get().coins) this.sounds?.play('equip', { volume: 0.7 });
+    // NPC trades have no request id; the server marks successful purchases and sales.
+    if (m.req === undefined && m.ok === true) this.sounds?.play('tradeSuccess', { volume: 0.7 });
     this.hud.set({ coins: m.coins });
     if (m.req === undefined) return;
     const trade = this.trades.get(m.req);
@@ -1835,9 +1835,9 @@ export class GameEngine {
       this.toast({ key: m.reason === 'funds' ? 'toast.no_funds' : m.reason === 'range' ? 'toast.too_far' : m.reason === 'room' ? 'toast.inventory_full' : 'toast.trade_failed' });
       return;
     }
-    if (trade.buy) {
-      // The server put the item in the inventory (its 'inv' message shows it).
-      this.sounds?.play('equip', { volume: 0.7 });
+    if (trade.buy || trade.sellUid !== undefined) {
+      // Inventory changes arrive separately in the server's 'inv' message.
+      this.sounds?.play('tradeSuccess', { volume: 0.7 });
     } else if (trade.heal) {
       this.sounds?.play('glockReload', { rate: 0.6, volume: 0.5 });
       const s = this.local?.state;

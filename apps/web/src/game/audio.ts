@@ -27,6 +27,7 @@ export const SOUND_FILES = {
   // Private (UI) sounds: only the local player hears them.
   uiClick: '/sounds/click.mp3',
   equip: '/sounds/ui-equip.mp3',
+  tradeSuccess: '/sounds/dragon-studio-register-cha-ching-376896.mp3',
   questAccept: '/sounds/quest-accept.wav',
   questComplete: '/sounds/quest-complete.wav',
   eat: '/sounds/eat-sound.mp3',

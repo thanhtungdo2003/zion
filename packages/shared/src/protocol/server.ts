@@ -193,6 +193,7 @@ export interface WalletEvent {
   coins: number;
   /** Echo of the client's trade request id and its outcome. */
   req?: number;
+  /** Transaction outcome; successful NPC trades also set this without a request id. */
   ok?: boolean;
   reason?: 'funds' | 'range' | 'item' | 'room';
 }

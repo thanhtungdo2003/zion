@@ -721,7 +721,7 @@ export class GameServer {
       p.dirty = true;
       this.sendInv(p);
       this.sendQuests(p);
-      p.session.sendJson({ t: 'wallet', coins: p.coins });
+      p.session.sendJson({ t: 'wallet', coins: p.coins, ...((msg.op === 'buy' || msg.op === 'sell') ? { ok: true } : {}) });
       for (const player of this.players.values()) this.sendLife(player);
     } catch (err) { this.log.error({ err }, 'base life transaction failed'); }
     finally { this.lifeBusy = false; this.finishQuestMutation(p); }
