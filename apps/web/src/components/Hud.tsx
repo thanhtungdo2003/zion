@@ -13,6 +13,7 @@ import type { TKey } from '@/lib/i18n';
 interface Props {
   state: HudState;
   onMinimap: (canvas: HTMLCanvasElement | null) => void;
+  onOpenMap: () => void;
   onChatOpen: (open: boolean) => void;
   onChat: (text: string, channel: 'world' | 'team') => void;
   onRespawn: () => void;
@@ -43,7 +44,7 @@ function phase(tod: number): TKey {
   return 'time.dusk';
 }
 
-export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime, chatRequest = 0 }: Props) {
+export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, firstPerson } = useSettings();
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -116,7 +117,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
       {showWorld && (
         <>
           <div className="hud-panel hud-minimap">
-            <canvas ref={minimap} width={128} height={128} />
+            <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><span><Icon name="lucide:expand" /> M</span></button>
             <div className="hud-clock">
               <b>{clock(state.timeOfDay)}</b>
               <span>{t(phase(state.timeOfDay))}</span>
@@ -225,7 +226,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
           {state.guides.map((g, i) => (
             <div key={`${g.role}${i}`} className="hud-guide" style={{ left: g.x, top: g.y }}>
               <i className="hud-guide-arrow" style={{ transform: `rotate(${g.angle}rad)` }} />
-              <span className={`hud-guide-icon ${g.role}`}><Icon name={g.role === 'nurse' ? 'game-icons:medical-pack' : g.role === 'merchant' ? 'game-icons:pistol-gun' : g.role === 'farmer' ? 'game-icons:wheat' : g.role === 'chef' ? 'game-icons:cooking-pot' : g.role === 'storage' ? 'game-icons:locked-chest' : 'game-icons:compass'} />{g.quest && <b className="hud-guide-quest"><Icon name="lucide:circle-alert" /></b>}</span>
+              <span className={`hud-guide-icon ${g.role}`} title={g.name}><Icon name={g.icon ?? (g.role === 'nurse' ? 'game-icons:medical-pack' : g.role === 'merchant' ? 'game-icons:pistol-gun' : g.role === 'farmer' ? 'game-icons:wheat' : g.role === 'chef' ? 'game-icons:cooking-pot' : g.role === 'storage' ? 'game-icons:locked-chest' : 'game-icons:compass')} />{g.quest && <b className="hud-guide-quest"><Icon name="lucide:circle-alert" /></b>}</span>
               <small>{g.dist >= 100 ? `${(g.dist / 1000).toFixed(1)} km` : `${g.dist} m`}</small>
             </div>
           ))}

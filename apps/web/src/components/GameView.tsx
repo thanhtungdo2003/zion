@@ -12,6 +12,8 @@ import { Hud } from './Hud';
 import { Onboarding } from './Onboarding';
 import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs, StaminaBar } from './Quests';
 import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
+import { WorldMap } from './WorldMap';
+import { WorldMapStore } from '@/game/world-map';
 
 export default function GameView() {
   const router = useRouter();
@@ -20,6 +22,7 @@ export default function GameView() {
   const [store] = useState(() => new HudStore());
   const hud = useSyncExternalStore(store.subscribe, store.get, store.get);
   const [inventory] = useState(() => new InventoryStore());
+  const [worldMap] = useState(() => new WorldMapStore());
   const inv = useSyncExternalStore(inventory.subscribe, inventory.get, inventory.get);
   const { touchControls } = useSettings();
   const [chatOpen, setChatOpen] = useState(false);
@@ -36,19 +39,33 @@ export default function GameView() {
   }), []);
   const equipped = inv.items.find((i) => i.uid === inv.equipped);
   const spec = weaponSpec(equipped ? WEAPON_BY_ITEM[equipped.itemId] ?? 0 : 0);
-  const touchVisible = touchControls && hud.status === 'playing' && hud.pointerLocked && !inv.open && !hud.dialogue && hud.downed === null && !chatOpen && !tutorialBlocked;
+  const touchVisible = touchControls && hud.status === 'playing' && hud.pointerLocked && !inv.open && !hud.dialogue && !hud.mapOpen && hud.downed === null && !chatOpen && !tutorialBlocked;
 
   useEffect(() => {
     const el = container.current;
     if (!el) return;
-    const engine = new GameEngine(el, store, inventory);
+    const engine = new GameEngine(el, store, inventory, worldMap);
     engineRef.current = engine;
     void engine.start();
     return () => {
       engine.dispose();
       engineRef.current = null;
     };
-  }, [store, inventory]);
+  }, [store, inventory, worldMap]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const state = store.get();
+      if ((e.code !== 'KeyM' && !(e.code === 'Escape' && state.mapOpen)) || e.repeat) return;
+      if (e.code !== 'Escape' && ((e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')) || chatOpen)) return;
+      if (state.status !== 'playing' && state.status !== 'dead') return;
+      if (!state.mapOpen && (inventory.get().open || state.dialogue || tutorialBlocked)) return;
+      e.preventDefault(); e.stopImmediatePropagation(); engineRef.current?.setMapOpen(!state.mapOpen);
+    };
+    const save = () => worldMap.flush();
+    window.addEventListener('keydown', onKey, true); window.addEventListener('pagehide', save);
+    return () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('pagehide', save); };
+  }, [store, inventory, chatOpen, tutorialBlocked, worldMap]);
 
   useEffect(() => {
     engineRef.current?.setInventoryOpen(inv.open);
@@ -98,13 +115,14 @@ export default function GameView() {
       <Hud
         state={hud}
         onMinimap={attachMinimap}
+        onOpenMap={() => engineRef.current?.setMapOpen(true)}
         onChatOpen={(open) => { setChatOpen(open); engineRef.current?.setChatOpen(open); }}
         chatRequest={chatRequest}
         onChat={(text, channel) => engineRef.current?.sendChat(text, channel)}
         onRespawn={() => engineRef.current?.requestRespawn()}
         onResume={() => engineRef.current?.lockPointer()}
         onLeave={() => router.push('/')}
-        inventoryOpen={inv.open || !!hud.dialogue}
+        inventoryOpen={inv.open || !!hud.dialogue || hud.mapOpen}
         onSetTime={(tod) => engineRef.current?.setTimeOfDay(tod)}
       />
       {inWorld && <QuestTracker quests={hud.quests} position={hud.position} onCancel={(q) => engineRef.current?.quest('cancel', q.npc, q.id)} />}
@@ -117,6 +135,7 @@ export default function GameView() {
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
+      {inWorld && hud.mapOpen && <WorldMap store={worldMap} hud={hud} onClose={() => engineRef.current?.setMapOpen(false)} />}
     </div>
   );
 }

@@ -16,6 +16,7 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  mapOpen: boolean;
   team: TeamView | null;
   tutorialAnchor: { x: number; y: number };
   tutorialTargets: Array<{ id: string; x: number; z: number; angle: number; distance: number }>;
@@ -70,11 +71,12 @@ export interface HudState {
   rollCd: number;
   /** F3 debug overlay numbers. */
   debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number } | null;
-  guides: Array<{ role: string; x: number; y: number; angle: number; dist: number; quest?: boolean }>;
+  guides: Array<{ role: string; x: number; y: number; angle: number; dist: number; quest?: boolean; icon?: string; name?: string }>;
 }
 
 export function initialHud(): HudState {
   return {
+    mapOpen: false,
     team: null,
     tutorialAnchor: { x: 0, y: 0 },
     tutorialTargets: [],

@@ -65,6 +65,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     const resize = () => {
       const w = el.clientWidth;
       const h = el.clientHeight;
+      if (w <= 0 || h <= 0) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / Math.max(1, h);
       // Keep the character the same size on narrow screens.
@@ -74,7 +75,9 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
       camera.updateProjectionMatrix();
     };
     resize();
-    window.addEventListener('resize', resize);
+    // Opening the team panel changes this element without resizing the browser window.
+    const observer = new ResizeObserver(resize);
+    observer.observe(el);
 
     const avatars: Avatar[] = [];
     void (async () => {
@@ -112,7 +115,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
+      observer.disconnect();
       avatars.forEach((avatar) => avatar.dispose(scene));
       renderer.dispose();
       renderer.domElement.remove();

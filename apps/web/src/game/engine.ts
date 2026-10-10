@@ -108,6 +108,7 @@ import { GroundItems } from './render/ground-items';
 import { CharacterPreview } from './render/character-preview';
 import { requestArmor } from './render/armor-models';
 import { SlashEffects, type SlashPose } from './render/slash';
+import { WorldMapStore } from './world-map';
 import { GuardFlashlights, type FlashlightPose } from './render/guard-flashlights';
 import { PropRenderer } from './render/props';
 import { SkySystem } from './render/sky';
@@ -302,6 +303,7 @@ export class GameEngine {
     private readonly container: HTMLDivElement,
     private readonly hud: HudStore,
     private readonly inventory: InventoryStore,
+    private readonly worldMap = new WorldMapStore(),
   ) {
     this.weaponCtl = new WeaponController({
       available: (w) => this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? ''),
@@ -506,6 +508,7 @@ export class GameEngine {
     this.guardFlashlights?.dispose();
     this.groundItems?.dispose();
     this.slashes?.dispose();
+    this.worldMap.dispose();
     this.vegetation?.dispose();
     this.sky?.dispose();
     for (const m of this.meshes.values()) this.disposeChunkMeshes(m);
@@ -521,16 +524,21 @@ export class GameEngine {
 
   setTutorialBlocked(blocked: boolean): void {
     this.tutorialBlocked = blocked;
-    this.input.suspended = blocked || this.chatOpen || this.inventory.get().open;
+    this.input.suspended = blocked || this.chatOpen || this.inventory.get().open || this.hud.get().mapOpen;
   }
 
   setChatOpen(open: boolean): void {
     this.chatOpen = open;
-    this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open;
+    this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open || this.hud.get().mapOpen;
   }
 
   setInventoryOpen(open: boolean): void {
-    this.input.suspended = open || this.tutorialBlocked || this.chatOpen;
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.hud.get().mapOpen;
+  }
+
+  setMapOpen(open: boolean): void {
+    this.hud.set({ mapOpen: open });
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open;
   }
 
   lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot', target: string, choice?: string, uid?: number): void {
@@ -781,6 +789,7 @@ export class GameEngine {
   private onWelcome(m: WelcomeMessage): void {
     this.welcome = m;
     const world = m.world;
+    this.worldMap.initialize(world);
     const worldSize = world.sizeChunks * world.chunkSize;
     this.clock.seed(m.serverTime);
     this.store = new ChunkStore(worldSize, world.seaLevel, this.registry);
@@ -1240,6 +1249,7 @@ export class GameEngine {
     const px = local.prev.x + (local.state.x - local.prev.x) * alpha + local.correction.x;
     const py = local.prev.y + (local.state.y - local.prev.y) * alpha + local.correction.y;
     const pz = local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
+    if (!local.dead) this.worldMap.explore(px, pz);
 
     this.processBuildQueue(px, pz);
     this.vegetation?.update(px, pz);
@@ -1382,7 +1392,7 @@ export class GameEngine {
       const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
       const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).map((m) => ({ x: m.x!, z: m.z! }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates);
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows);
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
@@ -1412,11 +1422,15 @@ export class GameEngine {
       return { ...n, distance: Math.hypot(dx, dz), angle: Math.atan2(-screenX, screenY) };
     }) });
     const guides: HudState['guides'] = [];
+    this.worldMap.updateFixed(this.mapNpcs());
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    for (const n of this.mapNpcs()) {
+    const guideLocations = this.worldMap.get().arrows ? this.worldMap.get().locations.filter((m) => m.guide).map((m) => ({ role: m.role ?? 'marker', x: m.x, z: m.z, quest: m.quest, icon: m.icon, name: m.name })) : [];
+    const missionLocations = this.mapNpcs().filter((n) => n.role === 'sos' || (this.worldMap.get().arrows && n.role === 'target'));
+    const locations: Array<{ role: string; x: number; z: number; quest?: boolean; icon?: string; name?: string }> = [...guideLocations, ...missionLocations];
+    for (const n of locations) {
       const dist = Math.hypot(n.x - px, n.z - pz);
-      if (dist > GUIDE_RANGE && n.role !== 'target' && n.role !== 'sos') continue;
+      if (dist > GUIDE_RANGE && n.role !== 'target' && n.role !== 'sos' && n.role !== 'marker') continue;
       const v = this.guideTmp.set(n.x, py + 1.6, n.z).project(this.camera);
       const behind = v.z > 1;
       if (!behind && Math.abs(v.x) <= 0.92 && Math.abs(v.y) <= 0.9) continue;
@@ -1430,9 +1444,9 @@ export class GameEngine {
       const mx = w / 2 - 44;
       const my = h / 2 - 44;
       const k = Math.min(mx / Math.max(1e-3, Math.abs(dx)), my / Math.max(1e-3, Math.abs(dy)));
-      guides.push({ role: n.role, quest: n.quest, x: w / 2 + dx * k, y: h / 2 - dy * k, angle: Math.atan2(-dy, dx), dist: Math.round(dist) });
+      guides.push({ role: n.role, quest: n.quest, icon: n.icon, name: n.name, x: w / 2 + dx * k, y: h / 2 - dy * k, angle: Math.atan2(-dy, dx), dist: Math.round(dist) });
     }
-    const key = guides.map((g, i) => `${i}${g.role}${g.quest ? '!' : ''}${Math.round(g.x)},${Math.round(g.y)},${g.dist}`).join('|');
+    const key = guides.map((g, i) => `${i}${g.role}${g.icon}${g.name}${g.quest ? '!' : ''}${Math.round(g.x)},${Math.round(g.y)},${g.dist}`).join('|');
     if (key !== this.guidesKey) {
       this.guidesKey = key;
       this.hud.set({ guides });

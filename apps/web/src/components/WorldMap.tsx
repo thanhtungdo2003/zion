@@ -96,7 +96,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     if (!store.known(x, z)) { setNotice('Hãy khám phá khu vực này trước khi đánh dấu.'); return; }
     setDraft({ x, z }); setSelected(null); setName(''); setIcon(MAP_ICONS[0].id); setNotice('');
   };
-  const markers = state.locations.map((m) => ({ ...m, ...mapToScreen(m.x, m.z, size.width, size.height, camera) }));
+  const markers = state.locations.map((m) => ({ location: m, screen: mapToScreen(m.x, m.z, size.width, size.height, camera) }));
   const player = mapToScreen(hud.position[0], hud.position[2], size.width, size.height, camera);
   const zoom = (factor: number) => setCamera((c) => zoomMap(c, factor, size.width / 2, size.height / 2, size.width, size.height));
   const barMeters = camera.scale > 1 ? 50 : camera.scale > 0.2 ? 250 : 1000;
@@ -138,7 +138,8 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
             if (click) { const r = e.currentTarget.getBoundingClientRect(); const p = screenToMap(e.clientX - r.left, e.clientY - r.top, r.width, r.height, camera); beginDraft(p.x, p.z); }
           }} onPointerCancel={(e) => pointers.current.delete(e.pointerId)}>
           <canvas ref={canvas} aria-label="Địa hình và vùng đã khám phá" />
-          {markers.filter((m) => m.x >= -20 && m.y >= -20 && m.x <= size.width + 20 && m.y <= size.height + 20 && store.known(state.locations.find((l) => l.id === m.id)!.x, m.z)).map((m) => <button key={m.id} className={`atlas-pin${selected === m.id ? ' selected' : ''}${m.fixed ? ' fixed' : ''}`} style={{ left: m.x, top: m.y }} title={m.name} onClick={() => choose(m.id)}><Icon name={m.icon} />{(selected === m.id || camera.scale > 0.6) && <span>{m.name}</span>}{m.quest && <b>!</b>}</button>)}
+          {hud.quests.filter((q) => q.status === 'active' && !q.locked && q.target).map((q) => { const p = mapToScreen(q.target!.x, q.target!.z, size.width, size.height, camera); return p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height ? <div key={q.id} className="atlas-mission" style={{ left: p.x, top: p.y }} title={q.title}><Icon name="lucide:crosshair" /><span>{q.title}</span></div> : null; })}
+          {markers.filter(({ location: m, screen: p }) => p.x >= -20 && p.y >= -20 && p.x <= size.width + 20 && p.y <= size.height + 20 && store.known(m.x, m.z)).map(({ location: m, screen: p }) => <button key={m.id} className={`atlas-pin${selected === m.id ? ' selected' : ''}${m.fixed ? ' fixed' : ''}`} style={{ left: p.x, top: p.y }} title={m.name} onClick={() => choose(m.id)}><Icon name={m.icon} />{(selected === m.id || camera.scale > 0.6) && <span>{m.name}</span>}{m.quest && <b>!</b>}</button>)}
           {player.x >= 0 && player.y >= 0 && player.x <= size.width && player.y <= size.height && <div className="atlas-player" style={{ left: player.x, top: player.y }} title="Bạn"><Icon name="lucide:navigation" /></div>}
           {hud.team?.members.filter((m) => m.inGame && m.x !== undefined && m.z !== undefined && m.name !== hud.username).map((m) => { const p = mapToScreen(m.x!, m.z!, size.width, size.height, camera); return p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height ? <div key={m.accountId} className="atlas-teammate" style={{ left: p.x, top: p.y }} title={m.name}><i /><span>{m.name}</span></div> : null; })}
           {draft && (() => { const p = mapToScreen(draft.x, draft.z, size.width, size.height, camera); return <div className="atlas-draft" style={{ left: p.x, top: p.y }}><Icon name={icon} /></div>; })()}

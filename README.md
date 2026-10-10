@@ -29,6 +29,7 @@ Open http://localhost:3000 and click **Play as guest**. Then click into the canv
 | `W A S D` | move (`Shift` sprint, `Space` jump) |
 | Mouse | look; `LMB` melee |
 | `V` | third/first-person camera |
+| `M` / click minimap | large map (drag, wheel or pinch to zoom, click to add a named icon) |
 | `Enter` / `T` | chat |
 | `Esc` | release mouse |
 
@@ -39,6 +40,8 @@ Teams are available from **Đội nhóm** in the main lobby. Create a public tea
 The farmer, chef and colonel each offer a daily and a permanent mission under their **Đội nhóm** tab. The leader accepts for at least two members. Participants rally at a randomly assigned building, collect shared mission packages, clear zombies in that area, and return to the NPC for individual ZCoin rewards. Packages do not use inventory space. Only the roster present at acceptance can earn that mission's reward; each participant claims once. Daily missions reset at 00:00 UTC (07:00 Vietnam); permanent missions persist. Team membership, private chat and mission progress survive server restarts; readiness resets.
 
 This feature requires migration `012_teams.sql` (`pnpm db:migrate`, or automatic migration with `DB_MIGRATE_ON_START=true`). Deploy server and client together: the protocol version is now 12.
+
+The large map begins with a known circular area extending 1 km from the camp. Moving reveals an additional 50 × 50 m square centred on the player; unseen terrain stays black. The map lists protected base locations and up to 100 personal markers with editable names and icons. Direction arrows can be toggled globally or for each location; pinned minimap icons remain visible. Exploration, markers and arrow preferences are saved per account and world in the current browser. Cartography is generated and cached by the server and never exposes the world seed.
 
 ### Useful scripts
 

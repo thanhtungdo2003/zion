@@ -1,6 +1,8 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
 import { BIOME_MAP_COLORS, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
+import type { MapLocation } from '../world-map';
+import { drawLocationIcon } from './location-icon';
 
 /** Chunk raster resolution (px per metre): enough for trees, rocks and building outlines. */
 const PX_PER_M = 2;
@@ -172,6 +174,8 @@ export class Minimap {
     /** The spawn camp: always shown, pinned to the map edge (pointing at it) when far away. */
     spawn: { x: number; z: number } | null = null,
     teammates: ReadonlyArray<{ x: number; z: number }> = [],
+    locations?: ReadonlyArray<MapLocation>,
+    arrows = true,
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -224,6 +228,7 @@ export class Minimap {
     }
     // Camp NPCs: a gun for the weapon merchant, a red cross for the medic (kept upright on screen).
     for (const n of npcs) {
+      if (locations && n.role !== 'sos') continue;
       const ox = (n.x - (px - half)) * scale;
       const oz = (n.z - (pz - half)) * scale;
       if (ox < -W || oz < -W || ox > 2 * W || oz > 2 * W) continue;
@@ -251,7 +256,18 @@ export class Minimap {
     ctx.stroke();
     ctx.restore();
     ctx.restore();
-    if (spawn) this.drawSpawn(ctx, W, (spawn.x - px) * scale, (spawn.z - pz) * scale, upYaw);
+    if (spawn && !locations) this.drawSpawn(ctx, W, (spawn.x - px) * scale, (spawn.z - pz) * scale, upYaw);
+    const mapLocations = locations ? [...locations, ...npcs.filter((n) => n.role === 'target').map((n, i) => ({ ...n, id: `mission:${i}`, icon: 'lucide:crosshair', guide: true }))] : [];
+    for (const location of mapLocations) {
+      const { x, y, off } = mapMarker((location.x - px) * scale, (location.z - pz) * scale, upYaw, W / 2 - 12);
+      const sx = W / 2 + x, sy = W / 2 + y;
+      if (arrows && location.guide && off) {
+        ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(y, x)); ctx.fillStyle = '#ffb000';
+        ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(5, -4); ctx.lineTo(5, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+      drawLocationIcon(ctx, location.icon, sx, sy, location.id === 'base:home' ? 7 : 5);
+      if (location.quest) { ctx.fillStyle = '#ffd000'; ctx.font = 'bold 10px monospace'; ctx.fillText('!', sx + 5, sy - 5); }
+    }
     teammates.forEach((mate, i) => {
       const { x, y, off } = mapMarker((mate.x - px) * scale, (mate.z - pz) * scale, upYaw, W / 2 - 10);
       ctx.save(); ctx.translate(W / 2 + x, W / 2 + y);

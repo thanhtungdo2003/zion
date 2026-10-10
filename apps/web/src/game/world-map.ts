@@ -23,6 +23,7 @@ export class Exploration {
   reveal(x: number, z: number, size: number): boolean {
     const left = Math.max(0, Math.round(x) - 25), right = Math.min(size, Math.round(x) + 25);
     const top = Math.max(0, Math.round(z) - 25), bottom = Math.min(size, Math.round(z) + 25);
+    if (left >= right || top >= bottom) return false;
     let changed = false;
     for (let row = top; row < bottom; row++) {
       const spans = this.rows.get(row) ?? [];
@@ -89,8 +90,10 @@ export class WorldMapStore {
   updateFixed(npcs: ReadonlyArray<{ role: string; x: number; z: number; quest?: boolean }>): void {
     const camp = this.state.world?.camp;
     const fixed: MapLocation[] = camp ? [{ id: 'base:home', name: 'Căn cứ', icon: 'lucide:house', x: camp.x, z: camp.z, fixed: true, guide: this.fixedGuides['base:home'] ?? false }] : [];
-    npcs.filter((n) => n.role !== 'sos').forEach((n, i) => {
-      const id = `base:${n.role}:${i}`;
+    const counts: Record<string, number> = {};
+    npcs.filter((n) => n.role !== 'sos' && n.role !== 'target').forEach((n) => {
+      const index = counts[n.role] ?? 0; counts[n.role] = index + 1;
+      const id = `base:${n.role}:${index}`;
       fixed.push({ id, name: ROLE_NAMES[n.role] ?? n.role, icon: ROLE_ICONS[n.role] ?? 'lucide:flag', x: n.x, z: n.z, fixed: true, guide: this.fixedGuides[id] ?? true, role: n.role, quest: n.quest });
     });
     const locations = [...fixed, ...this.state.locations.filter((m) => !m.fixed)];
@@ -101,14 +104,18 @@ export class WorldMapStore {
     const position = `${Math.round(x)},${Math.round(z)}`;
     if (position === this.lastPosition) return;
     this.lastPosition = position;
+    const camp = this.state.world.camp;
+    if (camp && Math.hypot(Math.abs(x - camp.x) + 25, Math.abs(z - camp.z) + 25) <= 1000) return;
     if (this.exploration.reveal(x, z, this.state.world.sizeChunks * this.state.world.chunkSize)) { this.emit(); this.saveSoon(); }
   }
   known(x: number, z: number): boolean {
+    const world = this.state.world;
+    if (!world || x < 0 || z < 0 || x >= world.sizeChunks * world.chunkSize || z >= world.sizeChunks * world.chunkSize) return false;
     const camp = this.state.world?.camp;
     return (!!camp && Math.hypot(x - camp.x, z - camp.z) <= 1000) || this.exploration.has(x, z);
   }
   add(x: number, z: number, name: string, icon: string): string | null {
-    if (this.state.locations.filter((m) => !m.fixed).length >= 100 || !name.trim() || !this.known(x, z)) return null;
+    if (this.state.locations.filter((m) => !m.fixed).length >= 100 || !name.trim() || !this.known(x, z) || !MAP_ICONS.some((i) => i.id === icon)) return null;
     const id = crypto.randomUUID();
     this.emit({ locations: [...this.state.locations, { id, name: name.trim().slice(0, 40), icon, x, z, fixed: false, guide: false }] }); this.saveSoon(); return id;
   }
