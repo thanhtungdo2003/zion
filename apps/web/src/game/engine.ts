@@ -107,7 +107,7 @@ import { CampLights } from './render/camp-lights';
 import { GroundItems } from './render/ground-items';
 import { CharacterPreview } from './render/character-preview';
 import { requestArmor } from './render/armor-models';
-import { SlashEffects } from './render/slash';
+import { SlashEffects, type SlashPose } from './render/slash';
 import { GuardFlashlights, type FlashlightPose } from './render/guard-flashlights';
 import { PropRenderer } from './render/props';
 import { SkySystem } from './render/sky';
@@ -1261,7 +1261,10 @@ export class GameEngine {
       if (r.entity.kind === EntityKind.Guard) this.guardPoses.push(pose);
       // Remote blade swings: a slash arc when their attack starts.
       const attacking = (pose.flags & EntityFlags.Attacking) !== 0;
-      if (attacking && !r.attacking && weaponSpec(r.weapon)?.kind === 'melee') this.slashAt(pose.x, pose.y, pose.z, pose.yaw, r.weapon, r.avatar.slashVariant);
+      if (attacking && !r.attacking && weaponSpec(r.weapon)?.kind === 'melee') this.slashAt(
+        () => r.avatar.root.parent && !(r.entity.pose.flags & EntityFlags.Dead) ? r.entity.pose : null,
+        r.weapon, r.avatar.slashVariant,
+      );
       r.attacking = attacking;
     }
     // Guards switch on flashlights at night, aimed where they look.
@@ -1551,7 +1554,11 @@ export class GameEngine {
     } else if (action === 'melee' && spec?.kind === 'melee') {
       const variant = this.localAvatar?.slash() ?? 1;
       this.viewModel?.swing(variant);
-      this.slashAt(local.state.x, local.state.y, local.state.z, this.input.yaw, weapon, variant);
+      const avatar = this.localAvatar;
+      if (avatar) this.slashAt(
+        () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
+        weapon, variant,
+      );
     } else if (action === 'throw') {
       this.viewModel?.throw();
       // Land somewhere random inside the red circle around the cursor.
@@ -1793,11 +1800,13 @@ export class GameEngine {
   }
 
   /** Blade swing visual and sound (local or remote), from the weapon's reach. */
-  private slashAt(x: number, y: number, z: number, yaw: number, weapon: number, variant: number): void {
+  private slashAt(follow: () => SlashPose | null, weapon: number, variant: number): void {
     const spec = weaponSpec(weapon);
     if (spec?.kind !== 'melee') return;
-    this.slashes?.spawn(x, y + 1.15, z, yaw, Math.min(spec.range, 2.8) * 0.85, variant);
-    this.sounds?.play('swordSlash', { at: { x, y: y + 1.2, z }, volume: 0.55, maxDistance: 25 });
+    const pose = follow();
+    if (!pose) return;
+    this.slashes?.spawn(follow, Math.min(spec.range, 2.8) * 0.85, variant);
+    this.sounds?.play('swordSlash', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25 });
   }
 
   /* --------------------------------------- shop ------------------------------------------ */

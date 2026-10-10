@@ -65,7 +65,11 @@ interface Cut {
   t: number;
   /** Waiting out the delay before it shows. */
   pending: boolean;
+  follow: (() => SlashPose | null) | null;
+  height: number;
 }
+
+export interface SlashPose { x: number; y: number; z: number; yaw: number }
 
 /** Blade swings: one smooth, wide and thin crescent trail per cut (pooled, additive). */
 export class SlashEffects {
@@ -89,7 +93,7 @@ export class SlashEffects {
       mesh.frustumCulled = false;
       mesh.renderOrder = 7;
       scene.add(mesh);
-      this.cuts.push({ mesh, mat, t: LIFE, pending: false });
+      this.cuts.push({ mesh, mat, t: LIFE, pending: false, follow: null, height: 0 });
     }
   }
 
@@ -101,17 +105,18 @@ export class SlashEffects {
   }
 
   /**
-   * A cut centred on (x, y, z) facing `yaw`, `reach` metres out, following the swing's pose:
+   * Follow the rendered wielder throughout the delay and trail, `reach` metres out:
    * 0 = vertical (overhead chop, top to bottom), 1 = horizontal (flat sweep), 2 = diagonal.
    */
-  spawn(x: number, y: number, z: number, yaw: number, reach: number, variant = 1): void {
+  spawn(follow: () => SlashPose | null, reach: number, variant = 1): void {
     const c = this.cuts[this.next++ % POOL]!;
     const vertical = variant === 0;
     c.mesh.geometry = this.geometry(vertical ? reach * 0.75 : reach);
-    c.mesh.position.set(x, y + (vertical ? 0.25 : 0), z);
+    c.follow = follow;
+    c.height = 1.15 + (vertical ? 0.25 : 0);
     // Roll the flat crescent about the facing axis: −90° stands it up so it sweeps top → bottom.
     const roll = vertical ? -Math.PI / 2 : variant === 2 ? -0.8 : 0.08;
-    c.mesh.rotation.set(0, yaw, roll, 'YXZ');
+    c.mesh.rotation.set(0, 0, roll, 'YXZ');
     c.t = -DELAY;
     c.mat.uniforms.uProgress!.value = 0;
     c.mesh.visible = false;
@@ -120,24 +125,27 @@ export class SlashEffects {
 
   update(dt: number): void {
     for (const c of this.cuts) {
-      if (c.pending) {
-        c.t += dt;
-        if (c.t < 0) continue;
-        c.pending = false;
-        c.mesh.visible = true;
-      }
-      if (!c.mesh.visible) continue;
+      if (!c.follow) continue;
+      const pose = c.follow();
       c.t += dt;
-      if (c.t >= LIFE) {
+      if (!pose || c.t >= LIFE) {
         c.mesh.visible = false;
+        c.pending = false;
+        c.follow = null;
         continue;
       }
+      c.mesh.position.set(pose.x, pose.y + c.height, pose.z);
+      c.mesh.rotation.y = pose.yaw;
+      if (c.pending && c.t < 0) continue;
+      c.pending = false;
+      c.mesh.visible = true;
       c.mat.uniforms.uProgress!.value = c.t / LIFE;
     }
   }
 
   dispose(): void {
     for (const c of this.cuts) {
+      c.follow = null;
       this.scene.remove(c.mesh);
       c.mat.dispose();
     }

@@ -12,6 +12,7 @@ import type { AccessClaims, TokenService } from '../security/tokens';
 import { registerAuthRoutes } from './routes/auth';
 import { registerTeamRoutes } from './routes/teams';
 import type { TeamService } from '../game/teams';
+import type { WorldAtlas } from '@zion/shared';
 import { registerGameRoutes } from './routes/game';
 import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
@@ -21,6 +22,7 @@ export interface HttpDeps {
   logger: Logger;
   auth: AuthService;
   teams?: TeamService;
+  atlas?: () => Promise<WorldAtlas>;
   tokens: TokenService;
   kv: KeyValueStore;
   health: HealthProvider;

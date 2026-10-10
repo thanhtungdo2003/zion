@@ -3,6 +3,10 @@ import { PROTOCOL_VERSION } from '@zion/shared';
 import type { HttpDeps } from '../app';
 
 export function registerGameRoutes(app: FastifyInstance, deps: HttpDeps): void {
+  if (deps.atlas) app.get('/api/game/atlas', { preHandler: app.requireAuth, config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (_req, reply) => {
+    reply.header('cache-control', 'private, max-age=300');
+    return deps.atlas!();
+  });
   app.post(
     '/api/game/ticket',
     { preHandler: app.requireAuth, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },

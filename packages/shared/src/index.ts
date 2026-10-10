@@ -19,3 +19,4 @@ export * from './base-life';
 
 export * from './chests';
 export * from './teams';
+export * from './atlas';

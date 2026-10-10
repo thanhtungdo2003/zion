@@ -9,6 +9,7 @@ import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
+import { atlasProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
 import type { HealthReport } from './http/routes/health';
 import { createKeyValueStore } from './infra/kv';
@@ -122,6 +123,7 @@ async function main(): Promise<void> {
   }
 
   const app = await buildHttpApp({
+    atlas: atlasProvider(world.generator, config.WORLD_ID),
     teams,
     config,
     logger,
