@@ -1762,3 +1762,4 @@ kbd {
 .fp-crosshair i:nth-child(4) { right: 0; }
 .fp-crosshair.scoped { width: 14px; height: 14px; }
 .chest-price { font: 700 11px var(--mono); font-style: normal; color: var(--accent); white-space: nowrap; }
+.inv-cache-out { color: var(--danger) !important; }

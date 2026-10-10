@@ -162,6 +162,8 @@ export interface InventoryEvent {
   t: 'inv';
   items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean }>;
   equipped: number | null;
+  /** Ammo-cache draws left this world day. */
+  cacheLeft?: number;
 }
 
 /** Items lying on the ground (dropped by players); `items` adds or refreshes. */

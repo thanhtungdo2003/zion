@@ -117,4 +117,6 @@ export function ammoItemFor(gunItemId: string): string | null {
 /** What the ammo cache stations hand out (unlimited, as long as the inventory has room). */
 export const CACHE_STOCK = ['ammo_300wm', 'ammo_762', 'ammo_556', 'ammo_9mm', 'ammo_12g', 'grenade', 'medkit', 'awm', 'ak47', 'shotgun', 'gl18'] as const;
 /** The camp's own caches are an ammo dump only: no weapons are issued there. */
+/** Free ammo-cache draws per player per world day. */
+export const CACHE_DRAWS_PER_DAY = 3;
 export const CAMP_CACHE_STOCK = ['ammo_300wm', 'ammo_762', 'ammo_556', 'ammo_9mm', 'ammo_12g', 'grenade', 'medkit'] as const;

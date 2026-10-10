@@ -1943,10 +1943,10 @@ export class GameEngine {
   }
 
   /** The server's copy of our inventory: show it and adopt its magazine counts. */
-  private onInventory(m: { items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean }>; equipped: number | null }): void {
+  private onInventory(m: { items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean }>; equipped: number | null; cacheLeft?: number }): void {
     clearPending('cache:*');
     clearPending('trade:*');
-    this.inventory.applyServer(m.items as PlacedItem[], m.equipped);
+    this.inventory.applyServer(m.items as PlacedItem[], m.equipped, m.cacheLeft);
     for (const it of m.items) {
       const w = WEAPON_BY_ITEM[it.itemId];
       if (w && it.mag !== undefined) this.weaponCtl.syncMag(w, it.mag);

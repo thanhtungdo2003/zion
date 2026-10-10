@@ -19,7 +19,7 @@ import { Spinner } from './Spinner';
 import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { isTKey } from '@/lib/i18n';
-import { CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
+import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
 
 type Tr = ReturnType<typeof useSettings>;
 
@@ -438,7 +438,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
             <section className="inv-box inv-cache">
               <header>
                 <span>{t(state.station === 'camp' ? 'inv.camp_title' : 'inv.cache_title')}</span>
-                <small>{t(state.station === 'camp' ? 'inv.camp_sub' : 'inv.cache_sub')}</small>
+                <small className={state.cacheLeft <= 0 ? 'inv-cache-out' : undefined}>{t('inv.cache_left', { n: Math.max(0, state.cacheLeft), max: CACHE_DRAWS_PER_DAY })}</small>
               </header>
               <div className="inv-cache-list">
                 {(state.station === 'camp' ? CAMP_CACHE_STOCK : CACHE_STOCK).map((id) => {
@@ -451,7 +451,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
                       onMouseEnter={() => setTip({ def })}
                       onMouseLeave={() => setTip(null)}
                       onMouseDown={(e) => e.stopPropagation()}
-                      disabled={busy(`cache:${id}`)}
+                      disabled={busy(`cache:${id}`) || state.cacheLeft <= 0}
                       onClick={() => setFull(store.takeFromCache(id) ? null : id)}
                     >
                       {busy(`cache:${id}`) && <span className="inv-cache-busy"><Spinner /></span>}

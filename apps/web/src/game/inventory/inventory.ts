@@ -1,4 +1,4 @@
-import type { ChestStateMessage } from '@zion/shared';
+import { CACHE_DRAWS_PER_DAY, type ChestStateMessage } from '@zion/shared';
 import { markPending } from '../pending';
 import {
   ARMOR_CONTAINERS,
@@ -51,6 +51,8 @@ export interface InventoryState {
   equipped: number | null;
   /** Opened at an ammo cache station / trader: which side panel is shown. */
   station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null;
+  /** Ammo-cache draws left this world day (server-reported). */
+  cacheLeft: number;
 }
 
 /**
@@ -59,7 +61,7 @@ export interface InventoryState {
  * (optimistic, using the same shared grid rules) and corrected if the server disagrees.
  */
 export class InventoryStore {
-  private state: InventoryState = { chest: null, open: false, items: [], held: null, equipped: null, station: null };
+  private state: InventoryState = { chest: null, open: false, items: [], held: null, equipped: null, station: null, cacheLeft: CACHE_DRAWS_PER_DAY };
   private chestId: string | null = null;
   private readonly listeners = new Set<() => void>();
   /** Sends an inventory request to the server (wired by the engine). */
@@ -78,7 +80,8 @@ export class InventoryStore {
   }
 
   /** The server's state. While an item is being dragged it stays "in hand" in the UI. */
-  applyServer(items: PlacedItem[], equipped: number | null): void {
+  applyServer(items: PlacedItem[], equipped: number | null, cacheLeft?: number): void {
+    if (cacheLeft !== undefined && cacheLeft !== this.state.cacheLeft) this.set({ cacheLeft });
     const held = this.state.held;
     if (held && !items.some((i) => i.uid === held.uid)) {
       this.set({ items, equipped, held: null });
@@ -164,6 +167,7 @@ export class InventoryStore {
   /** Takes one item from the ammo cache the panel was opened at (server checks reach & stock). */
   takeFromCache(itemId: string): boolean {
     if (!this.hasRoomFor(itemId)) return false;
+    if (this.state.cacheLeft <= 0) return true;
     markPending(`cache:${itemId}`);
     this.send?.({ t: 'inv', op: 'cache', item: itemId });
     return true;

@@ -29,6 +29,7 @@ import {
   ITEMS,
   WEAPON_BY_ITEM,
   CAMP_CACHE_STOCK,
+  CACHE_DRAWS_PER_DAY,
   defaultLoadout,
   maxCount,
   armorProtection,
@@ -100,6 +101,8 @@ const TICK_MS = 1000 / TICK_RATE;
 const GROUND_ITEM_LIFETIME_MS = 60_000;
 const GROUND_PICKUP_REACH = 2.6;
 const STATION_REACH = 4.2;
+/** Reviving a downed player: how far apart (server positions) the two may be. */
+const REVIVE_REACH = 3.2;
 /** Melee wind-up: blades land as the slash trail appears; fists a little sooner. */
 const BLADE_HIT_DELAY_MS = 200;
 const FIST_HIT_DELAY_MS = 150;
@@ -914,7 +917,9 @@ export class GameServer {
         return;
       case 'revive': {
         const t = this.players.get(msg.id);
-        if (!t || t === p || !t.downed || p.dead || p.downed || Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) > 2.6) return;
+        if (!t || t === p || !t.downed || p.dead || p.downed) return;
+        // Client and server positions differ by up to a tick of movement plus interpolation delay.
+        if (Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) > REVIVE_REACH) { this.reply(p, 'Lại gần hơn để cấp cứu.'); return; }
         p.reviving = { target: t, until: this.serverTime + 5000, x: p.state.x, z: p.state.z };
         p.session.sendJson({ t: 'reviving', target: t.id, durationMs: 5000 });
         return;
@@ -1546,9 +1551,10 @@ export class GameServer {
       if (!r) continue;
       const t = r.target;
       const ok = !p.dead && !p.downed && t.downed && this.players.get(t.id) === t
-        && Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) <= 2.6
-        && Math.hypot(p.state.x - r.x, p.state.z - r.z) <= 0.4;
+        && Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) <= REVIVE_REACH
+        && Math.hypot(p.state.x - r.x, p.state.z - r.z) <= 1.0;
       if (!ok) {
+        if (!p.dead && !p.downed && t.downed) this.reply(p, 'Cấp cứu bị gián đoạn: đứng yên cạnh đồng đội trong 5 giây.');
         p.reviving = null;
         p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 });
         continue;
@@ -1840,7 +1846,7 @@ export class GameServer {
   /** Sends the player their own inventory (never anyone else's). */
   private sendInv(p: Player): void {
     const d = p.inv.toJSON();
-    p.session.sendJson({ t: 'inv', items: d.items, equipped: d.equipped });
+    p.session.sendJson({ t: 'inv', items: d.items, equipped: d.equipped, cacheLeft: this.cacheLeft(p) });
   }
 
   /** Re-derives what the inventory implies: worn armour (and its weight), the gun on the back. */
@@ -1932,13 +1938,17 @@ export class GameServer {
         break;
       }
       case 'cache': {
-        // Free kit, but not a firehose: one draw per 1.5 s.
-        if (Date.now() < p.cacheReadyAt) break;
-        p.cacheReadyAt = Date.now() + 1500;
+        // Free kit, rationed: CACHE_DRAWS_PER_DAY draws per player per world day.
         const kind = this.cacheNear(p);
         const stock: readonly string[] = kind === 'camp' ? CAMP_CACHE_STOCK : [];
-        if (!stock.includes(msg.item)) break;
-        changed = p.inv.add(msg.item, undefined, true) !== null;
+        if (!stock.includes(msg.item)) { this.reply(p, 'Hãy đứng cạnh kho đạn để lấy đồ.'); break; }
+        const day = Math.floor(this.worldTimeMs / this.dayLengthMs);
+        const q = p.life.quotas.ammo_cache;
+        const used = q && q.start === day ? q.used : 0;
+        if (used >= CACHE_DRAWS_PER_DAY) { this.reply(p, `Kho đạn: hết lượt hôm nay (${CACHE_DRAWS_PER_DAY}/${CACHE_DRAWS_PER_DAY}). Quay lại vào ngày mới.`); break; }
+        if (!p.inv.add(msg.item, undefined, true)) { this.reply(p, 'Túi đồ đầy.'); break; }
+        p.life.quotas.ammo_cache = { start: day, used: used + 1, blockedUntil: 0 };
+        changed = true;
         break;
       }
     }
@@ -1963,6 +1973,12 @@ export class GameServer {
       }
     }
     return null;
+  }
+
+  private cacheLeft(p: Player): number {
+    const q = p.life?.quotas.ammo_cache;
+    const day = Math.floor(this.worldTimeMs / this.dayLengthMs);
+    return CACHE_DRAWS_PER_DAY - (q && q.start === day ? q.used : 0);
   }
 
   /** Is the player next to an ammo cache station, and is it the camp's (ammo only) or a field one? */

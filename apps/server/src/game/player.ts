@@ -81,8 +81,6 @@ export class Player {
   afterQuest: Array<() => void> = [];
   /** Left mid-transaction: called once the final save has landed. */
   onLeaveSaved: (() => void) | null = null;
-  /** Next ammo-cache draw allowed at (ms). */
-  cacheReadyAt = 0;
   /** Knocked back by a shot: movement input ignored until then (ms). */
   stunUntil = 0;
   /** Knocked down: bleeding out (bleed 100 → 0) until revived or dead. */

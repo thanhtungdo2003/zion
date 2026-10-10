@@ -2,6 +2,7 @@
 export {
   ITEMS,
   CACHE_STOCK,
+  CACHE_DRAWS_PER_DAY,
   CAMP_CACHE_STOCK,
   CATEGORY_LABEL,
   ammoItemFor,
