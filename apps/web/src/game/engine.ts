@@ -1050,6 +1050,7 @@ export class GameEngine {
         this.hud.pushChat({ from: m.from, text: m.text, system: m.system });
         break;
       case 'hit':
+        if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
           // Flames: no blood, the target catches fire for a moment (refreshed while it burns).
           const zb = this.zombies.get(m.targetId);
@@ -1777,12 +1778,12 @@ export class GameEngine {
     return this.names.get(id) ?? `#${id}`;
   }
 
-  /** Blade swing visual (local or remote), from the weapon's reach. */
+  /** Blade swing visual and sound (local or remote), from the weapon's reach. */
   private slashAt(x: number, y: number, z: number, yaw: number, weapon: number, variant: number): void {
     const spec = weaponSpec(weapon);
-    if (!this.effects || spec?.kind !== 'melee') return;
+    if (spec?.kind !== 'melee') return;
     this.slashes?.spawn(x, y + 1.15, z, yaw, Math.min(spec.range, 2.8) * 0.85, variant);
-    this.sounds?.play('arrowFly', { at: { x, y: y + 1.2, z }, rate: 1.6, volume: 0.55, maxDistance: 25 });
+    this.sounds?.play('swordSlash', { at: { x, y: y + 1.2, z }, volume: 0.55, maxDistance: 25 });
   }
 
   /* --------------------------------------- shop ------------------------------------------ */
