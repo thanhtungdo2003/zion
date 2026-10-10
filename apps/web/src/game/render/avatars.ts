@@ -88,6 +88,7 @@ export class Avatar {
   private lastY = 0;
   private lastZ = 0;
   private rollYaw = 0;
+  private recoveringFromRoll = false;
   private bodyYaw = Number.NaN;
   private headYaw = 0;
   private stance: Stance = 'unarmed';
@@ -204,10 +205,12 @@ export class Avatar {
     this.wasAttacking = attacking;
     if (dead) return this.play(null);
     if ((flags & EntityFlags.Rolling) !== 0) {
-      // Restart only when a new roll begins (or the previous one has finished playing).
+      // Snapshot/prediction flags can end before the last rendered frame of the clip.
       if (this.cur.clip?.name !== 'roll') this.play('roll', 1, 0, 0.6);
       return;
     }
+    // Finish the tuck and foot plant before locomotion can take over.
+    if (this.cur.clip?.name === 'roll' && this.cur.time < this.cur.clip.length) return;
     const busy = this.oneShot !== null && this.cur.clip?.name === this.oneShot && this.cur.time < this.cur.clip.length;
     if (!busy) this.oneShot = null;
     // Guns fire without a body animation (recoil only); grenades throw; empty hands punch.
@@ -281,6 +284,11 @@ export class Avatar {
     const dx = x - this.lastX;
     const dz = z - this.lastZ;
     const speed = Math.hypot(dx, dz) * inv;
+    const vy = (y - this.lastY) * inv;
+    const wasRolling = this.cur.clip?.name === 'roll';
+    this.choose(speed, vy, flags, dt);
+    const rolling = this.cur.clip?.name === 'roll';
+    if (rolling && !wasRolling) this.rollYaw = yaw;
     if (this.bodyYaw !== this.bodyYaw || this.rigid) this.bodyYaw = yaw;
     if ((flags & EntityFlags.Climbing) !== 0) {
       // On a ladder: keep facing the rungs.
@@ -294,20 +302,22 @@ export class Avatar {
     } else {
       // Head tracks the aim; the body only turns once the head would exceed its range.
       let diff = wrapAngle(yaw - this.bodyYaw);
-      if (diff > MAX_HEAD_YAW) this.bodyYaw = wrapAngle(this.bodyYaw + diff - MAX_HEAD_YAW);
-      else if (diff < -MAX_HEAD_YAW) this.bodyYaw = wrapAngle(this.bodyYaw + diff + MAX_HEAD_YAW);
+      const turn = diff > MAX_HEAD_YAW ? diff - MAX_HEAD_YAW : diff < -MAX_HEAD_YAW ? diff + MAX_HEAD_YAW : 0;
+      // Turning back toward the aim after a sideways/backward roll must not snap the body.
+      const maxTurn = this.recoveringFromRoll ? 8 * dt : Infinity;
+      this.bodyYaw = wrapAngle(this.bodyYaw + Math.max(-maxTurn, Math.min(maxTurn, turn)));
+      if (Math.abs(turn) <= maxTurn) this.recoveringFromRoll = false;
       diff = wrapAngle(yaw - this.bodyYaw);
-      this.headYaw = diff;
+      this.headYaw = Math.max(-MAX_HEAD_YAW, Math.min(MAX_HEAD_YAW, diff));
     }
     this.root.rotation.y = this.bodyYaw;
-    const vy = (y - this.lastY) * inv;
     this.lastX = x;
     this.lastY = y;
     this.lastZ = z;
-    this.choose(speed, vy, flags, dt);
     // A roll tumbles along its travel direction, which may differ from where the mouse aims.
-    if ((flags & EntityFlags.Rolling) !== 0) {
-      if (speed > 1) this.rollYaw = Math.atan2(-dx, -dz);
+    if (rolling) {
+      this.recoveringFromRoll = true;
+      if ((flags & EntityFlags.Rolling) !== 0 && speed > 1) this.rollYaw = Math.atan2(-dx, -dz);
       this.root.rotation.y = this.rollYaw;
       this.bodyYaw = this.rollYaw;
       this.headYaw = 0;
@@ -324,7 +334,7 @@ export class Avatar {
     // Raise/lower the arms (and the gun with them) to the aim elevation.
     const held = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
     if (held) held.obj.visible = !this.healing;
-    if (this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !this.healing) {
+    if (!rolling && this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !this.healing) {
       for (const arm of ['arm_right', 'arm_left']) {
         const b = this.bones.get(arm);
         if (b) b.node.rotation.x += this.aimPitch;
@@ -339,11 +349,11 @@ export class Avatar {
       if (body) body.node.rotation.x += this.recoil * 0.3;
       this.recoil = Math.max(0, this.recoil - dt * 3.5);
     }
-    if (this.weaponId && body) {
+    if (!rolling && this.weaponId && body) {
       // Armed: the whole upper body (arms + gun) turns with the aim so the muzzle points at the
       // cursor; only the legs wait until the twist gets too large.
       body.node.rotation.y += this.headYaw;
-    } else if (head) {
+    } else if (!rolling && head) {
       head.node.rotation.y += this.headYaw;
     }
 
@@ -359,6 +369,7 @@ export class Avatar {
 
   private applyPose(): void {
     const w = this.fade;
+    const rollTransition = (this.prev.clip?.name === 'roll') !== (this.cur.clip?.name === 'roll');
     for (const [name, bone] of this.bones) {
       const hasA = this.sample(this.prev, name, rotA, posA);
       const hasB = this.sample(this.cur, name, rotB, posB);
@@ -368,9 +379,11 @@ export class Avatar {
         node.rotation.copy(bone.restRot);
         continue;
       }
-      const rx = rotA[0] + (rotB[0] - rotA[0]) * w;
-      const ry = rotA[1] + (rotB[1] - rotA[1]) * w;
-      const rz = rotA[2] + (rotB[2] - rotA[2]) * w;
+      // A completed tumble is 360°, equivalent to 0°. Interpolating the raw Euler values
+      // would unwind a whole revolution during the transition to standing/walking.
+      const rx = rotA[0] + (rollTransition ? wrapAngle((rotB[0] - rotA[0]) * DEG) / DEG : rotB[0] - rotA[0]) * w;
+      const ry = rotA[1] + (rollTransition ? wrapAngle((rotB[1] - rotA[1]) * DEG) / DEG : rotB[1] - rotA[1]) * w;
+      const rz = rotA[2] + (rollTransition ? wrapAngle((rotB[2] - rotA[2]) * DEG) / DEG : rotB[2] - rotA[2]) * w;
       const px = posA[0] + (posB[0] - posA[0]) * w;
       const py = posA[1] + (posB[1] - posA[1]) * w;
       const pz = posA[2] + (posB[2] - posA[2]) * w;
