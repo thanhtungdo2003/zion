@@ -20,6 +20,7 @@ interface Props {
   onLeave: () => void;
   inventoryOpen: boolean;
   onSetTime: (tod: number) => void;
+  chatRequest?: number;
 }
 
 /** Time-of-day jump buttons (testing aid). */
@@ -42,7 +43,7 @@ function phase(tod: number): TKey {
   return 'time.dusk';
 }
 
-export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime }: Props) {
+export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, firstPerson } = useSettings();
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -70,6 +71,14 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
   }, []);
   const keyState = useRef({ chatOpen, inventoryOpen, settingsOpen, status: state.status, onChatOpen });
   keyState.current = { chatOpen, inventoryOpen, settingsOpen, status: state.status, onChatOpen };
+  useEffect(() => {
+    if (!chatRequest) return;
+    const k = keyState.current;
+    if (k.status !== 'playing' || k.inventoryOpen || k.settingsOpen) return;
+    setChatOpen(true); k.onChatOpen(true);
+    const timer = setTimeout(() => input.current?.focus(), 0);
+    return () => clearTimeout(timer);
+  }, [chatRequest]);
   useEffect(() => {
     const open = (e: globalThis.KeyboardEvent) => {
       const k = keyState.current;
@@ -294,7 +303,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
         {state.status === 'playing' && (
           <section className="set-section">
             <h3>
-              <span>05</span> {t('settings.tutorial')}
+              <span>06</span> {t('settings.tutorial')}
             </h3>
             <button
               type="button"

@@ -184,3 +184,7 @@ export function lobSpeed(elevation: number, maxRange: number, dist: number, dy: 
 export function throwSpeed(spec: ThrowSpec, dist: number, dy: number): number {
   return lobSpeed(spec.elevation, spec.maxRange, dist, dy);
 }
+/** Shooting keeps movement at walking speed, including the interval between rounds. */
+export function gunBlocksSprint(weapon: number, trigger: boolean, now: number, fireReadyAt: number): boolean {
+  return WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun' && (trigger || now < fireReadyAt);
+}

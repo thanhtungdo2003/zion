@@ -21,6 +21,7 @@ import { loadBBModel, type ModelPart } from './bbmodel-loader';
 import { applyOcclusionFade } from './occlusion-fade';
 import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
+import { naturalMaterial } from './natural-material';
 
 export interface AssetVisual {
   def: AssetDefinition;
@@ -137,7 +138,10 @@ export class AssetLibrary {
     switch (model.kind) {
       case 'procedural': {
         const geometry = buildProceduralGeometry(model.generator, model.params, def.numericId);
-        return { def, parts: [{ geometry, material: swayMaterial(def.render.sway) }] };
+        const material = swayMaterial(def.render.sway);
+        if (model.generator === 'rock' || model.generator === 'slab') naturalMaterial(material, 'rock');
+        else naturalMaterial(material, 'tree');
+        return { def, parts: [{ geometry, material }] };
       }
       case 'bbmodel': {
         const entry = (await this.getManifest()).files[model.path];

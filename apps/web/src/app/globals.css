@@ -387,6 +387,64 @@ button {
   user-select: none;
 }
 
+/* Translucent, monochrome touch controls. Menus retain their own touch scrolling. */
+.touch-mode .hud { z-index: 2; }
+.touch-mode .hud-health { left: max(12px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); width: 120px; padding: 6px 8px; }
+.touch-mode .hud-health-head { font-size: 9px; letter-spacing: .04em; }
+.touch-mode .hud-health-num { font-size: 18px; min-width: 25px; }
+.touch-mode .hud-stamina-row { gap: 6px; margin-top: 4px; }
+.touch-mode .hud-stamina-icon { width: 25px; height: 12px; }
+.touch-mode .hud-stamina-num { font-size: 9px; min-width: 18px; }
+.touch-mode .hud-roll { display: none; }
+.touch-mode .hud-alerts { position: fixed; top: 68px; bottom: auto; left: 50%; transform: translateX(-50%); width: min(320px, 80vw); }
+.touch-mode .armor-hud { left: auto; right: max(12px, env(safe-area-inset-right)); bottom: max(8px, env(safe-area-inset-bottom)); grid-template-columns: repeat(4, 22px); gap: 2px; }
+.touch-mode .armor-hud-slot { width: 22px; height: 22px; }
+.touch-mode .armor-hud-slot .inv-sil { max-width: 18px; max-height: 18px; }
+.touch-mode .armor-hud-ph { font-size: 11px; }
+.touch-loadout { position: absolute; bottom: max(8px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: 96px; min-height: 40px; display: flex; align-items: center; flex-direction: column; gap: 2px; pointer-events: none; padding: 4px; background: rgba(20,20,20,.3); border: 1px solid rgba(255,255,255,.15); color: #fff; }
+.touch-loadout .inv-sil { max-width: 76px; height: 24px; object-fit: contain; }
+.touch-loadout small { font: 10px var(--mono); white-space: nowrap; }
+.touch-controls { position: absolute; inset: 0; z-index: 1; pointer-events: none; color: #fff; user-select: none; -webkit-user-select: none; }
+.touch-look { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+.touch-key, .touch-joystick { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; border: 1px solid rgba(255,255,255,.3); background: rgba(25,25,25,.22); color: rgba(255,255,255,.84); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); box-shadow: inset 0 0 16px rgba(255,255,255,.025), 0 2px 8px rgba(0,0,0,.12); }
+.touch-key { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer; }
+.touch-key svg { width: 23px; height: 23px; pointer-events: none; }
+.touch-key[data-active='true'] { background: rgba(255,255,255,.25); border-color: rgba(255,255,255,.8); color: #fff; }
+.touch-key:disabled { opacity: .28; }
+.touch-key:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.touch-tools { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
+.touch-tools .touch-key { width: 44px; height: 44px; }
+.touch-joystick { position: absolute; left: max(24px, env(safe-area-inset-left)); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 48px); width: 128px; height: 128px; border-radius: 50%; display: grid; place-items: center; }
+.touch-joystick > svg { width: 76px; height: 76px; opacity: .18; }
+.touch-joystick i { position: absolute; width: 48px; height: 48px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.15); pointer-events: none; }
+.touch-sprint { position: absolute; left: calc(max(24px, env(safe-area-inset-left)) + 40px); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 188px); }
+.touch-fire { position: absolute; right: calc(max(20px, env(safe-area-inset-right)) + 12px); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 166px); width: 72px; height: 72px; }
+.touch-fire svg { width: 34px; height: 34px; }
+.touch-actions { position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 34px); display: grid; grid-template-columns: repeat(3, 48px); gap: 12px; }
+.touch-reticle { position: absolute; width: 22px; height: 22px; transform: translate(-50%,-50%); opacity: .7; filter: drop-shadow(0 1px 2px #000); }
+.touch-reticle svg { width: 100%; height: 100%; }
+.set-touch-toggle { display: flex; gap: 12px; align-items: center; width: 100%; min-height: 48px; padding: 10px 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--text); cursor: pointer; text-align: left; }
+.set-touch-toggle span { flex: 1; }
+.set-touch-toggle svg { width: 24px; height: 24px; }
+.set-touch-toggle[aria-checked='true'] { border-color: rgba(255,255,255,.6); }
+.inv-close { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; background: none; color: var(--text); border: 1px solid var(--line); cursor: pointer; }
+.inv-close svg { width: 22px; height: 22px; }
+.inv-touch-actions { display: flex; gap: 8px; width: 100%; }
+@media (max-width: 480px) {
+  .touch-mode .hud-minimap { transform: scale(.65); transform-origin: top right; }
+  .touch-mode .q-tracker { width: 180px; font-size: 10px; max-height: 76px; overflow: hidden; }
+  .touch-tools { top: max(100px, calc(env(safe-area-inset-top) + 84px)); }
+  .touch-joystick { left: max(12px, env(safe-area-inset-left)); width: 112px; height: 112px; }
+  .touch-actions { right: max(12px, env(safe-area-inset-right)); gap: 8px; }
+  .touch-fire { right: max(20px, env(safe-area-inset-right)); }
+  .touch-mode .hud-alerts { top: 154px; }
+}
+@media (max-height: 480px) {
+  .touch-tools { top: max(8px, env(safe-area-inset-top)); }
+  .touch-mode .hud-minimap { transform: scale(.65); transform-origin: top right; }
+  .touch-mode .q-tracker { max-height: 80px; overflow: hidden; opacity: .75; }
+}
+
 .game-root canvas {
   display: block;
   width: 100%;
@@ -889,6 +947,7 @@ kbd {
 }
 
 .inv-held {
+  pointer-events: none;
   opacity: 0.9;
   z-index: 20;
   box-shadow: none;
@@ -1763,3 +1822,13 @@ kbd {
 .fp-crosshair.scoped { width: 14px; height: 14px; }
 .chest-price { font: 700 11px var(--mono); font-style: normal; color: var(--accent); white-space: nowrap; }
 .inv-cache-out { color: var(--danger) !important; }
+
+.touch-mode .inv-title { position: sticky; top: -16px; z-index: 5; background: var(--panel-solid); padding-block: 8px; }
+@media (max-width: 640px) {
+  .touch-mode .inv-bento { flex-direction: column; }
+  .touch-mode .inv-wrap { max-width: 96vw; }
+  .touch-mode .inv-panel { padding-inline: 10px; }
+  .touch-mode .inv-box { padding-inline: 6px; }
+  .touch-mode .inv-row, .touch-mode .inv-bento { gap: 6px; }
+  .touch-mode .inv-shop { width: min(330px, 84vw); }
+}

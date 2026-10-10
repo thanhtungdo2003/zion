@@ -154,6 +154,14 @@ function displayModel(spec: WeaponSpec, root: Group): Group {
     .multiply(new Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z));
   const outer = new Group();
   outer.add(inner);
+  for (const key of ['muzzle', 'eject'] as const) {
+    const point = spec[key];
+    if (!point) continue;
+    const marker = new Group();
+    marker.name = `weapon-${key}`;
+    marker.position.set(...point).multiplyScalar(1 / BB_UNITS_PER_METER).applyMatrix4(inner.matrix);
+    outer.add(marker);
+  }
   return outer;
 }
 

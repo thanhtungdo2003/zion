@@ -19,7 +19,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, children }: Props) {
-  const { lang, volume, brightness, firstPerson, mouseSens, t } = useSettings();
+  const { lang, volume, brightness, touchControls, firstPerson, mouseSens, t } = useSettings();
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +128,15 @@ export function SettingsModal({ open, onClose, children }: Props) {
             />
             <em>{Math.round(brightness * 100)}%</em>
           </label>
+        </section>
+
+        <section className="set-section">
+          <h3><span>05</span> {t('settings.controls')}</h3>
+          <button type="button" className="set-touch-toggle" role="switch" aria-checked={touchControls} onClick={() => settingsStore.set({ touchControls: !touchControls })}>
+            <Icon name="lucide:smartphone" />
+            <span>{t('settings.touch_controls')}</span>
+            <Icon name={touchControls ? 'lucide:toggle-right' : 'lucide:toggle-left'} />
+          </button>
         </section>
 
         {children}

@@ -33,6 +33,7 @@ export class LocalPlayer {
   /** Visual correction offset, decays to zero. */
   readonly correction = { x: 0, y: 0, z: 0 };
   health = 100;
+  lastButtons = 0;
   dead = false;
   lastServer: SelfState | null = null;
   reconcileError = 0;
@@ -52,6 +53,7 @@ export class LocalPlayer {
   speedMul = 1;
 
   step(mx: number, mz: number, yaw: number, pitch: number, buttons: number, renderTime: number | undefined, weapon = 0): InputMessage {
+    this.lastButtons = buttons;
     copyCharacterState(this.state, this.prev);
     const input: CharacterInput = {
       mx,

@@ -1,4 +1,4 @@
-import { Group, Mesh, type Camera } from 'three';
+import { Group, Mesh, Quaternion, Vector3, type Camera } from 'three';
 import type { WeaponLibrary } from './weapons';
 
 /**
@@ -19,6 +19,12 @@ export class ViewModel {
   private lastYaw = 0;
   private lastPitch = 0;
   private dip = 0;
+  private firing = 0;
+  private fireHold = 0;
+  private readonly target = new Vector3();
+  private readonly direction = new Vector3();
+  private readonly aimRotation = new Quaternion();
+  private readonly forward = new Vector3(0, 0, -1);
   /** Melee swing / grenade throw in progress: elapsed seconds, or −1 when idle. */
   private swingT = -1;
   private swingDir = 1;
@@ -34,6 +40,7 @@ export class ViewModel {
     if (itemId === this.current) return;
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
+    this.firing = this.fireHold = this.recoil = 0;
     const display = itemId ? weapons?.get(itemId)?.display : undefined;
     if (!itemId || !display) return;
     let model = this.models.get(itemId);
@@ -54,6 +61,34 @@ export class ViewModel {
   /** A shot: kicks the gun back and up. */
   kick(strength = 1): void {
     this.recoil = Math.min(1.5, this.recoil + strength);
+    this.fireHold = 0.22;
+  }
+
+  weaponPoint(point: 'muzzle' | 'eject', out: Vector3): boolean {
+    const marker = this.current ? this.models.get(this.current)?.getObjectByName(`weapon-${point}`) : null;
+    if (!marker || !this.root.visible) return false;
+    marker.getWorldPosition(out);
+    return true;
+  }
+
+  /** Converge the actual barrel on the crosshair, including camera rotation and tumble. */
+  aimAt(worldTarget: Vector3): void {
+    if (!this.current || this.firing < 0.001) return;
+    this.root.worldToLocal(this.target.copy(worldTarget));
+    this.direction.copy(this.target).normalize();
+    this.aimRotation.setFromUnitVectors(this.forward, this.direction);
+    const marker = this.models.get(this.current)?.getObjectByName('weapon-muzzle');
+    if (marker) {
+      const model = this.models.get(this.current)!;
+      model.updateMatrix();
+      // The bore can sit above the grip; account for that offset when converging.
+      for (let i = 0; i < 3; i++) {
+        this.direction.copy(marker.position).applyMatrix4(model.matrix).applyQuaternion(this.aimRotation);
+        this.direction.subVectors(this.target, this.direction).normalize();
+        this.aimRotation.setFromUnitVectors(this.forward, this.direction);
+      }
+    }
+    this.pivot.quaternion.slerp(this.aimRotation, this.firing);
   }
 
   /** Melee: wind up over the shoulder, then a fast diagonal cut; variants alternate sides. */
@@ -67,8 +102,11 @@ export class ViewModel {
     this.throwT = 0;
   }
 
-  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number }): void {
+  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean }): void {
     this.root.visible = s.visible && this.current !== null;
+    this.fireHold = Math.max(0, this.fireHold - dt);
+    const firing = !s.reloading && (s.firing || this.fireHold > 0) ? 1 : 0;
+    this.firing += (firing - this.firing) * (1 - Math.exp(-dt * (firing ? 24 : 9)));
     // Look sway: the gun lags slightly behind fast turns.
     let dyaw = s.yaw - this.lastYaw;
     dyaw -= Math.PI * 2 * Math.round(dyaw / (Math.PI * 2));
@@ -129,7 +167,8 @@ export class ViewModel {
     }
     if (hidden) this.root.visible = false;
 
-    this.root.position.set(0.2 + this.swayX + bx + ax, -0.19 + this.swayY + by - this.dip * 0.12 + ay, -0.33 + this.recoil * 0.05 + az);
+    const relaxed = 1 - this.firing;
+    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.19 + this.firing * 0.09 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.33 + this.recoil * 0.05 + az);
     this.pivot.rotation.set(this.recoil * 0.09 - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
   }
 

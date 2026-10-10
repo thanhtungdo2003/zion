@@ -8,6 +8,8 @@ export interface SettingsState {
   volume: number;
   /** Scene exposure multiplier, 0.6…2. */
   brightness: number;
+  /** Show the mobile joystick and touch action buttons. */
+  touchControls: boolean;
   /** First-person camera (mouse look, pointer lock) instead of the top-down view. */
   firstPerson: boolean;
   /** First-person mouse sensitivity, 1…100 (radians per pixel = value × 0.00004). */
@@ -15,7 +17,7 @@ export interface SettingsState {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'en', volume: 0.8, brightness: 1.35, firstPerson: false, mouseSens: 30 };
+const DEFAULTS: SettingsState = { lang: 'en', volume: 0.8, brightness: 1.35, touchControls: false, firstPerson: false, mouseSens: 30 };
 
 function load(): SettingsState {
   try {
@@ -28,6 +30,7 @@ function load(): SettingsState {
     if (typeof saved.brightness === 'number' && Number.isFinite(saved.brightness)) state.brightness = Math.min(2, Math.max(0.6, saved.brightness));
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (typeof saved.firstPerson === 'boolean') state.firstPerson = saved.firstPerson;
+    if (typeof saved.touchControls === 'boolean') state.touchControls = saved.touchControls;
     return state;
   } catch {
     return DEFAULTS;
@@ -51,7 +54,7 @@ export class SettingsStore {
     if (this.loaded || typeof localStorage === 'undefined') return;
     this.loaded = true;
     const state = load();
-    if (state.lang !== this.state.lang || state.volume !== this.state.volume || state.brightness !== this.state.brightness || state.firstPerson !== this.state.firstPerson || state.mouseSens !== this.state.mouseSens) this.set(state);
+    if (state.lang !== this.state.lang || state.volume !== this.state.volume || state.brightness !== this.state.brightness || state.touchControls !== this.state.touchControls || state.firstPerson !== this.state.firstPerson || state.mouseSens !== this.state.mouseSens) this.set(state);
   }
 
   set(patch: Partial<SettingsState>): void {

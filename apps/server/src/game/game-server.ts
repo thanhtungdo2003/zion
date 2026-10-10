@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
-import { DEFAULT_BASE_LIFE, planCooking, type CookingBatch } from '@zion/shared';
+import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
 import {
@@ -1331,6 +1331,7 @@ export class GameServer {
     let buttons = input.b;
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
+    if (p.reloadUid || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Staggered by a hit: no steering until it lands.

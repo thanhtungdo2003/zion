@@ -1,7 +1,10 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { WEAPON_BY_ITEM, weaponSpec } from '@zion/shared';
+import { useSettings } from '@/lib/settings';
+import { MobileControls, type TouchControlsPort } from './MobileControls';
 import { GameEngine } from '@/game/engine';
 import { HudStore } from '@/game/hud-store';
 import { InventoryStore } from '@/game/inventory/inventory';
@@ -18,6 +21,21 @@ export default function GameView() {
   const hud = useSyncExternalStore(store.subscribe, store.get, store.get);
   const [inventory] = useState(() => new InventoryStore());
   const inv = useSyncExternalStore(inventory.subscribe, inventory.get, inventory.get);
+  const { touchControls } = useSettings();
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatRequest, setChatRequest] = useState(0);
+  const [tutorialBlocked, setTutorialBlocked] = useState(false);
+  const touch = useMemo<TouchControlsPort>(() => ({
+    move: (x, z) => engineRef.current?.touchMove(x, z),
+    button: (button, down) => engineRef.current?.touchButton(button, down),
+    look: (dx, dy) => engineRef.current?.touchLook(dx, dy),
+    action: (action) => engineRef.current?.touchAction(action),
+    reset: () => engineRef.current?.resetTouch(),
+    chat: () => setChatRequest((n) => n + 1),
+  }), []);
+  const equipped = inv.items.find((i) => i.uid === inv.equipped);
+  const spec = weaponSpec(equipped ? WEAPON_BY_ITEM[equipped.itemId] ?? 0 : 0);
+  const touchVisible = touchControls && hud.status === 'playing' && hud.pointerLocked && !inv.open && !hud.dialogue && hud.downed === null && !chatOpen && !tutorialBlocked;
 
   useEffect(() => {
     const el = container.current;
@@ -35,7 +53,9 @@ export default function GameView() {
     engineRef.current?.setInventoryOpen(inv.open);
   }, [inv.open]);
 
-  const blockTutorial = useCallback((block: boolean) => engineRef.current?.setTutorialBlocked(block), []);
+  const blockTutorial = useCallback((block: boolean) => {
+    setTutorialBlocked(block); engineRef.current?.setTutorialBlocked(block);
+  }, []);
 
   const inWorld = hud.status === 'playing' || hud.status === 'dead';
   useEffect(() => {
@@ -71,12 +91,14 @@ export default function GameView() {
   }, []);
 
   return (
-    <div className="game-root" onMouseDownCapture={onClickCapture}>
+    <div className={`game-root${touchControls ? ' touch-mode' : ''}`} onMouseDownCapture={onClickCapture}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
+      {touchVisible && <MobileControls controls={touch} canAim={spec?.kind === 'gun' && !!spec.scope} canReload={spec?.kind === 'gun'} reloading={hud.ammo?.reload !== null && hud.ammo?.reload !== undefined} rollCooldown={hud.rollCd} weaponUid={inv.equipped} />}
       <Hud
         state={hud}
         onMinimap={attachMinimap}
-        onChatOpen={(open) => engineRef.current?.setChatOpen(open)}
+        onChatOpen={(open) => { setChatOpen(open); engineRef.current?.setChatOpen(open); }}
+        chatRequest={chatRequest}
         onChat={(text) => engineRef.current?.sendChat(text)}
         onRespawn={() => engineRef.current?.requestRespawn()}
         onResume={() => engineRef.current?.lockPointer()}

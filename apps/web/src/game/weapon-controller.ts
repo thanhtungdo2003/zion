@@ -1,4 +1,4 @@
-import { WEAPON_SPECS, WeaponId, type GunSpec } from '@zion/shared';
+import { WEAPON_SPECS, WeaponId, gunBlocksSprint, type GunSpec } from '@zion/shared';
 
 export type WeaponAction = 'none' | 'shot' | 'throw' | 'melee';
 
@@ -108,6 +108,10 @@ export class WeaponController {
 
   get reloading(): boolean {
     return this.reloadWeapon !== 0;
+  }
+
+  blocksSprint(now: number, weapon: number, trigger: boolean): boolean {
+    return this.reloading || gunBlocksSprint(weapon, trigger, now, this.nextFire);
   }
 
   reload(now: number, weapon: number): void {

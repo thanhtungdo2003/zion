@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WeaponId } from '@zion/shared';
+import { WeaponId, WEAPON_SPECS, gunBlocksSprint } from '@zion/shared';
 import { WeaponController } from '../../../web/src/game/weapon-controller';
 
 describe('reload magazine reconciliation', () => {
+  it('blocks sprint from the trigger press through the firing interval, then permits running again', () => {
+    const controller = new WeaponController({ available: () => 0, take: () => 0 });
+    controller.syncMag(WeaponId.GL18, 17);
+    expect(controller.blocksSprint(1000, WeaponId.GL18, true)).toBe(true);
+    expect(controller.tick(1000, WeaponId.GL18, true, true)).toBe('shot');
+    const spec = WEAPON_SPECS[WeaponId.GL18];
+    const readyAt = 1000 + (spec.kind === 'gun' ? spec.fireMs : 0);
+    expect(controller.blocksSprint(readyAt - 1, WeaponId.GL18, false)).toBe(true);
+    expect(gunBlocksSprint(WeaponId.GL18, false, readyAt - 1, readyAt)).toBe(true);
+    expect(controller.blocksSprint(readyAt, WeaponId.GL18, false)).toBe(false);
+    expect(controller.blocksSprint(readyAt, WeaponId.GL18, true)).toBe(true);
+    expect(controller.blocksSprint(1001, WeaponId.Katana, true)).toBe(false);
+  });
   it('keeps the loaded magazine when the server consumes the last ammo box before the sound ends', () => {
     let reserve = 17;
     const take = vi.fn(() => 0);

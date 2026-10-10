@@ -1,6 +1,8 @@
 import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
+import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
+import { groundMaterial } from './render/natural-material';
 import { BaseLifeRenderer } from './render/base-life';
 import { NPC_MODELS, type QuestNpcMessage } from '@zion/shared';
 import {
@@ -15,7 +17,6 @@ import {
   RingGeometry,
   Group,
   Mesh,
-  MeshStandardMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
   Plane,
@@ -77,7 +78,7 @@ import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/ass
 import type { HudState, HudStore, LifeState } from './hud-store';
 import type { Msg } from '@/lib/i18n';
 import type { InventoryStore } from './inventory/inventory';
-import { InputController } from './input';
+import { InputController, type TouchAction, type TouchButton } from './input';
 import { RemoteEntity } from './interpolation';
 import { GameConnection } from './net/connection';
 import { ServerClock } from './net/clock';
@@ -174,7 +175,7 @@ export class GameEngine {
   private readonly conn: GameConnection;
   private readonly input: InputController;
   private readonly resize: ResizeObserver;
-  private readonly terrainMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  private readonly terrainMaterial = groundMaterial();
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
@@ -293,6 +294,7 @@ export class GameEngine {
   /** First-person view (settings); top-down otherwise. */
   private firstPerson = false;
   private viewModel: ViewModel | null = null;
+  private readonly pendingLocalShots: Array<() => void> = [];
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -570,7 +572,7 @@ export class GameEngine {
     const l = this.local;
     if (l) {
       const s = l.state;
-      const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.swimming ? EntityFlags.Swimming : 0) | (s.rollTicks > 0 ? EntityFlags.Rolling : 0) | (this.input.buttons() & Buttons.Sprint ? EntityFlags.Sprinting : 0);
+      const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.swimming ? EntityFlags.Swimming : 0) | (s.rollTicks > 0 ? EntityFlags.Rolling : 0) | (l.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0);
       step(this.localStepKey, s.x, s.y, s.z, Math.hypot(s.vx, s.vz), flags, l.dead);
     }
     const seen = new Set<number>();
@@ -738,6 +740,24 @@ export class GameEngine {
 
   lockPointer(): void {
     this.input.requestLock();
+  }
+
+  touchMove(x: number, z: number): void { this.input.touchMove(x, z); }
+  touchButton(button: TouchButton, down: boolean): void { this.input.touchButton(button, down); }
+  resetTouch(): void { this.input.resetTouch(); }
+  touchLook(dx: number, dy: number): { x: number; y: number } {
+    this.input.touchLook(dx, dy, this.scoped ? 0.4 : 1);
+    return { ...this.input.pointer };
+  }
+
+  touchAction(action: TouchAction): void {
+    if (!this.input.touchEnabled || !this.input.locked || this.input.suspended || this.local?.dead || this.hud.get().downed !== null) return;
+    if (action === 'pause') this.input.release();
+    else if (action === 'reload') this.weaponCtl.reload(performance.now(), this.equippedWeapon());
+    else if (action === 'interact') { this.input.resetTouch(); this.onInteract(); }
+    else if (action === 'inventory') { this.input.resetTouch(); this.inventory.setOpen(true); }
+    else if (action === 'heal') void this.useMedkit();
+    else if (action === 'weapon') { this.input.touchButton('aim', false); this.inventory.cycle(1); }
   }
 
   private onResize(): void {
@@ -1231,12 +1251,13 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing;
+    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting;
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
       (local.state.grounded ? EntityFlags.Grounded : 0) |
       (local.state.swimming ? EntityFlags.Swimming : 0) |
       (local.state.rollTicks > 0 ? EntityFlags.Rolling : 0) |
+      (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0);
     this.updateAim(px, py, pz);
     this.scanStations(px, pz, now);
@@ -1273,8 +1294,9 @@ export class GameEngine {
       this.viewModel.update(dt, {
         visible: this.firstPerson && !this.scoped && !local.dead,
         moving: axes.mx !== 0 || axes.mz !== 0,
-        sprint: (this.input.buttons() & Buttons.Sprint) !== 0,
+        sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
+        firing: weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
       });
@@ -1287,6 +1309,15 @@ export class GameEngine {
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateCamera(px, py, pz, dt);
+    if (this.firstPerson && this.viewModel) {
+      this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
+      const ray = this.raycaster.ray;
+      let distance = 100;
+      if (store.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
+      distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
+      this.viewModel.aimAt(this.tmpC.copy(ray.direction).multiplyScalar(Math.max(1, distance)).add(ray.origin));
+    }
+    for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
     if (this.hud.get().scoped !== this.scoped) this.hud.set({ scoped: this.scoped });
     this.vision?.update(px, py + DEFAULT_CHARACTER.eyeHeight, pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
@@ -1301,7 +1332,7 @@ export class GameEngine {
       u.uLight.value = this.sky.lightLevel;
     }
     windUniforms.uTime.value = this.elapsed;
-    if (this.localAvatar?.weaponPoint('muzzle', this.tmpA)) this.effects?.trackMuzzle(this.welcome!.playerId, this.tmpA);
+    if (this.localWeaponPoint('muzzle', this.tmpA)) this.effects?.trackMuzzle(this.welcome!.playerId, this.tmpA);
     for (const [id, r] of this.remotes) if (r.avatar.weaponPoint('muzzle', this.tmpA)) this.effects?.trackMuzzle(id, this.tmpA);
     this.effects?.update(dt, this.store?.collision);
     this.debris?.update(dt, this.store?.collision);
@@ -1475,8 +1506,6 @@ export class GameEngine {
     }
     const trigger = (buttons & Buttons.Attack) !== 0;
     buttons &= ~Buttons.Attack;
-    // No sprinting while reloading.
-    if (this.weaponCtl.reloading) buttons &= ~Buttons.Sprint;
     // Exhausted (under 10% stamina): no sprinting or rolling (the server enforces the same).
     const life = this.hud.get().life;
     if (life && life.stamina < life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
@@ -1485,7 +1514,9 @@ export class GameEngine {
     // Guns can't fire mid-jump (airborne); throwing and melee still can.
     const airborne = !local.state.grounded && !local.state.swimming;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
-    const action = this.weaponCtl.tick(performance.now(), weapon, trigger, !local.dead && local.state.rollTicks === 0 && !(isGun && airborne));
+    const actionTime = performance.now();
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && local.state.rollTicks === 0 && !(isGun && airborne));
+    if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action !== 'none') buttons |= Buttons.Attack;
     const spec = weaponSpec(weapon);
     if (action === 'shot') {
@@ -1515,6 +1546,7 @@ export class GameEngine {
       this.localAvatar?.playOnce('grenade_throw');
     }
     const msg = local.step(moveX, moveZ, yaw, this.input.pitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
+    this.input.acknowledgeTouchPresses();
     if (throwDist !== undefined) msg.td = Math.min(100, throwDist);
     const back = this.backItemId();
     const bw = back ? WEAPON_BY_ITEM[back] : undefined;
@@ -1585,14 +1617,26 @@ export class GameEngine {
     }
     const heavy = heavyKick(weapon);
     const av = this.localAvatar;
-    const muzzle = av?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(ox + fx * 0.6, oy, oz + fz * 0.6);
-    const eject = av?.weaponPoint('eject', this.tmpB) ? this.tmpB : null;
-    const id = this.welcome?.playerId ?? 0;
-    this.effects?.shot(id, { weapon, muzzle, dir: new Vector3(fx, 0, fz), eject, right: new Vector3(-fz, 0, fx), ends });
+    const dir = new Vector3(fx * Math.cos(this.input.pitch), Math.sin(this.input.pitch), fz * Math.cos(this.input.pitch));
+    // Render after this frame's camera and weapon pose, so the flash shares the visible bore.
+    this.pendingLocalShots.push(() => {
+      const muzzle = this.localWeaponPoint('muzzle', this.tmpA) ? this.tmpA : this.firstPerson
+        ? this.tmpA.copy(this.camera.position).addScaledVector(dir, 0.6)
+        : this.tmpA.set(ox + fx * 0.6, oy, oz + fz * 0.6);
+      const eject = this.localWeaponPoint('eject', this.tmpB) ? this.tmpB : null;
+      const id = this.welcome?.playerId ?? 0;
+      this.effects?.shot(id, { weapon, muzzle, dir, eject, right: new Vector3(-fz, 0, fx), ends });
+    });
     av?.kick(heavy ? 0.35 : 0.12);
   }
 
   private readonly shotRayObj = new Ray();
+
+  private localWeaponPoint(point: 'muzzle' | 'eject', out: Vector3): boolean {
+    if (this.firstPerson && !this.scoped) return this.viewModel?.weaponPoint(point, out) ?? false;
+    if (this.firstPerson) return false;
+    return this.localAvatar?.weaponPoint(point, out) ?? false;
+  }
 
   /** Distance along a ray to the first creature hitbox before `maxT` (else `maxT`). */
   private bodyHit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number): number {
@@ -2142,6 +2186,7 @@ export class GameEngine {
   /** Follows the first-person setting: camera lens, mouse capture, cone overlay, own body. */
   private applyViewMode(): void {
     const settings = settingsStore.get();
+    this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
     const fp = settings.firstPerson;
     this.input.sensitivity = settings.mouseSens * 0.00004;
@@ -2191,6 +2236,9 @@ export class GameEngine {
       const shake = (this.effects?.shake ?? 0) * 0.25;
       if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
       cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+      if (this.local && !this.local.dead && this.hud.get().downed === null) {
+        applyFirstPersonRoll(cam, this.local.state, this.local.prev.rollTicks, this.accumulator / TICK_DT);
+      }
       // Nothing is see-through in first person: park the fade target far below the world and let
       // every faded prop ease back to solid.
       occlusionUniforms.uFadeCam.value.copy(cam.position);

@@ -1,5 +1,9 @@
 import { Buttons } from '@zion/shared';
 
+export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll';
+export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause';
+const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll };
+
 /**
  * Keyboard/mouse capture for the top-down view. Produces intent only (screen-relative axes,
  * buttons, cursor position); it never moves anything itself. The cursor stays free: the engine
@@ -22,6 +26,7 @@ export class InputController {
   set suspended(v: boolean) {
     if (v === this.suspendedFlag) return;
     this.suspendedFlag = v;
+    if (v) this.clearInput();
     this.syncPointer();
   }
   private freeCursorFlag = false;
@@ -29,10 +34,11 @@ export class InputController {
   set freeCursor(v: boolean) {
     if (v === this.freeCursorFlag) return;
     this.freeCursorFlag = v;
+    if (v) this.resetTouch();
     this.syncPointer();
   }
   private get wantsLock(): boolean {
-    return this.firstPerson && this.active && !this.suspendedFlag && !this.freeCursorFlag;
+    return this.firstPerson && !this.touchEnabled && this.active && !this.suspendedFlag && !this.freeCursorFlag;
   }
   private syncPointer(): void {
     if (this.wantsLock) this.lockPointer();
@@ -41,6 +47,12 @@ export class InputController {
   private active = false;
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
+  touchEnabled = false;
+  private touchX = 0;
+  private touchZ = 0;
+  private touchBits = 0;
+  private touchPresses = 0;
+  private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
   private readonly handlers: { openInventory: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean };
@@ -99,10 +111,14 @@ export class InputController {
     });
     on('keyup', (e) => this.keys.delete(e.code));
     on('blur', () => {
-      this.keys.clear();
-      this.mouseButtons = 0;
+      this.clearInput();
     });
+    on('resize', () => this.resetTouch());
+    const visibility = () => { if (document.hidden) this.clearInput(); };
+    document.addEventListener('visibilitychange', visibility);
+    this.cleanup.push(() => document.removeEventListener('visibilitychange', visibility));
     on('mousemove', (e) => {
+      if (this.touchEnabled) return;
       if (this.wantsLock && this.pointerLocked) {
         // Browsers occasionally report a huge jump right after the lock engages: drop it.
         if (Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) return;
@@ -152,7 +168,65 @@ export class InputController {
 
   /** Right mouse button held (sniper scope). */
   get aiming(): boolean {
-    return !this.suspended && this.active && (this.mouseButtons & 4) !== 0;
+    return !this.suspended && this.active && ((this.mouseButtons & 4) !== 0 || this.touchAim);
+  }
+
+  setTouchEnabled(on: boolean): void {
+    if (on === this.touchEnabled) return;
+    this.touchEnabled = on;
+    this.resetTouch();
+    if (on) { this.pointer.x = 0; this.pointer.y = 0.35; }
+    this.syncPointer();
+  }
+
+  resetTouch(): void {
+    this.touchX = this.touchZ = this.touchBits = this.touchPresses = 0;
+    this.touchAim = false;
+  }
+
+  private clearInput(): void {
+    this.keys.clear();
+    this.mouseButtons = 0;
+    this.resetTouch();
+  }
+
+  touchMove(x: number, z: number): void {
+    if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const length = Math.max(1, Math.hypot(x, z));
+    this.touchX = x / length;
+    this.touchZ = z / length;
+  }
+
+  touchButton(button: TouchButton, down: boolean): void {
+    if (!down) {
+      if (button === 'aim') this.touchAim = false;
+      else this.touchBits &= ~TOUCH_BITS[button];
+      return;
+    }
+    if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
+    if (button === 'aim') this.touchAim = true;
+    else {
+      this.touchBits |= TOUCH_BITS[button];
+      this.touchPresses |= TOUCH_BITS[button];
+    }
+  }
+
+  /** Keep taps shorter than one simulation tick until the next input is sent. */
+  acknowledgeTouchPresses(): void { this.touchPresses = 0; }
+
+  touchLook(dx: number, dy: number, zoom = 1): void {
+    if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    if (this.firstPerson) {
+      const yaw = this.yaw - dx * this.sensitivity * 2.5 * zoom;
+      this.yaw = yaw - Math.PI * 2 * Math.floor((yaw + Math.PI) / (Math.PI * 2));
+      this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - dy * this.sensitivity * 2.5 * zoom));
+    } else {
+      const rect = this.element.getBoundingClientRect();
+      this.pointer.x = Math.max(-0.95, Math.min(0.95, this.pointer.x + dx * 2 / Math.max(1, rect.width)));
+      this.pointer.y = Math.max(-0.95, Math.min(0.95, this.pointer.y - dy * 2 / Math.max(1, rect.height)));
+    }
   }
 
   /** True while the player is "in" the game (clicked in, not paused with Esc). */
@@ -165,7 +239,7 @@ export class InputController {
   }
 
   private lockPointer(): void {
-    if (!this.firstPerson || this.pointerLocked) return;
+    if (!this.firstPerson || this.touchEnabled || this.pointerLocked) return;
     try {
       void Promise.resolve(this.element.requestPointerLock()).catch(() => undefined);
     } catch {
@@ -196,8 +270,7 @@ export class InputController {
     if (!this.active) return;
     this.unlockPointer();
     this.active = false;
-    this.keys.clear();
-    this.mouseButtons = 0;
+    this.clearInput();
     this.onActiveChange(false);
   }
 
@@ -207,12 +280,14 @@ export class InputController {
     const k = this.keys;
     const mz = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
     const mx = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    return { mx, mz };
+    const x = mx + this.touchX, z = mz + this.touchZ;
+    const length = Math.max(1, Math.hypot(x, z));
+    return { mx: x / length, mz: z / length };
   }
 
   buttons(): number {
     if (this.suspended || !this.active) return 0;
-    let b = 0;
+    let b = this.touchBits | this.touchPresses;
     if (this.keys.has('Space')) b |= Buttons.Jump;
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
@@ -221,6 +296,7 @@ export class InputController {
   }
 
   dispose(): void {
+    this.clearInput();
     for (const fn of this.cleanup) fn();
   }
 }

@@ -310,6 +310,13 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
         }}
         onMouseDown={onMouseDown}
         onMouseUp={onMouseUp}
+        onPointerDown={(e) => {
+          if (e.pointerType === 'mouse') return;
+          // Touch uses tap-to-pick, then tap-to-place; suppress compatibility mouse events.
+          e.preventDefault();
+          if (held) onMouseUp(e);
+          else onMouseDown(e);
+        }}
         onContextMenu={(e) => {
           // Right-click a first aid kit to use it, or food to eat it.
           e.preventDefault();
@@ -350,7 +357,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
 export function InventoryPanel({ state, store, coins, side }: { state: InventoryState; store: InventoryStore; coins: number; side?: React.ReactNode }) {
   const busy = usePending();
-  const { t, item } = useSettings();
+  const { t, item, touchControls } = useSettings();
   const [mouse, setMouse] = useState({ x: -999, y: -999 });
   const [hover, setHover] = useState<{ container: ContainerId; x: number; y: number } | null>(null);
   const [grab, setGrab] = useState<Grab>({ dx: 0, dy: 0 });
@@ -384,10 +391,14 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
       else store.throwHeld();
     };
     window.addEventListener('mousemove', onMove);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerdown', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerdown', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('keydown', onKey, true);
     };
@@ -404,6 +415,13 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
         <div className="inv-title">
           <h2>{t('inv.title')}</h2>
           <Coins n={coins} />
+          <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.setOpen(false)}><Icon name="lucide:x" /></button>
+          {touchControls && state.held && <div className="inv-touch-actions" onMouseUp={(e) => e.stopPropagation()}>
+            <button type="button" className="inv-close" aria-label={t('inv.rotate')} onClick={() => store.rotateHeld()}><Icon name="lucide:rotate-cw" /></button>
+            <button type="button" className="inv-close" aria-label={t('inv.swap')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); store.quickMove(uid); }}><Icon name="lucide:arrow-left-right" /></button>
+            {heldDef?.category === 'food' && <button type="button" className="inv-close" aria-label={t('inv.use')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); if (store.onEat?.(uid)) store.setOpen(false); }}><Icon name="lucide:utensils" /></button>}
+            <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.returnHeld()}><Icon name="lucide:undo-2" /></button>
+          </div>}
           {process.env.NODE_ENV !== 'production' && (
             <button className="btn inv-dev-coins" title={t('inv.dev_coins')} onClick={() => store.onDevCoins?.()}>
               +
@@ -729,9 +747,17 @@ const HB_CELL = 26;
  * showing only the models and counts. Number keys / mouse wheel select.
  */
 export function Hotbar({ state, ammo }: { state: InventoryState; ammo: { mag: number; max: number; reserve: number; reload: number | null } | null }) {
-  const { t, item } = useSettings();
+  const { t, item, touchControls } = useSettings();
   const bar = hotbar(state.items);
   if (!bar.length) return null;
+  if (touchControls) {
+    const equipped = state.items.find((i) => i.uid === state.equipped);
+    const def = equipped && ITEMS[equipped.itemId];
+    return def ? <div className="touch-loadout" title={item(def.id)}>
+      <ItemArt def={def} />
+      {ammo && <small>{ammo.reload !== null ? t('inv.reloading') : `${ammo.mag}/${ammo.max} · ${ammo.reserve}`}</small>}
+    </div> : null;
+  }
   const keyOf = new Map(bar.slice(0, 9).map((b, n) => [b.uid, n + 1]));
   const grenadeCount = state.items.filter((o) => o.container === 'grenades').length;
 
