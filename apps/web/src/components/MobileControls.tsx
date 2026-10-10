@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import type { TouchAction, TouchButton } from '@/game/input';
 import { useSettings } from '@/lib/settings';
 import { Icon } from './Icon';
@@ -9,6 +9,7 @@ export interface TouchControlsPort {
   move(x: number, z: number): void;
   button(button: TouchButton, down: boolean): void;
   look(dx: number, dy: number): { x: number; y: number } | undefined;
+  fireDirection(x: number, y: number): void;
   action(action: TouchAction): void;
   reset(): void;
   chat(): void;
@@ -61,24 +62,22 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
   const { t, firstPerson } = useSettings();
   const joystick = useRef<{ id: number; x: number; y: number } | null>(null);
   const look = useRef<{ id: number; x: number; y: number } | null>(null);
+  const fire = useRef<number | null>(null);
+  const [fireStick, setFireStick] = useState({ x: 0, y: 0 });
   const [stick, setStick] = useState({ x: 0, y: 0 });
-  const [cursor, setCursor] = useState({ x: 0, y: 0.35 });
   const [sprint, setSprint] = useState(false);
   const [aim, setAim] = useState(false);
   const [gestureEpoch, setGestureEpoch] = useState(0);
-  const lookControls = useMemo<TouchControlsPort>(() => ({ ...controls, look: (dx, dy) => {
-    const point = controls.look(dx, dy);
-    if (point) setCursor(point);
-    return point;
-  } }), [controls]);
 
   useEffect(() => {
     const reset = () => {
-      controls.reset(); joystick.current = look.current = null;
+      controls.reset(); joystick.current = look.current = null; fire.current = null;
+      setFireStick({ x: 0, y: 0 });
       setStick({ x: 0, y: 0 }); setSprint(false); setAim(false);
       setGestureEpoch((n) => n + 1);
     };
     const visibility = () => { if (document.hidden) reset(); };
+    reset();
     window.addEventListener('blur', reset);
     window.addEventListener('resize', reset);
     document.addEventListener('visibilitychange', visibility);
@@ -88,7 +87,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
       window.removeEventListener('resize', reset);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [controls]);
+  }, [controls, firstPerson]);
   useEffect(() => { setAim(false); controls.button('aim', false); }, [weaponUid, controls]);
 
   const move = (e: PointerEvent<HTMLElement>) => {
@@ -108,8 +107,20 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
   const endLook = (e: PointerEvent<HTMLElement>) => {
     if (look.current?.id === e.pointerId) look.current = null;
   };
+  const dragFire = (e: PointerEvent<HTMLElement>) => {
+    if (fire.current !== e.pointerId) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
+    const length = Math.hypot(x, y), scale = Math.max(40, length);
+    setFireStick({ x: x / scale * 40, y: y / scale * 40 });
+    controls.fireDirection(length > 8 ? x / length : 0, length > 8 ? y / length : 0);
+  };
+  const endFire = (e: PointerEvent<HTMLElement>) => {
+    if (fire.current !== e.pointerId) return;
+    fire.current = null; setFireStick({ x: 0, y: 0 }); controls.fireDirection(0, 0);
+  };
   return <div key={gestureEpoch} className="touch-controls" data-nosound>
-    <div className="touch-look" aria-label={t('touch.look')}
+    {firstPerson && <div className="touch-look" aria-label={t('touch.look')}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -120,16 +131,13 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
       onPointerMove={(e) => {
         const p = look.current;
         if (p?.id !== e.pointerId) return;
-        const next = controls.look(e.clientX - p.x, e.clientY - p.y);
-        if (next) setCursor(next);
+        controls.look(e.clientX - p.x, e.clientY - p.y);
         p.x = e.clientX; p.y = e.clientY;
-      }} onPointerUp={endLook} onPointerCancel={endLook} onLostPointerCapture={endLook} />
-    {!firstPerson && <div className="touch-reticle" aria-hidden style={{ left: `${(cursor.x + 1) * 50}%`, top: `${(1 - cursor.y) * 50}%` }}><Icon name="lucide:crosshair" /></div>}
+      }} onPointerUp={endLook} onPointerCancel={endLook} onLostPointerCapture={endLook} />}
     <div className="touch-tools">
       <TouchKey controls={controls} icon="lucide:pause" label={t('touch.pause')} press={() => controls.action('pause')} />
       <TouchKey controls={controls} icon="lucide:backpack" label={t('touch.inventory')} press={() => controls.action('inventory')} />
       <TouchKey controls={controls} icon="lucide:message-circle" label={t('touch.chat')} press={() => { controls.reset(); controls.chat(); }} />
-      <TouchKey controls={controls} icon="lucide:arrow-left-right" label={t('touch.weapon')} press={() => controls.action('weapon')} />
     </div>
     <div className="touch-joystick" role="group" aria-label={t('touch.move')} data-active={!!joystick.current}
       onPointerDown={(e) => {
@@ -144,7 +152,16 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
     </div>
     <TouchKey controls={controls} className="touch-sprint" icon="lucide:footprints" label={t('touch.sprint')} pressed={sprint}
       press={() => { controls.button('sprint', !sprint); setSprint(!sprint); }} />
-    <TouchKey controls={lookControls} className="touch-fire" icon="lucide:crosshair" label={t('touch.attack')} hold="attack" look />
+    {firstPerson ? <TouchKey controls={controls} className="touch-fire" icon="lucide:crosshair" label={t('touch.attack')} hold="attack" look /> :
+      <div className="touch-joystick touch-fire-stick" role="group" aria-label={t('touch.dragFire')} data-active={fire.current !== null}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (fire.current !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
+          fire.current = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId); dragFire(e);
+        }} onPointerMove={dragFire} onPointerUp={endFire} onPointerCancel={endFire} onLostPointerCapture={endFire}>
+        <Icon name="lucide:crosshair" /><i style={{ transform: `translate(${fireStick.x}px, ${fireStick.y}px)` }} />
+      </div>}
     <div className="touch-actions">
       {canAim ? <TouchKey controls={controls} icon="lucide:scan" label={t('touch.aim')} pressed={aim} press={() => { controls.button('aim', !aim); setAim(!aim); }} /> : <span />}
       <TouchKey controls={controls} icon="lucide:rotate-cw" label={t('touch.reload')} disabled={!canReload || reloading} press={() => controls.action('reload')} />

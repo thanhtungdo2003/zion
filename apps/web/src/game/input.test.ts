@@ -20,6 +20,29 @@ function setup() {
   return { input, win, doc, element };
 }
 describe('mobile input', () => {
+  it('aims the right stick relative to the camera and fires until released', () => {
+    const { input } = setup();
+    input.touchMove(0, 1);
+    input.touchFireDirection(1, 0, Math.PI / 4);
+    expect(input.touchHeading).toBeCloseTo(-Math.PI / 4);
+    expect(input.buttons() & Buttons.Attack).toBe(Buttons.Attack);
+    input.acknowledgeTouchPresses();
+    input.touchFireDirection(0, 0, Math.PI / 4);
+    expect(input.buttons() & Buttons.Attack).toBe(0);
+    expect(input.touchHeading).toBeCloseTo(-Math.PI / 4);
+    expect(input.axes().mz).toBe(1);
+    input.touchFireDirection(0, -1, Math.PI / 4);
+    expect(input.touchHeading).toBeCloseTo(Math.PI / 4);
+  });
+  it('clears firing when switching views and ignores the fire stick in first person', () => {
+    const { input } = setup();
+    input.touchFireDirection(1, 0, 0);
+    input.setFirstPerson(true);
+    expect(input.buttons()).toBe(0);
+    expect(input.touchHeading).toBeNull();
+    input.touchFireDirection(1, 0, 0);
+    expect(input.buttons()).toBe(0);
+  });
   it('combines joystick, firing, sprint and scope without one finger releasing another action', () => {
     const { input } = setup();
     input.touchMove(1, 1); input.touchButton('attack', true); input.touchButton('aim', true); input.touchButton('sprint', true);

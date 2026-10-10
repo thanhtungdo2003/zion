@@ -746,17 +746,26 @@ const HB_CELL = 26;
  * Weapon display (bottom-right): the weapon slots laid out on the same grid as the inventory,
  * showing only the models and counts. Number keys / mouse wheel select.
  */
-export function Hotbar({ state, ammo }: { state: InventoryState; ammo: { mag: number; max: number; reserve: number; reload: number | null } | null }) {
+export function Hotbar({ state, ammo, onSelect, touchVisible }: { state: InventoryState; ammo: { mag: number; max: number; reserve: number; reload: number | null } | null; onSelect?: (slot: number) => void; touchVisible?: boolean }) {
   const { t, item, touchControls } = useSettings();
   const bar = hotbar(state.items);
   if (!bar.length) return null;
   if (touchControls) {
-    const equipped = state.items.find((i) => i.uid === state.equipped);
-    const def = equipped && ITEMS[equipped.itemId];
-    return def ? <div className="touch-loadout" title={item(def.id)}>
-      <ItemArt def={def} />
-      {ammo && <small>{ammo.reload !== null ? t('inv.reloading') : `${ammo.mag}/${ammo.max} · ${ammo.reserve}`}</small>}
-    </div> : null;
+    if (!touchVisible) return null;
+    return <div className="touch-hotbar" role="group" aria-label={t('touch.weapon')}>
+      {bar.map((entry, slot) => {
+        const def = ITEMS[entry.itemId];
+        if (!def) return null;
+        const active = entry.uid === state.equipped;
+        return <button key={entry.uid} type="button" className="touch-weapon-slot" aria-label={item(def.id)} aria-pressed={active}
+          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (e.pointerType !== 'mouse' || e.button === 0) onSelect?.(slot); }}
+          onClick={(e) => { if (e.detail === 0) onSelect?.(slot); }}>
+          <ItemArt def={def} />
+          <span>{item(def.id)}</span>
+          {active && ammo && <small>{ammo.reload !== null ? t('inv.reloading') : `${ammo.mag}/${ammo.max} · ${ammo.reserve}`}</small>}
+        </button>;
+      })}
+    </div>;
   }
   const keyOf = new Map(bar.slice(0, 9).map((b, n) => [b.uid, n + 1]));
   const grenadeCount = state.items.filter((o) => o.container === 'grenades').length;

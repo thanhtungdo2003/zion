@@ -48,6 +48,8 @@ export class InputController {
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
   touchEnabled = false;
+  /** Manual stick heading, kept separate from the assisted shot heading. */
+  touchHeading: number | null = null;
   private touchX = 0;
   private touchZ = 0;
   private touchBits = 0;
@@ -229,6 +231,18 @@ export class InputController {
     }
   }
 
+  touchFireDirection(x: number, y: number, cameraYaw: number): void {
+    if (!this.touchEnabled || this.firstPerson || this.suspended || !this.active || this.freeCursorFlag) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const length = Math.hypot(x, y);
+    if (length > 0) {
+      const wx = Math.cos(cameraYaw) * x + Math.sin(cameraYaw) * y;
+      const wz = -Math.sin(cameraYaw) * x + Math.cos(cameraYaw) * y;
+      this.touchHeading = Math.atan2(-wx, -wz);
+    }
+    this.touchButton('attack', length > 0);
+  }
+
   /** True while the player is "in" the game (clicked in, not paused with Esc). */
   get locked(): boolean {
     return this.active;
@@ -255,6 +269,8 @@ export class InputController {
   setFirstPerson(on: boolean): void {
     if (on === this.firstPerson) return;
     this.firstPerson = on;
+    this.resetTouch();
+    this.touchHeading = null;
     this.element.style.cursor = on ? 'none' : 'crosshair';
     this.syncPointer();
   }

@@ -1,5 +1,6 @@
 import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
+import { mobileAimScore } from './mobile-aim';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
@@ -744,6 +745,12 @@ export class GameEngine {
 
   touchMove(x: number, z: number): void { this.input.touchMove(x, z); }
   touchButton(button: TouchButton, down: boolean): void { this.input.touchButton(button, down); }
+  touchFireDirection(x: number, y: number): void { this.input.touchFireDirection(x, y, CAM_YAW); }
+  touchSelectWeapon(slot: number): void {
+    if (!this.input.touchEnabled || !this.input.locked || this.input.suspended || this.local?.dead || this.hud.get().downed !== null) return;
+    this.input.touchButton('aim', false);
+    this.inventory.selectSlot(slot);
+  }
   resetTouch(): void { this.input.resetTouch(); }
   touchLook(dx: number, dy: number): { x: number; y: number } {
     this.input.touchLook(dx, dy, this.scoped ? 0.4 : 1);
@@ -1515,7 +1522,7 @@ export class GameEngine {
     const airborne = !local.state.grounded && !local.state.swimming;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
-    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && local.state.rollTicks === 0 && !(isGun && airborne));
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.firstPerson);
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action !== 'none') buttons |= Buttons.Attack;
     const spec = weaponSpec(weapon);
@@ -2109,6 +2116,37 @@ export class GameEngine {
       this.aimPlane.constant = -py;
       if (!this.raycaster.ray.intersectPlane(this.aimPlane, this.aimPoint) || this.aimPoint.distanceToSquared(this.camera.position) > 60 * 60) {
         this.aimPoint.copy(this.raycaster.ray.direction).multiplyScalar(60).add(this.camera.position);
+      }
+      return;
+    }
+    if (this.input.touchEnabled) {
+      const heading = this.input.touchHeading ?? this.input.yaw;
+      this.input.touchHeading = heading;
+      this.input.yaw = heading;
+      this.input.pitch = 0;
+      const spec = weaponSpec(this.equippedWeapon());
+      const range = spec?.kind === 'gun' ? Math.min(60, spec.range) : 0;
+      let bestScore = Infinity;
+      let found = false;
+      for (const zb of this.zombies.values()) {
+        if (!zb.avatar.root.visible || zb.entity.pose.flags & EntityFlags.Dead) continue;
+        const p = zb.avatar.root.position;
+        const dx = p.x - px, dz = p.z - pz, distance = Math.hypot(dx, dz);
+        const score = mobileAimScore(dx, dz, heading, range);
+        if (score >= bestScore) continue;
+        const ty = p.y + 1.1 * zb.avatar.root.scale.x;
+        const dy = ty - (py + MUZZLE_HEIGHT), length = Math.hypot(distance, dy);
+        if (this.store?.collision.raycast(px, py + MUZZLE_HEIGHT, pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
+        bestScore = score; found = true;
+        this.hoverPoint.set(p.x, ty, p.z);
+      }
+      if (found) {
+        const dx = this.hoverPoint.x - px, dz = this.hoverPoint.z - pz;
+        this.input.yaw = Math.atan2(-dx, -dz);
+        this.input.pitch = Math.atan2(this.hoverPoint.y - (py + MUZZLE_HEIGHT), Math.hypot(dx, dz));
+        this.aimPoint.copy(this.hoverPoint);
+      } else {
+        this.aimPoint.set(px - Math.sin(heading) * 30, py, pz - Math.cos(heading) * 30);
       }
       return;
     }

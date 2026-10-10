@@ -65,7 +65,7 @@ export class WeaponController {
   }
 
   /** One fixed tick. `trigger` = attack button held; returns what the press turned into. */
-  tick(now: number, weapon: number, trigger: boolean, canAct: boolean): WeaponAction {
+  tick(now: number, weapon: number, trigger: boolean, canAct: boolean, repeatTrigger = false): WeaponAction {
     const pressed = trigger && !this.prevTrigger;
     this.prevTrigger = trigger;
     if (this.reloadWeapon && now >= this.reloadEnd) {
@@ -95,7 +95,7 @@ export class WeaponController {
       this.nextThrow = now + spec.cooldownMs;
       return 'throw';
     }
-    if (this.reloadWeapon || now < this.nextFire || (!spec.auto && !pressed)) return 'none';
+    if (this.reloadWeapon || now < this.nextFire || (!spec.auto && !pressed && !repeatTrigger)) return 'none';
     const mag = this.mag(weapon, spec);
     if (mag <= 0) {
       this.reload(now, weapon);

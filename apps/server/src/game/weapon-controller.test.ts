@@ -3,6 +3,15 @@ import { WeaponId, WEAPON_SPECS, gunBlocksSprint } from '@zion/shared';
 import { WeaponController } from '../../../web/src/game/weapon-controller';
 
 describe('reload magazine reconciliation', () => {
+  it('repeats semi-automatic shots for the mobile fire stick at the normal fire rate', () => {
+    const controller = new WeaponController({ available: () => 0, take: () => 0 });
+    const spec = WEAPON_SPECS[WeaponId.GL18];
+    if (spec.kind !== 'gun') throw new Error('Expected gun');
+    expect(controller.tick(1000, WeaponId.GL18, true, true, true)).toBe('shot');
+    expect(controller.tick(1001, WeaponId.GL18, true, true, true)).toBe('none');
+    expect(controller.tick(1000 + spec.fireMs, WeaponId.GL18, true, true, true)).toBe('shot');
+    expect(controller.tick(1000 + spec.fireMs * 2, WeaponId.GL18, false, true, true)).toBe('none');
+  });
   it('blocks sprint from the trigger press through the firing interval, then permits running again', () => {
     const controller = new WeaponController({ available: () => 0, take: () => 0 });
     controller.syncMag(WeaponId.GL18, 17);
