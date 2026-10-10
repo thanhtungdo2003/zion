@@ -22,6 +22,7 @@ import { applyOcclusionFade } from './occlusion-fade';
 import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
 import { naturalMaterial } from './natural-material';
+import { ResourceDisposer } from './resources';
 
 export interface AssetVisual {
   def: AssetDefinition;
@@ -76,6 +77,7 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
   for (const [material, geos] of byMaterial) {
     const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos, false);
     if (merged) parts.push({ geometry: merged, material });
+    if (geos.length > 1) for (const geometry of geos) geometry.dispose();
   }
   return parts;
 }
@@ -87,19 +89,25 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
  */
 export class AssetLibrary {
   private manifest: AssetManifest | null = null;
+  private manifestLoading: Promise<AssetManifest> | null = null;
   private readonly visuals = new Map<number, AssetVisual>();
   private readonly loading = new Map<number, Promise<AssetVisual>>();
   private readonly gltf = new GLTFLoader();
+  private disposed = false;
+  private readonly resources = new ResourceDisposer();
   readonly errors: string[] = [];
 
   constructor(private readonly registry: AssetRegistry) {}
 
   private async getManifest(): Promise<AssetManifest> {
     if (this.manifest) return this.manifest;
-    const res = await fetch(ASSET_MANIFEST_URL, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`asset manifest unavailable (${res.status}); run pnpm assets:build`);
-    this.manifest = assetManifestSchema.parse(await res.json());
-    return this.manifest;
+    this.manifestLoading ??= (async () => {
+      const res = await fetch(ASSET_MANIFEST_URL, { cache: 'no-cache' });
+      if (!res.ok) throw new Error(`asset manifest unavailable (${res.status}); run pnpm assets:build`);
+      this.manifest = assetManifestSchema.parse(await res.json());
+      return this.manifest;
+    })().catch((err: unknown) => { this.manifestLoading = null; throw err; });
+    return this.manifestLoading;
   }
 
   get(numericId: number): AssetVisual | undefined {
@@ -107,6 +115,7 @@ export class AssetLibrary {
   }
 
   load(numericId: number): Promise<AssetVisual> | undefined {
+    if (this.disposed) return undefined;
     const existing = this.loading.get(numericId);
     if (existing) return existing;
     const def = this.registry.byNumericId(numericId);
@@ -119,12 +128,28 @@ export class AssetLibrary {
         return { def, parts: [this.placeholder(def)] };
       })
       .then((v) => {
+        if (this.disposed) { this.releaseVisual(v); return v; }
         for (const part of v.parts) applyOcclusionFade(part.material);
         this.visuals.set(numericId, v);
         return v;
       });
     this.loading.set(numericId, p);
     return p;
+  }
+
+  private releaseVisual(v: AssetVisual): void {
+    for (const part of v.parts) {
+      this.resources.release(part.geometry);
+      this.resources.release(part.material);
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const visual of this.visuals.values()) this.releaseVisual(visual);
+    this.visuals.clear();
+    this.loading.clear();
   }
 
   private placeholder(def: AssetDefinition): ModelPart {
@@ -154,7 +179,10 @@ export class AssetLibrary {
         const entry = (await this.getManifest()).files[model.path];
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const gltf = await this.gltf.loadAsync(entry.url);
-        return { def, parts: flattenScene(gltf.scene, model.scale, model.offset) };
+        const parts = flattenScene(gltf.scene, model.scale, model.offset);
+        // Flattened parts own cloned buffers but retain the original materials/textures.
+        gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });
+        return { def, parts };
       }
     }
   }

@@ -1,4 +1,5 @@
 import { Group, Matrix4, Vector3 } from 'three';
+import { ResourceDisposer } from './resources';
 import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
 import { Avatar } from './avatars';
@@ -191,7 +192,8 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
   const progress = new Array<number>(ids.length).fill(0);
   const report = () => onProgress?.(progress.reduce((a, b) => a + b, 0) / ids.length);
   const lib: WeaponLibrary = new Map();
-  await Promise.all(
+  const ownedRoots: Group[] = [];
+  const results = await Promise.allSettled(
     ids.map(async (itemId, i) => {
       const spec = WEAPON_SPECS[itemId]!;
       const raw = JSON.parse(
@@ -201,6 +203,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         }),
       ) as RawModel;
       const built = await buildBBModel(raw);
+      ownedRoots.push(built.root);
       const stance = ITEMS[itemId]?.stance ?? 'rifle';
       const local = (p?: Vec3) => (p ? new Vector3(...p).multiplyScalar(1 / BB_UNITS_PER_METER) : null);
       lib.set(itemId, {
@@ -215,5 +218,11 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
       });
     }),
   );
+  const failure = results.find((r) => r.status === 'rejected');
+  if (failure?.status === 'rejected') {
+    const resources = new ResourceDisposer();
+    for (const root of ownedRoots) resources.object(root);
+    throw failure.reason;
+  }
   return lib;
 }

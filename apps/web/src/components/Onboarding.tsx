@@ -7,6 +7,7 @@ import { Icon } from './Icon';
 import type { ClientMessage, TutorialId } from '@zion/shared';
 import type { InventoryState } from '@/game/inventory/inventory';
 import { discoveryLesson, lessonContextOpen, type DiscoveryLesson } from '@/game/discovery-tutorial';
+import { ResourceDisposer } from '@/game/render/resources';
 
 /** Fired (e.g. from the settings panel) to replay the tutorial from the first step. */
 export const TUTORIAL_RESTART_EVENT = 'zion:tutorial-restart';
@@ -32,9 +33,10 @@ function GuidePortrait() {
     const key = new DirectionalLight(0xffe2b0, 1.3); key.position.set(2, 3, 4); scene.add(key);
     const rim = new DirectionalLight(0xffb000, 0.6); rim.position.set(-3, 2, -2); scene.add(rim);
     const body = new Group(); scene.add(body);
+    const resources = new ResourceDisposer();
     let disposed = false; let baseY = 0; let ready = false;
     new GLTFLoader().load('/models/specials/cattail_girl-plants_vs_zombies.glb', (gltf) => {
-      if (disposed) { gltf.scene.traverse((o) => { if ('geometry' in o) (o.geometry as { dispose(): void }).dispose(); }); return; }
+      if (disposed) { resources.object(gltf.scene); return; }
       gltf.scene.rotation.y = Math.PI / 2;
       const turned = new Group(); turned.add(gltf.scene);
       const box = new Box3().setFromObject(turned); const size = box.getSize(new Vector3()); const center = box.getCenter(new Vector3());
@@ -57,7 +59,7 @@ function GuidePortrait() {
       renderer.render(scene, camera);
     };
     render();
-    return () => { disposed = true; cancelAnimationFrame(frame); scene.traverse((o) => { if ('geometry' in o) (o.geometry as { dispose(): void }).dispose(); if ('material' in o) { const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach((m) => m.dispose()); } }); renderer.dispose(); renderer.domElement.remove(); };
+    return () => { disposed = true; cancelAnimationFrame(frame); resources.object(scene); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); };
   }, []);
   return <div ref={host} className="tutorial-portrait" />;
 }

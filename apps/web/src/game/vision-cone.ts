@@ -68,6 +68,7 @@ export class VisionCone {
   /** Ray reach across the cone (0…1 of range), one texel per ray. */
   private readonly visData = new Uint8Array(VIS_RAYS * 4);
   private readonly visTex = new DataTexture(this.visData, VIS_RAYS, 1, RGBAFormat);
+  private nextSightAt = 0;
 
   constructor(private readonly scene: Scene) {
     this.material = new ShaderMaterial({
@@ -116,7 +117,11 @@ export class VisionCone {
     (u.uDir!.value as Vector2).set(-Math.sin(yaw), -Math.cos(yaw));
     u.uCosHalf!.value = Math.cos(this.halfAngle);
     u.uHalf!.value = this.halfAngle;
-    if (world) this.castSight(ex, ey, ez, yaw, world);
+    const now = performance.now();
+    if (world && this.overlay.visible && now >= this.nextSightAt) {
+      this.castSight(ex, ey, ez, yaw, world);
+      this.nextSightAt = now + 50;
+    }
     u.uRange!.value = this.range;
     // Slightly darker outside the cone at night.
     u.uDarkness!.value = 0.28 + 0.1 * night;

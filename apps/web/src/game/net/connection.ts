@@ -70,6 +70,7 @@ export class GameConnection {
   }
 
   private onFrame(data: ArrayBuffer | string): void {
+    if (this.closedByUser) return;
     if (typeof data === 'string') {
       this.bytesIn += data.length;
       let msg: ServerJsonMessage;
@@ -98,10 +99,12 @@ export class GameConnection {
     }
     if (type === BinaryMessageType.Chunk) {
       const { header, body } = decodeChunkMessage(bytes);
-      const pending = inflateRaw(body);
       this.chain = this.chain
         .then(async () => {
-          const chunk = decodeChunkBody(await pending, header.cx, header.cz, header.lod);
+          if (this.closedByUser) return;
+          const inflated = await inflateRaw(body);
+          if (this.closedByUser) return;
+          const chunk = decodeChunkBody(inflated, header.cx, header.cz, header.lod);
           this.handlers.onChunk(chunk);
         })
         .catch((err: unknown) => console.error('chunk decode failed', err));
@@ -109,7 +112,7 @@ export class GameConnection {
     }
     if (type === BinaryMessageType.ChunkUnload) {
       const { chunks } = decodeChunkUnload(bytes);
-      this.chain = this.chain.then(() => this.handlers.onUnload(chunks));
+      this.chain = this.chain.then(() => { if (!this.closedByUser) this.handlers.onUnload(chunks); });
     }
   }
 
@@ -198,6 +201,7 @@ export class GameConnection {
 
   close(): void {
     this.closedByUser = true;
+    if (this.ws) this.ws.onmessage = null;
     this.ws?.close(1000, 'client closed');
   }
 }

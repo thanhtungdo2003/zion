@@ -206,13 +206,14 @@ export class VegetationRenderer {
   ) {}
 
   /** Rebuilds the set of vegetated chunks when the player's chunk changes (or a chunk updates). */
-  update(px: number, pz: number, force = false): void {
+  update(px: number, pz: number, force = false, deadline = Infinity): void {
     const cx = Math.floor(px / CHUNK_SIZE);
     const cz = Math.floor(pz / CHUNK_SIZE);
     if (!force && cx === this.centerX && cz === this.centerZ) return;
     this.centerX = cx;
     this.centerZ = cz;
     const wanted = new Set<number>();
+    const missing: ChunkData[] = [];
     let built = 0;
     for (let dz = -VEG_RADIUS; dz <= VEG_RADIUS; dz++) {
       for (let dx = -VEG_RADIUS; dx <= VEG_RADIUS; dx++) {
@@ -220,10 +221,7 @@ export class VegetationRenderer {
         if (!chunk || chunk.lod !== 0) continue;
         const key = chunkKey(chunk.cx, chunk.cz);
         wanted.add(key);
-        if (!this.perChunk.has(key) && built < 6) {
-          this.perChunk.set(key, this.build(chunk));
-          built++;
-        }
+        if (!this.perChunk.has(key)) missing.push(chunk);
       }
     }
     for (const [key, v] of this.perChunk) {
@@ -236,14 +234,21 @@ export class VegetationRenderer {
       this.perChunk.delete(key);
       this.coverCells.delete(key);
     }
-    // Build remaining chunks over the next frames rather than hitching this one.
-    if (built >= 6) this.centerX = Number.NaN;
+    // Nearest first, at most one upload per frame, sharing the terrain build budget.
+    missing.sort((a, b) => (a.cx - cx) ** 2 + (a.cz - cz) ** 2 - (b.cx - cx) ** 2 - (b.cz - cz) ** 2);
+    for (const chunk of missing) {
+      if (built === 1 || performance.now() >= deadline) break;
+      this.perChunk.set(chunkKey(chunk.cx, chunk.cz), this.build(chunk));
+      built++;
+    }
+    if (built < missing.length) this.centerX = Number.NaN;
     this.instanceCount = 0;
     for (const v of this.perChunk.values()) for (const mesh of v) this.instanceCount += mesh.count;
   }
 
   /** Drops vegetation for a chunk whose data changed (e.g. LOD upgrade). */
   invalidate(cx: number, cz: number): void {
+    this.centerX = Number.NaN;
     const key = chunkKey(cx, cz);
     const v = this.perChunk.get(key);
     if (!v) return;
@@ -254,7 +259,6 @@ export class VegetationRenderer {
     }
     this.perChunk.delete(key);
     this.coverCells.delete(key);
-    this.centerX = Number.NaN;
   }
 
   private build(chunk: ChunkData): ChunkVegetation {

@@ -59,6 +59,7 @@ export interface PlayOptions {
  * Sounds are positional only in loudness and stereo pan, which suits the top-down camera.
  */
 export class SoundBank {
+  private disposed = false;
   private readonly ctx: AudioContext;
   private readonly master: GainNode;
   private readonly buffers = new Map<SoundName, AudioBuffer>();
@@ -79,7 +80,10 @@ export class SoundBank {
       names.map(async (name) => {
         const res = await cachedFetch(SOUND_FILES[name]);
         if (!res.ok) throw new Error(`sound ${SOUND_FILES[name]} unavailable (${res.status})`);
-        this.buffers.set(name, await this.ctx.decodeAudioData(await res.arrayBuffer()));
+        if (this.disposed) return;
+        const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        if (this.disposed) return;
+        this.buffers.set(name, buffer);
         onProgress?.(++done / names.length);
       }),
     );
@@ -130,6 +134,7 @@ export class SoundBank {
     const gain = this.ctx.createGain();
     gain.gain.value = volume;
     src.connect(gain).connect(this.master);
+    src.onended = () => { src.disconnect(); gain.disconnect(); };
     src.start();
   }
 
@@ -181,13 +186,15 @@ export class SoundBank {
     src.connect(filter).connect(gain).connect(panner).connect(this.master);
     src.start();
     const ch = opts.channel;
+    let releaseChannel = () => {};
     if (ch) {
       let set = this.channels.get(ch);
       if (!set) this.channels.set(ch, (set = new Set()));
       const entry = { src, gain };
       set.add(entry);
-      src.onended = () => set.delete(entry);
+      releaseChannel = () => { set.delete(entry); };
     }
+    src.onended = () => { releaseChannel(); src.disconnect(); filter.disconnect(); gain.disconnect(); panner.disconnect(); };
     return length;
   }
 
@@ -231,6 +238,7 @@ export class SoundBank {
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'lowpass';
       src.connect(filter).connect(gain).connect(panner).connect(this.master);
+      src.onended = () => { src.disconnect(); filter.disconnect(); gain.disconnect(); panner.disconnect(); };
       // Start somewhere in the recording so two walkers never step in sync.
       src.start(t, Math.random() * buffer.duration);
       loop = { src, gain, panner, filter };
@@ -271,7 +279,12 @@ export class SoundBank {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.releaseVolume();
+    this.loops.clear();
+    this.buffers.clear();
+    this.synth.clear();
     void this.ctx.close();
   }
 }

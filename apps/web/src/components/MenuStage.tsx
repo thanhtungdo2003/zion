@@ -14,11 +14,13 @@ import {
   ShadowMaterial,
   SRGBColorSpace,
   WebGLRenderer,
+  type Object3D,
 } from 'three';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from '@/game/render/avatars';
 import { loadCharacterModel } from '@/game/render/character-model';
 import { loadWeapons } from '@/game/render/weapons';
+import { ResourceDisposer } from '@/game/render/resources';
 
 /** Main-menu backdrop: the survivor standing centre stage with a rifle, idling. */
 export default function MenuStage({ onReady, members }: { onReady?: () => void; members?: string[] }) {
@@ -80,11 +82,20 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     observer.observe(el);
 
     const avatars: Avatar[] = [];
+    const resources = new ResourceDisposer();
+    const ownedModels: Object3D[] = [];
     void (async () => {
       try {
         const character = await loadCharacterModel();
+        if (disposed) { resources.object(character.root); return; }
+        ownedModels.push(character.root);
         const weapons = await loadWeapons(character);
-        if (disposed) return;
+        if (disposed) {
+          resources.object(character.root);
+          for (const weapon of weapons.values()) { resources.object(weapon.object); resources.object(weapon.display); }
+          return;
+        }
+        for (const weapon of weapons.values()) ownedModels.push(weapon.object, weapon.display);
         for (let i = 0; i < count; i++) {
           const avatar = new Avatar(character, true);
           avatar.setStance('rifle');
@@ -94,6 +105,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
         }
         onReady?.();
       } catch {
+        for (const root of ownedModels) resources.object(root);
         /* menu still works without the model */
       }
     })();
@@ -117,7 +129,12 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
       cancelAnimationFrame(raf);
       observer.disconnect();
       avatars.forEach((avatar) => avatar.dispose(scene));
+      for (const root of ownedModels) resources.object(root);
+      resources.object(scene);
+      key.dispose();
+      scene.clear();
       renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     };
   }, [onReady, rosterKey]);

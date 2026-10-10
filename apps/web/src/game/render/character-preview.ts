@@ -16,6 +16,8 @@ export class CharacterPreview {
   private yaw = Math.PI - 0.5;
   private dragX: number | null = null;
   private loadout: ArmorLoadout = { head: 0, chest: 0, legs: 0, feet: 0 };
+  private disposed = false;
+  private unmount: (() => void) | null = null;
 
   constructor(template: CharacterTemplate) {
     this.avatar = new Avatar(template, true);
@@ -33,6 +35,7 @@ export class CharacterPreview {
 
   /** Shows these armour pieces (wire ids per slot). */
   setArmor(loadout: ArmorLoadout): void {
+    if (this.disposed) return;
     this.loadout = { ...loadout };
     for (const slot of ARMOR_SLOTS) {
       const id = loadout[slot];
@@ -49,6 +52,8 @@ export class CharacterPreview {
 
   /** Starts rendering into `host` (drag to turn); returns the unmount function. */
   mount(host: HTMLElement): () => void {
+    if (this.disposed) return () => {};
+    this.unmount?.();
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -90,11 +95,30 @@ export class CharacterPreview {
       renderer.render(this.scene, this.camera);
     };
     this.raf = requestAnimationFrame(frame);
-    return () => {
+    let mounted = true;
+    const unmount = () => {
+      if (!mounted) return;
+      mounted = false;
       cancelAnimationFrame(this.raf);
       ro.disconnect();
+      el.removeEventListener('pointerdown', down);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      this.dragX = null;
       renderer.dispose();
+      renderer.forceContextLoss();
       el.remove();
     };
+    this.unmount = unmount;
+    return unmount;
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.unmount?.();
+    this.unmount = null;
+    this.avatar.dispose(this.scene);
+    this.scene.clear();
   }
 }

@@ -174,6 +174,7 @@ class Pool {
 }
 
 export class ParticleSystem {
+  private disposed = false;
   /** Fire, sparks, glow. */
   readonly glow = new Pool(1536, AdditiveBlending);
   /** Smoke, dust, debris. */
@@ -196,7 +197,13 @@ export class ParticleSystem {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.scene.remove(this.glow.points, this.smoke.points);
+    for (const pool of [this.glow, this.smoke]) {
+      pool.points.geometry.dispose();
+      pool.material.dispose();
+    }
   }
 }
 

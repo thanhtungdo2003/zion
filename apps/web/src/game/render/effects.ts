@@ -49,6 +49,7 @@ interface FlyingRound {
 }
 
 interface FlyingGrenade {
+  age: number;
   s: ProjectileState;
   mesh: Object3D;
   spin: Vector3;
@@ -71,6 +72,7 @@ export interface ShotInfo {
  * grenade flights and explosions, built on the pooled particle system.
  */
 export class CombatEffects {
+  private disposed = false;
   readonly particles: ParticleSystem;
   private readonly bulletPos = new Float32Array(MAX_BULLETS * 6);
   private readonly bulletColor = new Float32Array(MAX_BULLETS * 6);
@@ -97,6 +99,8 @@ export class CombatEffects {
   private readonly flameSound = new Map<number, { until: number; last: number; channel: object }>();
   private readonly tmpDir = new Vector3();
   private readonly xAxis = new Vector3(1, 0, 0);
+  private readonly fallbackRound = new Mesh(new IcosahedronGeometry(0.08), new MeshBasicMaterial({ color: 0x777755 }));
+  private readonly fallbackGrenade = new Mesh(new IcosahedronGeometry(0.07), new MeshBasicMaterial({ color: 0x445533 }));
 
   setProjectileModels(models: Map<string, Object3D>): void {
     this.projectileModels = models;
@@ -205,7 +209,7 @@ export class CombatEffects {
   launch(e: ProjectileEvent): void {
     if (this.rounds.has(e.id)) return;
     const model = this.projectileModels.get(e.kind);
-    const mesh = model ? model.clone(true) : new Mesh(new IcosahedronGeometry(0.08), new MeshBasicMaterial({ color: 0x777755 }));
+    const mesh = (model ?? this.fallbackRound).clone(true);
     mesh.position.set(e.x, e.y, e.z);
     this.scene.add(mesh);
     this.rounds.set(e.id, { kind: e.kind, x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz, gravity: e.gravity, mesh, age: 0 });
@@ -242,10 +246,10 @@ export class CombatEffects {
 
   throwGrenade(id: number, s: ProjectileState): void {
     if (this.grenades.has(id)) return;
-    const mesh = this.grenadeModel ? this.grenadeModel.clone(true) : new Mesh(new IcosahedronGeometry(0.07), new MeshBasicMaterial({ color: 0x445533 }));
+    const mesh = (this.grenadeModel ?? this.fallbackGrenade).clone(true);
     mesh.position.set(s.x, s.y, s.z);
     this.scene.add(mesh);
-    this.grenades.set(id, { s: { ...s, resting: false }, mesh, spin: new Vector3(Math.random() * 10, Math.random() * 6, Math.random() * 10) });
+    this.grenades.set(id, { age: 0, s: { ...s, resting: false }, mesh, spin: new Vector3(Math.random() * 10, Math.random() * 6, Math.random() * 10) });
   }
 
   explode(id: number, x: number, y: number, z: number, radius: number, kind: 'grenade' | 'grenade40' | 'rocket' = 'grenade'): void {
@@ -303,6 +307,10 @@ export class CombatEffects {
       else ParticleFX.barrelGlow(this.particles, h.at.x, h.at.y, h.at.z, h.h);
     }
 
+    for (const [id, g] of this.grenades) {
+      g.age += dt;
+      if (g.age > 12) { this.scene.remove(g.mesh); this.grenades.delete(id); }
+    }
     if (world) {
       for (const g of this.grenades.values()) {
         stepProjectile(g.s, world, GRENADE_GRAVITY, dt);
@@ -311,7 +319,7 @@ export class CombatEffects {
       }
     }
 
-    for (const r of this.rounds.values()) {
+    for (const [id, r] of this.rounds) {
       r.age += dt;
       r.vy -= r.gravity * dt;
       r.x += r.vx * dt;
@@ -327,7 +335,7 @@ export class CombatEffects {
       // Safety net if the end event was lost.
       if (r.age > 8) {
         this.scene.remove(r.mesh);
-        this.rounds.delete([...this.rounds.entries()].find(([, v]) => v === r)![0]);
+        this.rounds.delete(id);
       }
     }
     const nowMs = performance.now();
@@ -354,11 +362,22 @@ export class CombatEffects {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.scene.remove(this.bulletLines);
+    this.bulletGeo.dispose();
+    (this.bulletLines.material as LineBasicMaterial).dispose();
+    for (const mesh of [this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);
     for (const g of this.grenades.values()) this.scene.remove(g.mesh);
     for (const r of this.rounds.values()) this.scene.remove(r.mesh);
+    for (const f of this.flameSound.values()) this.sounds?.stop(f.channel);
+    this.flameSound.clear();
+    this.grenades.clear();
+    this.rounds.clear();
+    this.heat.clear();
+    this.rings.length = 0;
     this.particles.dispose();
   }
 }

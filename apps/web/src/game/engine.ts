@@ -86,6 +86,7 @@ import { GameConnection } from './net/connection';
 import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { AssetLibrary, windUniforms } from './render/asset-library';
+import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
 import { loadCharacterModel, type CharacterTemplate } from './render/character-model';
 import { prepareGuardModel } from './render/guard-model';
@@ -174,6 +175,9 @@ export class GameEngine {
   private readonly camera = new PerspectiveCamera(40, 1, 0.5, 2600);
   private readonly registry: AssetRegistry = createDefaultRegistry();
   private readonly library = new AssetLibrary(this.registry);
+  private readonly resources = new ResourceDisposer();
+  private readonly ownedModels = new Set<Object3D>();
+  private readonly subscriptions: Array<() => void> = [];
   private readonly clock = new ServerClock();
   private readonly conn: GameConnection;
   private readonly input: InputController;
@@ -199,6 +203,8 @@ export class GameEngine {
   private healing: { uid: number; start: number } | null = null;
   /** ZCoin dropped by zombies (server-owned; we only show them and ask to pick up). */
   private readonly coinDrops = new Map<number, Object3D>();
+  private readonly coinRingGeometry = new RingGeometry(0.28, 0.36, 28);
+  private readonly coinRingMaterial = new MeshBasicMaterial({ color: 0xffd56a, transparent: true, opacity: 0.6, depthWrite: false });
   private readonly weaponCtl: WeaponController;
   /** Sniper scope state: world-space camera pan and the dashed laser (local player only). */
   private scoped = false;
@@ -312,13 +318,8 @@ export class GameEngine {
       take: (w, n) => Math.min(n, this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? '')),
     });
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    // GPU reset / driver hiccup: keep the context restorable, and reload if it never comes back.
-    this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.toast({ key: 'raw', vars: { text: 'Mất ngữ cảnh đồ họa, đang khôi phục…' } });
-      this.contextTimer = window.setTimeout(() => window.location.reload(), 4000);
-    });
-    this.renderer.domElement.addEventListener('webglcontextrestored', () => window.clearTimeout(this.contextTimer));
+    this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost);
+    this.renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -364,7 +365,7 @@ export class GameEngine {
     // Equip sound: a different item taken in hand, or something put in a weapon / armour slot.
     let prev = new Map<number, string>();
     let prevEquipped: number | null = null;
-    this.inventory.subscribe(() => {
+    this.subscriptions.push(this.inventory.subscribe(() => {
       const st = this.inventory.get();
       const now = new Map(st.items.map((i) => [i.uid, i.container as string]));
       const slot = (c: string | undefined) => !!c && (c.startsWith('armor_') || c === 'heavy' || c === 'primary' || c === 'secondary' || c === 'grenades');
@@ -374,7 +375,7 @@ export class GameEngine {
       }
       prev = now;
       prevEquipped = st.equipped;
-    });
+    }));
     this.inventory.onEat = (uid) => {
       const item = this.inventory.get().items.find((i) => i.uid === uid);
       if (!item || !this.hud.get().life?.config.foods?.some((f) => f.item === item.itemId)) return false;
@@ -390,11 +391,11 @@ export class GameEngine {
     this.onResize();
 
     this.conn = new GameConnection({
-      onWelcome: (m) => this.onWelcome(m),
-      onSnapshot: (s) => this.onSnapshot(s),
-      onChunk: (c) => this.store?.set(c),
-      onUnload: (list) => list.forEach(([cx, cz]) => this.store?.remove(cx, cz)),
-      onMessage: (m) => this.onMessage(m),
+      onWelcome: (m) => { if (!this.disposed) this.onWelcome(m); },
+      onSnapshot: (s) => { if (!this.disposed) this.onSnapshot(s); },
+      onChunk: (c) => { if (!this.disposed) this.store?.set(c); },
+      onUnload: (list) => { if (!this.disposed) list.forEach(([cx, cz]) => this.store?.remove(cx, cz)); },
+      onMessage: (m) => { if (!this.disposed) this.onMessage(m); },
       onClose: (info) => {
         if (this.disposed) return;
         this.hud.set({
@@ -412,35 +413,46 @@ export class GameEngine {
 
   /* ------------------------------------- lifecycle --------------------------------------- */
 
+  private async loadOwnedCharacter(url?: string, progress?: (p: number) => void): Promise<CharacterTemplate> {
+    const template = await loadCharacterModel(url, progress);
+    if (this.disposed) { this.resources.object(template.root); throw new Error('engine disposed'); }
+    this.ownedModels.add(template.root);
+    return template;
+  }
+
   async start(): Promise<void> {
     // The character must be fully downloaded and built before the world is entered, so nothing
     // heavy is parsed or uploaded while playing.
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.loading_character' }, loadProgress: 0 });
     try {
-      this.character = await loadCharacterModel(undefined, (p) => this.hud.set({ loadProgress: p * 0.6 }));
-      this.guardTemplate = prepareGuardModel(await loadCharacterModel(GUARD_MODEL_URL), this.character);
+      this.character = await this.loadOwnedCharacter(undefined, (p) => { if (!this.disposed) this.hud.set({ loadProgress: p * 0.6 }); });
+      this.guardTemplate = prepareGuardModel(await this.loadOwnedCharacter(GUARD_MODEL_URL), this.character);
       for (const url of ['/models/mobs/suffolk-sheep.bbmodel', '/models/mobs/tamed-wild-boar.bbmodel']) {
-        const template = await loadCharacterModel(url);
+        const template = await this.loadOwnedCharacter(url);
         const attack = template.clips.get('snout_nudge');
         if (attack) template.clips.set('melee_attack', attack);
         this.animalTemplates.push(template);
         this.animalByModel.set(url, template);
       }
       for (const url of NPC_MODELS) {
-        const t = await loadCharacterModel(url);
+        const t = await this.loadOwnedCharacter(url);
         // Give armless-hand rigs (soldiers) hands so they can hold their weapon.
         let ready = t;
         try { if (!t.root.getObjectByName('hand_right')) ready = prepareGuardModel(t, this.character); } catch { ready = t; }
         this.questTemplates.set(url, ready);
       }
-      this.merchantTemplate = prepareGuardModel(await loadCharacterModel(MERCHANT_MODEL_URL), this.character);
-      this.nurseTemplate = prepareGuardModel(await loadCharacterModel(NURSE_MODEL_URL), this.character);
+      this.merchantTemplate = prepareGuardModel(await this.loadOwnedCharacter(MERCHANT_MODEL_URL), this.character);
+      this.nurseTemplate = prepareGuardModel(await this.loadOwnedCharacter(NURSE_MODEL_URL), this.character);
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_weapons' } });
       this.weapons = await loadWeapons(this.character, (p) => this.hud.set({ loadProgress: 0.6 + p * 0.25 }));
+      for (const weapon of this.weapons.values()) {
+        if (this.disposed) { this.resources.object(weapon.object); this.resources.object(weapon.display); }
+        else { this.ownedModels.add(weapon.object); this.ownedModels.add(weapon.display); }
+      }
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_zombies' } });
-      this.zombieTemplates = await Promise.all(ZOMBIE_MODEL_URLS.map(url => loadCharacterModel(url)));
+      this.zombieTemplates = await Promise.all(ZOMBIE_MODEL_URLS.map(url => this.loadOwnedCharacter(url)));
       this.zombieTemplate = this.zombieTemplates[0]!;
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_sounds' } });
@@ -465,15 +477,15 @@ export class GameEngine {
       if (itemIcons.size === 0) renderItemIcons(this.weapons);
       this.preview = new CharacterPreview(this.character);
       this.inventory.preview = this.preview;
-      this.inventory.subscribe(() => this.syncArmor());
+      this.subscriptions.push(this.inventory.subscribe(() => this.syncArmor()));
       const zombiePreview = new ZombieAvatar(this.zombieTemplate, () => undefined);
       zombiePreview.root.visible = true;
       zombiePreview.addTo(this.scene);
       preview.addTo(this.scene);
-      await this.renderer.compileAsync(this.scene, this.camera);
-      preview.dispose(this.scene);
-      zombiePreview.dispose(this.scene);
+      try { await this.renderer.compileAsync(this.scene, this.camera); }
+      finally { preview.dispose(this.scene); zombiePreview.dispose(this.scene); }
     } catch (err) {
+      if (this.disposed) return;
       this.hud.set({ status: 'disconnected', statusDetail: { key: 'status.assets_failed', vars: { error: (err as Error).message } } });
       return;
     }
@@ -481,8 +493,10 @@ export class GameEngine {
     this.hud.set({ status: 'connecting', statusDetail: { key: 'status.authenticating' }, loadProgress: 0 });
     try {
       await this.conn.connect();
+      if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.joining' } });
     } catch (err) {
+      if (this.disposed) return;
       this.hud.set({ status: 'disconnected', statusDetail: { key: 'raw', vars: { text: (err as Error).message } } });
       return;
     }
@@ -491,14 +505,26 @@ export class GameEngine {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const b of this.bubbles) b.el.remove();
     this.lifeRenderer?.dispose();
     this.privateQuestRenderer?.dispose();
-    this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.conn.close();
     this.input.dispose();
     this.resize.disconnect();
+    for (const unsubscribe of this.subscriptions) unsubscribe();
+    this.subscriptions.length = 0;
+    this.inventory.send = this.inventory.onBuy = this.inventory.onSell = this.inventory.onUseMedkit = null;
+    this.inventory.onEat = this.inventory.onNurseHeal = this.inventory.onDevCoins = null;
+    this.inventory.preview = null;
+    this.preview?.dispose();
+    this.localAvatar?.dispose(this.scene);
+    for (const remote of this.remotes.values()) remote.avatar.dispose(this.scene);
+    for (const zombie of this.zombies.values()) zombie.avatar.dispose(this.scene);
+    this.remotes.clear();
+    this.zombies.clear();
     this.vision?.dispose();
     this.viewModel?.dispose();
     this.debris?.dispose();
@@ -513,7 +539,30 @@ export class GameEngine {
     this.vegetation?.dispose();
     this.sky?.dispose();
     for (const m of this.meshes.values()) this.disposeChunkMeshes(m);
+    this.meshes.clear();
+    this.buildQueue.clear();
+    this.store?.clear();
+    this.store = null;
+    this.library.dispose();
+    for (const root of this.ownedModels) this.resources.object(root);
+    this.ownedModels.clear();
+    this.resources.release(this.terrainMaterial);
+    this.resources.release(this.coinRingGeometry);
+    this.resources.release(this.coinRingMaterial);
+    if (this.waterMaterial) this.resources.release(this.waterMaterial);
+    if (this.oceanMaterial) this.resources.release(this.oceanMaterial);
+    if (this.ocean) this.resources.object(this.ocean);
+    if (this.laser) this.resources.object(this.laser);
+    if (this.throwMarker) this.resources.object(this.throwMarker);
+    for (const torch of this.torches) torch.dispose();
+    this.coinDrops.clear();
+    this.pendingLocalShots.length = 0;
+    this.scene.clear();
+    window.clearTimeout(this.contextTimer);
+    this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost);
+    this.renderer.domElement.removeEventListener('webglcontextrestored', this.onContextRestored);
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
     if (this.toastTimer) clearTimeout(this.toastTimer);
   }
@@ -1220,10 +1269,32 @@ export class GameEngine {
 
   private frameErrors = 0;
   private contextTimer = 0;
+  private contextLost = false;
+  private onContextLost = (event: Event): void => {
+    event.preventDefault();
+    if (this.disposed || this.contextLost) return;
+    this.contextLost = true;
+    this.input.release();
+    this.toast({ key: 'raw', vars: { text: 'Mất ngữ cảnh đồ họa, đang khôi phục…' } });
+    window.clearTimeout(this.contextTimer);
+    this.contextTimer = window.setTimeout(() => {
+      if (!this.disposed && this.contextLost) this.hud.set({ status: 'disconnected', statusDetail: { key: 'raw', vars: { text: 'GPU chưa khôi phục. Hãy trở về sảnh và vào lại để thử lại.' } } });
+    }, 15000);
+  };
+  private onContextRestored = (): void => {
+    if (this.disposed) return;
+    this.contextLost = false;
+    window.clearTimeout(this.contextTimer);
+    this.lastFrame = performance.now();
+    this.accumulator = 0;
+    this.hud.set({ status: 'loading', statusDetail: { key: 'status.preparing' } });
+    this.toast({ key: 'raw', vars: { text: 'Đã khôi phục đồ họa.' } });
+  };
 
   private frame = (now: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
+    if (this.contextLost) { this.lastFrame = now; return; }
     // One bad frame (a stray exception mid-update) must never freeze the view on a white/black
     // screen: log it, skip to rendering, and keep going.
     try {
@@ -1262,8 +1333,9 @@ export class GameEngine {
     const pz = local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
     if (!local.dead) this.worldMap.explore(px, pz);
 
-    this.processBuildQueue(px, pz);
-    this.vegetation?.update(px, pz);
+    const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
+    this.processBuildQueue(px, pz, buildDeadline);
+    this.vegetation?.update(px, pz, false, buildDeadline);
     if (this.effects) this.vegetation?.emitBurning(this.clock.now(), (x, y, z) => {
       ParticleFX.burning(this.effects!.particles, x, y, z);
     });
@@ -1782,7 +1854,7 @@ export class GameEngine {
       model.position.y = 0.35;
       g.add(model);
     }
-    const ring = new Mesh(new RingGeometry(0.28, 0.36, 28), new MeshBasicMaterial({ color: 0xffd56a, transparent: true, opacity: 0.6, depthWrite: false }));
+    const ring = new Mesh(this.coinRingGeometry, this.coinRingMaterial);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
     g.add(ring);
@@ -1794,6 +1866,7 @@ export class GameEngine {
 
   /** Dresses an avatar in a loadout (models load on demand; re-dressed when they arrive). */
   private dressAvatar(avatar: Avatar, loadout: ArmorLoadout): void {
+    if (this.disposed) return;
     for (const slot of ARMOR_SLOTS) {
       const id = loadout[slot];
       if (!id) {
@@ -2386,18 +2459,16 @@ export class GameEngine {
 
   /* ----------------------------------- chunk meshes -------------------------------------- */
 
-  private processBuildQueue(px: number, pz: number): void {
+  private processBuildQueue(px: number, pz: number, deadline: number): void {
     if (this.buildQueue.size === 0) return;
-    const t0 = performance.now();
     // Nearest chunks first.
     const pcx = Math.floor(px / CHUNK_SIZE);
     const pcz = Math.floor(pz / CHUNK_SIZE);
     const ordered = [...this.buildQueue.entries()].sort(
       ([, a], [, b]) => Math.max(Math.abs(a.cx - pcx), Math.abs(a.cz - pcz)) - Math.max(Math.abs(b.cx - pcx), Math.abs(b.cz - pcz)),
     );
-    let touchedNear = false;
     for (const [key, chunk] of ordered) {
-      if (performance.now() - t0 > MESH_BUILD_BUDGET_MS) break;
+      if (performance.now() >= deadline) break;
       this.buildQueue.delete(key);
       const prev = this.meshes.get(key);
       if (prev) this.disposeChunkMeshes(prev);
@@ -2420,9 +2491,7 @@ export class GameEngine {
         this.terrainGroup.add(water);
       }
       this.meshes.set(key, { chunk, terrain, water });
-      if (Math.abs(chunk.cx - pcx) <= 2 && Math.abs(chunk.cz - pcz) <= 2) touchedNear = true;
     }
-    if (touchedNear) this.vegetation?.update(px, pz, true);
   }
 
   private disposeChunkMeshes(m: ChunkMeshes): void {

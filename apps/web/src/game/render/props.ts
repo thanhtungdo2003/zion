@@ -11,6 +11,7 @@ interface Batch {
   fade: Float32Array;
   /** Any instance currently faded (so idle batches skip the attribute upload). */
   fading: boolean;
+  hidden: Uint8Array;
 }
 
 /** How fast occluders fade out / back in (per second). */
@@ -26,6 +27,9 @@ const INFO = 6;
 export class PropRenderer {
   private readonly meshes = new Map<string, InstancedMesh>();
   private readonly batches = new Map<number, Batch>();
+  private readonly pending = new Set<number>();
+  private disposed = false;
+  private readonly colliderBoxes = new WeakMap<AssetVisual, AssetVisual['def']['colliders']>();
   private dirty = true;
   private lastRebuild = 0;
   private lastX = Infinity;
@@ -54,7 +58,7 @@ export class PropRenderer {
 
   private batch(asset: number): Batch {
     let b = this.batches.get(asset);
-    if (!b) this.batches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), fading: false }));
+    if (!b) this.batches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), hidden: new Uint8Array(256), fading: false }));
     return b;
   }
 
@@ -68,7 +72,13 @@ export class PropRenderer {
         if (!v) {
           v = this.library.get(p.asset);
           if (!v) {
-            void this.library.load(p.asset)?.then(() => this.markDirty());
+            if (!this.pending.has(p.asset)) {
+              this.pending.add(p.asset);
+              void this.library.load(p.asset)?.then(() => {
+                this.pending.delete(p.asset);
+                if (!this.disposed) this.markDirty();
+              });
+            }
             continue;
           }
           visuals.set(p.asset, v);
@@ -85,6 +95,7 @@ export class PropRenderer {
           sp.set(b.spheres);
           b.spheres = sp;
           b.fade = new Float32Array(b.fade.length * 2);
+          b.hidden = new Uint8Array(b.fade.length);
         }
         const so = b.count * INFO;
         b.spheres[so] = t.x;
@@ -120,6 +131,7 @@ export class PropRenderer {
     let total = 0;
     const used = new Set<string>();
     for (const [asset, b] of this.batches) {
+      if (b.count === 0) { this.batches.delete(asset); continue; }
       const v = this.library.get(asset);
       if (!v) continue;
       v.parts.forEach((part, i) => {
@@ -130,12 +142,15 @@ export class PropRenderer {
           if (mesh) {
             this.scene.remove(mesh);
             mesh.dispose();
+            mesh.geometry.dispose();
           }
           let cap = 64;
           while (cap < b.count) cap *= 2;
-          mesh = new InstancedMesh(part.geometry, part.material, cap);
+          // Instance attributes belong to this batch, never to the shared asset template.
+          const geometry = part.geometry.clone();
+          mesh = new InstancedMesh(geometry, part.material, cap);
           // Per-instance see-through amount (read by the occlusion-fade shader patch).
-          part.geometry.setAttribute('aFade', new InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(DynamicDrawUsage));
+          geometry.setAttribute('aFade', new InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(DynamicDrawUsage));
           mesh.instanceMatrix.setUsage(DynamicDrawUsage);
           mesh.frustumCulled = false;
           mesh.castShadow = v.def.render.castShadow;
@@ -150,7 +165,12 @@ export class PropRenderer {
       });
     }
     for (const [key, mesh] of this.meshes) {
-      if (!used.has(key)) mesh.count = 0;
+      if (!used.has(key)) {
+        this.scene.remove(mesh);
+        mesh.dispose();
+        mesh.geometry.dispose();
+        this.meshes.delete(key);
+      }
     }
     this.instanceCount = total;
   }
@@ -164,9 +184,9 @@ export class PropRenderer {
   updateOcclusion(px: number, py: number, pz: number, cx: number, cy: number, cz: number, dt: number): void {
     const step = Math.min(1, dt * FADE_SPEED);
     const groups = new Set<number>();
-    const hidden = new Set<string>();
     // Pass 1: who blocks the view of the player?
     for (const [asset, b] of this.batches) {
+      b.hidden.fill(0, 0, b.count);
       const v = this.library.get(asset);
       if (!v) continue;
       for (let i = 0; i < b.count; i++) {
@@ -177,7 +197,7 @@ export class PropRenderer {
         if (!this.blocks(v, b.spheres, o, px, py, pz, cx, cy, cz)) continue;
         const g = b.spheres[o + 5]!;
         if (g) groups.add(g);
-        else hidden.add(`${asset}:${i}`);
+        else b.hidden[i] = 1;
       }
     }
     // Pass 2: ease every instance towards its target and upload what changed.
@@ -186,7 +206,7 @@ export class PropRenderer {
       let any = false;
       for (let i = 0; i < b.count; i++) {
         const g = b.spheres[i * INFO + 5]!;
-        const target = (g && groups.has(g)) || (!g && hidden.has(`${asset}:${i}`)) ? 1 : 0;
+        const target = (g && groups.has(g)) || (!g && b.hidden[i]) ? 1 : 0;
         const f = b.fade[i]!;
         if (f !== target) {
           b.fade[i] = target > f ? Math.min(1, f + step) : Math.max(0, f - step);
@@ -215,7 +235,8 @@ export class PropRenderer {
     const z = info[o + 2]!;
     const yaw = info[o + 3]!;
     const sc = info[o + 4]!;
-    const boxes = v.def.colliders.filter((c) => c.type === 'box');
+    let boxes = this.colliderBoxes.get(v);
+    if (!boxes) { boxes = v.def.colliders.filter((c) => c.type === 'box'); this.colliderBoxes.set(v, boxes); }
     // Standing inside it (a tent, under a roof): fade if it rises above the player's head and the
     // player is within the area its collision boxes enclose (thin walls never enclose anyone).
     if (boxes.length && y + v.def.bounds.height * sc > py + 1.6) {
@@ -294,11 +315,15 @@ export class PropRenderer {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const mesh of this.meshes.values()) {
       this.scene.remove(mesh);
       mesh.dispose();
+      mesh.geometry.dispose();
     }
     this.meshes.clear();
+    this.batches.clear();
+    this.pending.clear();
   }
 }
 

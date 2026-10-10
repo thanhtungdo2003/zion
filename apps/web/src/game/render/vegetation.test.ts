@@ -26,6 +26,25 @@ function fixture() {
 }
 
 describe('vegetation damage rendering', () => {
+  it('builds at most one chunk per frame, nearest first, and defers when terrain used the budget', () => {
+    const { renderer: initial, message } = fixture();
+    initial.dispose();
+    const scene = new Scene();
+    const renderer = new VegetationRenderer(scene, (cx, cz) => ({ cx, cz, lod: 0 }) as ChunkData, -10);
+    // Scheduling is separate from the scatter algorithm tested below.
+    const build = vi.spyOn(renderer as unknown as { build(chunk: ChunkData): InstancedMesh[] }, 'build').mockReturnValue([]);
+    renderer.update(1, 1, false, 0);
+    expect(build).not.toHaveBeenCalled();
+    renderer.update(1, 1);
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(build.mock.calls[0]![0]).toMatchObject({ cx: 0, cz: 0 });
+    renderer.update(1, 1);
+    expect(build).toHaveBeenCalledTimes(2);
+    renderer.invalidate(message.chunks[0]!.cx, message.chunks[0]!.cz);
+    renderer.update(1, 1);
+    expect(build).toHaveBeenCalledTimes(3);
+    renderer.dispose();
+  });
   it('hides hit plants immediately and restores their exact original transforms', () => {
     const { renderer, mesh, original, message } = fixture();
     renderer.applyDamage(message);
