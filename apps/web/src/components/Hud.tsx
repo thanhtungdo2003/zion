@@ -294,7 +294,7 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
         {state.status === 'playing' && (
           <section className="set-section">
             <h3>
-              <span>04</span> {t('settings.tutorial')}
+              <span>05</span> {t('settings.tutorial')}
             </h3>
             <button
               type="button"

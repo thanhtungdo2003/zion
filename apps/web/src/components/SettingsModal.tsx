@@ -19,7 +19,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, children }: Props) {
-  const { lang, volume, firstPerson, mouseSens, t } = useSettings();
+  const { lang, volume, brightness, firstPerson, mouseSens, t } = useSettings();
 
   useEffect(() => {
     if (!open) return;
@@ -109,6 +109,24 @@ export function SettingsModal({ open, onClose, children }: Props) {
             <span>{t('settings.sensitivity')}</span>
             <input type="range" min={1} max={100} value={mouseSens} onChange={(e) => settingsStore.set({ mouseSens: Number(e.target.value) })} />
             <em>{mouseSens}</em>
+          </label>
+        </section>
+
+        <section className="set-section">
+          <h3>
+            <span>04</span> {t('settings.display')}
+          </h3>
+          <label className="set-slider">
+            <span>{t('settings.brightness')}</span>
+            <input
+              type="range"
+              min={60}
+              max={200}
+              step={5}
+              value={Math.round(brightness * 100)}
+              onChange={(e) => settingsStore.set({ brightness: Number(e.target.value) / 100 })}
+            />
+            <em>{Math.round(brightness * 100)}%</em>
           </label>
         </section>
 

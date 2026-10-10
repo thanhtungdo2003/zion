@@ -100,7 +100,6 @@ import { zombieVariant } from '@zion/shared';
 import { ZOMBIE_MODEL_URLS, ZombieAvatar, type LastHit } from './render/zombie-avatar';
 import { DebrisSystem } from './render/debris';
 import { ParticleFX } from './render/particles';
-import { CloudLayer } from './render/clouds';
 import { Minimap } from './render/minimap';
 import { CampLights } from './render/camp-lights';
 import { GroundItems } from './render/ground-items';
@@ -265,7 +264,6 @@ export class GameEngine {
   private local: LocalPlayer | null = null;
   private localAvatar: Avatar | null = null;
   private sky: SkySystem | null = null;
-  private clouds: CloudLayer | null = null;
   private props: PropRenderer | null = null;
   private campLights: CampLights | null = null;
   private guardFlashlights: GuardFlashlights | null = null;
@@ -318,7 +316,7 @@ export class GameEngine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.toneMappingExposure = settingsStore.get().brightness;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     // Flashlight pool, created up front: adding lights later would recompile every shader (a
@@ -506,6 +504,7 @@ export class GameEngine {
     this.groundItems?.dispose();
     this.slashes?.dispose();
     this.vegetation?.dispose();
+    this.sky?.dispose();
     for (const m of this.meshes.values()) this.disposeChunkMeshes(m);
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -760,8 +759,8 @@ export class GameEngine {
     this.store = new ChunkStore(worldSize, world.seaLevel, this.registry);
     this.local = new LocalPlayer(this.store.collision, m.spawn.x, m.spawn.y, m.spawn.z);
     this.input.yaw = m.spawn.yaw;
-    this.sky = new SkySystem(this.scene);
-    this.clouds = new CloudLayer(this.scene, world.cosmeticSeed);
+    this.sky?.dispose();
+    this.sky = new SkySystem(this.scene, world.cosmeticSeed);
     this.waterMaterial = createWaterMaterial(true);
     this.oceanMaterial = createWaterMaterial(false, getWaterUniforms(this.waterMaterial));
     this.ocean = new Mesh(createOceanGeometry(), this.oceanMaterial);
@@ -1285,14 +1284,13 @@ export class GameEngine {
     const daySec = this.welcome!.world.dayLengthSec;
     const tod = (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
     this.focus.set(px, py, pz);
-    this.sky.update(tod, this.elapsed, this.focus);
+    this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateCamera(px, py, pz, dt);
     this.updateLaser(px, py, pz);
     if (this.hud.get().scoped !== this.scoped) this.hud.set({ scoped: this.scoped });
     this.vision?.update(px, py + DEFAULT_CHARACTER.eyeHeight, pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
-    this.clouds?.update(this.camera.position.x, this.camera.position.z, this.clock.now() / 1000, this.sky.lightLevel, this.sky.horizon);
     if (this.ocean) snapOcean(this.ocean, this.camera.position.x, this.camera.position.z, this.welcome!.world.seaLevel);
     if (this.waterMaterial) {
       const u = getWaterUniforms(this.waterMaterial);
@@ -2144,6 +2142,7 @@ export class GameEngine {
   /** Follows the first-person setting: camera lens, mouse capture, cone overlay, own body. */
   private applyViewMode(): void {
     const settings = settingsStore.get();
+    this.renderer.toneMappingExposure = settings.brightness;
     const fp = settings.firstPerson;
     this.input.sensitivity = settings.mouseSens * 0.00004;
     const hud = this.hud.get();

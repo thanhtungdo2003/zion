@@ -243,6 +243,11 @@ export class GameServer {
 
   applyContent(content: GameContent): void {
     this.content = structuredClone(content);
+    // Add the chef's new stock to worlds with an older saved Camp Studio catalogue.
+    if (this.content.baseLife && this.content.npcs.some((n) => n.id === 'chef') &&
+        !this.content.baseLife.trades.some((t) => t.npc === 'chef' && t.item === 'coal_carton')) {
+      this.content.baseLife.trades.push(structuredClone(DEFAULT_BASE_LIFE.trades.find((t) => t.id === 'chef_coal_carton')!));
+    }
     this.life = new BaseLife(this.content.baseLife ?? DEFAULT_BASE_LIFE);
     this.configureAnimals();
     this.quests = new QuestEngine(this.content);

@@ -7,9 +7,13 @@ import {
   Mesh,
   ShaderMaterial,
   SphereGeometry,
+  SRGBColorSpace,
+  RepeatWrapping,
+  TextureLoader,
   Vector3,
   type Scene,
 } from 'three';
+import { cloudShader } from './clouds';
 
 const skyVertex = /* glsl */ `
   varying vec3 vDir;
@@ -27,7 +31,13 @@ const skyFragment = /* glsl */ `
   uniform vec3 uSunColor;
   uniform float uNight;
   uniform float uTime;
+  uniform float uCloudTime;
+  uniform float uCloudSeed;
+  uniform sampler2D uSkyImage;
+  uniform float uSkyReady;
   varying vec3 vDir;
+
+  ${cloudShader}
 
   float hash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -40,9 +50,21 @@ const skyFragment = /* glsl */ `
     float h = d.y;
     vec3 col = mix(uHorizon, uTop, smoothstep(-0.02, 0.45, h));
     col = mix(col, uHorizon * 0.55, smoothstep(0.0, -0.25, h));
+    // Equirectangular photo; fade the captured horizon/sun into the live atmosphere.
+    vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5,
+                   asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
+    vec3 photo = texture2D(uSkyImage, uv).rgb;
+    vec3 photoTint = mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight);
+    photo *= photoTint * mix(1.0, 0.055, uNight);
+    col = mix(col, photo, uSkyReady * smoothstep(0.04, 0.22, h) * 0.92);
+    vec2 clouds = cloudDensity(d, uCloudTime, uCloudSeed);
+    float cloudAlpha = clamp(clouds.x + clouds.y, 0.0, 0.8);
+    vec3 cloudColor = mix(vec3(0.8, 0.85, 0.92), uHorizon * 0.5, uNight);
+    cloudColor = mix(cloudColor, uHorizon, (1.0 - smoothstep(0.0, 0.35, uSunDir.y)) * 0.35);
+    col = mix(col, cloudColor, cloudAlpha);
     float sd = max(dot(d, uSunDir), 0.0);
     col += uSunColor * (pow(sd, 6.0) * 0.25 + pow(sd, 64.0) * 0.35);
-    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0;
+    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0 * (1.0 - cloudAlpha);
     vec3 moonDir = -uSunDir;
     float md = max(dot(d, moonDir), 0.0);
     col += vec3(0.75, 0.8, 0.95) * smoothstep(0.9990, 0.9994, md) * uNight * 1.5;
@@ -51,7 +73,7 @@ const skyFragment = /* glsl */ `
       vec3 cell = floor(d * 380.0);
       float s = hash(cell);
       float twinkle = 0.6 + 0.4 * sin(uTime * 3.0 + s * 50.0);
-      col += vec3(step(0.9975, s) * twinkle * uNight * smoothstep(0.0, 0.2, h));
+      col += vec3(step(0.9975, s) * twinkle * uNight * smoothstep(0.0, 0.2, h) * (1.0 - cloudAlpha));
     }
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -122,12 +144,14 @@ export class SkySystem {
   readonly fog: Fog;
   private readonly dome: Mesh;
   private readonly material: ShaderMaterial;
+  private readonly skyImage;
+  private disposed = false;
   /** 0 by day … 1 at full night. */
   night = 0;
   /** Overall scene brightness factor for custom shaders. */
   lightLevel = 1;
 
-  constructor(scene: Scene) {
+  constructor(private readonly scene: Scene, cosmeticSeed = 0) {
     this.material = new ShaderMaterial({
       uniforms: {
         uTop: { value: this.top },
@@ -136,6 +160,10 @@ export class SkySystem {
         uSunColor: { value: this.sunColor },
         uNight: { value: 0 },
         uTime: { value: 0 },
+        uCloudTime: { value: 0 },
+        uCloudSeed: { value: (cosmeticSeed >>> 0) % 10000 },
+        uSkyImage: { value: null },
+        uSkyReady: { value: 0 },
       },
       vertexShader: skyVertex,
       fragmentShader: skyFragment,
@@ -143,6 +171,13 @@ export class SkySystem {
       depthWrite: false,
       fog: false,
     });
+    this.skyImage = new TextureLoader().load('/textures/sky/day-sky.webp', (texture) => {
+      if (this.disposed) { texture.dispose(); return; }
+      this.material.uniforms.uSkyReady!.value = 1;
+    });
+    this.skyImage.colorSpace = SRGBColorSpace;
+    this.skyImage.wrapS = RepeatWrapping;
+    this.material.uniforms.uSkyImage!.value = this.skyImage;
     this.dome = new Mesh(new SphereGeometry(1, 32, 16), this.material);
     this.dome.scale.setScalar(2000);
     this.dome.renderOrder = -10;
@@ -170,7 +205,7 @@ export class SkySystem {
     scene.fog = this.fog;
   }
 
-  update(timeOfDay: number, elapsed: number, focus: Vector3): void {
+  update(timeOfDay: number, elapsed: number, focus: Vector3, serverSeconds = elapsed): void {
     const angle = (timeOfDay - 0.25) * Math.PI * 2;
     const s = Math.sin(angle);
     this.sunDir.set(Math.cos(angle), s * Math.cos(LATITUDE), s * Math.sin(LATITUDE)).normalize();
@@ -211,9 +246,20 @@ export class SkySystem {
     this.fog.color.copy(this.horizon).multiplyScalar(0.92);
     this.material.uniforms.uNight!.value = this.night;
     this.material.uniforms.uTime!.value = elapsed;
+    this.material.uniforms.uCloudTime!.value = serverSeconds;
   }
 
   follow(x: number, y: number, z: number): void {
     this.dome.position.set(x, y, z);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.scene.remove(this.dome, this.light, this.light.target, this.hemi);
+    if (this.scene.fog === this.fog) this.scene.fog = null;
+    this.dome.geometry.dispose();
+    this.material.dispose();
+    this.skyImage.dispose();
+    this.light.dispose();
   }
 }

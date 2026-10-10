@@ -70,6 +70,7 @@ export const DEFAULT_BASE_LIFE: BaseLifeConfig = {
     ...['potato', 'raw_mutton', 'raw_porkchop'].map((item) => ({ id: `farmer_${item}`, npc: 'farmer', item, buy: 20, sell: 8, quota: 16, windowMs: 86_400_000, cooldownMs: 3_600_000 })),
     // The chef sells hot food (and buys it back cheaply).
     ...['potato_cooked', 'cooked_mutton', 'cooked_porkchop'].map((item) => ({ id: `chef_${item}`, npc: 'chef', item, buy: item === 'potato_cooked' ? 30 : 45, sell: 12, quota: 12, windowMs: 86_400_000, cooldownMs: 3_600_000 })),
+    { id: 'chef_coal_carton', npc: 'chef', item: 'coal_carton', buy: 60, sell: 20, quota: 12, windowMs: 86_400_000, cooldownMs: 3_600_000 },
   ],
   animals: [{ id: 'sheep', x: -41, z: -5, model: '/models/mobs/suffolk-sheep.bbmodel', health: 45, speed: 1, runSpeed: 4, range: 14, wanderRadius: 3, retaliation: 0, damage: 0, attackRange: 1.8, attackMs: 1500, lootItem: 'raw_mutton', lootMin: 3, lootMax: 5, attackAnimation: '', count: 3, pen: PEN, respawnMs: 10_000 }, { id: 'boar', x: -39, z: -1, model: '/models/mobs/tamed-wild-boar.bbmodel', health: 65, speed: 1.4, runSpeed: 5, range: 18, wanderRadius: 3, retaliation: 0.8, damage: 1, attackRange: 1.8, attackMs: 1200, lootItem: 'raw_porkchop', lootMin: 3, lootMax: 5, attackAnimation: 'snout_nudge', count: 3, pen: PEN, respawnMs: 10_000 }],
   foods: [
