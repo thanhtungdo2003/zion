@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { KeyValueStore } from '../infra/kv';
 import type { Account, AccountRepository } from '../repositories/accounts';
 import type { AuditLog } from '../repositories/audit';
@@ -121,17 +121,12 @@ export class AuthService {
     return this.issueSession(acc, ctx);
   }
 
-  async guest(ctx: RequestContext): Promise<Session> {
+  async guest(ctx: RequestContext, username: string): Promise<Session> {
     if (!this.opts.allowGuest) throw new AuthError('guest_disabled', 403, 'guest access is disabled');
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const name = `Survivor_${randomInt(10_000, 99_999_999).toString(36)}`;
-      const acc = await this.accounts.create(name, null, true);
-      if (acc) {
-        this.audit.record({ event: 'account.guest', accountId: acc.id, ip: ctx.ip });
-        return this.issueSession(acc, ctx);
-      }
-    }
-    throw new Error('could not allocate a guest name');
+    const acc = await this.accounts.create(username, null, true);
+    if (!acc) throw new AuthError('username_taken', 409, 'username is already taken');
+    this.audit.record({ event: 'account.guest', accountId: acc.id, ip: ctx.ip });
+    return this.issueSession(acc, ctx);
   }
 
   async refresh(refreshToken: string, ctx: RequestContext): Promise<Session> {

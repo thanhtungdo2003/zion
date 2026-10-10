@@ -27,16 +27,16 @@ function assert(cond: unknown, msg: string): asserts cond {
   console.log(`✓ ${msg}`);
 }
 
-async function post<T>(path: string, token?: string): Promise<{ status: number; body: T }> {
+async function post<T>(path: string, token?: string, body: Record<string, unknown> = {}): Promise<{ status: number; body: T }> {
   const res = await fetch(`${api}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin, ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: '{}',
+    body: JSON.stringify(body),
   });
   return { status: res.status, body: (await res.json()) as T };
 }
 
-const guest = await post<{ accessToken: string; account: { username: string } }>('/api/auth/guest');
+const guest = await post<{ accessToken: string; account: { username: string } }>('/api/auth/guest', undefined, { username: `Smoke_${Date.now().toString(36)}` });
 assert(guest.status === 200 && guest.body.accessToken, `guest session for ${guest.body.account?.username}`);
 const ticket = await post<{ ticket: string; wsUrl: string }>('/api/game/ticket', guest.body.accessToken);
 assert(ticket.status === 200 && ticket.body.ticket.length === 43, 'websocket ticket issued');

@@ -98,8 +98,8 @@ export async function login(username: string, password: string): Promise<Account
   return adopt(await request<SessionResponse>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }));
 }
 
-export async function playAsGuest(): Promise<AccountInfo> {
-  return adopt(await request<SessionResponse>('/api/auth/guest', { method: 'POST', body: JSON.stringify({}) }));
+export async function playAsGuest(username: string): Promise<AccountInfo> {
+  return adopt(await request<SessionResponse>('/api/auth/guest', { method: 'POST', body: JSON.stringify({ username }) }));
 }
 
 /** Restores a session from the refresh cookie. Resolves false when there is none. */

@@ -11,6 +11,10 @@ const username = z
   .regex(/^[A-Za-z0-9_]{3,20}$/, 'username must be 3–20 characters: letters, digits, underscore');
 const password = z.string().min(10, 'password must be at least 10 characters').max(128);
 const credentialsSchema = z.object({ username, password }).strict();
+const guestSchema = z.object({
+  username: z.string().trim().transform((name) => name.normalize('NFC'))
+    .pipe(z.string().min(3).max(20).regex(/^[\p{L}\p{N}_ -]+$/u, 'name must contain only letters, digits, spaces, underscores or hyphens')),
+}).strict();
 
 function ctx(req: FastifyRequest): RequestContext {
   const ua = req.headers['user-agent'];
@@ -55,7 +59,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
   });
 
   app.post('/api/auth/guest', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
-    return sendSession(reply, await auth.guest(ctx(req)));
+    const body = guestSchema.parse(req.body);
+    return sendSession(reply, await auth.guest(ctx(req), body.username));
   });
 
   app.post('/api/auth/refresh', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {

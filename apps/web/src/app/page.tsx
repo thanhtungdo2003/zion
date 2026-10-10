@@ -4,7 +4,7 @@ import { Icon } from '@/components/Icon';
 import { Spinner } from '@/components/Spinner';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
@@ -23,6 +23,11 @@ export default function MainMenu() {
   const router = useRouter();
   const { t } = useSettings();
   const [session, setSession] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [playerName, setPlayerName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const nameDialog = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
   // First visit: download every model and sound behind a loading screen (once per page load).
   const [loading, setLoading] = useState(() => { const st = preloadState(); return st.total === 0 || st.done < st.total; });
@@ -38,11 +43,30 @@ export default function MainMenu() {
 
   useEffect(() => {
     let alive = true;
-    void refreshSession().then((ok) => alive && setSession(ok));
+    void refreshSession().then((ok) => {
+      if (!alive) return;
+      setSession(ok); setSessionReady(true);
+    });
     return () => {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!nameOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); if (!busy) setNameOpen(false); }
+      if (e.key !== 'Tab') return;
+      const fields = nameDialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)');
+      if (!fields?.length) { e.preventDefault(); return; }
+      const first = fields[0]!, last = fields[fields.length - 1]!;
+      if (!nameDialog.current?.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nameOpen, busy]);
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -56,8 +80,31 @@ export default function MainMenu() {
     }
   };
 
-  // One click: resume the session if there is one, otherwise jump in as a guest.
-  const play = () => void run(() => (session ? Promise.resolve() : playAsGuest()));
+  // Returning players resume; first-time guests choose their name before account creation.
+  const play = () => {
+    if (session) void run(() => Promise.resolve());
+    else { setError(null); setNameError(null); setNameOpen(true); }
+  };
+
+  const submitName = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    const name = playerName.trim().normalize('NFC');
+    if (name.length < 3 || name.length > 20 || !/^[\p{L}\p{N}_ -]+$/u.test(name)) {
+      setNameError(t('menu.name_rules')); return;
+    }
+    setBusy(true); setNameError(null);
+    try {
+      await playAsGuest(name);
+      setSession(true);
+      router.push('/play');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'username_taken') setNameError(t('menu.name_taken'));
+      else if (err instanceof ApiError && err.code === 'invalid_request') setNameError(t('menu.name_rules'));
+      else setNameError(err instanceof ApiError ? err.message : t('menu.server_error'));
+      setBusy(false);
+    }
+  };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -147,7 +194,7 @@ export default function MainMenu() {
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
           <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>
         </button>
-        <button className="menu-play" disabled={busy} onClick={play}>
+        <button className="menu-play" disabled={busy || !sessionReady} onClick={play}>
           {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}
         </button>
         {error && <p className="error">{error}</p>}
@@ -156,6 +203,23 @@ export default function MainMenu() {
         </Link>
       </div>
 
+      {nameOpen && <div className="overlay menu-name-overlay" role="dialog" aria-modal="true" aria-labelledby="player-name-title">
+        <form ref={nameDialog} className="overlay-card menu-name-card" onSubmit={(e) => { void submitName(e); }}>
+          <h2 id="player-name-title">{t('menu.choose_name')}</h2>
+          <p>{t('menu.name_intro')}</p>
+          <label className="field">
+            <span>{t('menu.player_name')}</span>
+            <input autoFocus value={playerName} onChange={(e) => { setPlayerName(e.target.value); setNameError(null); }}
+              maxLength={20} required disabled={busy} autoComplete="nickname" aria-describedby="player-name-rules" aria-invalid={!!nameError} />
+          </label>
+          <small id="player-name-rules">{t('menu.name_rules')}</small>
+          {nameError && <p className="error" role="alert">{nameError}</p>}
+          <div className="overlay-row">
+            <button className="btn" type="button" disabled={busy} onClick={() => setNameOpen(false)}>{t('menu.name_cancel')}</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? <Spinner /> : t('menu.play')}</button>
+          </div>
+        </form>
+      </div>}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {loading && <LoadingScreen onDone={doneLoading} />}
     </main>

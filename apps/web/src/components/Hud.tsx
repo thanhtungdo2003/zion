@@ -128,27 +128,35 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
               ))}
             </div>}
           </div>
-          <div className={`hud-health ${state.downed !== null ? 'dying' : state.health <= 30 ? 'low' : ''}`}>
-            <div className="hud-health-head">
-              <span className="hud-health-name">{state.username}</span>
-              {state.swimming && <span className="hud-health-tag">{t('hud.swimming')}</span>}
-            </div>
-            <div className="hud-health-row">
-              <span className="hud-health-num">{state.downed !== null ? Math.ceil(state.downed) : state.health}</span>
-              <div className="health-bar">
-                <div style={{ width: `${state.downed !== null ? state.downed : state.health}%` }} />
+          <div className="hud-left-stack">
+            <div className={`hud-health ${state.downed !== null ? 'dying' : state.health <= 30 ? 'low' : ''}`}>
+              <div className="hud-health-head">
+                <span className="hud-health-name">{state.username}</span>
+                {state.swimming && <span className="hud-health-tag">{t('hud.swimming')}</span>}
               </div>
-            </div>
-            {state.life && (
-              <div className="hud-stamina-row" title="Stamina">
-                {itemIcons.get('cooked_mutton') ? <img className="hud-stamina-icon" src={itemIcons.get('cooked_mutton')} alt="" /> : <span className="hud-stamina-icon" />}
-                <div className="stamina-bar">
-                  <div className="stamina-cap" style={{ left: `${(state.life.capacity / state.life.config.stamina.maximum) * 100}%` }} />
-                  <div className="stamina-fill" style={{ width: `${(state.life.stamina / state.life.config.stamina.maximum) * 100}%` }} />
+              <div className="hud-health-row">
+                <span className="hud-health-num">{state.downed !== null ? Math.ceil(state.downed) : state.health}</span>
+                <div className="health-bar">
+                  <div style={{ width: `${state.downed !== null ? state.downed : state.health}%` }} />
                 </div>
-                <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
               </div>
-            )}
+              {state.life && (
+                <div className="hud-stamina-row" title="Stamina">
+                  {itemIcons.get('cooked_mutton') ? <img className="hud-stamina-icon" src={itemIcons.get('cooked_mutton')} alt="" /> : <span className="hud-stamina-icon" />}
+                  <div className="stamina-bar">
+                    <div className="stamina-cap" style={{ left: `${(state.life.capacity / state.life.config.stamina.maximum) * 100}%` }} />
+                    <div className="stamina-fill" style={{ width: `${(state.life.stamina / state.life.config.stamina.maximum) * 100}%` }} />
+                  </div>
+                  <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
+                </div>
+              )}
+              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title="Roll (C)">
+                <kbd>C</kbd>
+                <div className="hud-roll-bar">
+                  <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
+                </div>
+              </div>
+            </div>
             {state.life && (() => {
               const st = state.life.config.stamina;
               const exhausted = state.life.stamina < st.maximum * 0.1;
@@ -162,33 +170,27 @@ export function Hud({ state, onMinimap, onChatOpen, onChat, onRespawn, onResume,
                 </div>
               );
             })()}
-            <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title="Roll (C)">
-              <kbd>C</kbd>
-              <div className="hud-roll-bar">
-                <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
+            <div className="hud-panel chat">
+              <div className="chat-log">
+                {state.chat.slice(-8).map((l) => (
+                  <div key={l.id} style={l.system ? { color: 'var(--muted)' } : undefined}>
+                    {!l.system && <b>{l.from}: </b>}
+                    {l.msg ? tm(l.msg.key === 'chat.died' && !l.msg.vars?.name ? { ...l.msg, vars: { name: t('chat.someone') } } : l.msg) : l.text}
+                  </div>
+                ))}
               </div>
+              {chatOpen && (
+                <input
+                  ref={input}
+                  value={draft}
+                  maxLength={200}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={onKey}
+                  onBlur={closeChat}
+                  placeholder={t('hud.say')}
+                />
+              )}
             </div>
-          </div>
-          <div className="hud-panel chat">
-            <div className="chat-log">
-              {state.chat.slice(-8).map((l) => (
-                <div key={l.id} style={l.system ? { color: 'var(--muted)' } : undefined}>
-                  {!l.system && <b>{l.from}: </b>}
-                  {l.msg ? tm(l.msg.key === 'chat.died' && !l.msg.vars?.name ? { ...l.msg, vars: { name: t('chat.someone') } } : l.msg) : l.text}
-                </div>
-              ))}
-            </div>
-            {chatOpen && (
-              <input
-                ref={input}
-                value={draft}
-                maxLength={200}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={onKey}
-                onBlur={closeChat}
-                placeholder={t('hud.say')}
-              />
-            )}
           </div>
           {state.toast && <div className="toast">{tm(state.toast)}</div>}
           {state.interact && !inventoryOpen && (
