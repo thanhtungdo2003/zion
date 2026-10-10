@@ -1,4 +1,5 @@
 // @ts-check
+import { fileURLToPath } from 'node:url';
 const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const wsOrigin = process.env.NEXT_PUBLIC_WS_ORIGIN ?? api.replace(/^http/, 'ws');
 const isDev = process.env.NODE_ENV !== 'production';
@@ -25,6 +26,8 @@ const nextConfig = {
   devIndicators: false,
   transpilePackages: ['@zion/shared', '@zion/physics', '@zion/assets'],
   output: 'standalone',
+  // Keep the monorepo's standalone entry at apps/web/server.js on every host.
+  outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
   async headers() {
     return [
       {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InstancedMesh, Scene } from 'three';
+import { Scene, type InstancedMesh } from 'three';
 import { Surface, quantizeHeight, type ChunkData, type VegetationMessage } from '@zion/shared';
 import { VegetationRenderer } from './vegetation';
 

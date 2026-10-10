@@ -166,6 +166,8 @@ Edge-level protection (TLS termination, volumetric DDoS scrubbing, WAF) still be
 
 ## Operations
 
+For aaPanel deployments, run `pnpm install --frozen-lockfile` then `pnpm build` from the repository root. Restart the service only after the build succeeds. The web postbuild step copies `.next/static` and `public` (including game models) into the standalone app. Set the web process startup file to `apps/web/aapanel-start.mjs`, or use `pnpm --filter @zion/web start`; configure `PORT` and `HOSTNAME=127.0.0.1` to match the reverse proxy. The monorepo server entry is `.next/standalone/apps/web/server.js` inside `apps/web`. Build output is ignored by Git and must be generated or uploaded in full on each deployment. `pnpm --filter @zion/web test:standalone` checks artifact validation and asset preparation.
+
 - `GET /health/live` is a liveness check. `GET /health/ready` checks the database, Redis or the memory store, the worldgen workers and simulation tick p99, and returns 503 when degraded.
 - `GET /metrics` returns Prometheus text and requires `Authorization: Bearer $METRICS_TOKEN`. It covers connections, players, tick timing and overruns, bytes out, dropped snapshots, chunk cache and queue, rejected upgrades by reason, and anti-cheat flags and kicks.
 - Graceful shutdown on SIGINT/SIGTERM stops accepting connections, notifies and saves players, persists world time, then drains the audit queue, the pools and the workers. It is forced after 15 s.

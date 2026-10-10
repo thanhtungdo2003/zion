@@ -8,7 +8,9 @@
     "dev": "next dev -p 3000",
     "prebuild": "pnpm --filter @zion/assets build:manifest",
     "build": "next build",
-    "start": "next start -p 3000",
+    "postbuild": "node scripts/prepare-standalone.mjs",
+    "start": "node aapanel-start.mjs",
+    "test:standalone": "node --test scripts/standalone.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -1,0 +1,11 @@
+import process from 'node:process';
+import { URL, fileURLToPath } from 'node:url';
+import { prepareStandalone } from './standalone.mjs';
+
+try {
+  const entry = await prepareStandalone(fileURLToPath(new URL('../', import.meta.url)));
+  process.stdout.write(`Standalone server and assets ready: ${entry}\n`);
+} catch (error) {
+  process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+}
