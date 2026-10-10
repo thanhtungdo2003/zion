@@ -16,7 +16,7 @@ import {
 import { itemIcons } from '@/game/inventory/icons';
 import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
-import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
+import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { isTKey } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
@@ -611,6 +611,14 @@ function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; stor
   const { t, item } = useSettings();
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [tab, setTab] = useState<ShopCategory>('guns');
+  const saleItems = state.items.flatMap((i) => {
+    const def = ITEMS[i.itemId];
+    if (!def || def.category === 'food') return [];
+    const max = maxCount(def);
+    const fill = max ? (i.count ?? max) / max : 1;
+    const price = i.issued || i.quest || isStash(i.container) ? 0 : sellPrice(i.itemId, fill);
+    return [{ i, def, max, price }];
+  }).sort((a, b) => Number(b.price > 0) - Number(a.price > 0));
   return (
     <section className="inv-box inv-shop">
       <header>
@@ -629,7 +637,7 @@ function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; stor
             ))}
           </div>
           <div className="shop-list">
-            {SHOP_STOCK.filter((e) => e.category === tab && (e.vendor ?? 'weapons') === 'weapons').map((e) => {
+            {SHOP_STOCK.filter((e) => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food').map((e) => {
               const def = ITEMS[e.item];
               if (!def) return null;
               const afford = coins >= e.price;
@@ -653,13 +661,8 @@ function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; stor
         </>
       ) : (
         <div className="shop-list">
-          {state.items.length === 0 && <div className="shop-empty">{t('shop.nothing')}</div>}
-          {state.items.map((i) => {
-            const def = ITEMS[i.itemId];
-            if (!def) return null;
-            const max = maxCount(def);
-            const fill = max ? (i.count ?? max) / max : 1;
-            const price = i.issued ? 0 : sellPrice(i.itemId, fill);
+          {saleItems.length === 0 && <div className="shop-empty">{t('shop.nothing')}</div>}
+          {saleItems.map(({ i, def, max, price }) => {
             return (
               <div key={i.uid} className="shop-row" onMouseEnter={() => onTip({ def, count: i.count, issued: i.issued })} onMouseLeave={() => onTip(null)}>
                 <span className="shop-art" style={{ background: def.color }}>

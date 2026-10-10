@@ -41,6 +41,7 @@ const envSchema = z
     WORLD_SEED: z.string().max(128).optional(),
     WORLD_SIZE_CHUNKS: z.coerce.number().int().min(16).max(512).default(128),
     DAY_LENGTH_MINUTES: z.coerce.number().min(1).max(24 * 60).default(24),
+    RANDOM_TICK_SPEED: z.coerce.number().int().min(0).max(1000).default(3),
     WORLDGEN_WORKERS: z.coerce.number().int().min(0).max(32).default(2),
     CHUNK_CACHE_SIZE: z.coerce.number().int().min(256).max(200_000).default(12_000),
 

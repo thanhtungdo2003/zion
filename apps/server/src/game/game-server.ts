@@ -8,6 +8,7 @@ import { QuestEngine, type QuestEvent } from './quests';
 import {
   Buttons,
   CHUNK_SIZE,
+  Surface,
   ENTITY_INTEREST_RADIUS_CHUNKS,
   FIRE_TOLERANCE_MS,
   GRENADE_GRAVITY,
@@ -95,6 +96,7 @@ import { PhysicsChunkManager } from './physics-manager';
 import { Player } from './player';
 import { CloseCode, type ClientSession } from './session';
 import { SpawnService, type ValidatedPosition } from './spawn';
+import { VegetationDamage } from './vegetation';
 
 const TICK_MS = 1000 / TICK_RATE;
 /** Dropped items vanish after this long; pick-up reach; ammo cache reach. */
@@ -136,6 +138,8 @@ export interface GameServerDeps {
  * collision world, resolves combat, streams chunks and sends interest-filtered snapshots.
  */
 export class GameServer {
+  private readonly vegetation: VegetationDamage;
+  private readonly vegetationView = new WeakMap<Player, { cx: number; cz: number; revisions: Map<number, number> }>();
   lifeWorld: LifeWorld = { plots: {}, nextGrowth: 0 };
   private life = new BaseLife(DEFAULT_BASE_LIFE);
   private lifeBusy = false;
@@ -198,6 +202,28 @@ export class GameServer {
     this.log = deps.logger.child({ module: 'game' });
     const gen = deps.world.generator;
     this.collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
+    this.vegetation = new VegetationDamage({
+      ground: (x, z) => {
+        const y = this.collision.terrainHeight(x, z);
+        if (!Number.isFinite(y) || y < this.collision.waterLevel(x, z) + 0.15) return NaN;
+        const cx = Math.floor(x / CHUNK_SIZE);
+        const cz = Math.floor(z / CHUNK_SIZE);
+        const chunk = deps.world.peek(cx, cz, 0)?.data ?? deps.world.peek(cx, cz, 1)?.data;
+        if (chunk) {
+          const step = 1 << chunk.lod;
+          const i = Math.min(chunk.verts - 1, Math.round((x - cx * CHUNK_SIZE) / step));
+          const j = Math.min(chunk.verts - 1, Math.round((z - cz * CHUNK_SIZE) / step));
+          const surface = chunk.surface[j * chunk.verts + i];
+          if (surface === Surface.Snow || surface === Surface.Rock || surface === Surface.Sandstone || surface === Surface.Seabed) return NaN;
+        }
+        return y;
+      },
+      visible: (ox, oy, oz, x, y, z) => {
+        const d = Math.hypot(x - ox, y - oy, z - oz);
+        return d < 0.05 || !this.collision.raycast(ox, oy, oz, (x - ox) / d, (y - oy) / d, (z - oz) / d,
+          Math.max(0, d - 0.1), Mask.LineOfSight, this.blastHit);
+      },
+    });
     this.controller = new CharacterController(this.collision);
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
@@ -440,6 +466,7 @@ export class GameServer {
       this.npcRounds.splice(i, 1);
       this.broadcastAt(s.x, s.z, { t: 'projEnd', id: round.id, x: s.x, y: s.y, z: s.z, hit: contact });
       this.broadcastAt(s.x, s.z, { t: 'explosion', id: round.id, x: s.x, y: s.y, z: s.z, radius: round.radius, kind: round.kind });
+      this.vegetation.explode(s.x, s.y, s.z, round.radius, now);
       for (const zombie of this.zombies.near(s.x, s.z, round.radius)) {
         if (zombie.dead) continue;
         const dx = zombie.state.x - s.x, dz = zombie.state.z - s.z;
@@ -834,6 +861,7 @@ export class GameServer {
       spawn: { x: pos.x, y: pos.y, z: pos.z, yaw: player.yaw },
     });
     session.sendJson({ t: 'wallet', coins: player.coins });
+    this.syncVegetation(player);
     this.sendInv(player);
     this.sendQuests(player);
     this.sendLife(player);
@@ -1250,6 +1278,8 @@ export class GameServer {
     this.stepStrikes(now);
     this.stepReloads(now);
     this.stepBurning(now);
+    if (this.tick % TICK_RATE === 0) this.vegetation.step(now, 1, this.deps.config.RANDOM_TICK_SPEED);
+    for (const p of this.players.values()) if (p.active) this.syncVegetation(p);
     this.collectCoins();
     if (this.tick % TICK_RATE === 0) {
       this.expireCoins(now);
@@ -1665,6 +1695,7 @@ export class GameServer {
 
   /** Blast damage with linear falloff; cover blocks it for players. */
   private explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade' | 'grenade40' | 'rocket', now: number): void {
+    this.vegetation.explode(x, y, z, radius, now);
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const near = this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, []);
@@ -1805,6 +1836,7 @@ export class GameServer {
       const l = Math.hypot(dx, dy, dz);
       return !this.collision.raycast(ox, oy, oz, dx / l, dy / l, dz / l, l, Mask.LineOfSight, this.blastHit);
     };
+    this.vegetation.burn(ox, oy, oz, fx, fz, spec.range, spec.spread, spec.burn?.seconds ?? 4, now);
     for (const zb of this.zombies.near(ox, oz, spec.range + 1)) {
       if (zb.dead || !inCone(zb.state.x, zb.state.y + 1, zb.state.z)) continue;
       this.hitZombie(p, zb, spec.damage, 'fire', zb.state.x, zb.state.y + 1, zb.state.z, fx, fz, 0.4, now);
@@ -1821,6 +1853,19 @@ export class GameServer {
     }
     this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [] });
     this.zombies.alert(ox, oz, 20, now);
+  }
+
+  private syncVegetation(p: Player): void {
+    let view = this.vegetationView.get(p);
+    const reset = !view || view.cx !== p.chunkX || view.cz !== p.chunkZ;
+    if (!view) {
+      view = { cx: p.chunkX, cz: p.chunkZ, revisions: new Map() };
+      this.vegetationView.set(p, view);
+    }
+    view.cx = p.chunkX;
+    view.cz = p.chunkZ;
+    const message = this.vegetation.sync(p.chunkX, p.chunkZ, 3, view.revisions, reset);
+    if (message) p.session.sendJson(message);
   }
 
   /** Afterburn ticks for zombies set on fire. */

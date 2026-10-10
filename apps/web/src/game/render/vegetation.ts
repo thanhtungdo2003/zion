@@ -7,9 +7,11 @@ import {
   Matrix4,
   MeshLambertMaterial,
   IcosahedronGeometry,
+  DynamicDrawUsage,
+  Vector3,
   type Scene,
 } from 'three';
-import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, type ChunkData } from '@zion/shared';
+import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, smoothstep, type ChunkData, type WorldInfo, type VegetationCell, type VegetationMessage } from '@zion/shared';
 import { FLOWER_COLORS, grassTint } from './palette';
 import { chunkHeightAtLocal } from './terrain';
 import { windUniforms } from './asset-library';
@@ -36,6 +38,9 @@ const FLOWER_DENSITY: Partial<Record<Surface, number>> = {
 const CELL = 0.85;
 const VEG_RADIUS = 2; // chunks around the player
 const REED_TINT = new Color(0xb5ab74);
+const MEADOW_MIN_CAMP_DISTANCE = 300;
+const MEADOW_FULL_CAMP_DISTANCE = 400;
+const MEADOW_THRESHOLD = 0.82;
 
 function bladeClump(blades = 6, height = 1, width = 1, plume = false): BufferGeometry {
   const pos: number[] = [];
@@ -158,6 +163,7 @@ function windMaterial(): MeshLambertMaterial {
 type Cover = 'grass' | 'tufts' | 'tall' | 'reeds' | 'flowers' | 'fern' | 'bush' | 'sapling' | 'conifer' | 'moss';
 const COVER_TYPES: readonly Cover[] = ['grass', 'tufts', 'tall', 'reeds', 'flowers', 'fern', 'bush', 'sapling', 'conifer', 'moss'];
 type ChunkVegetation = Array<InstancedMesh>;
+const DESTRUCTIBLE = new Set<Cover>(['grass', 'tufts', 'tall', 'reeds', 'flowers', 'fern']);
 
 /**
  * Cosmetic ground cover for chunks near the player. Purely visual and gameplay-irrelevant, so it
@@ -166,6 +172,11 @@ type ChunkVegetation = Array<InstancedMesh>;
  */
 export class VegetationRenderer {
   private readonly perChunk = new Map<number, ChunkVegetation>();
+  private readonly damage = new Map<number, Map<number, VegetationCell>>();
+  private readonly coverCells = new Map<number, Set<number>>();
+  private readonly originals = new Map<InstancedMesh, { matrices: Float32Array; hidden: Uint8Array }>();
+  private readonly zeroScale = new Vector3(0, 0, 0);
+  private nextFireAt = 0;
   private readonly geometries: Record<Cover, BufferGeometry> = {
     grass: bladeClump(),
     tufts: bladeClump(12, 1.25, 1.3),
@@ -191,6 +202,7 @@ export class VegetationRenderer {
     private readonly getChunk: (cx: number, cz: number) => ChunkData | undefined,
     private readonly seaLevel: number,
     private readonly cosmeticSeed = 0,
+    private readonly camp: WorldInfo['camp'] = null,
   ) {}
 
   /** Rebuilds the set of vegetated chunks when the player's chunk changes (or a chunk updates). */
@@ -218,9 +230,11 @@ export class VegetationRenderer {
       if (wanted.has(key)) continue;
       for (const mesh of v) {
         this.scene.remove(mesh);
+        this.originals.delete(mesh);
         mesh.dispose();
       }
       this.perChunk.delete(key);
+      this.coverCells.delete(key);
     }
     // Build remaining chunks over the next frames rather than hitching this one.
     if (built >= 6) this.centerX = Number.NaN;
@@ -235,13 +249,16 @@ export class VegetationRenderer {
     if (!v) return;
     for (const mesh of v) {
       this.scene.remove(mesh);
+      this.originals.delete(mesh);
       mesh.dispose();
     }
     this.perChunk.delete(key);
+    this.coverCells.delete(key);
     this.centerX = Number.NaN;
   }
 
   private build(chunk: ChunkData): ChunkVegetation {
+    this.coverCells.set(chunkKey(chunk.cx, chunk.cz), new Set());
     const rng = new Rng(chunk.cosmeticSeed);
     const n = chunk.verts;
     const step = lodStep(chunk.lod);
@@ -272,7 +289,8 @@ export class VegetationRenderer {
         const z = oz + lz;
         const patch = (size: number, salt: number) => vegetationPatch(x, z, size, this.cosmeticSeed ^ salt);
         const density = patch(18, 0x73);
-        const meadow = patch(32, 0x94);
+        // Larger, rarer patches keep flower fields as occasional discoveries.
+        const meadow = patch(64, 0x94);
         const reedBed = patch(24, 0xa6);
         const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
         const lush = surface === Surface.Grass || surface === Surface.DryGrass;
@@ -289,7 +307,18 @@ export class VegetationRenderer {
           else add(density > 0.43 ? 'tufts' : 'grass');
         }
         // Flowers and forest undergrowth coexist with the grass layer.
-        if (fd > 0 && rng.next() < (lush && meadow > 0.54 ? 0.65 : fd) * (0.5 + humidity)) add('flowers');
+        let flowerDensity = fd;
+        if (lush && meadow > MEADOW_THRESHOLD) {
+          // Distance to the square camp's perimeter, including its corners.
+          const campDistance = this.camp ? Math.hypot(
+            Math.max(0, Math.abs(x - this.camp.x) - this.camp.halfSize),
+            Math.max(0, Math.abs(z - this.camp.z) - this.camp.halfSize),
+          ) : Infinity;
+          const remoteness = smoothstep(MEADOW_MIN_CAMP_DISTANCE, MEADOW_FULL_CAMP_DISTANCE, campDistance);
+          const edge = smoothstep(MEADOW_THRESHOLD, MEADOW_THRESHOLD + 0.06, meadow);
+          flowerDensity += (0.65 - fd) * remoteness * edge;
+        }
+        if (fd > 0 && rng.next() < flowerDensity * (0.5 + humidity)) add('flowers');
         if ((forest || lush || surface === Surface.Mud) && humidity > 0.48) {
           if (rng.next() < (forest ? 0.09 : 0.018) * density) add('fern');
           if (rng.next() < (forest ? 0.025 : 0.009) * density) add('bush');
@@ -345,8 +374,78 @@ export class VegetationRenderer {
     mesh.receiveShadow = true;
     mesh.computeBoundingSphere();
     if (mesh.boundingSphere) mesh.boundingSphere.radius += 1; // Include wind displacement.
+    if (DESTRUCTIBLE.has(type)) {
+      mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      const matrices = (mesh.instanceMatrix.array as Float32Array).slice();
+      this.originals.set(mesh, { matrices, hidden: new Uint8Array(count) });
+      const cells = this.coverCells.get(chunkKey(chunk.cx, chunk.cz))!;
+      for (let i = 0; i < count; i++) {
+        const lx = Math.floor(matrices[i * 16 + 12]! - chunk.cx * CHUNK_SIZE);
+        const lz = Math.floor(matrices[i * 16 + 14]! - chunk.cz * CHUNK_SIZE);
+        cells.add(lz * CHUNK_SIZE + lx);
+      }
+      this.mask(mesh, chunk.cx, chunk.cz);
+    }
     this.scene.add(mesh);
     return mesh;
+  }
+
+  /** Apply server state without rebuilding deterministic scatter or its GPU geometries. */
+  applyDamage(message: VegetationMessage): void {
+    const changed = new Set<number>();
+    if (message.reset) {
+      for (const key of this.damage.keys()) changed.add(key);
+      this.damage.clear();
+    }
+    for (const chunk of message.chunks) {
+      const key = chunkKey(chunk.cx, chunk.cz);
+      changed.add(key);
+      if (chunk.cells.length) this.damage.set(key, new Map(chunk.cells.map((cell) => [cell[1] * CHUNK_SIZE + cell[0], cell])));
+      else this.damage.delete(key);
+    }
+    for (const key of changed) {
+      const cx = key >> 16;
+      const cz = (key << 16) >> 16;
+      for (const mesh of this.perChunk.get(key) ?? []) this.mask(mesh, cx, cz);
+    }
+  }
+
+  private mask(mesh: InstancedMesh, cx: number, cz: number): void {
+    const original = this.originals.get(mesh);
+    if (!original) return;
+    const damage = this.damage.get(chunkKey(cx, cz));
+    let changed = false;
+    for (let i = 0; i < mesh.count; i++) {
+      const offset = i * 16;
+      const lx = Math.floor(original.matrices[offset + 12]! - cx * CHUNK_SIZE);
+      const lz = Math.floor(original.matrices[offset + 14]! - cz * CHUNK_SIZE);
+      const hidden = damage?.has(lz * CHUNK_SIZE + lx) ? 1 : 0;
+      if (original.hidden[i] === hidden) continue;
+      original.hidden[i] = hidden;
+      this.m.fromArray(original.matrices, offset);
+      if (hidden) this.m.scale(this.zeroScale);
+      mesh.setMatrixAt(i, this.m);
+      changed = true;
+    }
+    if (changed) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Bounded, frame-rate-independent fire emission only on visible damaged plants. */
+  emitBurning(now: number, emit: (x: number, y: number, z: number) => void): void {
+    if (now < this.nextFireAt) return;
+    this.nextFireAt = now + 100;
+    let budget = 24;
+    for (const [key, cells] of this.damage) {
+      const occupied = this.coverCells.get(key);
+      if (!occupied) continue;
+      const cx = key >> 16;
+      const cz = (key << 16) >> 16;
+      for (const [cellKey, cell] of cells) {
+        if (cell[3] <= now || !occupied.has(cellKey) || Math.random() > 0.3) continue;
+        emit(cx * CHUNK_SIZE + cell[0] + 0.5, cell[2], cz * CHUNK_SIZE + cell[1] + 0.5);
+        if (--budget <= 0) return;
+      }
+    }
   }
 
   dispose(): void {
@@ -357,6 +456,9 @@ export class VegetationRenderer {
       }
     }
     this.perChunk.clear();
+    this.originals.clear();
+    this.coverCells.clear();
+    this.damage.clear();
     this.instanceCount = 0;
     for (const geometry of Object.values(this.geometries)) geometry.dispose();
     this.material.dispose();

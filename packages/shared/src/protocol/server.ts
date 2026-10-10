@@ -103,6 +103,16 @@ export interface ExplosionEvent {
   kind?: 'grenade' | 'grenade40' | 'rocket';
 }
 
+/** Damaged 1 m ground-cover cells; local x/z, ground height, server-clock fire expiry. */
+export type VegetationCell = [lx: number, lz: number, y: number, burnUntil: number];
+export interface VegetationMessage {
+  t: 'vegetation';
+  /** Replace all cached damage when entering a new streaming region. */
+  reset: boolean;
+  /** Each listed chunk replaces its damage map; an empty list restores all its cover. */
+  chunks: Array<{ cx: number; cz: number; cells: VegetationCell[] }>;
+}
+
 /** A launcher round (40 mm grenade, rocket, crossbow bolt) left the muzzle. */
 export interface ProjectileEvent {
   t: 'proj';
@@ -220,6 +230,7 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | VegetationMessage
   | ChestStateMessage
   | DistressMessage
   | RevivingMessage

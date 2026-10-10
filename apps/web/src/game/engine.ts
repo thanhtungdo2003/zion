@@ -774,7 +774,7 @@ export class GameEngine {
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
-    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed);
+    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp);
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);
@@ -1092,6 +1092,9 @@ export class GameEngine {
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
         break;
+      case 'vegetation':
+        this.vegetation?.applyDamage(m);
+        break;
       case 'proj': {
         this.effects?.launch(m);
         // Someone else's launcher: their muzzle blast and launch sound (ours played on the trigger).
@@ -1206,6 +1209,9 @@ export class GameEngine {
 
     this.processBuildQueue(px, pz);
     this.vegetation?.update(px, pz);
+    if (this.effects) this.vegetation?.emitBurning(this.clock.now(), (x, y, z) => {
+      ParticleFX.burning(this.effects!.particles, x, y, z);
+    });
     this.props?.update(px, pz, now);
 
     // Remote players render INTERPOLATION_DELAY in the past between two snapshots.

@@ -173,6 +173,8 @@ Edge-level protection (TLS termination, volumetric DDoS scrubbing, WAF) still be
 
 ## Configuration
 
+`RANDOM_TICK_SPEED` controls wild grass/flower regrowth after explosions or flamethrower fire. The default is `3`; higher values regrow faster and `0` pauses regrowth. Each damaged 1 m cell waits at least 15 seconds and until its fire ends, then regrows on a random server tick (an additional 60 seconds on average at the default speed). Damage is shared by all players and survives chunk unloading and reconnects during the current server session; restarting the server restores wild vegetation.
+
 All variables are documented in [`.env.example`](.env.example). The most important ones are `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `PUBLIC_WS_URL`, `WORLD_SEED`, `WORLD_SIZE_CHUNKS`, `DAY_LENGTH_MINUTES` and `WORLDGEN_WORKERS`. The web app reads `NEXT_PUBLIC_API_URL`.
 
 ## Asset pipeline
