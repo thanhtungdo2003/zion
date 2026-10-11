@@ -59,11 +59,12 @@ for (const [x, z] of [[-22, -27], [23, -26], [26, 22]]) assert.ok(controller.isF
 assert.equal(touchesBarbedWire(collision, spawn), false);
 const guards = new CampGuardDirector(camp, collision, { shot: () => undefined, hit: () => undefined });
 guards.step([], [], 0);
-assert.equal(guards.guards.length, 3);
+assert.equal(guards.guards.length, 7);
 for (const guard of guards.guards) {
   assert.ok(guard.active, 'guard post must be loaded and collision-free');
   assert.equal(touchesBarbedWire(collision, guard.state), false, 'guard touches the wire');
-  assert.ok(Math.abs(guard.state.x - camp.x) >= 3, 'guard blocks the central entrance');
+  if (guard.patrol) assert.ok(Math.abs(guard.state.z - camp.z) < 45, 'patrol starts outside the camp interior');
+  else assert.ok(Math.abs(guard.state.x - camp.x) >= 3, 'guard blocks the central entrance');
 }
 
 const wireWorld = new CollisionWorld({ worldSize: 256, seaLevel: 0 });

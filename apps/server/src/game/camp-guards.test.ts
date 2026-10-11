@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CollisionWorld, Heightfield, Layer, makeBox } from '@zion/physics';
+import { createDefaultRegistry, buildChunkCollision } from '@zion/assets';
+import { WorldGenerator } from '@zion/worldgen';
 import { EntityFlags, EntityKind, NPC_ID_BASE, WeaponId, isZombieId, type EntityState } from '@zion/shared';
 import { CampGuardDirector } from './camp-guards';
 import { Zombie } from './zombies';
@@ -25,6 +27,22 @@ function setup() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('camp sentries', () => {
+  it('spawns all seven guards on free ground in the actual default camp', () => {
+    const registry = createDefaultRegistry();
+    const gen = new WorldGenerator({ seed: 12345, sizeChunks: 16 }, registry);
+    const camp = gen.camp!;
+    const collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
+    for (let cx = Math.floor((camp.x - 56) / 32); cx <= Math.floor((camp.x + 56) / 32); cx++) {
+      for (let cz = Math.floor((camp.z - 56) / 32); cz <= Math.floor((camp.z + 56) / 32); cz++) {
+        const chunk = buildChunkCollision(gen.generateChunk(cx, cz, 0), registry);
+        collision.addChunk(cx, cz, chunk.heightfield, chunk.colliders);
+      }
+    }
+    const director = new CampGuardDirector(camp, collision, { shot: vi.fn(), hit: vi.fn() });
+    director.step([], [], 0);
+    expect(director.guards).toHaveLength(7);
+    for (const guard of director.guards) expect(guard.active, `guard ${guard.id} must start on free ground`).toBe(true);
+  });
   it('cannot shoot while swimming and publishes the swimming pose', () => {
     const sim = setup();
     for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
@@ -35,16 +53,17 @@ describe('camp sentries', () => {
     expect(sim.shot).not.toHaveBeenCalled();
     const entities: EntityState[] = [];
     sim.director.entitiesFor({ state: { x: 32, z: 85 } } as Player, entities);
-    expect(entities).toHaveLength(3);
+    expect(entities).toHaveLength(7);
     for (const e of entities) expect(e.flags & EntityFlags.Swimming).toBeTruthy();
   });
-  it('spawns exactly three permanent AK guards at the entrance with separate entity ids', () => {
+  it('keeps three gate guards and adds four permanent patrol guards with separate entity ids', () => {
     const sim = setup();
     sim.director.step([], [], 0);
     const entities: EntityState[] = [];
     sim.director.entitiesFor({ state: { x: 32, z: 70 } } as Player, entities);
-    expect(entities).toHaveLength(3);
-    expect(new Set(entities.map(e => e.id)).size).toBe(3);
+    expect(entities).toHaveLength(7);
+    expect(new Set(entities.map(e => e.id)).size).toBe(7);
+    expect(sim.director.guards.filter(g => g.patrol)).toHaveLength(4);
     for (const entity of entities) {
       expect(entity.kind).toBe(EntityKind.Guard);
       expect(entity.weapon).toBe(WeaponId.AK47);
@@ -53,6 +72,26 @@ describe('camp sentries', () => {
       expect(entity.id).toBeGreaterThanOrEqual(NPC_ID_BASE);
     }
     expect(new CampGuardDirector(null, sim.collision, { shot: vi.fn(), hit: vi.fn() }).guards).toHaveLength(0);
+  });
+
+  it('moves all four patrol guards across the camp and leaves them in place when gate posts change', () => {
+    const sim = setup();
+    vi.mocked(Math.random).mockReturnValue(.65);
+    const director = new CampGuardDirector({ x: 64, y: 0, z: 64 }, sim.collision, { shot: vi.fn(), hit: vi.fn() });
+    const patrols = director.guards.filter(g => g.patrol);
+    const starts = patrols.map(g => ({ x: g.state.x, z: g.state.z }));
+    for (let now = 0; now < 30_000; now += 50) {
+      director.step([], [], now);
+      for (const guard of patrols) {
+        expect(Math.abs(guard.state.x - 64)).toBeLessThan(50);
+        expect(Math.abs(guard.state.z - 64)).toBeLessThan(50);
+      }
+    }
+    patrols.forEach((g, i) => expect(Math.hypot(g.state.x - starts[i]!.x, g.state.z - starts[i]!.z)).toBeGreaterThan(5));
+    const positions = patrols.map(g => [g.state.x, g.state.z]);
+    director.setPosts([{ x: -6, z: 46 }, { x: 6, z: 46 }]);
+    expect(patrols.map(g => [g.state.x, g.state.z])).toEqual(positions);
+    expect(director.guards[0]!.state.x).toBe(58);
   });
 
   it('shoots visible zombies using the AK and stays at its post', () => {

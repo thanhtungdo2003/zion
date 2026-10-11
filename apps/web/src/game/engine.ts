@@ -4,6 +4,7 @@ import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, thirdPersonAim } from './third-person-camera';
 import { mobileAimScore } from './mobile-aim';
+import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
 import { RecoilSpring, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -79,7 +80,7 @@ import {
   WeaponId,
   propTransform,
 } from '@zion/shared';
-import { DEFAULT_CHARACTER, Mask, makeRayHit } from '@zion/physics';
+import { DEFAULT_CHARACTER, Mask, makeRayHit, raycastRig, zombieHitRig } from '@zion/physics';
 import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
 import type { Msg } from '@/lib/i18n';
@@ -267,7 +268,7 @@ export class GameEngine {
   private nurseTemplate: CharacterTemplate | null = null;
   private zombieTemplate: CharacterTemplate | null = null;
   private zombieTemplates: CharacterTemplate[] = [];
-  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; limbs: number; variant: number; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
+  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; limbs: number; variant: ZombieVariant; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
   private debris: DebrisSystem | null = null;
   private weapons: WeaponLibrary | null = null;
   /** Character field of view; monsters should use `vision.canSee(...)`. */
@@ -1833,7 +1834,10 @@ export class GameEngine {
     for (const zb of this.zombies.values()) {
       if (zb.entity.pose.flags & EntityFlags.Dead || !zb.avatar.root.visible) continue;
       const q = zb.avatar.root.position;
-      test(q.x, q.y, q.z, 0.4, 1.85);
+      const pose = zb.entity.pose;
+      const rig = zombieHitRig(zb.variant, zb.limbs, !!(pose.flags & EntityFlags.Grounded));
+      const hit = raycastRig(rig, q.x, q.y, q.z, zb.avatar.root.rotation.y, ox, oy, oz, dx, dy, dz, best);
+      if (hit && hit.t > .3) best = hit.t;
     }
     for (const r of this.remotes.values()) {
       if (r.entity.pose.flags & EntityFlags.Dead || !r.avatar.root.visible) continue;
@@ -2332,11 +2336,13 @@ export class GameEngine {
         const dx = p.x - px, dz = p.z - pz, distance = Math.hypot(dx, dz);
         const score = mobileAimScore(dx, dz, heading, range);
         if (score >= bestScore) continue;
-        const ty = p.y + 1.1 * zb.avatar.root.scale.x;
+        const pose = zb.entity.pose;
+        zombieAimPoint((zb.variant << 4) | zb.limbs, pose.flags, p, zb.avatar.root.rotation.y, 'torso', this.tmpB);
+        const ty = this.tmpB.y;
         const dy = ty - (py + MUZZLE_HEIGHT), length = Math.hypot(distance, dy);
         if (this.store?.collision.raycast(px, py + MUZZLE_HEIGHT, pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
         bestScore = score; found = true;
-        this.hoverPoint.set(p.x, ty, p.z);
+        this.hoverPoint.copy(this.tmpB);
       }
       if (found) {
         const dx = this.hoverPoint.x - px, dz = this.hoverPoint.z - pz;
@@ -2391,16 +2397,16 @@ export class GameEngine {
       if (!zb.avatar.root.visible || pose.flags & EntityFlags.Dead) continue;
       const zp = zb.avatar.root.position;
       if ((zp.x - px) ** 2 + (zp.z - pz) ** 2 > 60 * 60) continue;
-      const scale = zb.avatar.root.scale.x;
-      this.hitBox.min.set(zp.x - 0.45 * scale, zp.y, zp.z - 0.45 * scale);
-      this.hitBox.max.set(zp.x + 0.45 * scale, zp.y + 1.85 * scale, zp.z + 0.45 * scale);
-      if (!ray.intersectBox(this.hitBox, this.tmpB)) continue;
-      const d = this.tmpB.distanceToSquared(ray.origin);
+      const rig = zombieHitRig(zb.variant, zb.limbs, !!(pose.flags & EntityFlags.Grounded));
+      const hit = raycastRig(rig, zp.x, zp.y, zp.z, zb.avatar.root.rotation.y,
+        ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, 150);
+      if (!hit) continue;
+      const d = hit.t * hit.t;
       if (d >= best) continue;
       best = d;
       found = true;
-      // Keep the hovered height (head vs body) but aim at the body's centre line.
-      this.hoverPoint.set(zp.x, Math.min(zp.y + 1.7 * scale, Math.max(zp.y + 0.4 * scale, this.tmpB.y)), zp.z);
+      // Aim inside the selected capsule, including head/limbs offset from the root when crawling.
+      zombieAimPoint((zb.variant << 4) | zb.limbs, pose.flags, zp, zb.avatar.root.rotation.y, hit.zone, this.hoverPoint);
     }
     // Livestock: a low, wide box; aim at the middle of the body.
     for (const r of this.remotes.values()) {

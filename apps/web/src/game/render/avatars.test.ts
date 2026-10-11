@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { Group, Matrix4, Vector3 } from 'three';
+import { Box3, BoxGeometry, Group, Matrix4, Mesh, Vector3 } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
@@ -18,6 +18,44 @@ function bodyUp(avatar: Avatar): Vector3 {
   const bone = avatar.root.getObjectByName('root')!;
   return new Vector3(0, 1, 0).transformDirection(bone.matrixWorld);
 }
+
+describe('stowed weapons', () => {
+  const library = (): WeaponLibrary => {
+    const display = new Group();
+    display.add(new Mesh(new BoxGeometry(.85, .2, .6)));
+    return new Map(['ak47', 'katana', 'crossbow'].map((itemId) => [itemId, {
+      itemId, display, object: new Group(), attach: new Matrix4(),
+      clips: new Map(), reloadClip: null, muzzle: null, eject: null,
+    }]));
+  };
+
+  it.each(['ak47', 'katana'])('points the stowed %s tip down across the back', (itemId) => {
+    const avatar = new Avatar(template, true);
+    avatar.setBackWeapon(itemId, library());
+    avatar.root.updateMatrixWorld(true);
+    const sling = avatar.root.getObjectByName('stowed-weapon')!;
+    expect(sling.parent?.name).toBe('back_attach');
+    expect(new Vector3(1, 0, 0).transformDirection(sling.matrixWorld).y).toBeLessThan(-.5);
+    expect(sling.getWorldPosition(new Vector3()).z).toBeGreaterThan(0);
+  });
+
+  it('hangs the crossbow down outside the right hip and removes it on switching', () => {
+    const avatar = new Avatar(template, true);
+    const weapons = library();
+    avatar.setBackWeapon('crossbow', weapons);
+    avatar.root.updateMatrixWorld(true);
+    const sling = avatar.root.getObjectByName('stowed-weapon')!;
+    const bounds = new Box3().setFromObject(sling);
+    expect(sling.parent?.name).toBe('body');
+    expect(new Vector3(1, 0, 0).transformDirection(sling.matrixWorld).y).toBeCloseTo(-1);
+    expect(bounds.max.x).toBeLessThan(-4 / BB_UNITS_PER_METER);
+    expect(bounds.max.y).toBeCloseTo(12 / BB_UNITS_PER_METER);
+    avatar.setBackWeapon('ak47', weapons);
+    expect(sling.parent).toBeNull();
+    avatar.setBackWeapon(null, weapons);
+    expect(avatar.root.getObjectByName('stowed-weapon')).toBeUndefined();
+  });
+});
 
 describe('swimming pose', () => {
   it('raises the body smoothly without moving the authoritative root and cancels attacks', () => {
@@ -45,6 +83,29 @@ describe('swimming pose', () => {
     const slow = layer().rate;
     avatar.update(10, 1, 9.48, 0, EntityFlags.Swimming | EntityFlags.Sprinting, .1, 0);
     expect(layer().rate).toBeGreaterThan(slow);
+  });
+});
+
+describe('CPR animation', () => {
+  it('plays the new kneeling clip with the weapon hidden, then restores the weapon on cancellation', () => {
+    const avatar = new Avatar(template, true);
+    const object = new Group(); object.name = 'cpr-test-rifle';
+    const weapons: WeaponLibrary = new Map([['ak47', {
+      itemId: 'ak47', object, display: new Group(), attach: new Matrix4(),
+      clips: new Map(), reloadClip: null, muzzle: null, eject: null,
+    }]]);
+    avatar.setWeapon('ak47', weapons);
+    avatar.setStance('rifle');
+    avatar.update(0, 0, 0, 0, EntityFlags.Grounded | EntityFlags.Reviving, .1, 0);
+    const layer = () => (avatar as unknown as { cur: { clip: { name: string }; time: number } }).cur;
+    expect(layer().clip.name).toBe('cpr_kneel');
+    expect(avatar.root.getObjectByName('cpr-test-rifle')!.visible).toBe(false);
+    for (let i = 0; i < 45; i++) avatar.update(0, 0, 0, 0, EntityFlags.Grounded | EntityFlags.Reviving, .1, 0);
+    expect(layer().time).toBeGreaterThan(4);
+    expect(layer().clip.name).toBe('cpr_kneel');
+    avatar.update(0, 0, 0, 0, EntityFlags.Grounded, .1, 0);
+    expect(layer().clip.name).toBe('rifle_idle');
+    expect(avatar.root.getObjectByName('cpr-test-rifle')!.visible).toBe(true);
   });
 });
 

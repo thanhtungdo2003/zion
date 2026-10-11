@@ -18,11 +18,9 @@ import {
   CharacterController,
   DEFAULT_CHARACTER,
   Mask,
-  ZOMBIE_CRAWL_RIG,
-  ZOMBIE_RIG,
+  zombieHitRig,
   createCharacterState,
   makeRayHit,
-  type RigPart,
   type CharacterParams,
   type CharacterState,
   type CollisionWorld,
@@ -50,11 +48,6 @@ const ATTACK_MS = 1200;
 /** Wind-up: the bite lands this long after the attack animation starts (if still in reach). */
 const BITE_DELAY_MS = 700;
 
-function scaledRig(rig: readonly RigPart[]): readonly RigPart[] {
-  return rig.map((p) => ({ ...p, a: [p.a[0] * 1.5, p.a[1] * 1.5, p.a[2] * 1.5], b: [p.b[0] * 1.5, p.b[1] * 1.5, p.b[2] * 1.5], r: p.r * 1.5 }));
-}
-const BRUTE_RIG = scaledRig(ZOMBIE_RIG);
-const BRUTE_CRAWL_RIG = scaledRig(ZOMBIE_CRAWL_RIG);
 const ZOMBIE_PARAMS: CharacterParams = {
   ...DEFAULT_CHARACTER,
   walkSpeed: 2.2,
@@ -132,7 +125,7 @@ export class Zombie {
   }
 
   get rig() {
-    return this.variant === ZombieVariant.Brute ? (isCrawling(this.limbs) ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (isCrawling(this.limbs) || (this.variant === ZombieVariant.Crimson && this.state.grounded) ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
+    return zombieHitRig(this.variant, this.limbs, this.state.grounded);
   }
 }
 

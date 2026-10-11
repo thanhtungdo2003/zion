@@ -18,7 +18,8 @@ export class ThirdPersonCamera {
   update(camera: PerspectiveCamera, focus: Vector3, yaw: number, pitch: number, dt: number, collision?: CollisionWorld): void {
     this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
     this.direction.set(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
-      .multiplyScalar(3.8).addScaledVector(this.right, .55);
+      .multiplyScalar(2.8).addScaledVector(this.right, .55);
+    this.direction.y += .3;
     const desired = this.direction.length();
     this.direction.divideScalar(desired);
     this.up.crossVectors(this.direction, this.right).normalize();

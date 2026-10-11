@@ -305,6 +305,8 @@ export const EntityFlags = {
   Downed: 1 << 8,
   /** Zombie leap in progress. */
   Leaping: 1 << 9,
+  /** Performing CPR on a downed teammate. */
+  Reviving: 1 << 10,
 } as const;
 
 export interface SelfState {

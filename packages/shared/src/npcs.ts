@@ -2,8 +2,8 @@
 export const NPC_ID_BASE = 0xf0000000;
 export const GUARD_MODEL_URL = '/models/npcs/armored-soldier.bbmodel';
 
-/** Vietnamese names for the gate guards, indexed by `id - NPC_ID_BASE`. */
-export const GUARD_NAMES = ['Trung sĩ Hùng', 'Hạ sĩ Dũng', 'Binh nhất Tuấn', 'Binh nhì Nam', 'Thượng sĩ Bảo'] as const;
+/** Vietnamese names for gate and patrol guards, indexed by `id - NPC_ID_BASE`. */
+export const GUARD_NAMES = ['Trung sĩ Hùng', 'Hạ sĩ Dũng', 'Binh nhất Tuấn', 'Binh nhì Nam', 'Thượng sĩ Bảo', 'Hạ sĩ Minh', 'Binh nhất Hải'] as const;
 
 export function guardName(id: number): string {
   return GUARD_NAMES[(id - NPC_ID_BASE) % GUARD_NAMES.length] ?? 'Lính canh';

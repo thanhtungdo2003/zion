@@ -120,7 +120,7 @@ export class Avatar {
   slashVariant = 0;
   /** Applying a first aid kit: loops the bandage animation with the weapon put away. */
   healing = false;
-  /** Weapon slung across the back (main-slot gun not in hand). */
+  /** Stowed weapon on the back or hip. */
   private backId: string | null = null;
   private backObj: Object3D | null = null;
 
@@ -221,6 +221,11 @@ export class Avatar {
       this.oneShot = null;
       this.recoil = 0;
       return this.play(this.template.clips.has('swim') ? 'swim' : 'walk', speed > .3 ? Math.min(1.6, Math.max(.75, speed / 2)) : .6, 0, .3);
+    }
+    if ((flags & EntityFlags.Reviving) !== 0) {
+      this.oneShot = null;
+      this.recoil = 0;
+      return this.play(this.template.clips.has('cpr_kneel') ? 'cpr_kneel' : 'bandage_wrap', 1, 0, .3);
     }
     if ((flags & EntityFlags.Rolling) !== 0) {
       // Snapshot/prediction flags can end before the last rendered frame of the clip.
@@ -361,8 +366,9 @@ export class Avatar {
     const body = this.bones.get('body');
     // Raise/lower the arms (and the gun with them) to the aim elevation.
     const held = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
-    if (held) held.obj.visible = !this.healing;
-    if (!rolling && this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !this.healing) {
+    const treating = this.healing || (flags & EntityFlags.Reviving) !== 0;
+    if (held) held.obj.visible = !treating;
+    if (!rolling && this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !treating) {
       for (const arm of ['arm_right', 'arm_left']) {
         const b = this.bones.get(arm);
         if (b) b.node.rotation.x += this.aimPitch;
@@ -399,7 +405,7 @@ export class Avatar {
       const trigger = this.bones.get(`hand_${triggerSide}`)?.node;
       const support = this.bones.get(`hand_${supportSide}`)?.node;
       const supportArm = this.bones.get(`arm_${supportSide}`)?.node;
-      if (!dead && !this.healing && this.cur.clip?.name === 'rifle_patrol_idle' && held.visual.twoHandGrip && trigger && support && supportArm && body) {
+      if (!dead && !treating && this.cur.clip?.name === 'rifle_patrol_idle' && held.visual.twoHandGrip && trigger && support && supportArm && body) {
         this.rifleGrip ??= new RifleGrip();
         this.rifleGrip.pose(held.obj, held.visual, trigger, support, supportArm, body.node);
       }
@@ -502,8 +508,8 @@ export class Avatar {
   }
 
   /**
-   * Slings a weapon diagonally across the back (muzzle up over the left shoulder), or removes
-   * it. Uses the real-size display model, centred on the back attachment point.
+   * Stows weapons diagonally on the back, with their tip pointing down. Crossbows hang
+   * from the right hip instead, with the stock at belt height.
    */
   setBackWeapon(itemId: string | null, weapons: WeaponLibrary | null): void {
     if (itemId === this.backId) return;
@@ -513,7 +519,8 @@ export class Avatar {
       this.backObj = null;
     }
     const display = itemId ? weapons?.get(itemId)?.display : undefined;
-    const anchor = this.bones.get('back_attach')?.node ?? this.bones.get('body')?.node;
+    const atHip = itemId === 'crossbow';
+    const anchor = (atHip ? undefined : this.bones.get('back_attach')?.node) ?? this.bones.get('body')?.node;
     if (!display || !anchor) return;
     const inner = display.clone(true);
     const box = new Box3().setFromObject(inner);
@@ -524,11 +531,19 @@ export class Avatar {
       if (o instanceof Mesh) o.castShadow = true;
     });
     const sling = new Group();
+    sling.name = 'stowed-weapon';
     sling.add(inner);
     sling.scale.setScalar(BACK_SCALE);
-    // Character faces −Z: the back is +Z. Muzzle (+X) tilted up towards the left shoulder.
-    sling.rotation.set(0, 0, Math.PI / 2 + 0.75);
-    sling.position.set(0, 0, (depth * BACK_SCALE) / 2 + 0.03);
+    // Display models point along +X. Character right is −X, and the back is +Z.
+    if (atHip) {
+      sling.rotation.set(0, 0, -Math.PI / 2);
+      const bounds = new Box3().setFromObject(sling);
+      // Keep the entire model outside the torso, with its upper end at the belt.
+      sling.position.set(-4 * PX - 0.06 - bounds.max.x, -6 * PX - bounds.max.y, 0.03);
+    } else {
+      sling.rotation.set(0, 0, -Math.PI / 2 + 0.75);
+      sling.position.set(0, 0, (depth * BACK_SCALE) / 2 + 0.03);
+    }
     anchor.add(sling);
     this.backObj = sling;
   }

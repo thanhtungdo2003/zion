@@ -59,7 +59,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   mp5: { url: '/models/weapons/mp5-smg.bbmodel', length: 0.6, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 3.5, 6.5], muzzle: [0, 10, -18], eject: [1, 10, -6] },
   grenade_launcher: { url: '/models/weapons/grenade-launcher.bbmodel', length: 0.75, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, -1.5, -5], muzzle: [0, 27, 0] },
   crossbow: { url: '/models/weapons/modern-crossbow.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 9.5, -4.5], muzzle: [0, 38, 0] },
-  rocket_launcher: { url: '/models/weapons/rocket-launcher.bbmodel', length: 1.2, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 11.5, -7], muzzle: [0, 34, 0] },
+  rocket_launcher: { url: '/models/weapons/rocket-launcher.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 11.5, -7], muzzle: [0, 34, 0] },
   flamethrower: { url: '/models/weapons/flamethrower.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 8.5, -4.5], muzzle: [0, 34, 0] },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
   katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0] },

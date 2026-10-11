@@ -1,5 +1,6 @@
 import { raySphere, rayCapsule } from './geometry';
 import { makeCapsule, type CapsuleShape } from './shapes';
+import { isCrawling, ZombieVariant } from '@zion/shared';
 
 /**
  * Hitboxes are separate from movement colliders: a character moves as one capsule but is *hit*
@@ -44,6 +45,18 @@ export const ZOMBIE_CRAWL_RIG: readonly RigPart[] = [
   { zone: 'leg_l', a: [-0.12, 0.18, 0.35], b: [-0.14, 0.1, 1.1], r: 0.135 },
   { zone: 'leg_r', a: [0.12, 0.18, 0.35], b: [0.14, 0.1, 1.1], r: 0.135 },
 ];
+
+function bruteRig(rig: readonly RigPart[]): readonly RigPart[] {
+  return rig.map((p) => ({ ...p, a: [p.a[0] * 1.5, p.a[1] * 1.5, p.a[2] * 1.5], b: [p.b[0] * 1.5, p.b[1] * 1.5, p.b[2] * 1.5], r: p.r * 1.5 }));
+}
+const BRUTE_RIG = bruteRig(ZOMBIE_RIG);
+const BRUTE_CRAWL_RIG = bruteRig(ZOMBIE_CRAWL_RIG);
+
+/** Shared by server hit detection and client aiming, including the low Crimson stance. */
+export function zombieHitRig(variant: ZombieVariant, limbs: number, grounded: boolean): readonly RigPart[] {
+  const crawl = isCrawling(limbs) || (variant === ZombieVariant.Crimson && grounded);
+  return variant === ZombieVariant.Brute ? (crawl ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (crawl ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
+}
 
 export const ZONE_DAMAGE_MULTIPLIER: Readonly<Record<HitZone, number>> = {
   head: 2.0,

@@ -11,9 +11,16 @@ describe('third-person shoulder camera', () => {
     const { camera, boom, focus } = fixture();
     boom.update(camera, focus, yaw, -.12, 1 / 60);
     const direction = camera.getWorldDirection(new Vector3());
-    expect(camera.position.clone().sub(focus).dot(direction)).toBeCloseTo(-3.8, 8);
+    expect(camera.position.clone().sub(focus).dot(direction)).toBeCloseTo(-2.8 + .3 * Math.sin(-.12), 8);
     expect(camera.position.clone().sub(focus).dot(new Vector3(Math.cos(yaw), 0, -Math.sin(yaw)))).toBeCloseTo(.55, 8);
     expect(camera.position.y).toBeGreaterThan(focus.y);
+  });
+
+  it('sits 2.8 metres behind the player and 30 cm above eye height when looking level', () => {
+    const { camera, boom, focus } = fixture();
+    boom.update(camera, focus, 0, 0, 1 / 60);
+    expect(camera.position.z - focus.z).toBeCloseTo(2.8);
+    expect(camera.position.y - focus.y).toBeCloseTo(.3);
   });
 
   it('pulls in immediately before a wall and eases back after the obstruction clears', () => {
@@ -34,7 +41,7 @@ describe('third-person shoulder camera', () => {
 
   it('protects the camera volume when a corner misses the centre ray', () => {
     const { camera, boom, focus, world } = fixture();
-    world.setOwnerColliders(1, [{ shape: makeBox(16.49, 1.62, 18, .04, .2, .1), layer: Layer.Static }]);
+    world.setOwnerColliders(1, [{ shape: makeBox(16.63, 1.83, 18, .04, .2, .1), layer: Layer.Static }]);
     boom.update(camera, focus, 0, 0, 1 / 60, world);
     expect(camera.position.z).toBeLessThan(18);
   });

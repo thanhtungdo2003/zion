@@ -6,14 +6,17 @@ import {
   CharacterController, HUMANOID_RIG, Mask, ZONE_DAMAGE_MULTIPLIER, createCharacterState, makeRayHit,
   type CharacterState, type CollisionWorld,
 } from '@zion/physics';
-import { DEFAULT_CAMP_NPCS, type CampSite } from '@zion/worldgen';
+import { CAMP_HALF_SIZE, DEFAULT_CAMP_NPCS, type CampSite } from '@zion/worldgen';
 import { castCombatRay, spreadDirection, type Combatant } from './combat';
 import { PoseHistory, type Player } from './player';
 import { MobBrain } from './mob-ai';
 import { Zombie } from './zombies';
+import { ZombieNavigation } from './navigation';
+import { CampPatrol } from './camp-patrol';
 
 /** Flank the southern vehicle entrance, leaving its centre open. */
 export const GUARD_POSTS = DEFAULT_CAMP_NPCS.guards;
+const PATROL_STARTS = [-30, -10, 10, 25] as const;
 const WATCH_RANGE = 32;
 /** Guards stroll around the gate within this radius of their post. */
 const PATROL_RADIUS = 4.5;
@@ -34,7 +37,7 @@ export class CampGuard {
   reloadUntil = 0;
   readonly state: CharacterState;
   readonly brain: MobBrain;
-  constructor(readonly id: number, x: number, y: number, z: number) {
+  constructor(readonly id: number, x: number, y: number, z: number, readonly patrol?: CampPatrol) {
     this.state = createCharacterState(x, y, z);
     this.brain = new MobBrain({ x, z, yaw: Math.PI, radius: PATROL_RADIUS, leash: RETREAT_LEASH });
   }
@@ -46,16 +49,20 @@ interface GuardHooks {
     x: number, y: number, z: number, dx: number, dz: number, now: number): void;
 }
 
-/** Friendly sentries patrol the gate (driven by the mob AI) and only damage zombies. */
+/** Gate sentries and four roaming camp guards only damage zombies. */
 export class CampGuardDirector {
   readonly guards: CampGuard[];
   private readonly controller: CharacterController;
   private readonly sight = makeRayHit();
+  private readonly navigation: ZombieNavigation;
 
   constructor(private readonly camp: CampSite | null, private readonly collision: CollisionWorld, private readonly hooks: GuardHooks) {
     this.controller = new CharacterController(collision);
+    this.navigation = new ZombieNavigation(collision);
     this.guards = camp ? GUARD_POSTS.map((post, i) => new CampGuard(NPC_ID_BASE + i,
       camp.x + post.x, camp.y + 0.02, camp.z + post.z)) : [];
+    if (camp) PATROL_STARTS.forEach((z, i) => this.guards.push(new CampGuard(NPC_ID_BASE + GUARD_POSTS.length + i,
+      camp.x, camp.y + .02, camp.z + z, new CampPatrol(camp))));
   }
 
   /** Moves the guard posts (Camp Studio): guards teleport to their new posts and guard them. */
@@ -63,6 +70,7 @@ export class CampGuardDirector {
     const camp = this.camp;
     if (!camp) return;
     this.guards.forEach((g, i) => {
+      if (g.patrol) return;
       const post = posts[i] ?? GUARD_POSTS[i]!;
       const x = camp.x + post.x;
       const z = camp.z + post.z;
@@ -77,6 +85,7 @@ export class CampGuardDirector {
 
   step(zombies: Iterable<Zombie>, players: readonly Player[], now: number): void {
     if (AK.kind !== 'gun') return;
+    this.navigation.beginTick();
     const living = [...zombies].filter(z => !z.dead);
     for (const guard of this.guards) {
       const s = guard.state;
@@ -109,9 +118,16 @@ export class CampGuardDirector {
         const d = Math.hypot(zombie.state.x - s.x, zombie.state.z - s.z);
         if (!threat || d < threat.distance) threat = { x: zombie.state.x, z: zombie.state.z, distance: d };
       }
-      const intent = guard.brain.think({ x: s.x, z: s.z, target: target?.state ?? null, threat }, now, TICK_DT);
+      const intent = guard.patrol && !target && (!threat || threat.distance >= 9)
+        ? guard.patrol.think(s, guard.yaw, now, TICK_DT, this.navigation)
+        : guard.brain.think({ x: s.x, z: s.z, target: target?.state ?? null, threat }, now, TICK_DT);
+      guard.brain.yaw = intent.yaw;
       guard.yaw = intent.yaw;
+      const oldX = s.x, oldZ = s.z;
       this.controller.step(s, { mx: intent.mx, mz: intent.mz, yaw: intent.yaw, jump: false, sprint: false }, TICK_DT);
+      if (guard.patrol && this.camp && Math.max(Math.abs(s.x - this.camp.x), Math.abs(s.z - this.camp.z)) > CAMP_HALF_SIZE - 1) {
+        s.x = oldX; s.z = oldZ; s.vx = s.vz = 0;
+      }
       if (s.swimming) { guard.pitch = 0; continue; }
       if (!target) { guard.pitch = 0; continue; }
       const dx = target.state.x - s.x;

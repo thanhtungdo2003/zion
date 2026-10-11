@@ -2439,6 +2439,7 @@ export class GameServer {
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.downed) f |= EntityFlags.Downed;
+    if (p.reviving) f |= EntityFlags.Reviving;
     return f;
   }
 
