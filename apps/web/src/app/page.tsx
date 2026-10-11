@@ -8,7 +8,6 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
-import Link from 'next/link';
 import { ApiError, login, playAsGuest, refreshSession, register } from '@/lib/api';
 import { useSettings } from '@/lib/settings';
 import { getTeamLobby, teamAction } from '@/lib/api';
