@@ -32,7 +32,7 @@ describe('shared map zombie population', () => {
     b.harness.spawnMap([player(8, 8), player(8, 8)], 0, true);
     expect(a.director.zombies.size).toBe(1);
     expect(b.director.zombies.size).toBe(1);
-    expect([...a.director.zombies.values()][0]!.recruitsLeft).toBe(3);
+    expect([...a.director.zombies.values()][0]!.recruitsLeft).toBe(2);
     a.harness.spawnMap([player(8, 8)], 2000, true);
     expect(a.director.zombies.size).toBe(1);
   });
@@ -101,5 +101,51 @@ describe('crimson zombie leap', () => {
     expect(z.state.grounded).toBe(true);
     expect(z.state.z).toBeLessThan(36);
     expect(z.jumpReadyAt).toBe(cooldown);
+  });
+});
+
+describe('zombie detection', () => {
+  interface DetectHarness { detect(z: Zombie, players: readonly Player[], sense: number): void }
+  function detector(visible: () => boolean) {
+    const collision = { lineOfSight: vi.fn(visible) } as unknown as CollisionWorld;
+    const director = new ZombieDirector(collision, { loadedZombieChunks: () => [] } as unknown as SpawnService, { attackPlayer: vi.fn() });
+    return { director, harness: director as unknown as DetectHarness };
+  }
+  const ticks = (ms: number) => Math.ceil(ms / (TICK_DT * 1000));
+
+  it('never targets a player hidden behind cover, however close', () => {
+    const { harness } = detector(() => false);
+    const z = new Zombie(1_000_010, 0, 0, 0), p = player(1, 0);
+    for (let i = 0; i < ticks(10_000); i++) harness.detect(z, [p], 22);
+    expect(z.target).toBeNull();
+    expect(z.noticing).toBeNull();
+  });
+
+  it('only commits to the hunt after 3 seconds in plain sight', () => {
+    const { harness } = detector(() => true);
+    const z = new Zombie(1_000_011, 0, 0, 0), p = player(5, 0);
+    for (let i = 0; i < ticks(2900); i++) harness.detect(z, [p], 22);
+    expect(z.target).toBeNull();
+    expect(z.noticing).toBe(p);
+    for (let i = 0; i < ticks(200); i++) harness.detect(z, [p], 22);
+    expect(z.target).toBe(p);
+  });
+
+  it('loses suspicion when the player ducks behind cover before 3 seconds', () => {
+    let visible = true;
+    const { harness } = detector(() => visible);
+    const z = new Zombie(1_000_012, 0, 0, 0), p = player(5, 0);
+    for (let i = 0; i < ticks(2000); i++) harness.detect(z, [p], 22);
+    visible = false;
+    for (let i = 0; i < ticks(4100); i++) harness.detect(z, [p], 22);
+    expect(z.noticing).toBeNull();
+    expect(z.target).toBeNull();
+  });
+
+  it('getting shot commits immediately', () => {
+    const { director } = detector(() => false);
+    const z = new Zombie(1_000_014, 0, 0, 0), p = player(30, 0);
+    director.hit(z, 'torso', 1, 1, 0, 0, 0, p);
+    expect(z.target).toBe(p);
   });
 });
