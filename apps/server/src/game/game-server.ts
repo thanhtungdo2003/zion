@@ -1458,6 +1458,7 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
+    if (s.swimming) buttons &= ~Buttons.Attack;
     if (tutorialProtected(p, this.serverTime)) buttons &= ~Buttons.Attack;
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
@@ -1486,11 +1487,17 @@ export class GameServer {
     }
     if (dx !== 0 || dz !== 0) p.dirty = true;
     if (s.stuckTicks > STUCK_TICKS_LIMIT) this.unstick(p);
-    if ((input.b & Buttons.Attack) !== 0) {
+    // Check after movement too: an attack pressed on the tick entering water is blocked.
+    if (s.swimming) {
+      p.lastButtons &= ~Buttons.Attack;
+      p.strike = null;
+      p.attackingUntil = 0;
+    }
+    if (!s.swimming && (input.b & Buttons.Attack) !== 0) {
       const spec = weaponSpec(p.weapon);
       if (spec?.kind === 'gun') {
         // No shooting while airborne (jumping/falling).
-        if (p.state.grounded || p.state.swimming) {
+        if (p.state.grounded) {
           if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td);
           else if (spec.fire === 'flame') this.tryFlame(p, spec, now);
           else this.tryShoot(p, now, input.rt);
@@ -1559,7 +1566,7 @@ export class GameServer {
       const st = p.strike;
       if (!st || now < st.at) continue;
       p.strike = null;
-      if (p.dead || p.questBusy) continue;
+      if (p.dead || p.questBusy || p.state.swimming) continue;
       this.resolveStrike(p, now, st.rewind === undefined ? undefined : now - st.rewind, st.blade);
     }
   }

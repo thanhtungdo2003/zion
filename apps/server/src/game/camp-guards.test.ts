@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CollisionWorld, Heightfield, Layer, makeBox } from '@zion/physics';
-import { EntityKind, NPC_ID_BASE, WeaponId, isZombieId, type EntityState } from '@zion/shared';
+import { EntityFlags, EntityKind, NPC_ID_BASE, WeaponId, isZombieId, type EntityState } from '@zion/shared';
 import { CampGuardDirector } from './camp-guards';
 import { Zombie } from './zombies';
 import { PoseHistory, type Player } from './player';
@@ -25,6 +25,19 @@ function setup() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('camp sentries', () => {
+  it('cannot shoot while swimming and publishes the swimming pose', () => {
+    const sim = setup();
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) {
+      sim.collision.addChunk(x, z, new Heightfield(x * 32, z * 32, 1, 33,
+        new Float32Array(1089), new Float32Array(1089).fill(3)), []);
+    }
+    sim.step(0);
+    expect(sim.shot).not.toHaveBeenCalled();
+    const entities: EntityState[] = [];
+    sim.director.entitiesFor({ state: { x: 32, z: 85 } } as Player, entities);
+    expect(entities).toHaveLength(3);
+    for (const e of entities) expect(e.flags & EntityFlags.Swimming).toBeTruthy();
+  });
   it('spawns exactly three permanent AK guards at the entrance with separate entity ids', () => {
     const sim = setup();
     sim.director.step([], [], 0);

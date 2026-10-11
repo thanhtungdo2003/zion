@@ -19,6 +19,35 @@ function bodyUp(avatar: Avatar): Vector3 {
   return new Vector3(0, 1, 0).transformDirection(bone.matrixWorld);
 }
 
+describe('swimming pose', () => {
+  it('raises the body smoothly without moving the authoritative root and cancels attacks', () => {
+    const avatar = new Avatar(template, true);
+    avatar.update(10, 1, 10, 0, EntityFlags.Grounded, 1 / 60, 0);
+    avatar.playOnce('melee_attack');
+    avatar.update(10, 1, 10, 0, EntityFlags.Swimming | EntityFlags.Attacking, 1 / 60, 0);
+    const model = avatar.root.children[0]!;
+    expect(model.position.y).toBeGreaterThan(0);
+    expect(model.position.y).toBeLessThan(.35);
+    const layer = () => (avatar as unknown as { cur: { clip: { name: string }; rate: number } }).cur;
+    expect(layer().clip.name).toBe('swim');
+    for (let i = 0; i < 120; i++) avatar.update(10, 1, 10, 0, EntityFlags.Swimming, 1 / 60, 0);
+    expect(model.position.y).toBeCloseTo(.35, 6);
+    expect(avatar.root.position.y).toBe(1);
+    for (let i = 0; i < 120; i++) avatar.update(10, 1, 10, 0, EntityFlags.Grounded, 1 / 60, 0);
+    expect(model.position.y).toBeCloseTo(0, 6);
+  });
+
+  it('speeds up the swimming strokes with movement speed', () => {
+    const avatar = new Avatar(template, true);
+    avatar.update(10, 1, 10, 0, EntityFlags.Swimming, .1, 0);
+    avatar.update(10, 1, 9.8, 0, EntityFlags.Swimming, .1, 0);
+    const layer = () => (avatar as unknown as { cur: { rate: number } }).cur;
+    const slow = layer().rate;
+    avatar.update(10, 1, 9.48, 0, EntityFlags.Swimming | EntityFlags.Sprinting, .1, 0);
+    expect(layer().rate).toBeGreaterThan(slow);
+  });
+});
+
 describe('lobby rifle patrol', () => {
   it('keeps each randomly selected duration until the loop ends, then chooses another duration', () => {
     const avatar = new Avatar(template, true);

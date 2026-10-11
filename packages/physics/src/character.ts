@@ -10,6 +10,7 @@ export interface CharacterParams {
   sprintSpeed: number;
   backwardFactor: number;
   swimSpeed: number;
+  swimSprintSpeed: number;
   gravity: number;
   jumpVelocity: number;
   maxFallSpeed: number;
@@ -46,6 +47,7 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
   sprintSpeed: 6.2,
   backwardFactor: 0.65,
   swimSpeed: 2.0,
+  swimSprintSpeed: 3.2,
   gravity: 22,
   jumpVelocity: 6.8,
   maxFallSpeed: 55,
@@ -189,7 +191,7 @@ export class CharacterController {
     s.swimming = submersion > p.swimDepth;
     const wading = !s.swimming && submersion > p.wadeDepth;
 
-    let speed = (s.swimming ? p.swimSpeed : input.sprint && mz > 0.3 ? p.sprintSpeed : p.walkSpeed) * (input.speedMul ?? 1);
+    let speed = (s.swimming ? (input.sprint ? p.swimSprintSpeed : p.swimSpeed) : input.sprint && mz > 0.3 ? p.sprintSpeed : p.walkSpeed) * (input.speedMul ?? 1);
     if (mz < 0) speed *= p.backwardFactor;
     if (wading) speed *= 0.7;
     const targetX = wishX * speed;

@@ -417,7 +417,7 @@ export class ZombieDirector {
 
     // Attack when in reach.
     const t = z.target;
-    const inReach = t && dist < ATTACK_RANGE * zombieScale(z.variant) && Math.abs(s.y - t.state.y) < 1.2 &&
+    const inReach = !s.swimming && t && dist < ATTACK_RANGE * zombieScale(z.variant) && Math.abs(s.y - t.state.y) < 1.2 &&
       this.collision.lineOfSight(s.x, s.y + 0.9, s.z, t.state.x, t.state.y + 0.9, t.state.z,
         Mask.LineOfSight, this.attackHit);
     // A started bite resolves after its wind-up: only if the victim is still within reach.
@@ -513,7 +513,7 @@ export class ZombieDirector {
   /** Victim within biting range (distance, height and line of sight). */
   private canBite(z: Zombie, v: Player): boolean {
     const s = z.state;
-    return Math.hypot(v.state.x - s.x, v.state.z - s.z) < ATTACK_RANGE * zombieScale(z.variant) + 0.2 && Math.abs(s.y - v.state.y) < 1.2 &&
+    return !s.swimming && Math.hypot(v.state.x - s.x, v.state.z - s.z) < ATTACK_RANGE * zombieScale(z.variant) + 0.2 && Math.abs(s.y - v.state.y) < 1.2 &&
       this.collision.lineOfSight(s.x, s.y + 0.9, s.z, v.state.x, v.state.y + 0.9, v.state.z, Mask.LineOfSight, this.attackHit);
   }
 

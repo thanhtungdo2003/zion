@@ -106,6 +106,7 @@ export class Avatar {
   private rifleGrip: RifleGrip | null = null;
   private oneShot: string | null = null;
   private recoil = 0;
+  private swimLift = 0;
   private aimPitch = 0;
   private readonly weaponObjects = new Map<string, { obj: Object3D; visual: WeaponVisual; bones: Map<string, Bone & { restScale: Vector3 }> }>();
   private weaponAnim: { clip: CharacterClip; time: number; rate: number } | null = null;
@@ -216,6 +217,11 @@ export class Avatar {
     const attackStart = attacking && !this.wasAttacking;
     this.wasAttacking = attacking;
     if (dead) return this.play(null);
+    if (swimming) {
+      this.oneShot = null;
+      this.recoil = 0;
+      return this.play(this.template.clips.has('swim') ? 'swim' : 'walk', speed > .3 ? Math.min(1.6, Math.max(.75, speed / 2)) : .6, 0, .3);
+    }
     if ((flags & EntityFlags.Rolling) !== 0) {
       // Snapshot/prediction flags can end before the last rendered frame of the clip.
       if (this.cur.clip?.name !== 'roll') this.play('roll', 1, 0, 0.6);
@@ -242,7 +248,6 @@ export class Avatar {
     }
     // Rising off the ground = a jump: react on the very first frame, not after a delay.
     if (!grounded && !swimming && (vy > 1 || this.airborne > 0.15)) return this.play('jump', 1, JUMP_START, 0.5);
-    if (swimming) return this.play(this.template.clips.has('swim') ? 'swim' : 'walk', speed > 0.3 ? 1 : 0.6, 0, 0.3);
     if (speed > 0.3) {
       const running = (flags & EntityFlags.Sprinting) !== 0 || speed > 5;
       // Armed characters keep the weapon up while running.
@@ -384,7 +389,8 @@ export class Avatar {
     this.model.rotation.x = dead ? -Math.PI / 2 : 0;
     // ...and the character is shoved back a few centimetres (model faces −Z, so back is +Z).
     this.model.position.z = dead ? 0 : this.recoil * 0.12;
-    this.model.position.y = dead ? 0.2 : (flags & EntityFlags.Swimming) !== 0 ? -0.1 : 0;
+    this.swimLift += (((flags & EntityFlags.Swimming) !== 0 ? .35 : 0) - this.swimLift) * (1 - Math.exp(-dt * 8));
+    this.model.position.y = dead ? 0.2 : this.swimLift;
     if (held) {
       held.obj.matrix.copy(held.visual.attach);
       held.obj.matrixWorldNeedsUpdate = true;

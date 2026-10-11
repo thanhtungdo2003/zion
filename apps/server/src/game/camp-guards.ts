@@ -112,6 +112,7 @@ export class CampGuardDirector {
       const intent = guard.brain.think({ x: s.x, z: s.z, target: target?.state ?? null, threat }, now, TICK_DT);
       guard.yaw = intent.yaw;
       this.controller.step(s, { mx: intent.mx, mz: intent.mz, yaw: intent.yaw, jump: false, sprint: false }, TICK_DT);
+      if (s.swimming) { guard.pitch = 0; continue; }
       if (!target) { guard.pitch = 0; continue; }
       const dx = target.state.x - s.x;
       const dy = target.state.y + 1 - oy;
@@ -140,7 +141,7 @@ export class CampGuardDirector {
       const s = guard.state;
       if (!guard.active || Math.hypot(s.x - player.state.x, s.z - player.state.z) > range) continue;
       out.push({ id: guard.id, kind: EntityKind.Guard, x: s.x, y: s.y, z: s.z, yaw: guard.yaw, pitch: guard.pitch,
-        flags: EntityFlags.Grounded, health: 100, weapon: WeaponId.AK47 });
+        flags: (s.grounded ? EntityFlags.Grounded : 0) | (s.swimming ? EntityFlags.Swimming : 0), health: 100, weapon: WeaponId.AK47 });
     }
   }
 }

@@ -1441,7 +1441,7 @@ export class GameEngine {
         moving: axes.mx !== 0 || axes.mz !== 0,
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
-        firing: weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
+        firing: !local.state.swimming && weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
       });
@@ -1647,6 +1647,7 @@ export class GameEngine {
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
+    if (local.state.swimming) buttons &= ~Buttons.Attack;
     // Scoped in: planted feet, so no walking, rolling or jumping.
     const equippedSpec = weaponSpec(weapon);
     this.scoped = equippedSpec?.kind === 'gun' && !!equippedSpec.scope && this.input.aiming && !local.dead && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
@@ -1670,11 +1671,11 @@ export class GameEngine {
     if (life && life.stamina < life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     let yaw = this.input.yaw;
     let throwDist: number | undefined;
-    // Guns can't fire mid-jump (airborne); throwing and melee still can.
+    // Swimming blocks every attack; guns also cannot fire mid-jump.
     const airborne = !local.state.grounded && !local.state.swimming;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
-    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.firstPerson);
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.firstPerson);
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action !== 'none') buttons |= Buttons.Attack;
     const spec = weaponSpec(weapon);
