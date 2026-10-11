@@ -37,7 +37,7 @@ describe('mobile input', () => {
   it('clears firing when switching views and ignores the fire stick in first person', () => {
     const { input } = setup();
     input.touchFireDirection(1, 0, 0);
-    input.setFirstPerson(true);
+    input.setMouseLook(true);
     expect(input.buttons()).toBe(0);
     expect(input.touchHeading).toBeNull();
     input.touchFireDirection(1, 0, 0);
@@ -76,14 +76,14 @@ describe('mobile input', () => {
   });
   it('wraps first-person yaw, clamps pitch and never requests pointer lock in touch mode', () => {
     const { input, element } = setup();
-    input.setFirstPerson(true); input.touchLook(100000, -100000);
+    input.setMouseLook(true); input.touchLook(100000, -100000);
     expect(input.yaw).toBeGreaterThanOrEqual(-Math.PI); expect(input.yaw).toBeLessThan(Math.PI);
     expect(input.pitch).toBe(1.4); expect(element.requestPointerLock).not.toHaveBeenCalled();
     input.touchLook(0, 100000); expect(input.pitch).toBe(-1.4);
   });
   it('scales mouse and touch aiming with optical zoom and restores normal look on zoom-out', () => {
     const { input, win, doc, element } = setup();
-    input.setFirstPerson(true);
+    input.setMouseLook(true);
     input.lookScale = 1 / 8;
     input.touchLook(80, 40);
     expect(input.yaw).toBeCloseTo(-.025);

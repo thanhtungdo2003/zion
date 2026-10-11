@@ -14,8 +14,8 @@ export class InputController {
   pitch = 0;
   /** Cursor in normalised device coordinates (−1…1, y up). */
   readonly pointer = { x: 0, y: 0 };
-  /** First-person: the mouse turns the view (pointer lock) instead of moving a free cursor. */
-  firstPerson = false;
+  /** First-person / shoulder cameras turn with the mouse instead of a free cursor. */
+  mouseLook = false;
   /** Mouse-look radians per pixel. */
   sensitivity = 0.001;
   /** Follow the current optical zoom so aiming keeps a consistent screen-space sensitivity. */
@@ -32,7 +32,7 @@ export class InputController {
     this.syncPointer();
   }
   private freeCursorFlag = false;
-  /** First-person only: release the mouse for an on-screen panel (dialogue, death screen). */
+  /** Release captured mouse-look for an on-screen panel (dialogue, death screen). */
   set freeCursor(v: boolean) {
     if (v === this.freeCursorFlag) return;
     this.freeCursorFlag = v;
@@ -40,7 +40,7 @@ export class InputController {
     this.syncPointer();
   }
   private get wantsLock(): boolean {
-    return this.firstPerson && !this.touchEnabled && this.active && !this.suspendedFlag && !this.freeCursorFlag;
+    return this.mouseLook && !this.touchEnabled && this.active && !this.suspendedFlag && !this.freeCursorFlag;
   }
   private syncPointer(): void {
     if (this.wantsLock) this.lockPointer();
@@ -222,7 +222,7 @@ export class InputController {
   touchLook(dx: number, dy: number, zoom = 1): void {
     if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-    if (this.firstPerson) {
+    if (this.mouseLook) {
       const yaw = this.yaw - dx * this.sensitivity * 2.5 * zoom * this.lookScale;
       this.yaw = yaw - Math.PI * 2 * Math.floor((yaw + Math.PI) / (Math.PI * 2));
       this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - dy * this.sensitivity * 2.5 * zoom * this.lookScale));
@@ -234,7 +234,7 @@ export class InputController {
   }
 
   touchFireDirection(x: number, y: number, cameraYaw: number): void {
-    if (!this.touchEnabled || this.firstPerson || this.suspended || !this.active || this.freeCursorFlag) return;
+    if (!this.touchEnabled || this.mouseLook || this.suspended || !this.active || this.freeCursorFlag) return;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const length = Math.hypot(x, y);
     if (length > 0) {
@@ -255,7 +255,7 @@ export class InputController {
   }
 
   private lockPointer(): void {
-    if (!this.firstPerson || this.touchEnabled || this.pointerLocked) return;
+    if (!this.mouseLook || this.touchEnabled || this.pointerLocked) return;
     try {
       void Promise.resolve(this.element.requestPointerLock()).catch(() => undefined);
     } catch {
@@ -267,10 +267,10 @@ export class InputController {
     if (this.pointerLocked) document.exitPointerLock();
   }
 
-  /** Switches between the top-down free cursor and first-person mouse look. */
-  setFirstPerson(on: boolean): void {
-    if (on === this.firstPerson) return;
-    this.firstPerson = on;
+  /** Both first-person and shoulder cameras share captured mouse / touch look. */
+  setMouseLook(on: boolean): void {
+    if (on === this.mouseLook) return;
+    this.mouseLook = on;
     this.resetTouch();
     this.touchHeading = null;
     this.element.style.cursor = on ? 'none' : 'crosshair';

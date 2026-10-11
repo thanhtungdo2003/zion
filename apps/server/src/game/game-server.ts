@@ -1449,7 +1449,7 @@ export class GameServer {
   }
 
   private applyInput(p: Player, input: InputMessage, now: number): void {
-    p.yaw = input.yaw;
+    p.yaw = input.aimYaw ?? input.yaw;
     p.pitch = input.pitch;
     // What is in hand / on the back comes from the server's inventory, not the client's claim.
     const held = p.inv.equippedItem();

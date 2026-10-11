@@ -1,0 +1,48 @@
+import { Vector3, type PerspectiveCamera } from 'three';
+import { Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
+
+const CAMERA_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7, .7], [.7, -.7], [-.7, -.7]] as const;
+
+/** Shoulder camera with immediate inward collision response and a smooth return outwards. */
+export class ThirdPersonCamera {
+  distance = 0;
+  private initialized = false;
+  private readonly direction = new Vector3();
+  private readonly right = new Vector3();
+  private readonly up = new Vector3();
+  private readonly origin = new Vector3();
+  private readonly hit = makeRayHit();
+
+  reset(): void { this.initialized = false; }
+
+  update(camera: PerspectiveCamera, focus: Vector3, yaw: number, pitch: number, dt: number, collision?: CollisionWorld): void {
+    this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
+    this.direction.set(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
+      .multiplyScalar(3.8).addScaledVector(this.right, .55);
+    const desired = this.direction.length();
+    this.direction.divideScalar(desired);
+    this.up.crossVectors(this.direction, this.right).normalize();
+    let safe = desired;
+    if (collision) {
+      // Sample a small camera volume, rather than letting its near plane cut through corners.
+      for (const [x, y] of CAMERA_SAMPLES) {
+        this.origin.copy(focus).addScaledVector(this.right, x * .24).addScaledVector(this.up, y * .24);
+        if (collision.raycast(this.origin.x, this.origin.y, this.origin.z, this.direction.x, this.direction.y, this.direction.z, desired, Mask.Camera, this.hit)) {
+          safe = Math.min(safe, Math.max(0, this.hit.t - .12));
+        }
+      }
+    }
+    if (!this.initialized || safe < this.distance) this.distance = safe;
+    else this.distance += (safe - this.distance) * (1 - Math.exp(-dt * 8));
+    this.initialized = true;
+    camera.position.copy(focus).addScaledVector(this.direction, this.distance);
+    camera.rotation.set(pitch, yaw, 0, 'YXZ');
+    camera.updateMatrixWorld(true);
+  }
+}
+
+/** Aim from the authoritative muzzle to the camera's centre target (shoulder parallax). */
+export function thirdPersonAim(origin: Vector3, target: Vector3): { yaw: number; pitch: number } {
+  const dx = target.x - origin.x, dy = target.y - origin.y, dz = target.z - origin.z;
+  return { yaw: Math.atan2(-dx, -dz), pitch: Math.max(-1.4, Math.min(1.4, Math.atan2(dy, Math.hypot(dx, dz)))) };
+}

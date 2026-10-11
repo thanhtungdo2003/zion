@@ -1417,6 +1417,9 @@ kbd {
   gap: 8px;
 }
 
+.set-camera { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.set-camera .set-lang { min-width: 0; padding: 12px 10px; }
+
 .set-lang {
   position: relative;
   display: flex;

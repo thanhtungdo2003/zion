@@ -19,7 +19,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, children }: Props) {
-  const { lang, volume, brightness, touchControls, firstPerson, mouseSens, t } = useSettings();
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, t } = useSettings();
 
   useEffect(() => {
     if (!open) return;
@@ -89,19 +89,19 @@ export function SettingsModal({ open, onClose, children }: Props) {
           <h3>
             <span>03</span> {t('settings.view')}
           </h3>
-          <div className="set-langs" role="radiogroup" aria-label={t('settings.view')}>
-            {([false, true] as const).map((fp) => (
+          <div className="set-langs set-camera" role="radiogroup" aria-label={t('settings.view')}>
+            {(['top-down', 'third-person', 'first-person'] as const).map((mode) => (
               <button
-                key={String(fp)}
+                key={mode}
                 type="button"
                 role="radio"
-                aria-checked={firstPerson === fp}
+                aria-checked={cameraMode === mode}
                 className="set-lang"
-                onClick={() => settingsStore.set({ firstPerson: fp })}
+                onClick={() => settingsStore.set({ cameraMode: mode })}
               >
-                <b>{fp ? 'FPP' : 'TPP'}</b>
-                <small>{t(fp ? 'settings.view_first' : 'settings.view_third')}</small>
-                <i aria-hidden><Icon name={firstPerson === fp ? 'lucide:square-check' : 'lucide:square'} /></i>
+                <b>{mode === 'first-person' ? 'FPP' : mode === 'third-person' ? 'TPP' : 'TOP'}</b>
+                <small>{t(mode === 'first-person' ? 'settings.view_first' : mode === 'third-person' ? 'settings.view_shoulder' : 'settings.view_third')}</small>
+                <i aria-hidden><Icon name={cameraMode === mode ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>

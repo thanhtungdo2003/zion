@@ -59,7 +59,8 @@ function TouchKey({ icon, label, hold, press, pressed, disabled, className = '',
 export function MobileControls({ controls, canAim, canReload, reloading, rollCooldown, weaponUid }: {
   controls: TouchControlsPort; canAim: boolean; canReload: boolean; reloading: boolean; rollCooldown: number; weaponUid: number | null;
 }) {
-  const { t, firstPerson } = useSettings();
+  const { t, cameraMode } = useSettings();
+  const mouseLook = cameraMode !== 'top-down';
   const joystick = useRef<{ id: number; x: number; y: number } | null>(null);
   const look = useRef<{ id: number; x: number; y: number } | null>(null);
   const fire = useRef<number | null>(null);
@@ -87,7 +88,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
       window.removeEventListener('resize', reset);
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [controls, firstPerson]);
+  }, [controls, cameraMode]);
   useEffect(() => { setAim(false); controls.button('aim', false); }, [weaponUid, controls]);
 
   const move = (e: PointerEvent<HTMLElement>) => {
@@ -120,7 +121,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
     fire.current = null; setFireStick({ x: 0, y: 0 }); controls.fireDirection(0, 0);
   };
   return <div key={gestureEpoch} className="touch-controls" data-nosound>
-    {firstPerson && <div className="touch-look" aria-label={t('touch.look')}
+    {mouseLook && <div className="touch-look" aria-label={t('touch.look')}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -152,7 +153,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
     </div>
     <TouchKey controls={controls} className="touch-sprint" icon="lucide:footprints" label={t('touch.sprint')} pressed={sprint}
       press={() => { controls.button('sprint', !sprint); setSprint(!sprint); }} />
-    {firstPerson ? <TouchKey controls={controls} className="touch-fire" icon="lucide:crosshair" label={t('touch.attack')} hold="attack" look /> :
+    {mouseLook ? <TouchKey controls={controls} className="touch-fire" icon="lucide:crosshair" label={t('touch.attack')} hold="attack" look /> :
       <div className="touch-joystick touch-fire-stick" role="group" aria-label={t('touch.dragFire')} data-active={fire.current !== null}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {

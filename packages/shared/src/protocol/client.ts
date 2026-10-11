@@ -38,6 +38,8 @@ export const inputMessageSchema = z
     /** Local forward axis, -1 (back) … 1 (forward). */
     mz: finite.min(-1).max(1),
     yaw: finite.min(-Math.PI).max(Math.PI),
+    /** Optional shoulder-camera aim; movement remains relative to `yaw`. */
+    aimYaw: finite.min(-Math.PI).max(Math.PI).optional(),
     pitch: finite.min(-MAX_PITCH).max(MAX_PITCH),
     b: z
       .number()

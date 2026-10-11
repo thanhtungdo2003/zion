@@ -48,7 +48,8 @@ function phase(tod: number): TKey {
 }
 
 export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime, chatRequest = 0 }: Props) {
-  const { t, tm, firstPerson } = useSettings();
+  const { t, tm, cameraMode } = useSettings();
+  const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -116,7 +117,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
 
   return (
     <>
-    {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && (
+    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && (
       <ScopeOverlay magnification={state.scopeMagnification} />
     )}
     <RankPromotion promotion={state.promotion} />
@@ -210,7 +211,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               <kbd>E</kbd> {tm(state.interact)}
             </div>
           )}
-          {state.scoped && !firstPerson && <div className="hud-scope" />}
+          {state.scoped && !mouseLook && <div className="hud-scope" />}
           {debugOpen && (
             <div className="hud-debug">
               <b>F3 · Debug</b>
@@ -333,7 +334,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         )}
       </SettingsModal>
 
-      {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
+      {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
         <div className="fp-crosshair" aria-hidden>
           <i /><i /><i /><i />
         </div>

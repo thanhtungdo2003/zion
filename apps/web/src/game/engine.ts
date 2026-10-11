@@ -1,7 +1,8 @@
 import type { RankTitle } from '@zion/shared';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
-import { settingsStore } from '@/lib/settings';
+import { settingsStore, type CameraMode } from '@/lib/settings';
+import { ThirdPersonCamera, thirdPersonAim } from './third-person-camera';
 import { mobileAimScore } from './mobile-aim';
 import { scopeFov } from './scope';
 import { RecoilSpring, weaponRecoil } from './first-person-recoil';
@@ -303,8 +304,14 @@ export class GameEngine {
   private disposed = false;
   private chatOpen = false;
   private tutorialBlocked = false;
-  /** First-person view (settings); top-down otherwise. */
-  private firstPerson = false;
+  /** Persisted view mode; the two close cameras share mouse-look controls. */
+  private cameraMode: CameraMode = 'top-down';
+  private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
+  private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
+  private readonly thirdPersonCamera = new ThirdPersonCamera();
+  private shoulderAim = { yaw: 0, pitch: 0 };
+  private get shotYaw(): number { return this.cameraMode === 'third-person' ? this.shoulderAim.yaw : this.input.yaw; }
+  private get shotPitch(): number { return this.cameraMode === 'third-person' ? this.shoulderAim.pitch : this.input.pitch; }
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
   private readonly recoil = new RecoilSpring();
@@ -670,7 +677,7 @@ export class GameEngine {
     // Slot 0 is always ours (the shadow-casting light), 1–3 the nearest other carriers.
     let mine: Carrier | null = null;
     if (l && !l.dead && this.inventory.get().items.some((i) => i.container === 'offhand' && i.itemId === 'flashlight')) {
-      mine = { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.input.yaw, dark: this.darkness(l.state.x, l.state.y, l.state.z), pitch: this.firstPerson ? this.input.pitch : undefined };
+      mine = { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.input.yaw, dark: this.darkness(l.state.x, l.state.y, l.state.z), pitch: this.mouseLook ? this.input.pitch : undefined };
     }
     const others: Carrier[] = [...this.remotes.values()]
       .filter((r) => r.entity.kind === EntityKind.Player && (r.entity.pose.flags & EntityFlags.Flashlight) && !(r.entity.pose.flags & EntityFlags.Dead))
@@ -818,7 +825,7 @@ export class GameEngine {
   }
   resetTouch(): void { this.input.resetTouch(); }
   touchLook(dx: number, dy: number): { x: number; y: number } {
-    this.input.touchLook(dx, dy, !this.firstPerson && this.scoped ? 0.4 : 1);
+    this.input.touchLook(dx, dy, !this.mouseLook && this.scoped ? 0.4 : 1);
     return { ...this.input.pointer };
   }
 
@@ -1337,12 +1344,13 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
+    if (this.mouseLook && !this.camFocusInit) this.updateCamera(local.state.x, local.state.y, local.state.z, 0);
 
     const equipped = this.inventory.get().equipped;
     if (equipped !== this.recoilWeapon) { this.recoil.reset(); this.recoilWeapon = equipped; }
     // Equip before firing ticks so a swap cannot clear the first shot's recoil.
     this.viewModel?.set(this.inventory.equippedItemId(), this.weapons);
-    if (this.firstPerson && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
+    if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
       // Change the actual input pitch so the camera, centre reticle and authoritative shots agree.
       this.input.pitch = this.recoil.apply(this.input.pitch, dt);
     } else this.recoil.reset();
@@ -1431,8 +1439,8 @@ export class GameEngine {
     this.localAvatar?.setStance(this.inventory.stance());
     this.localAvatar?.setWeapon(this.inventory.equippedItemId(), this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
-    this.localAvatar?.setAimPitch(this.input.pitch);
-    this.localAvatar?.update(px, py, pz, this.input.yaw, selfFlags, dt, this.elapsed);
+    this.localAvatar?.setAimPitch(this.shotPitch);
+    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed);
     if (this.localAvatar && this.firstPerson) this.localAvatar.root.visible = false;
     if (this.viewModel) {
       const axes = this.input.axes();
@@ -1454,6 +1462,8 @@ export class GameEngine {
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateCamera(px, py, pz, dt);
+    if (this.localAvatar && this.cameraMode === 'third-person') this.localAvatar.root.visible = !this.scoped && this.thirdPersonCamera.distance > .75;
+    this.updateShoulderAim(px, py, pz);
     if (this.firstPerson && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
       const ray = this.raycaster.ray;
@@ -1534,8 +1544,8 @@ export class GameEngine {
       const dx = n.x - px, dz = n.z - pz;
       // Screen-space bearing: x right, y down. First person: relative to the view direction.
       const yaw = this.input.yaw;
-      const screenX = this.firstPerson ? Math.cos(yaw) * dx - Math.sin(yaw) * dz : Math.cos(CAM_YAW) * dx - Math.sin(CAM_YAW) * dz;
-      const screenY = this.firstPerson ? Math.sin(yaw) * dx + Math.cos(yaw) * dz : Math.sin(CAM_PITCH) * (Math.sin(CAM_YAW) * dx + Math.cos(CAM_YAW) * dz);
+      const screenX = this.mouseLook ? Math.cos(yaw) * dx - Math.sin(yaw) * dz : Math.cos(CAM_YAW) * dx - Math.sin(CAM_YAW) * dz;
+      const screenY = this.mouseLook ? Math.sin(yaw) * dx + Math.cos(yaw) * dz : Math.sin(CAM_PITCH) * (Math.sin(CAM_YAW) * dx + Math.cos(CAM_YAW) * dz);
       return { ...n, distance: Math.hypot(dx, dz), angle: Math.atan2(-screenX, screenY) };
     }) });
     const guides: HudState['guides'] = [];
@@ -1596,7 +1606,7 @@ export class GameEngine {
       if (pose) { b.x = pose.x; b.y = pose.y; b.z = pose.z; }
       const v = this.guideTmp.set(b.x, b.y + 2.35, b.z).project(this.camera);
       const near = !b.player || this.camera.position.distanceToSquared(pose!) <= 35 * 35;
-      const visible = near && !(b.player && self && this.firstPerson) && v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+      const visible = near && !(b.player && self && this.mouseLook) && v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       b.el.style.display = visible ? '' : 'none';
       if (visible) b.el.style.transform = `translate(${Math.round((v.x + 1) * 0.5 * w)}px, ${Math.round((1 - v.y) * 0.5 * h)}px) translate(-50%, -100%)`;
       b.el.style.opacity = b.until - now < 300 ? String((b.until - now) / 300) : '1';
@@ -1631,19 +1641,21 @@ export class GameEngine {
 
   private fixedStep(local: LocalPlayer): void {
     if (!this.conn.open) return;
+    this.updateShoulderAim(local.state.x, local.state.y, local.state.z);
     // Screen-relative WASD -> camera-yaw world direction -> the character's yaw-local axes.
     const a = this.input.axes();
-    let wx = Math.cos(CAM_YAW) * a.mx - Math.sin(CAM_YAW) * a.mz;
-    let wz = -Math.sin(CAM_YAW) * a.mx - Math.cos(CAM_YAW) * a.mz;
+    const cameraYaw = this.mouseLook ? this.input.yaw : CAM_YAW;
+    let wx = Math.cos(cameraYaw) * a.mx - Math.sin(cameraYaw) * a.mz;
+    let wz = -Math.sin(cameraYaw) * a.mx - Math.cos(cameraYaw) * a.mz;
     const len = Math.hypot(wx, wz);
     if (len > 1) {
       wx /= len;
       wz /= len;
     }
     const y = this.input.yaw;
-    // First person: WASD is already relative to where the character looks.
-    const mx = this.firstPerson ? a.mx : Math.max(-1, Math.min(1, wx * Math.cos(y) - wz * Math.sin(y)));
-    const mz = this.firstPerson ? a.mz : Math.max(-1, Math.min(1, -wx * Math.sin(y) - wz * Math.cos(y)));
+    // Camera-relative movement is independent of shoulder parallax in the aiming direction.
+    const mx = this.mouseLook ? a.mx : Math.max(-1, Math.min(1, wx * Math.cos(y) - wz * Math.sin(y)));
+    const mz = this.mouseLook ? a.mz : Math.max(-1, Math.min(1, -wx * Math.sin(y) - wz * Math.cos(y)));
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
@@ -1669,13 +1681,13 @@ export class GameEngine {
     // Exhausted (under 10% stamina): no sprinting or rolling (the server enforces the same).
     const life = this.hud.get().life;
     if (life && life.stamina < life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
-    let yaw = this.input.yaw;
+    let yaw = this.shotYaw;
     let throwDist: number | undefined;
     // Swimming blocks every attack; guns also cannot fire mid-jump.
     const airborne = !local.state.grounded && !local.state.swimming;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
-    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.firstPerson);
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook);
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action !== 'none') buttons |= Buttons.Attack;
     const spec = weaponSpec(weapon);
@@ -1709,7 +1721,8 @@ export class GameEngine {
       }
       this.localAvatar?.playOnce('grenade_throw');
     }
-    const msg = local.step(moveX, moveZ, yaw, this.input.pitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
+    const msg = local.step(moveX, moveZ, this.cameraMode === 'third-person' ? this.input.yaw : yaw, this.shotPitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
+    if (this.cameraMode === 'third-person') msg.aimYaw = yaw;
     this.input.acknowledgeTouchPresses();
     if (throwDist !== undefined) msg.td = Math.min(100, throwDist);
     const back = this.backItemId();
@@ -1755,9 +1768,9 @@ export class GameEngine {
     const local = this.local;
     if (spec?.kind !== 'gun' || !local) return;
     this.viewModel?.kick(Math.min(1.5, weaponRecoil(weapon) * 28));
-    if (this.firstPerson) this.recoil.kick(weaponRecoil(weapon, this.scoped ? spec.scope ?? 1 : 1));
+    if (this.mouseLook) this.recoil.kick(weaponRecoil(weapon, this.scoped ? spec.scope ?? 1 : 1));
     const s = local.state;
-    const yaw = this.input.yaw;
+    const yaw = this.shotYaw;
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
     const ox = s.x;
@@ -1769,7 +1782,7 @@ export class GameEngine {
       const a = (Math.random() * 2 - 1) * spec.spread;
       const b = (Math.random() * 2 - 1) * spec.spread * 0.5;
       // Aim pitch comes from the cursor distance (see updateAim).
-      const p = this.input.pitch + b;
+      const p = this.shotPitch + b;
       const dx = -Math.sin(yaw + a) * Math.cos(p);
       const dz = -Math.cos(yaw + a) * Math.cos(p);
       const dy = Math.sin(p);
@@ -1782,7 +1795,7 @@ export class GameEngine {
     }
     const heavy = heavyKick(weapon);
     const av = this.localAvatar;
-    const dir = new Vector3(fx * Math.cos(this.input.pitch), Math.sin(this.input.pitch), fz * Math.cos(this.input.pitch));
+    const dir = new Vector3(fx * Math.cos(this.shotPitch), Math.sin(this.shotPitch), fz * Math.cos(this.shotPitch));
     // Render after this frame's camera and weapon pose, so the flash shares the visible bore.
     this.pendingLocalShots.push(() => {
       const muzzle = this.localWeaponPoint('muzzle', this.tmpA) ? this.tmpA : this.firstPerson
@@ -2276,9 +2289,25 @@ export class GameEngine {
     this.updateThrowMarker(px, pz);
   }
 
+  private updateShoulderAim(px: number, py: number, pz: number): void {
+    if (this.cameraMode !== 'third-person') return;
+    this.camera.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+    this.camera.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
+    const ray = this.raycaster.ray;
+    let distance = 100;
+    if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
+    distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
+    this.tmpA.set(px, py + MUZZLE_HEIGHT, pz);
+    this.tmpB.copy(ray.direction).multiplyScalar(distance).add(ray.origin);
+    // A camera-side obstruction must never turn a shot backwards through the character.
+    if (this.tmpC.subVectors(this.tmpB, this.tmpA).dot(ray.direction) < .2) this.tmpB.copy(this.tmpA).addScaledVector(ray.direction, 2);
+    this.shoulderAim = thirdPersonAim(this.tmpA, this.tmpB);
+  }
+
   private updateAimInner(px: number, py: number, pz: number): void {
     if (!this.input.locked || this.input.suspended || this.local?.dead) return;
-    if (this.firstPerson) {
+    if (this.mouseLook) {
       // Mouse look sets yaw/pitch directly; no aim assist. The aim point (grenades, launchers) is
       // where the view centre meets the ground plane, or far ahead when looking up.
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
@@ -2390,29 +2419,34 @@ export class GameEngine {
     return found ? this.hoverPoint : null;
   }
 
-  /** Follows the first-person setting: camera lens, mouse capture, cone overlay, own body. */
+  /** Applies camera mode, mouse capture, visibility and lens settings. */
   private applyViewMode(): void {
     const settings = settingsStore.get();
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
-    const fp = settings.firstPerson;
+    const mode = settings.cameraMode;
+    const fp = mode === 'first-person';
+    const mouseLook = mode !== 'top-down';
     this.input.sensitivity = settings.mouseSens * 0.00004;
     const hud = this.hud.get();
-    this.input.freeCursor = fp && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
-    if (fp === this.firstPerson) return;
-    this.firstPerson = fp;
+    this.input.freeCursor = mouseLook && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
+    if (mode === this.cameraMode) return;
+    const wasMouseLook = this.mouseLook;
+    this.cameraMode = mode;
     this.recoil.reset();
-    this.input.setFirstPerson(fp);
-    this.input.pitch = 0;
-    this.vision?.setOverlay(!fp);
+    this.input.setMouseLook(mouseLook);
+    if (!wasMouseLook || !mouseLook) this.input.pitch = mode === 'third-person' ? -.12 : 0;
+    this.thirdPersonCamera.reset();
+    this.shoulderAim = { yaw: this.input.yaw, pitch: this.input.pitch };
+    this.vision?.setOverlay(!mouseLook);
     if (fp && !this.viewModel) {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
       this.viewModel = new ViewModel(this.camera);
     }
     if (this.localAvatar) this.localAvatar.root.visible = true;
-    this.camera.fov = fp ? FP_FOV : 40;
-    this.camera.near = fp ? 0.05 : 0.5;
+    this.camera.fov = mouseLook ? FP_FOV : 40;
+    this.camera.near = mouseLook ? 0.05 : 0.5;
     this.camera.updateProjectionMatrix();
     this.camFocusInit = false;
   }
@@ -2421,7 +2455,7 @@ export class GameEngine {
     // A non-finite position (bad snapshot) would blank the whole view: hold the last camera.
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
-    if (this.firstPerson) {
+    if (this.mouseLook) {
       // Smooth the eye: prediction corrections and step-ups would otherwise jolt the whole view.
       const eye = py + DEFAULT_CHARACTER.eyeHeight;
       const f = this.camFocus;
@@ -2443,13 +2477,16 @@ export class GameEngine {
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
-      cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
-      // Screen shake is much stronger up close: a quarter of it is plenty in first person.
-      const shake = (this.effects?.shake ?? 0) * 0.25;
-      if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
-      cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
-      if (this.local && !this.local.dead && this.hud.get().downed === null) {
-        applyFirstPersonRoll(cam, this.local.state, this.local.prev.rollTicks, this.accumulator / TICK_DT);
+      if (this.cameraMode === 'third-person' && !this.scoped) {
+        this.thirdPersonCamera.update(cam, f, this.input.yaw, this.input.pitch, dt, this.store?.collision);
+      } else {
+        cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
+        const shake = (this.effects?.shake ?? 0) * 0.25;
+        if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
+        cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+        if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
+          applyFirstPersonRoll(cam, this.local.state, this.local.prev.rollTicks, this.accumulator / TICK_DT);
+        }
       }
       // Nothing is see-through in first person: park the fade target far below the world and let
       // every faded prop ease back to solid.
