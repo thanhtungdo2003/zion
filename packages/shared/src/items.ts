@@ -50,6 +50,7 @@ export const ITEMS: Record<string, ItemDef> = {
   rocket_launcher: { id: 'rocket_launcher', name: 'Rocket Launcher', category: 'heavy', w: 6, h: 2, stance: 'rifle', color: '#4d5a3c', info: 'Single-shot · reload after every rocket' },
   flamethrower: { id: 'flamethrower', name: 'Flamethrower', category: 'heavy', w: 5, h: 2, stance: 'rifle', color: '#7a4a2a', info: 'Short-range fire cone · sets targets ablaze' },
   katana: { id: 'katana', name: 'Katana', category: 'melee', w: 5, h: 1, stance: 'melee', color: '#4a3f52', info: 'Fast blade · sweeping cut' },
+  shovel: { id: 'shovel', name: 'Xẻng', category: 'melee', w: 6, h: 1, stance: 'melee', color: '#6b6653', info: 'Heavy shovel · sweeping strike' },
   quam: { id: 'quam', name: 'Cây Quắm', category: 'melee', w: 7, h: 1, stance: 'melee', color: '#5a4630', info: 'Polearm hook blade · long reach, heavy cut' },
   flashlight: { id: 'flashlight', name: 'Flashlight', category: 'tool', w: 2, h: 1, stance: 'unarmed', color: '#3a3f44', info: 'Off-hand tool · lights up the way ahead at night (turns on by itself)' },
   medkit: { id: 'medkit', name: 'First Aid Kit', category: 'medical', w: 2, h: 1, stance: 'unarmed', color: '#8a2a2a', info: 'Restores full health · 3 uses · 5 s to apply, interrupted by moving or damage', uses: 3 },

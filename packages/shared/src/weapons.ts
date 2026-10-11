@@ -22,9 +22,10 @@ export const WeaponId = {
   Flamethrower: 16,
   Katana: 17,
   Quam: 18,
+  Shovel: 19,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 18;
+export const MAX_WEAPON_ID = 19;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'hitscan' | 'projectile' | 'flame';
@@ -127,6 +128,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Grenade]: { kind: 'throw', cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 22, scatterBase: 1.2, scatterPerM: 0.08, fuseMs: 2600, radius: 7, damage: 120 },
   [WeaponId.Katana]: { kind: 'melee', damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
   [WeaponId.Quam]: { kind: 'melee', damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
+  [WeaponId.Shovel]: { kind: 'melee', damage: 30, range: 2.7, cooldownMs: 750, swingMs: 400 },
 };
 
 /** Inventory item id → weapon id. */
@@ -149,6 +151,7 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   flamethrower: WeaponId.Flamethrower,
   katana: WeaponId.Katana,
   quam: WeaponId.Quam,
+  shovel: WeaponId.Shovel,
 };
 
 export const ITEM_BY_WEAPON: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(WEAPON_BY_ITEM).map(([k, v]) => [v, k]));

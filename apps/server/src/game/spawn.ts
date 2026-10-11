@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { worldToChunk } from '@zion/shared';
-import { DEFAULT_CHARACTER, Layer, type CharacterController, type CollisionWorld } from '@zion/physics';
+import { DEFAULT_CHARACTER, Layer, Mask, makeRayHit, type CharacterController, type CollisionWorld } from '@zion/physics';
 import type { SpawnPoint, WorldGenerator } from '@zion/worldgen';
 import type { PhysicsChunkManager } from './physics-manager';
 
@@ -30,6 +30,15 @@ const NUDGES: ReadonlyArray<readonly [number, number]> = (() => {
  */
 export class SpawnService {
   private readonly candidates: SpawnPoint[];
+  private readonly shadeHit = makeRayHit();
+
+  loadedZombieChunks(): Array<readonly [number, number]> { return this.physics.loadedChunks(); }
+
+  /** Shelter and canopy block daylight; night makes open ground viable too. */
+  zombieDarkness(x: number, y: number, z: number, night: boolean): number {
+    const shaded = this.collision.raycast(x, y + 1.7, z, 0, 1, 0, 14, Mask.Camera, this.shadeHit);
+    return night ? 1 : shaded ? 0.8 : 0.12;
+  }
 
   constructor(
     private readonly gen: WorldGenerator,

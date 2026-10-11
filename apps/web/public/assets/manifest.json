@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-11T02:22:49.760Z",
+  "generatedAt": "2026-10-11T07:50:19.632Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -573,9 +573,15 @@
       "kind": "bbmodel"
     },
     "mobs/brute-zombie.bbmodel": {
-      "url": "/assets/models/mobs_brute-zombie.8aa92419f799.bbmodel",
-      "sha256": "8aa92419f799f574dc86f4d8c55e3277383a79b5c51e6a1fabb1121bd73316c1",
-      "bytes": 27412,
+      "url": "/assets/models/mobs_brute-zombie.f0130fef1484.bbmodel",
+      "sha256": "f0130fef14849f4e18277a52860cea607d2c181190ce19a439d788f12e74bf76",
+      "bytes": 34814,
+      "kind": "bbmodel"
+    },
+    "mobs/crimson-eyed-zombie.bbmodel": {
+      "url": "/assets/models/mobs_crimson-eyed-zombie.113bd151ad89.bbmodel",
+      "sha256": "113bd151ad89f095b9f32e6500a6bf5c87c02c1c541deaae7f5a545556a98197",
+      "bytes": 39541,
       "kind": "bbmodel"
     },
     "mobs/gaunt-zombie.bbmodel": {

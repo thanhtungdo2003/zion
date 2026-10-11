@@ -1,9 +1,10 @@
 import type { RankTitle } from '@zion/shared';
-import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
+import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
 import { mobileAimScore } from './mobile-aim';
 import { scopeFov } from './scope';
+import { RecoilSpring, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
@@ -265,7 +266,7 @@ export class GameEngine {
   private nurseTemplate: CharacterTemplate | null = null;
   private zombieTemplate: CharacterTemplate | null = null;
   private zombieTemplates: CharacterTemplate[] = [];
-  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; limbs: number; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
+  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; limbs: number; variant: number; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
   private debris: DebrisSystem | null = null;
   private weapons: WeaponLibrary | null = null;
   /** Character field of view; monsters should use `vision.canSee(...)`. */
@@ -306,6 +307,8 @@ export class GameEngine {
   private firstPerson = false;
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
+  private readonly recoil = new RecoilSpring();
+  private recoilWeapon: number | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -927,7 +930,7 @@ export class GameEngine {
       if (e.kind === EntityKind.Zombie) {
         let zb = this.zombies.get(e.id);
         if (!zb) {
-          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon))), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
+          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon)), zombieVariant(e.weapon)), variant: zombieVariant(e.weapon), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
           zb.avatar.ground = (x, z) => this.groundY(x, z);
           zb.avatar.addTo(this.scene);
           this.zombies.set(e.id, zb);
@@ -1017,7 +1020,7 @@ export class GameEngine {
    * below 30% health it roars and keeps roaring while it charges.
    */
   private zombieVoice(
-    zb: { voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean },
+    zb: { voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; variant: number; leaping?: boolean },
     pose: { x: number; y: number; z: number; flags: number; health: number },
     dist2: number,
   ): void {
@@ -1028,10 +1031,22 @@ export class GameEngine {
       zb.dead = true;
       return;
     }
+    const leaping = (pose.flags & EntityFlags.Leaping) !== 0 && !(pose.flags & EntityFlags.Grounded);
+    const jumpStart = leaping && !zb.leaping;
+    zb.leaping = leaping;
     if (dist2 > 45 * 45) return;
     const now = performance.now();
     const at = { x: pose.x, y: pose.y + 1.4, z: pose.z };
-    const enraged = pose.health > 0 && pose.health < 30;
+    if (zb.variant === ZombieVariant.Crimson) {
+      if (jumpStart) sounds.play('zombieJump', { at, volume: 1.1, maxDistance: 45, channel: zb });
+      if (now >= zb.voiceAt && !jumpStart) {
+        const pick = Math.random() < .5 ? 'zombieRoar' : 'zombieRoar2';
+        const duration = sounds.play(pick, { at, volume: .9, maxDistance: 40, channel: zb });
+        zb.voiceAt = now + duration * 1000 + 2000 + Math.random() * 3000;
+      }
+      return;
+    }
+    const enraged = pose.health > 0 && pose.health < (zb.variant === ZombieVariant.Brute ? 50 : 30);
     let length = 0;
     if (enraged && !zb.enraged) {
       length = sounds.play('zombieGrowl', { at, volume: 1.1, maxDistance: 45, channel: zb });
@@ -1323,6 +1338,15 @@ export class GameEngine {
     const store = this.store;
     if (!local || !store || !this.sky) return;
 
+    const equipped = this.inventory.get().equipped;
+    if (equipped !== this.recoilWeapon) { this.recoil.reset(); this.recoilWeapon = equipped; }
+    // Equip before firing ticks so a swap cannot clear the first shot's recoil.
+    this.viewModel?.set(this.inventory.equippedItemId(), this.weapons);
+    if (this.firstPerson && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
+      // Change the actual input pitch so the camera, centre reticle and authoritative shots agree.
+      this.input.pitch = this.recoil.apply(this.input.pitch, dt);
+    } else this.recoil.reset();
+
     // Fixed-rate input + prediction, exactly mirroring the server tick.
     this.accumulator += dt;
     let steps = 0;
@@ -1391,7 +1415,7 @@ export class GameEngine {
       const close = dx * dx + dz * dz < 2.5 * 2.5;
       // Once spotted, a zombie stays visible even after the player looks away.
       zb.avatar.seen = zb.avatar.seen || close || (this.vision?.canSee(pose.x, pose.y + 0.9, pose.z, this.store?.collision) ?? true);
-      zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt);
+      zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt, pose.health);
       if (zb.burnUntil && zb.burnUntil > now && zb.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       this.zombieVoice(zb, pose, dx * dx + dz * dz);
     }
@@ -1412,7 +1436,6 @@ export class GameEngine {
     if (this.localAvatar && this.firstPerson) this.localAvatar.root.visible = false;
     if (this.viewModel) {
       const axes = this.input.axes();
-      this.viewModel.set(this.inventory.equippedItemId(), this.weapons);
       this.viewModel.update(dt, {
         visible: this.firstPerson && !this.scoped && !local.dead,
         moving: axes.mx !== 0 || axes.mz !== 0,
@@ -1730,7 +1753,8 @@ export class GameEngine {
     const spec = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>];
     const local = this.local;
     if (spec?.kind !== 'gun' || !local) return;
-    this.viewModel?.kick(spec.pellets > 1 ? 1.3 : 1);
+    this.viewModel?.kick(Math.min(1.5, weaponRecoil(weapon) * 28));
+    if (this.firstPerson) this.recoil.kick(weaponRecoil(weapon, this.scoped ? spec.scope ?? 1 : 1));
     const s = local.state;
     const yaw = this.input.yaw;
     const fx = -Math.sin(yaw);
@@ -2376,6 +2400,7 @@ export class GameEngine {
     this.input.freeCursor = fp && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
     if (fp === this.firstPerson) return;
     this.firstPerson = fp;
+    this.recoil.reset();
     this.input.setFirstPerson(fp);
     this.input.pitch = 0;
     this.vision?.setOverlay(!fp);

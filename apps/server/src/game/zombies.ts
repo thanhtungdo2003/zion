@@ -31,10 +31,8 @@ import { PoseHistory, type Player } from './player';
 import type { SpawnService } from './spawn';
 import { NavigationState, ZombieNavigation } from './navigation';
 
-const HORDE_MIN = 5;
-const HORDE_MAX = 6;
-const SPAWN_MIN_DIST = 34;
-const SPAWN_MAX_DIST = 55;
+const SPAWN_MIN_DIST = 42;
+const SPAWN_MAX_DIST = 96;
 const DESPAWN_DIST = 140;
 const MAX_ZOMBIES = 120;
 const CORPSE_MS = 9000;
@@ -82,7 +80,7 @@ export class Zombie {
   /** Broken-limb mask (see Limb). */
   limbs = 0;
   target: Player | null = null;
-  /** Point the horde drifts around when it has no prey. */
+  /** Point this zombie wanders around when it has no prey. */
   anchorX: number;
   anchorZ: number;
   wanderYaw = Math.random() * Math.PI * 2;
@@ -97,6 +95,13 @@ export class Zombie {
   alertX = 0;
   alertZ = 0;
   alertUntil = 0;
+  /** Only ambient scouts recruit, preventing exponential reinforcement chains. */
+  recruitsLeft = 0;
+  recruitAt = 0;
+  jumpReadyAt = 0;
+  jumpingUntil = 0;
+  jumpWindupUntil = 0;
+  leapYaw = 0;
 
   constructor(
     readonly id: number,
@@ -114,7 +119,7 @@ export class Zombie {
   }
 
   get rig() {
-    return this.variant === ZombieVariant.Brute ? (isCrawling(this.limbs) ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (isCrawling(this.limbs) ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
+    return this.variant === ZombieVariant.Brute ? (isCrawling(this.limbs) ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (isCrawling(this.limbs) || (this.variant === ZombieVariant.Crimson && this.state.grounded) ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
   }
 }
 
@@ -123,15 +128,21 @@ function isNight(tod: number): boolean {
 }
 
 /**
- * Spawns zombie hordes (5–6) around players day and night, runs their AI on the shared character
+ * Populates the shared loaded map with solitary scouts, runs AI on the shared character
  * controller, and resolves limb damage, knockback and death. Fully server-authoritative.
  */
 export class ZombieDirector {
   /** Removes the encounter without kills/loot; its health and limbs survive reconnects. */
-  suspend(player: Player): SuspendedZombie[] {
+  suspend(player: Player, players: readonly Player[] = []): SuspendedZombie[] {
     const saved: SuspendedZombie[] = [];
     for (const [id, z] of this.zombies) {
       if (!z.dead && (z.target === player || z.biteTarget === player)) {
+        if (players.some(p => p !== player && p.active && !p.dead && dist2(z.state, p.state) < DESPAWN_DIST ** 2)) {
+          if (z.target === player) z.target = null;
+          if (z.biteTarget === player) { z.biteTarget = null; z.biteAt = 0; }
+          if (z.burnBy === player) z.burnBy = null;
+          continue;
+        }
         saved.push({ x: z.state.x, y: z.state.y, z: z.state.z, health: z.health, limbs: z.limbs, variant: z.variant });
         this.navigation.clear(z.navigation);
         z.biteTarget = z.target = z.burnBy = null;
@@ -165,6 +176,7 @@ export class ZombieDirector {
   readonly zombies = new Map<number, Zombie>();
   private nextId = ZOMBIE_ID_BASE;
   private nextSpawnCheck = 0;
+  private readonly chunkSpawnAt = new Map<string, number>();
   private readonly controllers = new Map<number, CharacterController>();
   private readonly navigation: ZombieNavigation;
   private readonly attackHit = makeRayHit();
@@ -176,11 +188,11 @@ export class ZombieDirector {
   ) { this.navigation = new ZombieNavigation(collision); }
 
   /** Controller for a given ground speed (crawlers move slower depending on limbs left). */
-  private controller(speed: number, scale = 1): CharacterController {
-    const key = Math.round(speed * 10) * 10 + Math.round(scale * 2);
+  private controller(speed: number, scale = 1, crawling = false): CharacterController {
+    const key = (Math.round(speed * 10) * 10 + Math.round(scale * 2)) * 2 + Number(crawling);
     let c = this.controllers.get(key);
     if (!c) {
-      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, radius: ZOMBIE_PARAMS.radius * scale, height: ZOMBIE_PARAMS.height * scale, walkSpeed: speed, sprintSpeed: speed });
+      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, radius: ZOMBIE_PARAMS.radius * scale, height: crawling ? .85 : ZOMBIE_PARAMS.height * scale, walkSpeed: speed, sprintSpeed: speed });
       this.controllers.set(key, c);
     }
     return c;
@@ -190,38 +202,76 @@ export class ZombieDirector {
     const night = isNight(tod);
     if (now >= this.nextSpawnCheck) {
       this.nextSpawnCheck = now + 2000;
-      this.spawnHordes(players, night);
       this.despawn(players, now);
+      this.spawnMap(players, now, night);
     }
     this.separate(players);
     this.navigation.beginTick();
-    for (const z of this.zombies.values()) {
+    for (const z of [...this.zombies.values()]) {
       if (!z.dead) this.think(z, players, now, night);
       else this.stepPhysics(z, 0, 0);
       z.history.push(now, z.state.x, z.state.y, z.state.z, z.yaw);
     }
   }
 
-  private spawnHordes(players: readonly Player[], night: boolean): void {
-    const cap = night ? 18 : 11;
-    for (const p of players) {
-      if (!p.active || p.dead || p.suspendedZombies.length || this.zombies.size >= MAX_ZOMBIES) continue;
-      let near = 0;
-      for (const z of this.zombies.values()) if (!z.dead && dist2(z.state, p.state) < 70 * 70) near++;
-      if (near + HORDE_MIN > cap || Math.random() > (night ? 0.45 : 0.25)) continue;
-      const a = Math.random() * Math.PI * 2;
-      const d = SPAWN_MIN_DIST + Math.random() * (SPAWN_MAX_DIST - SPAWN_MIN_DIST);
-      const cx = p.state.x + Math.cos(a) * d;
-      const cz = p.state.z + Math.sin(a) * d;
-      const count = HORDE_MIN + Math.floor(Math.random() * (HORDE_MAX - HORDE_MIN + 1));
-      for (let i = 0; i < count; i++) {
-        const pos = this.spawns.validateAt(cx + (Math.random() - 0.5) * 7, cz + (Math.random() - 0.5) * 7);
-        if (!pos || !this.spawns.allowsZombieSpawn(pos.x, pos.z)) continue;
-        const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, i === 0 ? ZombieVariant.Brute : i % 2 ? ZombieVariant.Gaunt : ZombieVariant.Rotting);
-        z.anchorX = cx;
-        z.anchorZ = cz;
-        this.zombies.set(z.id, z);
-      }
+  private spawnMap(players: readonly Player[], now: number, night: boolean): void {
+    const chunks = this.spawns.loadedZombieChunks();
+    const loaded = new Set(chunks.map(([x, z]) => `${x},${z}`));
+    for (const key of this.chunkSpawnAt.keys()) if (!loaded.has(key)) this.chunkSpawnAt.delete(key);
+    // Shuffle once: a fixed global budget, independent of player count or iteration order.
+    for (let i = chunks.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [chunks[i], chunks[j]] = [chunks[j]!, chunks[i]!];
+    }
+    let budget = 8;
+    let attempts = 32;
+    for (const [cx, cz] of chunks) {
+      if (this.zombies.size >= MAX_ZOMBIES || budget <= 0 || attempts <= 0) break;
+      const key = `${cx},${cz}`;
+      if (now < (this.chunkSpawnAt.get(key) ?? 0)) continue;
+      attempts--;
+      const pos = this.spawns.validateAt((cx + Math.random()) * CHUNK_SIZE, (cz + Math.random()) * CHUNK_SIZE);
+      if (!pos || !this.spawnClear(pos, players, SPAWN_MIN_DIST)) continue;
+      const dark = this.spawns.zombieDarkness(pos.x, pos.y, pos.z, night);
+      const nearby = this.near(pos.x, pos.z, CHUNK_SIZE).filter(z => !z.dead);
+      if (nearby.length >= (dark > .5 ? 4 : 1) || Math.random() > .45 * dark) continue;
+      const z = this.addZombie(pos);
+      z.recruitsLeft = 3;
+      this.chunkSpawnAt.set(key, now + 12_000);
+      budget--;
+    }
+  }
+
+  private spawnClear(pos: { x: number; z: number }, players: readonly Player[], minimum: number): boolean {
+    if (!this.spawns.allowsZombieSpawn(pos.x, pos.z)) return false;
+    const active = players.filter(p => p.active && !p.dead);
+    if (!active.some(p => dist2(pos, p.state) <= SPAWN_MAX_DIST ** 2)) return false;
+    if (active.some(p => dist2(pos, p.state) < minimum ** 2)) return false;
+    return !this.near(pos.x, pos.z, 10).some(z => !z.dead);
+  }
+
+  private addZombie(pos: { x: number; y: number; z: number }): Zombie {
+    const roll = Math.random();
+    const variant = roll < .03 ? ZombieVariant.Brute : roll < .23 ? ZombieVariant.Crimson : roll < .58 ? ZombieVariant.Gaunt : ZombieVariant.Rotting;
+    const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, variant);
+    this.zombies.set(z.id, z);
+    return z;
+  }
+
+  private reinforce(z: Zombie, players: readonly Player[], now: number): void {
+    if (!z.target || z.recruitsLeft <= 0 || now < z.recruitAt || this.zombies.size >= MAX_ZOMBIES) return;
+    z.recruitAt = now + 4000;
+    const target = z.target.state;
+    if (this.near(target.x, target.z, 64).filter(z => !z.dead).length >= 18) return;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 30 + Math.random() * 24;
+      const pos = this.spawns.validateAt(target.x + Math.cos(angle) * radius, target.z + Math.sin(angle) * radius);
+      if (!pos || !this.spawnClear(pos, players, 28)) continue;
+      const recruit = this.addZombie(pos);
+      recruit.alertX = target.x; recruit.alertZ = target.z; recruit.alertUntil = now + 12_000;
+      z.recruitsLeft--;
+      break;
     }
   }
 
@@ -247,7 +297,8 @@ export class ZombieDirector {
       const base = left >= 3 ? 1.1 : left === 2 ? 0.8 : left === 1 ? 0.45 : 0;
       return enraged(z) ? base * 1.4 : base;
     }
-    if (z.variant === ZombieVariant.Brute) return chasing ? 1.25 : 0.75;
+    if (z.variant === ZombieVariant.Brute) return chasing ? (enraged(z) ? 2.8 : 1.25) : 0.75;
+    if (z.variant === ZombieVariant.Crimson) return chasing ? (night || enraged(z) ? 5.6 : 2.55) : 1.4;
     if (!chasing) return 1.2;
     // Badly hurt zombies roar and charge, day or night.
     return night || enraged(z) ? ZOMBIE_PARAMS.sprintSpeed : ZOMBIE_PARAMS.walkSpeed;
@@ -301,12 +352,14 @@ export class ZombieDirector {
       for (const p of players) {
         if (!p.active || p.dead) continue;
         const d = dist2(s, p.state);
-        if (d < best) {
+        if (d < best && this.collision.lineOfSight(s.x, s.y + .9, s.z, p.state.x, p.state.y + .9, p.state.z, Mask.LineOfSight, this.attackHit)) {
           best = d;
           z.target = p;
         }
       }
     }
+    this.reinforce(z, players, now);
+    if (z.target && z.variant === ZombieVariant.Crimson && z.jumpReadyAt === 0) z.jumpReadyAt = now + 4000;
     let goalX: number;
     let goalZ: number;
     let chasing = false;
@@ -320,7 +373,7 @@ export class ZombieDirector {
       chasing = true;
     } else {
       if (Math.random() < 0.01) z.wanderYaw += (Math.random() - 0.5) * 2;
-      // Drift around the horde's anchor.
+      // Wander around the original map spawn.
       const ax = z.anchorX - s.x;
       const az = z.anchorZ - s.z;
       const far = ax * ax + az * az > 64;
@@ -371,6 +424,32 @@ export class ZombieDirector {
     }
 
     const staggered = now < z.staggerUntil;
+    if (z.variant === ZombieVariant.Crimson && z.target && !isCrawling(z.limbs) && !staggered && s.grounded && !s.swimming && now >= z.jumpReadyAt && dist > 3 && dist < 14 &&
+      this.collision.lineOfSight(s.x, s.y + .9, s.z, z.target.state.x, z.target.state.y + .9, z.target.state.z, Mask.LineOfSight, this.attackHit)) {
+      // Match crouch_spring: crouch for 0.6 seconds, then launch as the authored legs extend.
+      z.jumpWindupUntil = now + 600;
+      z.jumpingUntil = now + 1600;
+      z.jumpReadyAt = now + 6500 + Math.random() * 2000;
+    }
+    if (z.jumpWindupUntil) {
+      if (staggered || !z.target) {
+        z.jumpWindupUntil = z.jumpingUntil = 0;
+      } else if (now < z.jumpWindupUntil) {
+        this.stepPhysics(z, 0, .3);
+        return;
+      } else {
+        z.jumpWindupUntil = 0;
+        s.vy = 9.5;
+        s.grounded = false;
+        z.leapYaw = Math.atan2(s.x - goalX, s.z - goalZ);
+        s.vx = -Math.sin(z.leapYaw) * 7;
+        s.vz = -Math.cos(z.leapYaw) * 7;
+      }
+    }
+    if (z.variant === ZombieVariant.Crimson && !s.grounded && now < z.jumpingUntil) {
+      this.stepPhysics(z, staggered ? 0 : 1, 8, z.leapYaw);
+      return;
+    }
     const speed = this.speedFor(z, night, chasing);
     const move = !!waypoint && !staggered && speed > 0 &&
       !(inReach && dist <= ATTACK_RANGE * zombieScale(z.variant) * 0.7) && waypointDist > (chasing ? 0.1 : 0.5);
@@ -381,7 +460,7 @@ export class ZombieDirector {
   }
 
   private stepPhysics(z: Zombie, mz: number, speed: number, yaw = z.yaw): void {
-    this.controller(Math.max(speed, 0.3), zombieScale(z.variant)).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
+    this.controller(Math.max(speed, 0.3), zombieScale(z.variant), z.variant === ZombieVariant.Crimson && z.state.grounded && !z.jumpWindupUntil).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
   }
 
   /** Applies a hit. Returns what happened so the caller can broadcast it. */
@@ -456,6 +535,7 @@ export class ZombieDirector {
       if (z.dead) flags |= EntityFlags.Dead;
       if (z.target && !z.dead) flags |= EntityFlags.Sprinting;
       if (now < z.attackingUntil) flags |= EntityFlags.Attacking;
+      if (!z.dead && (z.jumpWindupUntil > now || !z.state.grounded) && now < z.jumpingUntil) flags |= EntityFlags.Leaping;
       out.push({ id: z.id, kind: EntityKind.Zombie, x: z.state.x, y: z.state.y, z: z.state.z, yaw: z.yaw, pitch: 0, flags, health: Math.max(0, Math.round(z.health / z.maxHealth * 100)), weapon: z.limbs | (z.variant << 4) });
     }
   }
@@ -465,9 +545,9 @@ function wrapAngle(a: number): number {
   return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
-/** Below 30% health a zombie goes berserk. */
+/** Brutes enrage below half health; other zombies below 30%. */
 function enraged(z: Zombie): boolean {
-  return z.health < z.maxHealth * 0.3;
+  return z.health < z.maxHealth * (z.variant === ZombieVariant.Brute ? 0.5 : 0.3);
 }
 
 function dist2(a: { x: number; z: number }, b: { x: number; z: number }): number {

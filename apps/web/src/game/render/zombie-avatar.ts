@@ -1,10 +1,10 @@
 import { Group, Mesh, Vector3, type Euler, type Object3D, type Scene } from 'three';
-import { EntityFlags, Limb, isCrawling } from '@zion/shared';
+import { EntityFlags, Limb, isCrawling, ZombieVariant } from '@zion/shared';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { Ragdoll } from './ragdoll';
 
 export const ZOMBIE_MODEL_URL = '/models/mobs/hunched-rotting-zombie.bbmodel';
-export const ZOMBIE_MODEL_URLS = [ZOMBIE_MODEL_URL, '/models/mobs/gaunt-zombie.bbmodel', '/models/mobs/brute-zombie.bbmodel'] as const;
+export const ZOMBIE_MODEL_URLS = [ZOMBIE_MODEL_URL, '/models/mobs/gaunt-zombie.bbmodel', '/models/mobs/brute-zombie.bbmodel', '/models/mobs/crimson-eyed-zombie.bbmodel'] as const;
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -80,6 +80,7 @@ export class ZombieAvatar {
     private readonly template: CharacterTemplate,
     private readonly onGore: GoreCallback,
     scale = 1,
+    private readonly variant: ZombieVariant = ZombieVariant.Rotting,
   ) {
     this.model = template.root.clone(true);
     this.model.traverse((o) => {
@@ -124,11 +125,12 @@ export class ZombieAvatar {
     if (this.deadFor >= 0) return this.ragdoll;
     this.deadFor = 0; // Death stays latched while older interpolated snapshots catch up.
     this.flinch = 0;
-    this.ragdoll = Ragdoll.start(this.model, (name) => this.bones.get(name)?.node, PX, ground, kx, kz, force);
+    const aliases: Record<string, string> = { arm_left: 'arm_upper_l', arm_right: 'arm_upper_r', leg_left: 'leg_thigh_l', leg_right: 'leg_thigh_r' };
+    this.ragdoll = Ragdoll.start(this.model, (name) => this.bones.get(name)?.node ?? this.bones.get(aliases[name] ?? '')?.node, PX, ground, kx, kz, force);
     return this.ragdoll;
   }
 
-  update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number): void {
+  update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number, health = 100): void {
     if (this.ragdoll) {
       this.ragdoll.step(dt);
       this.updateVisibility(dt);
@@ -176,13 +178,16 @@ export class ZombieAvatar {
     if (dead) {
       if (this.deadFor < 0) this.deadFor = 0;
       this.play(null, 1, 0.5);
+    } else if (this.variant === ZombieVariant.Crimson && (flags & EntityFlags.Leaping)) {
+      this.play('crouch_spring', 1);
     } else if (attackStart && !crawling) {
       this.play('lunge', 1.4);
     } else if (attackStart && crawling) {
       this.play('bite', 1.2);
     } else if (!busy) {
-      if (speed > 0.25) this.play('run', crawling ? Math.max(0.35, speed * 0.6) : Math.min(1.5, Math.max(0.45, speed / 4.2)));
-      else this.play(crawling ? null : 'run', 0.12);
+      const locomotion = this.variant === ZombieVariant.Crimson ? 'crawl_scream' : this.variant === ZombieVariant.Brute && health < 50 ? 'run_roar' : 'run';
+      if (speed > 0.25) this.play(locomotion, crawling ? Math.max(0.35, speed * 0.6) : Math.min(1.5, Math.max(0.45, speed / (this.variant === ZombieVariant.Brute ? 2.8 : 4.2))));
+      else this.play(crawling ? null : locomotion, 0.12);
     }
 
     for (const l of [this.cur, this.prev]) l.time += dt * l.rate;
@@ -252,8 +257,9 @@ export class ZombieAvatar {
     if (!tracks) return false;
     const t = clip.loop ? layer.time % clip.length : Math.min(layer.time, clip.length);
     if (tracks.rotation) sampleTrack(tracks.rotation, t, rot);
-    // Root translation would fight the server position.
-    if (tracks.position && bone !== 'root') sampleTrack(tracks.position, t, pos);
+    // Keep the crimson's authored crouch height, while server physics owns horizontal travel.
+    if (tracks.position && (bone !== 'root' || this.variant === ZombieVariant.Crimson)) sampleTrack(tracks.position, t, pos);
+    if (bone === 'root') pos[0] = pos[2] = 0;
     return true;
   }
 

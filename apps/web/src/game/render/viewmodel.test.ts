@@ -59,4 +59,27 @@ describe('first person weapon', () => {
     view.dispose();
     expect(camera.children).toHaveLength(0);
   });
+
+  it('retains upward muzzle recoil while converging on the crosshair during automatic fire', () => {
+    const { camera, view, state } = fixture();
+    const target = camera.localToWorld(new Vector3(0, 0, -12));
+    const barrelDirection = () => {
+      const model = camera.getObjectByName('weapon-muzzle')!.parent!;
+      model.updateWorldMatrix(true, false);
+      return new Vector3(1, 0, 0).transformDirection(model.matrixWorld).applyQuaternion(camera.quaternion.clone().invert());
+    };
+    for (let frame = 0; frame < 90; frame++) {
+      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+    }
+    const resting = barrelDirection().y;
+    view.kick();
+    for (let frame = 0; frame < 3; frame++) {
+      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+    }
+    expect(barrelDirection().y).toBeGreaterThan(resting + .03);
+    for (let frame = 0; frame < 120; frame++) {
+      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+    }
+    expect(barrelDirection().y).toBeCloseTo(resting, 6);
+  });
 });

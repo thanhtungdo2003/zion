@@ -1,5 +1,6 @@
 import { Group, Mesh, Quaternion, Vector3, type Camera } from 'three';
 import type { WeaponLibrary } from './weapons';
+import { RecoilSpring } from '../first-person-recoil';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -11,7 +12,7 @@ export class ViewModel {
   private readonly pivot = new Group();
   private readonly models = new Map<string, Group>();
   private current: string | null = null;
-  private recoil = 0;
+  private readonly recoil = new RecoilSpring(22, .14);
   private bobPhase = 0;
   private bobAmount = 0;
   private swayX = 0;
@@ -25,6 +26,8 @@ export class ViewModel {
   private readonly direction = new Vector3();
   private readonly aimRotation = new Quaternion();
   private readonly forward = new Vector3(0, 0, -1);
+  private readonly right = new Vector3(1, 0, 0);
+  private readonly kickRotation = new Quaternion();
   /** Melee swing / grenade throw in progress: elapsed seconds, or −1 when idle. */
   private swingT = -1;
   private swingDir = 1;
@@ -40,7 +43,8 @@ export class ViewModel {
     if (itemId === this.current) return;
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
-    this.firing = this.fireHold = this.recoil = 0;
+    this.firing = this.fireHold = 0;
+    this.recoil.reset();
     const display = itemId ? weapons?.get(itemId)?.display : undefined;
     if (!itemId || !display) return;
     let model = this.models.get(itemId);
@@ -60,7 +64,7 @@ export class ViewModel {
 
   /** A shot: kicks the gun back and up. */
   kick(strength = 1): void {
-    this.recoil = Math.min(1.5, this.recoil + strength);
+    this.recoil.kick(strength * .065);
     this.fireHold = 0.22;
   }
 
@@ -88,6 +92,8 @@ export class ViewModel {
         this.aimRotation.setFromUnitVectors(this.forward, this.direction);
       }
     }
+    // Convergence must retain the visible muzzle lift, including during sustained fire.
+    this.aimRotation.multiply(this.kickRotation.setFromAxisAngle(this.right, this.recoil.offset));
     this.pivot.quaternion.slerp(this.aimRotation, this.firing);
   }
 
@@ -123,7 +129,7 @@ export class ViewModel {
     const bx = Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
     const by = -Math.abs(Math.cos(this.bobPhase)) * 0.012 * this.bobAmount;
     // Recoil springs back; reload lowers the gun.
-    this.recoil *= Math.exp(-dt * 14);
+    this.recoil.update(dt);
     this.dip += ((s.reloading ? 1 : 0) - this.dip) * (1 - Math.exp(-dt * 9));
     const sprintTilt = s.sprint && s.moving ? 1 : 0;
 
@@ -168,8 +174,8 @@ export class ViewModel {
     if (hidden) this.root.visible = false;
 
     const relaxed = 1 - this.firing;
-    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.19 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.33 + this.recoil * 0.05 + az);
-    this.pivot.rotation.set(this.recoil * 0.09 - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
+    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.19 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.33 + this.recoil.offset * .6 + az);
+    this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
   }
 
   dispose(): void {

@@ -40,14 +40,14 @@ export function limbsLeft(limbs: number): number {
 }
 
 export const ZOMBIE_MAX_HEALTH = 100;
-export const ZombieVariant = { Rotting: 0, Gaunt: 1, Brute: 2 } as const;
+export const ZombieVariant = { Rotting: 0, Gaunt: 1, Brute: 2, Crimson: 3 } as const;
 export type ZombieVariant = (typeof ZombieVariant)[keyof typeof ZombieVariant];
 export function zombieVariant(packed: number): ZombieVariant {
   const value = packed >>> 4;
-  return value === 1 || value === 2 ? value : 0;
+  return value === 1 || value === 2 || value === 3 ? value : 0;
 }
 export function zombieMaxHealth(variant: ZombieVariant): number {
-  return variant === ZombieVariant.Brute ? 240 : ZOMBIE_MAX_HEALTH;
+  return variant === ZombieVariant.Brute ? 240 : variant === ZombieVariant.Crimson ? 65 : ZOMBIE_MAX_HEALTH;
 }
 
 export function zombieScale(variant: ZombieVariant): number { return variant === ZombieVariant.Brute ? 1.5 : 1; }

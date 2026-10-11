@@ -5,14 +5,14 @@ import { EntityFlags, Limb, zombieScale, type ZombieVariant } from '@zion/shared
 import { buildBBModel, type RawModel } from './character-model';
 import { ZombieAvatar } from './zombie-avatar';
 
-const variants = ['hunched-rotting-zombie', 'gaunt-zombie', 'brute-zombie'];
+const variants = ['hunched-rotting-zombie', 'gaunt-zombie', 'brute-zombie', 'crimson-eyed-zombie'];
 afterEach(() => vi.restoreAllMocks());
 
 async function avatar(variant = 0) {
   const raw = JSON.parse(await readFile(new URL(`../../../../../models/mobs/${variants[variant]}.bbmodel`, import.meta.url), 'utf8')) as RawModel;
   raw.textures = []; // Exercise real geometry and animations without a browser image decoder.
   const template = await buildBBModel(raw);
-  const zombie = new ZombieAvatar(template, vi.fn(), zombieScale(variant as ZombieVariant));
+  const zombie = new ZombieAvatar(template, vi.fn(), zombieScale(variant as ZombieVariant), variant as ZombieVariant);
   zombie.ground = () => 0;
   zombie.seen = true;
   zombie.update(10, 0, 10, 0.4, EntityFlags.Attacking, 0, 0.1);
@@ -20,6 +20,26 @@ async function avatar(variant = 0) {
 }
 
 describe('zombie death ragdolls', () => {
+  it('switches the brute to run_roar strictly below half health', async () => {
+    const zombie = await avatar(2);
+    const clip = () => (zombie as unknown as { cur: { clip: { name: string } } }).cur.clip.name;
+    zombie.update(10, 0, 10, 0, EntityFlags.Grounded, 0, 2, 50);
+    zombie.update(10.1, 0, 10, 0, EntityFlags.Grounded, 0, .1, 50);
+    expect(clip()).toBe('walk');
+    zombie.update(10.5, 0, 10, 0, EntityFlags.Grounded, 0, .1, 49);
+    expect(clip()).toBe('run_roar');
+  });
+
+  it('uses the crimson crawl and leap clips without rotating the authored crawl pose twice', async () => {
+    const zombie = await avatar(3);
+    const clip = () => (zombie as unknown as { cur: { clip: { name: string } } }).cur.clip.name;
+    zombie.update(10.5, 0, 10, 0, EntityFlags.Grounded, 0, 2);
+    zombie.update(10.6, 0, 10, 0, EntityFlags.Grounded, 0, .1);
+    expect(clip()).toBe('crawl_scream');
+    expect(zombie.root.children[0]!.rotation.x).toBeCloseTo(0);
+    zombie.update(11, 1, 10, 0, EntityFlags.Leaping, 0, .1);
+    expect(clip()).toBe('crouch_spring');
+  });
   for (let variant = 0; variant < variants.length; variant++) it(`${variants[variant]} goes limp, stays intact and settles`, async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const zombie = await avatar(variant);

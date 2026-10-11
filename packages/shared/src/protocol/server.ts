@@ -303,6 +303,8 @@ export const EntityFlags = {
   Climbing: 1 << 7,
   /** Knocked down (health gone): bleeding out until revived or dead; `health` carries the bleed. */
   Downed: 1 << 8,
+  /** Zombie leap in progress. */
+  Leaping: 1 << 9,
 } as const;
 
 export interface SelfState {

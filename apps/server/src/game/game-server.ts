@@ -997,7 +997,7 @@ export class GameServer {
     session.player = null;
     if (this.players.get(p.id) !== p) return;
     this.cancelLifeAction(p, false);
-    p.suspendedZombies.push(...this.zombies.suspend(p));
+    p.suspendedZombies.push(...this.zombies.suspend(p, [...this.players.values()]));
     p.active = false;
     this.players.delete(p.id);
     this.requisitionRetries.delete(p.accountId);
@@ -1581,6 +1581,16 @@ export class GameServer {
       : resolveMelee(p, candidates, this.collision, now, renderTime);
     if (!res) return;
     this.hitTarget(p, res.target, res.damage, blade && res.zone === 'torso' ? 'slash' : res.zone, res.x, res.y, res.z, -Math.sin(p.yaw), -Math.cos(p.yaw), blade ? 4 : 2.5, now);
+    if (blade) {
+      // Secondary cuts only affect zombies; each keeps its own reach and wall check.
+      const seen = new Set<Combatant>([res.target]);
+      for (const target of candidates) {
+        if (!(target instanceof Zombie) || seen.has(target)) continue;
+        seen.add(target);
+        const splash = resolveBladeSweep(p, [target], this.collision, now, renderTime, { range, damage: blade.damage * .5, halfAngle: 1.05 });
+        if (splash) this.hitTarget(p, target, splash.damage, 'slash', splash.x, splash.y, splash.z, -Math.sin(p.yaw), -Math.cos(p.yaw), 2, now);
+      }
+    }
   }
 
   /** Routes a hit to a player or a zombie. */

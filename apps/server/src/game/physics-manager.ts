@@ -28,6 +28,11 @@ export class PhysicsChunkManager {
     return this.loaded.size;
   }
 
+  /** Shared loaded map, de-duplicated even when players' streaming regions overlap. */
+  loadedChunks(): Array<readonly [number, number]> {
+    return [...this.loaded].map(key => [chunkKeyX(key), chunkKeyZ(key)] as const);
+  }
+
   private inWorld(cx: number, cz: number): boolean {
     return this.world.generator.inWorld(cx, cz);
   }

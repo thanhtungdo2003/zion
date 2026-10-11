@@ -24,6 +24,9 @@ export const SOUND_FILES = {
   zombieGroan4: '/sounds/zombie-goan-4.mp3',
   zombieGrowl: '/sounds/zombie-grow.mp3',
   zombieHurt: '/sounds/zombie-hurt.mp3',
+  zombieRoar: '/sounds/zombie-roar.mp3',
+  zombieRoar2: '/sounds/zombie-roar-2.mp3',
+  zombieJump: '/sounds/zombie-jump.mp3',
   swordSlash: '/sounds/sword-slash-sound.mp3',
   hitFlesh: '/sounds/hit-flesh.mp3',
   // Private (UI) sounds: only the local player hears them.

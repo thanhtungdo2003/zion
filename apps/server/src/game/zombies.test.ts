@@ -9,6 +9,17 @@ import type { Player } from './player';
 const director = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => undefined });
 
 describe('zombie damage', () => {
+  it('keeps shared zombies in the map when their target disconnects near another player', () => {
+    const local = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => {} });
+    const leaving = { active: true, dead: false, state: { x: 20, z: 20 } } as Player;
+    const other = { active: true, dead: false, state: { x: 25, z: 20 } } as Player;
+    const z = new Zombie(1_000_006, 22, 0, 20);
+    z.target = z.biteTarget = leaving; z.biteAt = 100;
+    local.zombies.set(z.id, z);
+    expect(local.suspend(leaving, [leaving, other])).toEqual([]);
+    expect(local.zombies.get(z.id)).toBe(z);
+    expect(z.target).toBeNull(); expect(z.biteAt).toBe(0);
+  });
   it('suspends only the disconnecting player\'s attackers and restores their original damage once', () => {
     let loaded = false;
     const local = new ZombieDirector({} as CollisionWorld, { validateAt: (x: number, z: number) => loaded ? { x, y: 1, z } : null } as unknown as SpawnService, { attackPlayer: () => { throw new Error('Suspension must not cause an attack'); } });

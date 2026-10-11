@@ -56,6 +56,7 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
   { item: 'rocket_launcher', price: 1800, category: 'heavy' },
   { item: 'flamethrower', price: 1500, category: 'heavy' },
   { item: 'katana', price: 260, category: 'melee' },
+  { item: 'shovel', price: 140, category: 'melee' },
   { item: 'quam', price: 320, category: 'melee' },
   { item: 'grenade', price: 60, category: 'explosives' },
   { item: 'medkit', price: 100, category: 'medical', vendor: 'medic' },
