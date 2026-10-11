@@ -206,7 +206,7 @@ export class GameServer {
       near: (p, id) => this.chestNear(p, id),
       load: (id) => deps.playerStates.loadChest(id),
       commit: (id, data, p, inventory) => deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined),
-      sync: (p) => { p.reloadAt = 0; this.syncLoadout(p); this.sendInv(p); },
+      sync: (p) => { p.cancelReload(); this.syncLoadout(p); this.sendInv(p); },
       finish: (p) => this.finishQuestMutation(p),
       error: (err) => this.log.error({ err }, 'shared chest transaction failed'),
     }, () => this.serverTime, () => Math.floor(this.worldTimeMs / this.dayLengthMs));
@@ -1461,7 +1461,7 @@ export class GameServer {
     if (tutorialProtected(p, this.serverTime)) buttons &= ~Buttons.Attack;
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
-    if (p.reloadUid || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
+    if (p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Staggered by a hit: no steering until it lands.
@@ -2062,6 +2062,7 @@ export class GameServer {
 
   /** Re-derives what the inventory implies: worn armour (and its weight), the gun on the back. */
   private syncLoadout(p: Player): void {
+    if (p.reloadUid && p.inv.equippedItem()?.uid !== p.reloadUid) p.cancelReload();
     p.armor = p.inv.worn();
     p.speedMul = armorSpeedFactor(p.armor);
     const back = p.inv.backItem();
@@ -2092,11 +2093,12 @@ export class GameServer {
   private stepReloads(now: number): void {
     for (const p of this.activeScratch) {
       if (p.questBusy || !p.reloadAt || now < p.reloadAt) continue;
-      p.reloadAt = 0;
+      const reloadUid = p.reloadUid;
+      p.cancelReload();
       const gun = p.inv.equippedItem();
       const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
       // Swapping weapons cancels the reload.
-      if (!gun || gun.uid !== p.reloadUid || spec?.kind !== 'gun') continue;
+      if (!gun || gun.uid !== reloadUid || spec?.kind !== 'gun') continue;
       gun.mag = (gun.mag ?? 0) + p.inv.takeAmmo(gun.itemId, spec.magazine - (gun.mag ?? 0));
       p.dirty = true;
       this.sendInv(p);
@@ -2120,7 +2122,7 @@ export class GameServer {
       }
       case 'equip':
         changed = p.inv.equip(msg.uid);
-        if (changed) p.reloadAt = 0;
+        if (changed) p.cancelReload();
         break;
       case 'drop': {
         const at = p.inv.get(msg.uid)?.container;

@@ -59,8 +59,8 @@ export interface GunSpec {
   reloadMs: number;
   /** Holding the trigger keeps firing. */
   auto: boolean;
-  /** Right mouse button opens the sniper scope. */
-  scope?: boolean;
+  /** Optical magnification while aiming through the scope (right mouse button). */
+  scope?: number;
   projectile?: ProjectileSpec;
   /** Flame: seconds a target keeps burning and the burn damage per second. */
   burn?: { seconds: number; dps: number };
@@ -100,12 +100,12 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.AK47]: { kind: 'gun', fireMs: 100, damage: 14, pellets: 1, spread: 0.025, range: 70, magazine: 30, reloadMs: 2300, auto: true },
   [WeaponId.Shotgun]: { kind: 'gun', fireMs: 850, damage: 10, pellets: 8, spread: 0.1, range: 24, magazine: 6, reloadMs: 2600, auto: false },
   [WeaponId.GL18]: { kind: 'gun', fireMs: 140, damage: 11, pellets: 1, spread: 0.035, range: 45, magazine: 17, reloadMs: 1500, auto: false },
-  [WeaponId.AWM]: { kind: 'gun', fireMs: 1400, damage: 95, pellets: 1, spread: 0.004, range: 130, magazine: 5, reloadMs: 3200, auto: false, scope: true },
+  [WeaponId.AWM]: { kind: 'gun', fireMs: 1400, damage: 95, pellets: 1, spread: 0.004, range: 130, magazine: 5, reloadMs: 3200, auto: false, scope: 8 },
   [WeaponId.M4A1]: { kind: 'gun', fireMs: 85, damage: 13, pellets: 1, spread: 0.02, range: 75, magazine: 30, reloadMs: 2200, auto: true },
   [WeaponId.MP5]: { kind: 'gun', fireMs: 70, damage: 9, pellets: 1, spread: 0.04, range: 40, magazine: 30, reloadMs: 1900, auto: true },
   [WeaponId.Revolver]: { kind: 'gun', fireMs: 420, damage: 34, pellets: 1, spread: 0.02, range: 50, magazine: 6, reloadMs: 2800, auto: false },
-  [WeaponId.SVD]: { kind: 'gun', fireMs: 450, damage: 62, pellets: 1, spread: 0.008, range: 110, magazine: 10, reloadMs: 2800, auto: false, scope: true },
-  [WeaponId.AUG]: { kind: 'gun', fireMs: 90, damage: 13, pellets: 1, spread: 0.018, range: 75, magazine: 30, reloadMs: 2400, auto: true },
+  [WeaponId.SVD]: { kind: 'gun', fireMs: 450, damage: 62, pellets: 1, spread: 0.008, range: 110, magazine: 10, reloadMs: 2800, auto: false, scope: 4 },
+  [WeaponId.AUG]: { kind: 'gun', fireMs: 90, damage: 13, pellets: 1, spread: 0.018, range: 75, magazine: 30, reloadMs: 2400, auto: true, scope: 2 },
   [WeaponId.Saiga12]: { kind: 'gun', fireMs: 260, damage: 9, pellets: 8, spread: 0.1, range: 24, magazine: 8, reloadMs: 2900, auto: false },
   [WeaponId.DoubleBarrel]: { kind: 'gun', fireMs: 300, damage: 12, pellets: 9, spread: 0.12, range: 22, magazine: 2, reloadMs: 2200, auto: false },
   [WeaponId.GrenadeLauncher]: {
@@ -117,7 +117,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
     projectile: { kind: 'rocket', speed: 34, gravity: 0.6, blast: { radius: 7, damage: 180 }, maxFlightSec: 3 },
   },
   [WeaponId.Crossbow]: {
-    kind: 'gun', fire: 'projectile', fireMs: 400, damage: 72, pellets: 1, spread: 0.004, range: 90, magazine: 1, reloadMs: 850, auto: false, scope: true,
+    kind: 'gun', fire: 'projectile', fireMs: 400, damage: 72, pellets: 1, spread: 0.004, range: 90, magazine: 1, reloadMs: 850, auto: false, scope: 4,
     projectile: { kind: 'bolt', speed: 60, gravity: 4, maxFlightSec: 2.5 },
   },
   [WeaponId.Flamethrower]: {

@@ -66,8 +66,9 @@ export interface HudState {
   ammo: { mag: number; max: number; reserve: number; reload: number | null } | null;
   /** What E does here (open an ammo cache, pick up an item…), or null. */
   interact: Msg | null;
-  /** Looking through the sniper scope. */
+  /** Looking through the equipped weapon's scope. */
   scoped: boolean;
+  scopeMagnification: number;
   /** ZCoin balance (server wallet). */
   coins: number;
   /** First aid kit being applied: progress 0…1, or null. */
@@ -124,6 +125,7 @@ export function initialHud(): HudState {
     ammo: null,
     interact: null,
     scoped: false,
+    scopeMagnification: 1,
     coins: 0,
     healing: null,
     guides: [],

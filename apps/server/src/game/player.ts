@@ -129,6 +129,10 @@ export class Player {
   /** Reload in progress: the gun (uid) and when its magazine fills. */
   reloadUid = 0;
   reloadAt = 0;
+  cancelReload(): void {
+    this.reloadUid = 0;
+    this.reloadAt = 0;
+  }
   fireReadyAt = 0;
   throwReadyAt = 0;
   attackingUntil = 0;

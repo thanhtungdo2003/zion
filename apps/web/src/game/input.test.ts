@@ -81,6 +81,24 @@ describe('mobile input', () => {
     expect(input.pitch).toBe(1.4); expect(element.requestPointerLock).not.toHaveBeenCalled();
     input.touchLook(0, 100000); expect(input.pitch).toBe(-1.4);
   });
+  it('scales mouse and touch aiming with optical zoom and restores normal look on zoom-out', () => {
+    const { input, win, doc, element } = setup();
+    input.setFirstPerson(true);
+    input.lookScale = 1 / 8;
+    input.touchLook(80, 40);
+    expect(input.yaw).toBeCloseTo(-.025);
+    expect(input.pitch).toBeCloseTo(-.0125);
+    input.setTouchEnabled(false);
+    Object.assign(doc, { pointerLockElement: element });
+    const move = () => win.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: 80, movementY: 40, clientX: 200, clientY: 400 }));
+    move();
+    expect(input.yaw).toBeCloseTo(-.035);
+    expect(input.pitch).toBeCloseTo(-.0175);
+    input.lookScale = 1;
+    move();
+    expect(input.yaw).toBeCloseTo(-.115);
+    expect(input.pitch).toBeCloseTo(-.0575);
+  });
   it('moves the top-down aim cursor with a swipe and clamps it to the viewport', () => {
     const { input } = setup();
     input.touchLook(100, 100);

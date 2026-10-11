@@ -3,6 +3,7 @@ import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
 import { mobileAimScore } from './mobile-aim';
+import { scopeFov } from './scope';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
@@ -136,9 +137,8 @@ const CAM_YAW = Math.PI / 4;
 const CAM_PITCH = 52 * (Math.PI / 180);
 /** Fixed camera distance: a medium-wide view. */
 const CAM_DIST = 17;
-/** First-person: lens and scoped lens (degrees). */
+/** First-person lens (degrees); scoped FOV comes from each weapon's magnification. */
 const FP_FOV = 75;
-const FP_SCOPE_FOV = 22;
 
 /** Sniper scope: how far the view pans towards the cursor, how fast, and the extra zoom-out. */
 const SCOPE_PAN_GAIN = 0.55;
@@ -815,7 +815,7 @@ export class GameEngine {
   }
   resetTouch(): void { this.input.resetTouch(); }
   touchLook(dx: number, dy: number): { x: number; y: number } {
-    this.input.touchLook(dx, dy, this.scoped ? 0.4 : 1);
+    this.input.touchLook(dx, dy, !this.firstPerson && this.scoped ? 0.4 : 1);
     return { ...this.input.pointer };
   }
 
@@ -1441,7 +1441,11 @@ export class GameEngine {
     }
     for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
-    if (this.hud.get().scoped !== this.scoped) this.hud.set({ scoped: this.scoped });
+    const scopeSpec = weaponSpec(this.equippedWeapon());
+    const scopeMagnification = this.scoped && scopeSpec?.kind === 'gun' ? scopeSpec.scope ?? 1 : 1;
+    if (this.hud.get().scoped !== this.scoped || this.hud.get().scopeMagnification !== scopeMagnification) {
+      this.hud.set({ scoped: this.scoped, scopeMagnification });
+    }
     this.vision?.update(px, py + DEFAULT_CHARACTER.eyeHeight, pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
     if (this.ocean) snapOcean(this.ocean, this.camera.position.x, this.camera.position.z, this.welcome!.world.seaLevel);
@@ -1621,7 +1625,8 @@ export class GameEngine {
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
     // Scoped in: planted feet, so no walking, rolling or jumping.
-    this.scoped = !!(weaponSpec(weapon) as { scope?: boolean } | undefined)?.scope && this.input.aiming && !local.dead && local.state.grounded && local.state.rollTicks === 0;
+    const equippedSpec = weaponSpec(weapon);
+    this.scoped = equippedSpec?.kind === 'gun' && !!equippedSpec.scope && this.input.aiming && !local.dead && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
     let moveX = mx;
     let moveZ = mz;
     if (this.scoped) {
@@ -2405,7 +2410,11 @@ export class GameEngine {
         f.y += (eye - f.y) * kv;
       }
       this.scopeZoom += ((this.scoped ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
-      const fov = FP_FOV + (FP_SCOPE_FOV - FP_FOV) * this.scopeZoom;
+      const spec = weaponSpec(this.equippedWeapon());
+      const magnification = spec?.kind === 'gun' ? spec.scope ?? 1 : 1;
+      const zoom = 1 + (magnification - 1) * this.scopeZoom;
+      const fov = scopeFov(FP_FOV, zoom);
+      this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
       cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
@@ -2423,6 +2432,7 @@ export class GameEngine {
       this.props?.updateOcclusion(1e9, -1e5, 1e9, cam.position.x, cam.position.y, cam.position.z, dt);
       return;
     }
+    this.input.lookScale = 1;
     const ty = py + 1.0;
     const f = this.camFocus;
     // Smooth follow; snap on first frame and on teleports/respawns.

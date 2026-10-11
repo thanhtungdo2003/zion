@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Group, Matrix4, Vector3 } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
@@ -20,6 +20,32 @@ function bodyUp(avatar: Avatar): Vector3 {
 }
 
 describe('lobby rifle patrol', () => {
+  it('keeps each randomly selected duration until the loop ends, then chooses another duration', () => {
+    const avatar = new Avatar(template, true);
+    const reference = new Avatar(template, true);
+    const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(1).mockReturnValue(.5);
+    try {
+      avatar.setStance('rifle'); avatar.setIdleClip('rifle_patrol_idle', 0, [6, 20]);
+      const advance = (frames: number) => {
+        for (let i = 0; i < frames; i++) avatar.update(0, 0, 0, 0, EntityFlags.Grounded, 1 / 60, 0);
+      };
+      const expectPhase = (phase: number) => {
+        reference.setIdleClip(null);
+        reference.setStance('rifle'); reference.setIdleClip('rifle_patrol_idle', phase - .2);
+        reference.update(0, 0, 0, 0, EntityFlags.Grounded, .2, 0);
+        for (const name of ['body', 'head', 'arm_right', 'arm_left']) {
+          expect(avatar.root.getObjectByName(name)!.quaternion.angleTo(reference.root.getObjectByName(name)!.quaternion), name).toBeLessThan(1e-6);
+        }
+      };
+      advance(45); expectPhase(1); // 0.75 seconds into a six-second loop.
+      expect(random).toHaveBeenCalledTimes(1);
+      advance(315 + 600); expectPhase(4); // First loop complete, ten seconds into a twenty-second loop.
+      expect(random).toHaveBeenCalledTimes(2);
+      advance(600 + 195); expectPhase(2); // Third loop lasts thirteen seconds.
+      expect(random).toHaveBeenCalledTimes(3);
+    } finally { random.mockRestore(); }
+  });
+
   it('keeps the trigger and handguard in separate palms through the complete patrol loop', () => {
     const avatar = new Avatar(template, true);
     const px = 1 / BB_UNITS_PER_METER;
@@ -29,7 +55,7 @@ describe('lobby rifle patrol', () => {
     const attach = new Matrix4().makeScale(.95 * 1.5 / (50 * px), .95 * 1.5 / (50 * px), .95 * 1.5 / (50 * px));
     const weapons: WeaponLibrary = new Map([['ak47', {
       itemId: 'ak47', object: rifle, display: new Group(), attach,
-      twoHandGrip: { grip, support, up: new Vector3(0, 0, -1) },
+      twoHandGrip: { grip, support, up: new Vector3(0, 0, -1), triggerHand: 'left' },
       clips: new Map(), reloadClip: null, muzzle: new Vector3(0, 36, 1).multiplyScalar(px), eject: null,
     }]]);
     avatar.setStance('rifle'); avatar.setWeapon('ak47', weapons); avatar.setIdleClip('rifle_patrol_idle');
@@ -40,11 +66,13 @@ describe('lobby rifle patrol', () => {
       const weapon = avatar.root.getObjectByName('patrol-rifle')!;
       const right = palm.clone().applyMatrix4(avatar.root.getObjectByName('hand_right')!.matrixWorld);
       const left = palm.clone().applyMatrix4(avatar.root.getObjectByName('hand_left')!.matrixWorld);
-      expect(grip.clone().applyMatrix4(weapon.matrixWorld).distanceTo(right)).toBeLessThan(1e-5);
-      expect(support.clone().applyMatrix4(weapon.matrixWorld).distanceTo(left)).toBeLessThan(1e-5);
+      expect(grip.clone().applyMatrix4(weapon.matrixWorld).distanceTo(left)).toBeLessThan(1e-5);
+      expect(support.clone().applyMatrix4(weapon.matrixWorld).distanceTo(right)).toBeLessThan(1e-5);
       if (frame === 120) {
         const barrel = new Vector3(0, 1, 0).transformDirection(weapon.matrixWorld);
         expect(Math.abs(barrel.x)).toBeGreaterThan(Math.abs(barrel.z));
+        expect(barrel.x).toBeLessThan(0); // Muzzle on the supporting side, stock on the trigger side.
+        expect(new Vector3(0, 0, -1).transformDirection(weapon.matrixWorld).y).toBeGreaterThan(.7);
       }
     }
     avatar.setIdleClip(null);

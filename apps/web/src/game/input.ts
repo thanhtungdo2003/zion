@@ -18,6 +18,8 @@ export class InputController {
   firstPerson = false;
   /** Mouse-look radians per pixel. */
   sensitivity = 0.001;
+  /** Follow the current optical zoom so aiming keeps a consistent screen-space sensitivity. */
+  lookScale = 1;
   private suspendedFlag = false;
   /** When true (chat open, menus), gameplay keys are ignored; first-person frees the cursor. */
   get suspended(): boolean {
@@ -125,9 +127,9 @@ export class InputController {
         // Browsers occasionally report a huge jump right after the lock engages: drop it.
         if (Math.abs(e.movementX) > 250 || Math.abs(e.movementY) > 250) return;
         // Yaw stays in −π…π: the server rejects inputs outside that range.
-        const yaw = this.yaw - e.movementX * this.sensitivity;
+        const yaw = this.yaw - e.movementX * this.sensitivity * this.lookScale;
         this.yaw = yaw - Math.PI * 2 * Math.floor((yaw + Math.PI) / (Math.PI * 2));
-        this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - e.movementY * this.sensitivity));
+        this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - e.movementY * this.sensitivity * this.lookScale));
       }
       const r = this.element.getBoundingClientRect();
       this.pointer.x = ((e.clientX - r.left) / Math.max(1, r.width)) * 2 - 1;
@@ -221,9 +223,9 @@ export class InputController {
     if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
     if (this.firstPerson) {
-      const yaw = this.yaw - dx * this.sensitivity * 2.5 * zoom;
+      const yaw = this.yaw - dx * this.sensitivity * 2.5 * zoom * this.lookScale;
       this.yaw = yaw - Math.PI * 2 * Math.floor((yaw + Math.PI) / (Math.PI * 2));
-      this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - dy * this.sensitivity * 2.5 * zoom));
+      this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch - dy * this.sensitivity * 2.5 * zoom * this.lookScale));
     } else {
       const rect = this.element.getBoundingClientRect();
       this.pointer.x = Math.max(-0.95, Math.min(0.95, this.pointer.x + dx * 2 / Math.max(1, rect.width)));

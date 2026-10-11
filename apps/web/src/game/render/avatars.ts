@@ -100,6 +100,8 @@ export class Avatar {
   private headYaw = 0;
   private stance: Stance = 'unarmed';
   private idleClip: string | null = null;
+  private idleDurationRange: readonly [number, number] | null = null;
+  private idleRate = 1;
   private weaponId: string | null = null;
   private rifleGrip: RifleGrip | null = null;
   private oneShot: string | null = null;
@@ -248,7 +250,7 @@ export class Avatar {
       if (running) return this.play('run', Math.min(1.6, Math.max(0.7, speed / 6.2)));
       return this.play(STANCE_CLIPS[this.stance].walk, Math.min(1.8, Math.max(0.6, speed / 3.2)));
     }
-    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle);
+    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle, this.idleClip ? this.idleRate : 1);
   }
 
   private ragdoll: Ragdoll | null = null;
@@ -335,7 +337,18 @@ export class Avatar {
       this.rollYaw = this.bodyYaw;
     }
 
-    for (const l of [this.cur, this.prev]) l.time += dt * l.rate;
+    for (const l of [this.cur, this.prev]) {
+      if (l === this.cur && l.clip?.name === this.idleClip && this.idleDurationRange) {
+        let remaining = dt;
+        while (remaining > 0) {
+          const untilLoop = Math.max(0, (l.clip.length - l.time) / l.rate);
+          if (remaining < untilLoop) { l.time += remaining * l.rate; break; }
+          remaining -= untilLoop;
+          l.time = 0;
+          l.rate = this.idleRate = this.randomIdleRate();
+        }
+      } else l.time += dt * l.rate;
+    }
     this.updateWeaponAnim(dt);
     this.fade = Math.min(1, this.fade + dt / FADE_SEC);
     this.applyPose();
@@ -375,12 +388,14 @@ export class Avatar {
     if (held) {
       held.obj.matrix.copy(held.visual.attach);
       held.obj.matrixWorldNeedsUpdate = true;
-      const right = this.bones.get('hand_right')?.node;
-      const left = this.bones.get('hand_left')?.node;
-      const leftArm = this.bones.get('arm_left')?.node;
-      if (!dead && !this.healing && this.cur.clip?.name === 'rifle_patrol_idle' && held.visual.twoHandGrip && right && left && leftArm && body) {
+      const triggerSide = held.visual.twoHandGrip?.triggerHand ?? 'right';
+      const supportSide = triggerSide === 'right' ? 'left' : 'right';
+      const trigger = this.bones.get(`hand_${triggerSide}`)?.node;
+      const support = this.bones.get(`hand_${supportSide}`)?.node;
+      const supportArm = this.bones.get(`arm_${supportSide}`)?.node;
+      if (!dead && !this.healing && this.cur.clip?.name === 'rifle_patrol_idle' && held.visual.twoHandGrip && trigger && support && supportArm && body) {
         this.rifleGrip ??= new RifleGrip();
-        this.rifleGrip.pose(held.obj, held.visual, right, left, leftArm, body.node);
+        this.rifleGrip.pose(held.obj, held.visual, trigger, support, supportArm, body.node);
       }
     }
     // Idle breathing so a standing character never looks frozen.
@@ -431,10 +446,20 @@ export class Avatar {
     this.stance = stance;
   }
 
-  /** Lobby presentation; held objects follow the animated hand, including wrist turns. */
-  setIdleClip(name: string | null, phase = 0): void {
+  private randomIdleRate(): number {
+    const clip = this.idleClip ? this.template.clips.get(this.idleClip) : undefined;
+    if (!clip || !this.idleDurationRange) return 1;
+    const [min, max] = this.idleDurationRange;
+    return clip.length / (min + Math.random() * (max - min));
+  }
+
+  /** Each lobby character can choose a fresh real-time duration on every idle loop. */
+  setIdleClip(name: string | null, phase = 0, durationRange?: readonly [number, number]): void {
     this.idleClip = name && this.template.clips.has(name) ? name : null;
-    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle, 1, phase);
+    this.idleDurationRange = durationRange ? [Math.max(.1, durationRange[0]), Math.max(.1, durationRange[0], durationRange[1])] : null;
+    this.idleRate = this.randomIdleRate();
+    const length = this.idleClip ? this.template.clips.get(this.idleClip)!.length : 1;
+    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle, this.idleRate, ((phase % length) + length) % length);
   }
 
   /** Shows the given weapon in the right hand (null = empty hands). */

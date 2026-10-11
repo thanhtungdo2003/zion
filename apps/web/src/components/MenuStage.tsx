@@ -35,6 +35,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     let raf = 0;
     const names = JSON.parse(rosterKey) as Array<{ name: string; rank?: RankTitle }>;
     const count = Math.max(1, names.length);
+    const swayPhases = Array.from({ length: count }, () => Math.random() * Math.PI * 2);
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.outputColorSpace = SRGBColorSpace;
@@ -101,7 +102,8 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
           const avatar = new Avatar(character, true);
           avatar.setStance('rifle');
           avatar.setWeapon('ak47', weapons);
-          avatar.setIdleClip('rifle_patrol_idle', i * 1.37);
+          const clipLength = character.clips.get('rifle_patrol_idle')?.length ?? 8;
+          avatar.setIdleClip('rifle_patrol_idle', Math.random() * clipLength, [6, 20]);
           if (names[i]) avatar.setName(names[i]!.name, names[i]!.rank);
           avatar.addTo(scene); avatars.push(avatar);
         }
@@ -121,8 +123,10 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
       last = now;
       t += dt;
       // Yaw 0 looks −Z, straight at the camera; turned slightly for a three-quarter pose.
-      const yaw = 0.35 + Math.sin(t * 0.25) * 0.08;
-      avatars.forEach((avatar, i) => avatar.update((i - (count - 1) / 2) * 1.15, 0, Math.abs(i - (count - 1) / 2) * 0.15, yaw, EntityFlags.Grounded, dt, t));
+      avatars.forEach((avatar, i) => {
+        const yaw = 0.35 + Math.sin(t * 0.25 + swayPhases[i]!) * 0.08;
+        avatar.update((i - (count - 1) / 2) * 1.15, 0, Math.abs(i - (count - 1) / 2) * 0.15, yaw, EntityFlags.Grounded, dt, t);
+      });
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(loop);

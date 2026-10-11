@@ -2,6 +2,7 @@
 import { Icon } from './Icon';
 import { RankBadge } from './RankBadge';
 import { RankPromotion } from './RankPromotion';
+import { ScopeOverlay } from './ScopeOverlay';
 
 import { itemIcons } from '@/game/inventory/icons';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -115,6 +116,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
 
   return (
     <>
+    {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && (
+      <ScopeOverlay magnification={state.scopeMagnification} />
+    )}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
@@ -206,7 +210,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               <kbd>E</kbd> {tm(state.interact)}
             </div>
           )}
-          {state.scoped && <div className="hud-scope" />}
+          {state.scoped && !firstPerson && <div className="hud-scope" />}
           {debugOpen && (
             <div className="hud-debug">
               <b>F3 · Debug</b>
@@ -329,8 +333,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         )}
       </SettingsModal>
 
-      {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && (
-        <div className={`fp-crosshair${state.scoped ? ' scoped' : ''}`} aria-hidden>
+      {firstPerson && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
+        <div className="fp-crosshair" aria-hidden>
           <i /><i /><i /><i />
         </div>
       )}
