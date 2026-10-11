@@ -113,7 +113,7 @@ const STATION_REACH = 4.2;
 /** Reviving a downed player: how far apart (server positions) the two may be. */
 const REVIVE_REACH = 3.2;
 /** Melee wind-up: blades land as the slash trail appears; fists a little sooner. */
-const BLADE_HIT_DELAY_MS = 200;
+const BLADE_HIT_DELAY_MS = 50;
 const FIST_HIT_DELAY_MS = 150;
 const MAX_INPUTS_PER_TICK = 3;
 const MAX_QUEUED_INPUTS = 16;

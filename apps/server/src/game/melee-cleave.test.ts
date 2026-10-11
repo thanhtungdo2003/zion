@@ -50,12 +50,12 @@ describe('melee cleave', () => {
     const p = new Player(1, 'a', 'A', {} as ClientSession, 16, 0, 16);
     const blade = WEAPON_SPECS[WeaponId.Sledgehammer] as MeleeSpec;
     server.tryAttack(p, 100, undefined, blade);
-    expect(p.strike?.at).toBe(650);
+    expect(p.strike?.at).toBe(500);
     expect(p.attackReadyAt).toBe(1700);
     server.tryAttack(p, 1100, undefined, blade);
-    expect(p.strike?.at).toBe(650);
+    expect(p.strike?.at).toBe(500);
     server.tryAttack(p, 1700, undefined, blade);
-    expect(p.strike?.at).toBe(2250);
+    expect(p.strike?.at).toBe(2100);
   });
 
   it('interrupts a pending bite and leap wind-up without shortening a longer stun', () => {

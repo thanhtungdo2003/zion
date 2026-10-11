@@ -135,7 +135,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Katana]: { kind: 'melee', damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
   [WeaponId.Quam]: { kind: 'melee', damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
   [WeaponId.Shovel]: { kind: 'melee', damage: 30, range: 2.7, cooldownMs: 750, swingMs: 400 },
-  [WeaponId.Sledgehammer]: { kind: 'melee', damage: 90, range: 3.4, cooldownMs: 1600, swingMs: 1100, hitDelayMs: 550, animationMs: 1100, halfAngle: 1.4, cleaveMultiplier: .75, stunMs: 1300 },
+  [WeaponId.Sledgehammer]: { kind: 'melee', damage: 90, range: 3.4, cooldownMs: 1600, swingMs: 1100, hitDelayMs: 400, animationMs: 1100, halfAngle: 1.4, cleaveMultiplier: .75, stunMs: 1300 },
 };
 
 /** Inventory item id → weapon id. */
