@@ -1417,6 +1417,11 @@ kbd {
   gap: 8px;
 }
 
+/* Compact menu for phones, including their wider landscape viewports. */
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .menu { --menu-left: max(12px, env(safe-area-inset-left)); --menu-right: max(12px, env(safe-area-inset-right)); --menu-top: max(8px, env(safe-area-inset-top)); --menu-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+
 .set-camera { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .set-camera .set-lang { min-width: 0; padding: 12px 10px; }
 
@@ -2209,4 +2214,58 @@ kbd {
   .touch-mode .inv-box { padding-inline: 6px; }
   .touch-mode .inv-row, .touch-mode .inv-bento { gap: 6px; }
   .touch-mode .inv-shop { width: min(330px, 84vw); }
+}
+
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .menu .menu-top { padding: var(--menu-top) var(--menu-right) 8px var(--menu-left); min-height: 60px; }
+  .menu-brand { font-size: 22px; }
+  .menu-brand small { display: none; }
+  .menu .menu-account { min-height: 44px; font-size: 11px; letter-spacing: .06em; }
+  .menu .menu-account.icon { width: 44px; height: 44px; }
+  .menu .menu-team-toggle { top: calc(var(--menu-top) + 62px); left: var(--menu-left); width: min(220px, calc(100% - var(--menu-left) - var(--menu-right))); min-height: 44px; padding: 8px 10px; gap: 8px; font-size: 15px; box-shadow: none; }
+  .menu-team-toggle > svg, .menu-team-toggle > svg:last-child { width: 20px; height: 20px; flex-basis: 20px; }
+  .menu .menu-career { top: calc(var(--menu-top) + 116px); bottom: auto; left: var(--menu-left); width: 148px; gap: 6px; }
+  .menu .menu-rank { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; column-gap: 6px; width: 100%; height: auto; min-height: 48px; padding: 5px 8px; text-align: left; }
+  .menu .menu-rank .badge-model { width: 34px; height: 34px; grid-row: 1 / 3; }
+  .menu .menu-rank small { font-size: 8px; letter-spacing: .04em; }
+  .menu .menu-rank b { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+  .menu .menu-rank > span { display: none; }
+  .menu .menu-requisitions { min-height: 44px; padding: 8px; gap: 6px; font-size: 13px; }
+  .menu-requisitions svg { width: 18px; height: 18px; }
+  .menu .menu-launch, .menu.has-team .menu-launch { left: auto; right: var(--menu-right); bottom: var(--menu-bottom); width: min(280px, calc(100% - var(--menu-left) - var(--menu-right))); gap: 5px; }
+  .menu .menu-mode { min-height: 44px; padding: 8px 10px; gap: 6px; }
+  .menu-mode small { font-size: 9px; }
+  .menu-mode b { font-size: 13px; letter-spacing: .06em; }
+  .menu .menu-play, .menu.has-team .menu-play { height: 56px; font-size: 30px; letter-spacing: .08em; clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+  .menu .menu-play:disabled { font-size: 22px; }
+  .menu.has-team .menu-stage { inset: 60px 0 116px; }
+  .menu .menu-auth { z-index: 5; top: calc(var(--menu-top) + 60px); right: var(--menu-right); width: min(340px, calc(100% - var(--menu-left) - var(--menu-right))); max-height: calc(100dvh - var(--menu-top) - 76px); overflow-y: auto; padding: 12px; }
+  .menu .field input { font-size: 16px; }
+  .menu.team-panel-open { padding: calc(var(--menu-top) + 116px) var(--menu-right) var(--menu-bottom) var(--menu-left); overflow-y: auto; }
+  .menu.team-panel-open .menu-stage { inset: 0; height: auto; }
+  .menu.team-panel-open .team-lobby { position: relative; inset: auto; width: 100%; max-width: 420px; margin-left: auto; overflow: visible; padding: 12px; }
+  .menu.team-panel-open .menu-launch { position: relative; inset: auto; width: 100%; max-width: 420px; margin: 10px 0 0 auto; }
+  .menu.team-panel-open .menu-career { display: none; }
+  .set-panel { max-height: calc(100dvh - 32px); }
+  .set-head { padding: 12px 14px; }
+  .set-head h2 { font-size: 24px; }
+  .set-section { padding: 12px 14px; }
+  .set-camera .set-lang { padding: 10px 6px; }
+  .set-lang b { font-size: 14px; }
+  .overlay-card { max-width: calc(100% - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 18px; }
+}
+
+@media (pointer: coarse) and (max-width: 640px), (pointer: coarse) and (max-height: 500px) {
+  .touch-key { width: 44px; height: 44px; }
+  .touch-tools { gap: 6px; }
+  .touch-joystick { width: 96px; height: 96px; left: max(12px, env(safe-area-inset-left)); }
+  .touch-joystick > svg { width: 58px; height: 58px; }
+  .touch-joystick i { width: 40px; height: 40px; }
+  .touch-sprint { left: calc(max(12px, env(safe-area-inset-left)) + 26px); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 154px); }
+  .touch-actions { grid-template-columns: repeat(3, 44px); gap: 6px; right: max(12px, env(safe-area-inset-right)); }
+  .touch-fire { width: 60px; height: 60px; bottom: calc(max(28px, env(safe-area-inset-bottom)) + 140px); }
+  .touch-joystick.touch-fire-stick { width: 88px; height: 88px; bottom: calc(max(28px, env(safe-area-inset-bottom)) + 140px); }
+  .touch-hotbar { max-width: calc(100% - 164px); gap: 3px; }
+  .touch-weapon-slot { flex-basis: 60px; min-height: 44px; padding: 2px; }
+  .touch-weapon-slot .inv-sil { width: 48px; height: 18px; }
 }

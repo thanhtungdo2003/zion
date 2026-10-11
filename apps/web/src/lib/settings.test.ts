@@ -24,3 +24,50 @@ describe('camera settings', () => {
     expect(restored.get().cameraMode).toBe('third-person');
   });
 });
+
+describe('automatic touch controls', () => {
+  function device(coarse: boolean) {
+    vi.stubGlobal('window', { matchMedia: () => ({ matches: coarse }) });
+  }
+
+  it.each([true, false])('detects the primary pointer, coarse=%s', coarse => {
+    device(coarse);
+    storage({});
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().touchControls).toBe(coarse);
+  });
+
+  it('enables controls on phones with the previously saved default', () => {
+    device(true);
+    storage({ touchControls: false, volume: .5 });
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().touchControls).toBe(true);
+    expect(settings.get().volume).toBe(.5);
+  });
+
+  it('remembers an explicit choice to turn off touch controls', () => {
+    device(true);
+    storage({});
+    const settings = new SettingsStore(); settings.hydrate();
+    settings.set({ touchControls: false });
+    const restored = new SettingsStore(); restored.hydrate();
+    expect(restored.get().touchControls).toBe(false);
+  });
+
+  it('keeps automatic detection after saving unrelated settings', () => {
+    device(true);
+    storage({});
+    const settings = new SettingsStore(); settings.hydrate();
+    settings.set({ volume: .4 });
+    device(false);
+    const restored = new SettingsStore(); restored.hydrate();
+    expect(restored.get().touchControls).toBe(false);
+  });
+
+  it('detects touch even when storage is unavailable', () => {
+    device(true);
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('unavailable'); } });
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().touchControls).toBe(true);
+  });
+});

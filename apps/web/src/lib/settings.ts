@@ -20,22 +20,25 @@ export interface SettingsState {
 const STORAGE_KEY = 'zion.settings.v1';
 const DEFAULTS: SettingsState = { lang: 'en', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30 };
 
-function load(): SettingsState {
+function load(): { state: SettingsState; manualTouch: boolean } {
+  const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULTS;
-    const saved = JSON.parse(raw) as Partial<SettingsState> & { firstPerson?: boolean };
-    const state: SettingsState = { ...DEFAULTS };
+    if (!raw) return { state: defaults, manualTouch: false };
+    const saved = JSON.parse(raw) as Partial<SettingsState> & { firstPerson?: boolean; manualTouch?: boolean };
+    const state: SettingsState = { ...defaults };
     if (saved.lang === 'en' || saved.lang === 'vi') state.lang = saved.lang;
     if (typeof saved.volume === 'number' && Number.isFinite(saved.volume)) state.volume = Math.min(1, Math.max(0, saved.volume));
     if (typeof saved.brightness === 'number' && Number.isFinite(saved.brightness)) state.brightness = Math.min(2, Math.max(0.6, saved.brightness));
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;
     else if (saved.firstPerson === true) state.cameraMode = 'first-person';
-    if (typeof saved.touchControls === 'boolean') state.touchControls = saved.touchControls;
-    return state;
+    // Older versions persisted the default false even without a user choice.
+    const manualTouch = saved.manualTouch === true || (saved.manualTouch === undefined && saved.touchControls === true);
+    if (manualTouch && typeof saved.touchControls === 'boolean') state.touchControls = saved.touchControls;
+    return { state, manualTouch };
   } catch {
-    return DEFAULTS;
+    return { state: defaults, manualTouch: false };
   }
 }
 
@@ -43,6 +46,7 @@ export class SettingsStore {
   private state: SettingsState = DEFAULTS;
   private readonly listeners = new Set<() => void>();
   private loaded = false;
+  private manualTouch = false;
 
   get = (): SettingsState => this.state;
 
@@ -53,17 +57,21 @@ export class SettingsStore {
 
   /** Reads persisted settings once, after mount, so SSR and the first client render agree. */
   hydrate(): void {
-    if (this.loaded || typeof localStorage === 'undefined') return;
+    if (this.loaded || typeof window === 'undefined' && typeof localStorage === 'undefined') return;
     this.loaded = true;
-    const state = load();
-    if (state.lang !== this.state.lang || state.volume !== this.state.volume || state.brightness !== this.state.brightness || state.touchControls !== this.state.touchControls || state.cameraMode !== this.state.cameraMode || state.mouseSens !== this.state.mouseSens) this.set(state);
+    const { state, manualTouch } = load();
+    this.manualTouch = manualTouch;
+    this.state = state;
+    if (typeof document !== 'undefined') document.documentElement.lang = state.lang;
+    for (const fn of this.listeners) fn();
   }
 
   set(patch: Partial<SettingsState>): void {
+    if (typeof patch.touchControls === 'boolean') this.manualTouch = true;
     this.state = { ...this.state, ...patch };
     if (typeof document !== 'undefined') document.documentElement.lang = this.state.lang;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.state, manualTouch: this.manualTouch }));
     } catch {
       /* storage unavailable: settings just aren't remembered */
     }
