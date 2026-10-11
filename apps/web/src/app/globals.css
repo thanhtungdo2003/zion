@@ -23,6 +23,14 @@
   color-scheme: dark;
 }
 
+/* Native UI fonts keep Vietnamese base letters and tone marks in the same font,
+   including when the external display fonts are unavailable. */
+html:lang(vi) {
+  --sans: system-ui, 'Segoe UI', Arial, sans-serif;
+  --cond: system-ui, 'Segoe UI', Arial, sans-serif;
+  --mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
+
 * {
   box-sizing: border-box;
 }
