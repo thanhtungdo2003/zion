@@ -29,6 +29,11 @@ export interface ItemDef {
 }
 
 export const ITEMS: Record<string, ItemDef> = {
+  badge_recruit: { id: 'badge_recruit', name: 'Huy hiệu Tân Binh', category: 'resource', w: 1, h: 1, stance: 'unarmed', color: '#b8b2a2', info: 'Kỷ vật quân vụ · có thể bán lấy ZCoin' },
+  badge_private: { id: 'badge_private', name: 'Huy hiệu Binh Nhì', category: 'resource', w: 1, h: 1, stance: 'unarmed', color: '#72b48c', info: 'Kỷ vật quân vụ · có thể bán lấy ZCoin' },
+  badge_corporal: { id: 'badge_corporal', name: 'Huy hiệu Hạ Sĩ', category: 'resource', w: 1, h: 1, stance: 'unarmed', color: '#69a7dc', info: 'Kỷ vật quân vụ · có thể bán lấy ZCoin' },
+  badge_sergeant: { id: 'badge_sergeant', name: 'Huy hiệu Trung Sĩ', category: 'resource', w: 1, h: 1, stance: 'unarmed', color: '#bd8ce5', info: 'Kỷ vật quân vụ · có thể bán lấy ZCoin' },
+  badge_elite: { id: 'badge_elite', name: 'Huy hiệu Tinh Nhuệ', category: 'resource', w: 1, h: 1, stance: 'unarmed', color: '#ffb000', info: 'Kỷ vật quân vụ · có thể bán lấy ZCoin' },
   ak47: { id: 'ak47', name: 'AK-47', category: 'rifle', w: 5, h: 2, stance: 'rifle', color: '#8a6a3a', info: 'Assault rifle · 7.62×39' },
   m4a1: { id: 'm4a1', name: 'M4A1', category: 'rifle', w: 5, h: 2, stance: 'rifle', color: '#4a4f52', info: 'Carbine · 5.56 NATO' },
   aug: { id: 'aug', name: 'Steyr AUG', category: 'rifle', w: 4, h: 2, stance: 'rifle', color: '#55603e', info: 'Bullpup rifle · 5.56 NATO' },

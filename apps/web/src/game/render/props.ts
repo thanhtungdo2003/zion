@@ -26,7 +26,9 @@ const INFO = 6;
  */
 export class PropRenderer {
   private readonly meshes = new Map<string, InstancedMesh>();
-  private readonly batches = new Map<number, Batch>();
+  private batches = new Map<number, Batch>();
+  private spareBatches = new Map<number, Batch>();
+  private rebuildJob: Generator<void> | null = null;
   private readonly pending = new Set<number>();
   private disposed = false;
   private readonly colliderBoxes = new WeakMap<AssetVisual, AssetVisual['def']['colliders']>();
@@ -46,28 +48,45 @@ export class PropRenderer {
     this.dirty = true;
   }
 
-  update(camX: number, camZ: number, now: number): void {
+  update(camX: number, camZ: number, now: number, deadline = Infinity): void {
+    if (this.disposed) return;
     const moved = (camX - this.lastX) ** 2 + (camZ - this.lastZ) ** 2 > 24 * 24;
-    if ((!this.dirty && !moved) || now - this.lastRebuild < 250) return;
-    this.dirty = false;
-    this.lastRebuild = now;
-    this.lastX = camX;
-    this.lastZ = camZ;
-    this.rebuild(camX, camZ);
+    if (!this.rebuildJob) {
+      if ((!this.dirty && !moved) || now - this.lastRebuild < 250) return;
+      this.dirty = false;
+      this.lastRebuild = now;
+      this.lastX = camX;
+      this.lastZ = camZ;
+      // Snapshot membership: arrivals during a rebuild schedule the next pass.
+      this.rebuildJob = this.rebuild(camX, camZ, [...this.chunks()]);
+    }
+    while (performance.now() < deadline) {
+      if (this.rebuildJob.next().done) {
+        this.rebuildJob = null;
+        break;
+      }
+    }
   }
 
   private batch(asset: number): Batch {
-    let b = this.batches.get(asset);
-    if (!b) this.batches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), hidden: new Uint8Array(256), fading: false }));
+    let b = this.spareBatches.get(asset);
+    if (!b) this.spareBatches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), hidden: new Uint8Array(256), fading: false }));
     return b;
   }
 
-  private rebuild(camX: number, camZ: number): void {
-    for (const b of this.batches.values()) b.count = 0;
+  private *rebuild(camX: number, camZ: number, chunks: ChunkData[]): Generator<void> {
+    for (const b of this.spareBatches.values()) {
+      b.count = 0;
+      b.fade.fill(0);
+      b.hidden.fill(0);
+      b.fading = false;
+    }
     const visuals = new Map<number, AssetVisual>();
-    for (const chunk of this.chunks()) {
+    let scanned = 0;
+    for (const chunk of chunks) {
       if (chunk.lod > PROPS_MAX_LOD) continue;
       for (const p of chunk.props) {
+        if (++scanned % 128 === 0) yield;
         let v = visuals.get(p.asset);
         if (!v) {
           v = this.library.get(p.asset);
@@ -126,8 +145,13 @@ export class PropRenderer {
         m[o + 15] = 1;
         b.count++;
       }
+      yield;
     }
 
+    // Keep the previous scene/occlusion data intact until the new buffers are complete.
+    const old = this.batches;
+    this.batches = this.spareBatches;
+    this.spareBatches = old;
     let total = 0;
     const used = new Set<string>();
     for (const [asset, b] of this.batches) {
@@ -161,6 +185,9 @@ export class PropRenderer {
         (mesh.instanceMatrix.array as Float32Array).set(b.matrices.subarray(0, b.count * 16));
         mesh.count = b.count;
         mesh.instanceMatrix.needsUpdate = true;
+        const fade = mesh.geometry.getAttribute('aFade') as InstancedBufferAttribute;
+        (fade.array as Float32Array).fill(0);
+        fade.needsUpdate = true;
         total += b.count;
       });
     }
@@ -173,6 +200,9 @@ export class PropRenderer {
       }
     }
     this.instanceCount = total;
+    for (const asset of this.spareBatches.keys()) {
+      if (!this.batches.has(asset)) this.spareBatches.delete(asset);
+    }
   }
 
   /**
@@ -323,6 +353,8 @@ export class PropRenderer {
     }
     this.meshes.clear();
     this.batches.clear();
+    this.spareBatches.clear();
+    this.rebuildJob = null;
     this.pending.clear();
   }
 }

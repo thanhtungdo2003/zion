@@ -4,10 +4,35 @@ import { ZOMBIE_RIG, CollisionWorld } from '@zion/physics';
 import { castCombatRay } from './combat';
 import type { SpawnService } from './spawn';
 import { Zombie, ZombieDirector } from './zombies';
+import type { Player } from './player';
 
 const director = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => undefined });
 
 describe('zombie damage', () => {
+  it('suspends only the disconnecting player\'s attackers and restores their original damage once', () => {
+    let loaded = false;
+    const local = new ZombieDirector({} as CollisionWorld, { validateAt: (x: number, z: number) => loaded ? { x, y: 1, z } : null } as unknown as SpawnService, { attackPlayer: () => { throw new Error('Suspension must not cause an attack'); } });
+    const p = { suspendedZombies: [] } as unknown as Player, other = {} as Player;
+    const a = new Zombie(100, 20, 1, 25), b = new Zombie(101, 22, 1, 25), c = new Zombie(102, 24, 1, 25);
+    a.target = p; a.health = 37; a.limbs = 3;
+    b.target = other; c.biteTarget = p;
+    for (const z of [a, b, c]) local.zombies.set(z.id, z);
+    p.suspendedZombies = local.suspend(p);
+    expect(p.suspendedZombies).toHaveLength(2);
+    expect([...local.zombies.values()]).toEqual([b]);
+    expect(a.dead).toBe(false);
+    expect(local.suspend(p)).toHaveLength(0);
+    local.restore(p);
+    expect(p.suspendedZombies).toHaveLength(2);
+    loaded = true;
+    local.restore(p);
+    expect(p.suspendedZombies).toHaveLength(0);
+    const restored = [...local.zombies.values()].find((z) => z.health === 37)!;
+    expect(restored.limbs).toBe(3); expect(restored.target).toBe(p);
+    expect(restored.id).not.toBe(a.id);
+    local.restore(p);
+    expect(local.zombies.size).toBe(3);
+  });
   it('scales the brute model and all authoritative hit zones by 1.5', () => {
     const brute = new Zombie(1_000_003, 0, 0, 0, ZombieVariant.Brute);
     expect(zombieScale(brute.variant)).toBe(1.5);

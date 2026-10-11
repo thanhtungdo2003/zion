@@ -1,8 +1,11 @@
+import type { RankTitle } from '@zion/shared';
 import type { BaseLifeMessage, QuestStateMessage, TeamView, TutorialProgress } from '@zion/shared';
 import type { Msg } from '@/lib/i18n';
 
 /** Observable HUD state bridging the imperative engine and React (useSyncExternalStore). */
 export interface ChatLine {
+  rank?: RankTitle;
+  announcement?: boolean;
   channel?: 'world' | 'team';
   id: number;
   from: string;
@@ -16,6 +19,8 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  rank: RankTitle | null;
+  promotion: { rank: RankTitle; introduction: string; at: number } | null;
   tutorial: TutorialProgress | null;
   mapOpen: boolean;
   team: TeamView | null;
@@ -77,6 +82,8 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    rank: null,
+    promotion: null,
     tutorial: null,
     mapOpen: false,
     team: null,

@@ -99,7 +99,7 @@ function simulation(solids: ColliderInit[], start: NavPoint, goal: NavPoint) {
   const attackPlayer = vi.fn();
   const director = new ZombieDirector(collision, { validateAt: () => null } as unknown as SpawnService, { attackPlayer });
   const zombie = new Zombie(ZOMBIE_ID_BASE, start.x, start.y, start.z);
-  const player = { active: true, dead: false, state: { ...goal } } as Player;
+  const player = { active: true, dead: false, state: { ...goal }, suspendedZombies: [] } as unknown as Player;
   director.zombies.set(zombie.id, zombie);
   let tick = 0;
   return {

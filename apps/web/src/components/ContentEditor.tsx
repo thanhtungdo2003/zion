@@ -5,8 +5,9 @@ import { ITEMS, NPC_MODELS, STRUCTURE_KIND_IDS, objectiveText, validateContent, 
 import { studioContent, studioSaveContent } from '@/lib/api';
 import { Spinner } from './Spinner';
 import { PlayerProgress } from './PlayerProgress';
+import { RankEditor } from './RankEditor';
 
-type Tab = 'quests' | 'npcs' | 'life' | 'players';
+type Tab = 'quests' | 'npcs' | 'life' | 'players' | 'ranks';
 
 const S = {
   input: { background: '#10171b', color: '#eee', border: '1px solid #33444e', borderRadius: 4, padding: '4px 6px', width: '100%', boxSizing: 'border-box' } as React.CSSProperties,
@@ -81,6 +82,7 @@ function QuestForm({ q, npcs, questIds, onChange }: { q: QuestDef; npcs: string[
         <Field label="Id"><Text value={q.id} onChange={(v) => set({ id: v })} /></Field>
         <Field label="NPC"><Select value={q.npc} options={npcs} onChange={(v) => set({ npc: v })} /></Field>
         <Field label="Kind"><Select value={q.kind} options={['daily', 'long'] as const} onChange={(v) => set({ kind: v })} /></Field>
+        <Field label="Điểm quân hàm (0 = cấu hình chung)"><Num value={q.rankPoints ?? 0} onChange={(v) => set({ rankPoints: v > 0 ? v : undefined })} /></Field>
         <Check label="Enabled" value={q.enabled} onChange={(v) => set({ enabled: v })} />
         <Check label="Can cancel" value={q.allowCancel !== false} onChange={(v) => set({ allowCancel: v })} />
       </div>
@@ -231,11 +233,11 @@ export function ContentEditor() {
     <div style={{ position: 'fixed', inset: 20, zIndex: 100, background: '#172126', color: '#e8eef2', padding: 16, display: 'flex', flexDirection: 'column', gap: 10, borderRadius: 8 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <h2 style={{ margin: 0, flex: 1, whiteSpace: 'nowrap', fontSize: 20 }}>Quests & NPCs {dirty && <small style={{ color: '#e0b050' }}>· unsaved</small>}</h2>
-        {(['quests', 'npcs', 'life', 'players'] as const).map((t) => <button key={t} className="btn" style={{ opacity: tab === t ? 1 : 0.55 }} onClick={() => { setTab(t); setSel(0); }}>{t === 'quests' ? `Quests (${content?.quests.length ?? 0})` : t === 'npcs' ? `NPCs (${content?.npcs.length ?? 0})` : t === 'players' ? 'Tiến trình người chơi' : 'Base life'}</button>)}
+        {(['quests', 'npcs', 'life', 'players', 'ranks'] as const).map((t) => <button key={t} className="btn" style={{ opacity: tab === t ? 1 : 0.55 }} onClick={() => { setTab(t); setSel(0); }}>{t === 'ranks' ? 'Quân hàm & Quân nhu' : t === 'quests' ? `Quests (${content?.quests.length ?? 0})` : t === 'npcs' ? `NPCs (${content?.npcs.length ?? 0})` : t === 'players' ? 'Tiến trình người chơi' : 'Base life'}</button>)}
         <button className="btn" disabled={busy || !content} onClick={() => void publish()}>{busy ? <Spinner /> : 'Validate & publish'}</button>
         <button className="btn" onClick={() => { if (!dirty || confirm('Discard unsaved changes?')) setOpen(false); }}>Close</button>
       </div>
-      {tab === 'players' ? <PlayerProgress /> : !content ? <p>Loading…</p> : tab === 'life' ? (
+      {tab === 'ranks' ? <RankEditor /> : tab === 'players' ? <PlayerProgress /> : !content ? <p>Loading…</p> : tab === 'life' ? (
         <>
           <p style={{ margin: 0, fontSize: 13, color: '#9fb3c0' }}>Farming plots, crops, animals, recipes, trades, foods and stamina tuning (positions are camp-local metres). Use <code>null</code> for the built-in defaults.</p>
           <textarea spellCheck={false} value={lifeDraft} onChange={(e) => { setLifeDraft(e.target.value); setDirty(true); }} style={{ flex: 1, fontFamily: 'monospace', color: '#eee', background: '#10171b' }} />

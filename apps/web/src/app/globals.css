@@ -140,6 +140,99 @@ button {
 
 /* ------------------------------------------------------------ main menu */
 
+.rank-inline { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
+.rank-glyph { display: inline-grid; place-items: center; position: relative; width: 23px; height: 27px; flex: 0 0 23px; }
+.rank-glyph svg { width: 23px; height: 27px; }
+.rank-glyph i { position: absolute; font: 800 11px var(--cond); font-style: normal; }
+.menu-career { position: absolute; bottom: 28px; left: 28px; display: flex; flex-direction: column; gap: 12px; width: 180px; }
+.menu-rank { width: 180px; height: 180px; min-height: 180px; display: flex; flex-direction: column; align-items: center; padding: 8px; border: 1px solid var(--accent); border-radius: 0; background: linear-gradient(150deg, #29271f, #111516); color: var(--text); cursor: pointer; box-shadow: inset 0 0 35px #ffb0000d; }
+.menu-rank .badge-model { width: 132px; height: 104px; }
+.badge-model { position: relative; min-height: 1px; display: grid; place-items: center; color: var(--accent); }
+.badge-model canvas { display: block; width: 100%; height: 100%; }
+.menu-rank small { font: 10px var(--mono); letter-spacing: .14em; color: var(--muted); }
+.menu-rank b { font: 800 21px var(--cond); margin: 5px 0; }
+.menu-rank > span { color: var(--accent); font-size: 12px; letter-spacing: .12em; }
+.menu-rank:hover { border-color: #ffe1a1; background: #2a281e; }
+.menu-requisitions { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 12px; background: var(--accent); color: #141617; border: 0; font: 800 18px var(--cond); letter-spacing: .06em; cursor: pointer; }
+.menu-requisitions svg { width: 22px; height: 22px; }
+.menu-requisitions em { margin-left: auto; font: 12px var(--mono); }
+.career-dialog { width: min(1000px, calc(100vw - 32px)); max-width: none; height: min(720px, calc(100dvh - 40px)); max-height: none; padding: 0; border: 1px solid var(--line); border-top: 3px solid var(--accent); background: #111516; color: var(--text); }
+.career-dialog::backdrop { background: #000b; backdrop-filter: blur(7px); }
+.career-shell { display: flex; flex-direction: column; height: 100%; padding: 24px; }
+.career-shell > header { display: flex; justify-content: space-between; align-items: center; }
+.career-shell h2 { margin: 6px 0 18px; font: 800 34px var(--cond); text-transform: uppercase; }
+.career-shell nav { display: flex; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.career-shell nav button { padding: 12px 24px; background: transparent; color: var(--muted); border: 0; border-bottom: 2px solid transparent; font: 700 18px var(--cond); cursor: pointer; }
+.career-shell nav .on { color: var(--accent); border-bottom-color: var(--accent); }
+.career-ranks { display: grid; grid-template-columns: 38% 1fr; gap: 26px; flex: 1; min-height: 0; }
+.career-ranks aside { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 18px; text-align: center; background: radial-gradient(ellipse, #ffb00012, transparent 72%); }
+.career-ranks aside .badge-model { width: 100%; height: 260px; }
+.career-ranks aside .rank-inline { font: 800 30px var(--cond); }
+.career-ranks aside p { color: var(--muted); font: 14px/1.7 var(--sans); }
+.career-ranks aside small { color: var(--accent); font: 12px var(--mono); }
+.rank-timeline { overflow-y: auto; padding: 0 8px 12px 16px; border-left: 1px solid var(--line); }
+.rank-timeline > button { display: flex; align-items: center; gap: 14px; width: 100%; padding: 18px 12px; margin-bottom: 6px; background: #ffffff03; color: var(--text); border: 1px solid var(--line); text-align: left; cursor: pointer; }
+.rank-timeline > button > div { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.rank-timeline b { font: 700 20px var(--cond); }
+.rank-timeline small { color: var(--muted); font: 11px/1.6 var(--sans); }
+.rank-timeline > button > span:last-child { font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
+.rank-timeline .awarded > span:last-child { color: #72b48c; }
+.rank-timeline .current { border-left: 3px solid var(--accent); }
+.rank-timeline .selected { background: #ffb0000b; border-color: #ffb00066; }
+.career-stock { overflow-y: auto; flex: 1; min-height: 0; }
+.career-stock > p { font: 13px/1.6 var(--sans); color: var(--muted); }
+.requisition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.requisition-grid > button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 140px; padding: 16px; border: 1px solid var(--line); background: #1b2022; color: var(--text); cursor: pointer; }
+.requisition-grid svg { width: 36px; height: 36px; color: var(--accent); }
+.requisition-grid b { font: 700 17px var(--cond); }
+.requisition-grid small { color: var(--muted); font: 10px var(--mono); }
+.requisition-menu { position: fixed; display: flex; flex-direction: column; width: 220px; padding: 12px; gap: 8px; background: #252a2c; border: 1px solid var(--accent); box-shadow: 0 8px 35px #000a; }
+.requisition-menu button { padding: 9px; background: var(--accent); color: #141617; border: 0; font: 700 16px var(--cond); cursor: pointer; }
+.requisition-menu button:disabled { opacity: .4; cursor: default; }
+.career-note { padding: 12px; margin-bottom: 0; border-left: 2px solid var(--accent); color: var(--accent); font: 12px/1.6 var(--sans); }
+.career-empty { padding: 32px 12px; text-align: center; color: var(--muted); }
+.chat-rank-title { font-size: 10px; color: var(--muted); }
+.chat-announcement { padding: 8px; margin: 6px 0; color: var(--accent); border-left: 3px solid var(--accent); background: #ffb00014; font-weight: 700; }
+.rank-promotion { position: fixed; inset: 0; z-index: 55; pointer-events: none; }
+.rank-promotion-title { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(600px, 90vw); padding: 24px; background: linear-gradient(90deg, transparent, #111516e8, transparent); text-align: center; }
+.rank-promotion-title small { color: var(--accent); font: 14px var(--mono); letter-spacing: .25em; }
+.rank-promotion-title > .rank-inline { font: 800 clamp(28px, 4vw, 48px) var(--cond); }
+.rank-promotion-title > span:last-child { color: var(--accent); letter-spacing: .4em; }
+.rank-guide { position: absolute; bottom: 24px; left: 24px; display: flex; align-items: flex-end; max-width: 650px; pointer-events: auto; }
+.rank-guide .tutorial-portrait { flex: 0 0 150px; width: 150px; height: 190px; }
+.rank-guide .tutorial-portrait canvas { width: 150px !important; height: 180px !important; }
+.rank-guide > div:last-child { padding: 20px; background: #111516f5; border: 1px solid var(--line); border-top: 2px solid var(--accent); }
+.rank-guide h3 { font: 800 26px var(--cond); margin: 8px 0; }
+.rank-guide p { font: 13px/1.7 var(--sans); }
+.rank-editor { flex: 1; overflow-y: auto; min-height: 0; }
+.rank-editor input, .rank-editor select { padding: 8px; min-width: 0; background: #10171b; color: var(--text); border: 1px solid var(--line); }
+.rank-editor-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.rank-editor label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.rank-editor-grid { display: grid; grid-template-columns: 280px 1fr; gap: 24px; margin: 20px 0; }
+.rank-editor-grid > div:first-child label { display: grid; grid-template-columns: 1fr 100px; gap: 6px; margin-bottom: 4px; }
+.rank-editor-grid label.selected { outline: 1px solid var(--accent); }
+.rank-editor-grid label button { background: #202b30; color: var(--text); padding: 8px; border: 0; cursor: pointer; text-align: left; }
+.rank-editor-reward { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .menu-career { top: 156px; bottom: auto; left: 12px; width: 112px; gap: 8px; }
+  .menu-rank { width: 112px; min-height: 140px; padding: 6px; }
+  .menu-rank .badge-model { width: 84px; height: 80px; }
+  .menu-rank b { font-size: 16px; }
+  .menu-requisitions { padding: 8px; font-size: 15px; }
+  .menu.team-panel-open .menu-career { display: none; }
+  .career-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+  .career-shell { padding: 14px; }
+  .career-ranks { grid-template-columns: 1fr; grid-template-rows: 180px 1fr; gap: 10px; }
+  .career-ranks aside { padding: 0; }
+  .career-ranks aside .badge-model { height: 120px; width: 150px; }
+  .career-ranks aside .rank-inline { font-size: 22px; }
+  .career-ranks aside p { display: none; }
+  .career-ranks aside small { margin-top: 8px; }
+  .rank-guide { bottom: 12px; left: 12px; right: 12px; }
+  .rank-guide .tutorial-portrait { display: none; }
+  .rank-guide p { font-size: 12px; }
+}
+
 .menu {
   position: fixed;
   inset: 0;
@@ -657,7 +750,14 @@ button {
 .menu-name-card .overlay-row { justify-content: flex-end; }
 
 /* Squad lobby uses the same hard edges, condensed headings and amber accents as the menu. */
-.team-lobby { position: absolute; top: 90px; bottom: 24px; left: 28px; width: 300px; overflow-y: auto; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent); scrollbar-width: thin; }
+.menu-team-toggle { position: absolute; top: 100px; left: 28px; display: flex; align-items: center; gap: 14px; width: 300px; min-height: 64px; padding: 14px 18px; border: 1px solid var(--accent); border-radius: 0; background: var(--accent); color: #141617; font: 800 22px/1.15 var(--cond); text-transform: uppercase; letter-spacing: .06em; text-align: left; cursor: pointer; box-shadow: 0 4px 0 #805800; }
+.menu-team-toggle > svg { flex: 0 0 28px; width: 28px; height: 28px; }
+.menu-team-toggle > svg:last-child { flex-basis: 22px; width: 22px; height: 22px; }
+.menu-team-toggle > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.menu-team-toggle:hover:not(:disabled) { background: #ffc43d; }
+.menu-team-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 5px; }
+.menu-team-toggle:disabled { opacity: .5; cursor: wait; }
+.team-lobby { position: absolute; top: 184px; bottom: 24px; left: 28px; width: 300px; overflow-y: auto; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent); scrollbar-width: thin; }
 .team-lobby-head h2 { display: flex; align-items: center; gap: 8px; margin: 6px 0; font: 800 24px var(--cond); text-transform: uppercase; letter-spacing: .06em; }
 .team-lobby-head h2 svg { width: 23px; height: 23px; color: var(--accent); }
 .team-lobby-head small, .team-muted, .team-deploy small { color: var(--muted); font: 12px/1.5 var(--sans); }
@@ -697,7 +797,6 @@ button {
 .team-lobby-chat input { width: 0; flex: 1; min-width: 0; padding: 8px; background: #0b0c0d; border: 1px solid var(--line); color: var(--text); font: 12px var(--sans); }
 .team-lobby-chat form > .btn { flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; }
 .team-lobby-chat .btn svg { width: 16px; height: 16px; }
-.team-deploy { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 1px solid var(--line); }
 .menu.has-team .menu-launch { width: 300px; }
 .menu.has-team .menu-play { font-size: 36px; height: 84px; }
 .menu.has-team .menu-stage { right: 320px; }
@@ -715,8 +814,9 @@ button {
 .q-tabs svg { width: 13px; height: 13px; vertical-align: middle; }
 .touch-mode .team-hud { top: 172px; right: 12px; width: 120px; padding: 5px; }
 @media (max-width: 640px) {
-  .menu.team-panel-open { overflow-y: auto; padding: 290px 12px 20px; }
-  .menu.team-panel-open .menu-stage { left: 0; right: 0; top: 76px; bottom: auto; height: 210px; }
+  .menu-team-toggle { top: 82px; left: 12px; width: min(280px, calc(100% - 24px)); min-height: 58px; font-size: 20px; }
+  .menu.team-panel-open { overflow-y: auto; padding: 358px 12px 20px; }
+  .menu.team-panel-open .menu-stage { left: 0; right: 0; top: 148px; bottom: auto; height: 210px; }
   .menu.team-panel-open .team-lobby { position: relative; top: auto; bottom: auto; left: auto; width: 100%; overflow: visible; }
   .menu.team-panel-open .menu-launch { position: relative; right: auto; bottom: auto; width: 100%; margin-top: 12px; }
   .menu.has-team:not(.team-panel-open) .menu-stage { right: 0; bottom: 190px; top: 60px; }
@@ -1492,6 +1592,8 @@ kbd {
 .studio-back:hover { color: var(--accent); }
 .studio-spacer { flex: 1; }
 .studio-badge { font: 600 11px var(--mono); padding: 2px 8px; border: 1px solid var(--line); color: var(--muted); }
+.studio-player-count { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); }
+.studio-player-count svg { flex: 0 0 16px; width: 16px; height: 16px; }
 .studio-badge.custom { color: var(--accent); border-color: rgba(255, 176, 0, 0.5); }
 .studio-badge.unsaved { color: #ff8a7a; border-color: rgba(255, 90, 70, 0.5); }
 .studio-field-inline { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }

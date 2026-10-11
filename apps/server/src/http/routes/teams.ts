@@ -23,11 +23,15 @@ export function registerTeamRoutes(app: FastifyInstance, deps: HttpDeps): void {
   if (!teams) return;
   app.get('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
-    return teams.lobby(req.claims!.sub);
+    const lobby = teams.lobby(req.claims!.sub);
+    return deps.progression ? deps.progression.lobbyRanks(lobby) : lobby;
   });
   app.post('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     const action = actionSchema.parse(req.body);
-    try { return await teams.action(req.claims!.sub, req.claims!.name, action); }
+    try {
+      const lobby = await teams.action(req.claims!.sub, req.claims!.name, action, await deps.progression?.title(req.claims!.sub));
+      return deps.progression ? deps.progression.lobbyRanks(lobby) : lobby;
+    }
     catch (err) { if (err instanceof TeamError) return reply.code(err.status).send({ error: 'team_error', message: err.message }); throw err; }
   });
 }

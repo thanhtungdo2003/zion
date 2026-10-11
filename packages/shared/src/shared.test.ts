@@ -223,13 +223,13 @@ describe('server inventory model', () => {
 });
 
 describe('quest content', () => {
-  it('default content is valid: 3 NPCs × 10 quests, 3 daily, ≥5 away from base', async () => {
+  it('default content is valid: 10 base quests per NPC plus 10 Colonel search missions', async () => {
     const { DEFAULT_CONTENT, validateContent } = await import('./index');
     const res = validateContent(DEFAULT_CONTENT);
     expect(res.ok ? [] : res.errors).toEqual([]);
     for (const npc of ['farmer', 'chef', 'colonel']) {
       const qs = DEFAULT_CONTENT.quests.filter((q) => q.npc === npc);
-      expect(qs).toHaveLength(10);
+      expect(qs).toHaveLength(npc === 'colonel' ? 20 : 10);
       expect(qs.filter((q) => q.kind === 'daily')).toHaveLength(3);
       expect(qs.filter((q) => q.objectives.some((o) => o.type === 'visit' || o.type === 'retrieve' || o.type === 'kill')).length).toBeGreaterThanOrEqual(5);
     }

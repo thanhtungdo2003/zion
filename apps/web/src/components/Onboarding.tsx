@@ -19,7 +19,7 @@ const PORTRAIT_W = 300, PORTRAIT_H = 360;
  * stays in its rest pose and gets a procedural breathing loop instead. The rig faces -X; it is turned
  * to face the viewer and framed on the upper body.
  */
-function GuidePortrait() {
+export function GuidePortrait() {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = host.current;

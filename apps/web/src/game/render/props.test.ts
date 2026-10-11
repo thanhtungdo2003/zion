@@ -21,10 +21,31 @@ function fixture() {
     renderer.update(0, 0, now += 300);
     return scene.children[0] as InstancedMesh | undefined;
   }
-  return { renderer, geometry, material, library, scene, render, def };
+  return { renderer, geometry, material, library, scene, render, def, chunk };
 }
 
 describe('streamed prop graphics lifetime', () => {
+  it('keeps the current scene intact while a large rebuild spans frames, then applies an unload', () => {
+    const { renderer, render, scene, chunk, def } = fixture();
+    const old = render(1)!;
+    chunk.props = Array.from({ length: 1024 }, () => ({ asset: def.numericId, lx: 0, lz: 0, yq: 0, rot: 0, scale: 100 }));
+    renderer.markDirty();
+    // One generator slice per frame, independent of machine speed.
+    let clock = 0;
+    const timer = vi.spyOn(performance, 'now').mockImplementation(() => clock++);
+    renderer.update(0, 0, 600, 1);
+    expect(scene.children[0]).toBe(old);
+    expect(renderer.instanceCount).toBe(1);
+    for (let frame = 0; frame < 20 && renderer.instanceCount !== 1024; frame++) {
+      renderer.update(0, 0, 601 + frame, clock + 1);
+    }
+    expect(renderer.instanceCount).toBe(1024);
+    timer.mockRestore();
+    render(0);
+    renderer.update(0, 0, 1000);
+    expect(scene.children).toHaveLength(0);
+    renderer.dispose();
+  });
   it('owns fade buffers and disposes the old geometry when instance capacity grows', () => {
     const { renderer, geometry, material, render } = fixture();
     const sourceDispose = vi.spyOn(geometry, 'dispose');

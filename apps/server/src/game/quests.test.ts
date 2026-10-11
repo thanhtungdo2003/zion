@@ -14,7 +14,7 @@ describe('authoritative quest engine', () => {
     expect(validateContent(DEFAULT_CONTENT)).toMatchObject({ ok: true });
     for (const npc of DEFAULT_CONTENT.npcs) {
       const pool = DEFAULT_CONTENT.quests.filter((q) => q.npc === npc.id);
-      expect(pool).toHaveLength(10);
+      expect(pool).toHaveLength(npc.id === 'colonel' ? 20 : 10);
       expect(pool.filter((q) => q.kind === 'daily')).toHaveLength(3);
       expect(pool.filter((q) => q.objectives.some((o) => ['kill', 'visit', 'retrieve'].includes(o.type))).length).toBeGreaterThanOrEqual(5);
     }

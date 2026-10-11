@@ -38,6 +38,7 @@ export const NURSE_HEAL_PRICE = 40;
 
 /** What the weapon merchant stocks, in display order. */
 export const SHOP_STOCK: readonly ShopEntry[] = [
+  ...['recruit', 'private', 'corporal', 'sergeant', 'elite'].map((rank, i) => ({ item: `badge_${rank}`, price: [300, 600, 1100, 1800, 3000][i]!, category: 'tools' as const })),
   { item: 'flashlight', price: 150, category: 'tools' },
   { item: 'gl18', price: 120, category: 'guns' },
   { item: 'revolver', price: 220, category: 'guns' },

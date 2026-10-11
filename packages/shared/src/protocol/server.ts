@@ -4,6 +4,7 @@ import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
 import type { TeamStateMessage } from '../teams';
 import type { TutorialStateMessage } from '../tutorial';
+import type { RankTitle, RankUpdate } from '../ranks';
 
 /* ------------------------------------------------------------------------------------------ */
 /* JSON (text frame) messages — infrequent control/event traffic.                              */
@@ -46,6 +47,8 @@ export interface PongMessage {
 }
 
 export interface ChatBroadcast {
+  rank?: RankTitle;
+  announcement?: boolean;
   t: 'chat';
   from: string;
   fromId: number;
@@ -217,7 +220,7 @@ export interface RespawnEvent {
 
 export interface PlayerInfoEvent {
   t: 'players';
-  players: Array<{ id: number; name: string }>;
+  players: Array<{ id: number; name: string; rank?: RankTitle }>;
 }
 
 export interface QuestStateMessage {
@@ -234,6 +237,7 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | RankUpdate
   | TutorialStateMessage
   | TeamStateMessage
   | VegetationMessage
