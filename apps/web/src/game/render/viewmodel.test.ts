@@ -19,6 +19,17 @@ function fixture() {
 }
 
 describe('first person weapon', () => {
+  it('keeps a heavy swing moving after a normal swing has recovered, then returns to rest', () => {
+    const heavy = fixture(), normal = fixture(), idle = fixture();
+    heavy.view.swing(1, 1100);
+    normal.view.swing(1);
+    const marker = (f: ReturnType<typeof fixture>) => f.camera.getObjectByName('weapon-muzzle')!.getWorldPosition(new Vector3());
+    for (let i = 0; i < 36; i++) for (const f of [heavy, normal, idle]) f.view.update(1 / 60, f.state);
+    expect(marker(normal).distanceTo(marker(idle))).toBeLessThan(1e-8);
+    expect(marker(heavy).distanceTo(marker(idle))).toBeGreaterThan(.1);
+    for (let i = 0; i < 36; i++) for (const f of [heavy, normal, idle]) f.view.update(1 / 60, f.state);
+    expect(marker(heavy).distanceTo(marker(idle))).toBeLessThan(1e-8);
+  });
   it('tracks the real display muzzle through camera and recoil transforms', () => {
     const { camera, view, state } = fixture();
     view.kick();

@@ -23,9 +23,10 @@ export const WeaponId = {
   Katana: 17,
   Quam: 18,
   Shovel: 19,
+  Sledgehammer: 20,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 19;
+export const MAX_WEAPON_ID = 20;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'hitscan' | 'projectile' | 'flame';
@@ -91,6 +92,11 @@ export interface MeleeSpec {
   cooldownMs: number;
   /** Visual "attacking" flag duration. */
   swingMs: number;
+  hitDelayMs?: number;
+  animationMs?: number;
+  halfAngle?: number;
+  cleaveMultiplier?: number;
+  stunMs?: number;
 }
 
 export type WeaponSpec = GunSpec | ThrowSpec | MeleeSpec;
@@ -129,6 +135,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Katana]: { kind: 'melee', damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
   [WeaponId.Quam]: { kind: 'melee', damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
   [WeaponId.Shovel]: { kind: 'melee', damage: 30, range: 2.7, cooldownMs: 750, swingMs: 400 },
+  [WeaponId.Sledgehammer]: { kind: 'melee', damage: 90, range: 3.4, cooldownMs: 1600, swingMs: 1100, hitDelayMs: 550, animationMs: 1100, halfAngle: 1.4, cleaveMultiplier: .75, stunMs: 1300 },
 };
 
 /** Inventory item id → weapon id. */
@@ -152,6 +159,7 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   katana: WeaponId.Katana,
   quam: WeaponId.Quam,
   shovel: WeaponId.Shovel,
+  long_sledgehammer: WeaponId.Sledgehammer,
 };
 
 export const ITEM_BY_WEAPON: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(WEAPON_BY_ITEM).map(([k, v]) => [v, k]));

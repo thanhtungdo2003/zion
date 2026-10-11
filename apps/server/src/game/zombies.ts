@@ -510,6 +510,18 @@ export class ZombieDirector {
       this.collision.lineOfSight(s.x, s.y + 0.9, s.z, v.state.x, v.state.y + 0.9, v.state.z, Mask.LineOfSight, this.attackHit);
   }
 
+  /** A heavy blow interrupts the bite and spring wind-up as well as stopping locomotion. */
+  stun(z: Zombie, durationMs: number, now: number): void {
+    if (z.dead) return;
+    z.staggerUntil = Math.max(z.staggerUntil, now + durationMs);
+    z.biteAt = 0;
+    z.biteTarget = null;
+    z.attackingUntil = 0;
+    z.jumpWindupUntil = 0;
+    z.jumpReadyAt = Math.max(z.jumpReadyAt, z.staggerUntil);
+    z.attackReadyAt = Math.max(z.attackReadyAt, z.staggerUntil);
+  }
+
   hit(z: Zombie, zone: string, damage: number, dirX: number, dirZ: number, impulse: number, now: number, attacker: Player | null): { killed: boolean; broke: number } {
     if (z.dead) return { killed: false, broke: 0 };
     // Knockback: shove along the shot direction and briefly stagger.

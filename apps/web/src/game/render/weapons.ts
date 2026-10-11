@@ -65,6 +65,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0] },
   quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0] },
   shovel: { url: '/models/tools/shovel.bbmodel', length: 1.15, barrel: [0, -1, 0], up: [0, 0, 1], grip: [8, 13, 8] },
+  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0] },
   // Ammo boxes are never held; they are loaded for their inventory icons (muzzle-less = no gun scaling).
   ammo_762: { url: '/models/ammos/ak-box-762x39.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_9mm: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },

@@ -1702,7 +1702,7 @@ export class GameEngine {
       }
     } else if (action === 'melee' && spec?.kind === 'melee') {
       const variant = this.localAvatar?.slash() ?? 1;
-      this.viewModel?.swing(variant);
+      this.viewModel?.swing(variant, spec.animationMs);
       const avatar = this.localAvatar;
       if (avatar) this.slashAt(
         () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
@@ -1960,7 +1960,8 @@ export class GameEngine {
     if (spec?.kind !== 'melee') return;
     const pose = follow();
     if (!pose) return;
-    this.slashes?.spawn(follow, Math.min(spec.range, 2.8) * 0.85, variant);
+    const reach = spec.animationMs ? spec.range : Math.min(spec.range, 2.8);
+    this.slashes?.spawn(follow, reach * 0.85, variant, spec.hitDelayMs === undefined ? undefined : spec.hitDelayMs / 1000);
     this.sounds?.play('swordSlash', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25 });
   }
 

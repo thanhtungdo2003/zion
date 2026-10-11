@@ -31,6 +31,7 @@ export class ViewModel {
   /** Melee swing / grenade throw in progress: elapsed seconds, or −1 when idle. */
   private swingT = -1;
   private swingDir = 1;
+  private swingRate = 1;
   private throwT = -1;
 
   constructor(camera: Camera) {
@@ -98,7 +99,8 @@ export class ViewModel {
   }
 
   /** Melee: wind up over the shoulder, then a fast diagonal cut; variants alternate sides. */
-  swing(variant: number): void {
+  swing(variant: number, durationMs?: number): void {
+    this.swingRate = durationMs ? 460 / durationMs : 1;
     this.swingT = 0;
     this.swingDir = variant % 2 === 0 ? -1 : 1;
   }
@@ -136,7 +138,7 @@ export class ViewModel {
     // Action offsets: position (x, y, z) and rotation (pitch, yaw, roll).
     let ax = 0, ay = 0, az = 0, rx = 0, ry = 0, rz = 0;
     if (this.swingT >= 0) {
-      this.swingT += dt;
+      this.swingT += dt * this.swingRate;
       const d = this.swingDir;
       const WIND = 0.12, CUT = 0.14, BACK = 0.2;
       const t = this.swingT;

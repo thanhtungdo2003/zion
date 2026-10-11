@@ -1557,7 +1557,7 @@ export class GameServer {
       this.flag(p, 'rewind_out_of_window', { delta: Math.round(now - renderTime) });
     }
     // Like a zombie's bite, the blow lands after its wind-up, judged on where everyone is then.
-    p.strike = { at: now + (blade ? BLADE_HIT_DELAY_MS : FIST_HIT_DELAY_MS), blade, rewind: renderTime === undefined ? undefined : now - renderTime };
+    p.strike = { at: now + (blade ? blade.hitDelayMs ?? BLADE_HIT_DELAY_MS : FIST_HIT_DELAY_MS), blade, rewind: renderTime === undefined ? undefined : now - renderTime };
   }
 
   /** Resolves pending melee blows whose wind-up has elapsed (only if the attacker still lives). */
@@ -1584,18 +1584,22 @@ export class GameServer {
     }
     // Blades cut whoever is right in front (wide wedge); fists still need to be aimed.
     const res = blade
-      ? resolveBladeSweep(p, candidates, this.collision, now, renderTime, { range, damage: blade.damage, halfAngle: 1.05 })
+      ? resolveBladeSweep(p, candidates, this.collision, now, renderTime, { range, damage: blade.damage, halfAngle: blade.halfAngle ?? 1.05 })
       : resolveMelee(p, candidates, this.collision, now, renderTime);
     if (!res) return;
     this.hitTarget(p, res.target, res.damage, blade && res.zone === 'torso' ? 'slash' : res.zone, res.x, res.y, res.z, -Math.sin(p.yaw), -Math.cos(p.yaw), blade ? 4 : 2.5, now);
+    if (blade?.stunMs && res.target instanceof Zombie) this.zombies.stun(res.target, blade.stunMs, now);
     if (blade) {
       // Secondary cuts only affect zombies; each keeps its own reach and wall check.
       const seen = new Set<Combatant>([res.target]);
       for (const target of candidates) {
         if (!(target instanceof Zombie) || seen.has(target)) continue;
         seen.add(target);
-        const splash = resolveBladeSweep(p, [target], this.collision, now, renderTime, { range, damage: blade.damage * .5, halfAngle: 1.05 });
-        if (splash) this.hitTarget(p, target, splash.damage, 'slash', splash.x, splash.y, splash.z, -Math.sin(p.yaw), -Math.cos(p.yaw), 2, now);
+        const splash = resolveBladeSweep(p, [target], this.collision, now, renderTime, { range, damage: blade.damage * (blade.cleaveMultiplier ?? .5), halfAngle: blade.halfAngle ?? 1.05 });
+        if (splash) {
+          this.hitTarget(p, target, splash.damage, 'slash', splash.x, splash.y, splash.z, -Math.sin(p.yaw), -Math.cos(p.yaw), 2, now);
+          if (blade.stunMs) this.zombies.stun(target, blade.stunMs, now);
+        }
       }
     }
   }

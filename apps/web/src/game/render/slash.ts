@@ -108,7 +108,7 @@ export class SlashEffects {
    * Follow the rendered wielder throughout the delay and trail, `reach` metres out:
    * 0 = vertical (overhead chop, top to bottom), 1 = horizontal (flat sweep), 2 = diagonal.
    */
-  spawn(follow: () => SlashPose | null, reach: number, variant = 1): void {
+  spawn(follow: () => SlashPose | null, reach: number, variant = 1, delay = DELAY): void {
     const c = this.cuts[this.next++ % POOL]!;
     const vertical = variant === 0;
     c.mesh.geometry = this.geometry(vertical ? reach * 0.75 : reach);
@@ -117,7 +117,7 @@ export class SlashEffects {
     // Roll the flat crescent about the facing axis: −90° stands it up so it sweeps top → bottom.
     const roll = vertical ? -Math.PI / 2 : variant === 2 ? -0.8 : 0.08;
     c.mesh.rotation.set(0, 0, roll, 'YXZ');
-    c.t = -DELAY;
+    c.t = -delay;
     c.mat.uniforms.uProgress!.value = 0;
     c.mesh.visible = false;
     c.pending = true;

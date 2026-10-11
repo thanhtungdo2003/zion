@@ -19,7 +19,7 @@ export interface ChestStateMessage extends ChestData {
 const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'bolts'];
 const supplies = ['medkit', 'potato_cooked', 'cooked_mutton', 'cooked_porkchop', 'potato', 'grenade'];
 const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank'];
-const guns = ['gl18', 'revolver', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana'];
+const guns = ['gl18', 'revolver', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer'];
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
 const elite = ['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 

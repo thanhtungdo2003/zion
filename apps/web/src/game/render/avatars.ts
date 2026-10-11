@@ -1,6 +1,6 @@
 import { Ragdoll } from './ragdoll';
 import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
-import { EntityFlags, RANKS, type RankTitle } from '@zion/shared';
+import { EntityFlags, RANKS, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
 import type { Stance } from '../inventory/items';
 import type { WeaponLibrary, WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
@@ -171,10 +171,11 @@ export class Avatar {
   }
 
   /** Plays a clip to the end, ignoring locomotion until it finishes (throws, punches). */
-  playOnce(name: string): void {
+  playOnce(name: string, durationMs?: number): void {
     if (!this.template.clips.has(name)) return;
     this.cur = { clip: null, time: 0, rate: 1 };
-    this.play(name, 1, 0, 0.4);
+    const clip = this.template.clips.get(name)!;
+    this.play(name, durationMs ? clip.length / (durationMs / 1000) : 1, 0, 0.4);
     this.oneShot = name;
   }
 
@@ -182,8 +183,10 @@ export class Avatar {
   slash(): number {
     const v = this.slashCount++ % SLASH_CLIPS.length;
     this.slashVariant = v;
-    if (this.template.clips.has(SLASH_CLIPS[v]!)) this.playOnce(SLASH_CLIPS[v]!);
-    else this.playOnce('melee_attack');
+    const spec = weaponSpec(WEAPON_BY_ITEM[this.weaponId ?? ''] ?? 0);
+    const duration = spec?.kind === 'melee' ? spec.animationMs : undefined;
+    if (this.template.clips.has(SLASH_CLIPS[v]!)) this.playOnce(SLASH_CLIPS[v]!, duration);
+    else this.playOnce('melee_attack', duration);
     return v;
   }
 
