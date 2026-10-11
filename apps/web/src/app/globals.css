@@ -534,7 +534,14 @@ button {
 .touch-loadout .inv-sil { max-width: 76px; height: 24px; object-fit: contain; }
 .touch-loadout small { font: 10px var(--mono); white-space: nowrap; }
 .touch-controls { position: absolute; inset: 0; z-index: 1; pointer-events: none; color: #fff; user-select: none; -webkit-user-select: none; }
-.touch-look { position: absolute; inset: 0; pointer-events: auto; touch-action: none; }
+.touch-zone { position: absolute; top: 0; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
+.touch-move-zone { left: 0; }
+.touch-look, .touch-fire-zone { right: 0; }
+.touch-controls .touch-joystick { pointer-events: none; opacity: .35; }
+.touch-controls .touch-joystick[data-active='true'] { opacity: .65; }
+.touch-controls .touch-key { opacity: .65; }
+.touch-controls .touch-key[data-active='true'] { opacity: 1; }
+.touch-controls .touch-key:disabled { opacity: .25; }
 .touch-key, .touch-joystick { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; border: 1px solid rgba(255,255,255,.3); background: rgba(25,25,25,.22); color: rgba(255,255,255,.84); backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); box-shadow: inset 0 0 16px rgba(255,255,255,.025), 0 2px 8px rgba(0,0,0,.12); }
 .touch-key { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer; }
 .touch-key svg { width: 23px; height: 23px; pointer-events: none; }
@@ -2280,4 +2287,15 @@ kbd {
   .touch-hotbar { max-width: calc(100% - 164px); gap: 3px; }
   .touch-weapon-slot { flex-basis: 60px; min-height: 44px; padding: 2px; }
   .touch-weapon-slot .inv-sil { width: 48px; height: 18px; }
+}
+
+/* Resize the map itself so its visible bounds and touch target stay compact. */
+.touch-mode .hud-minimap { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); width: clamp(64px, 18dvh, 88px); transform: none; }
+.touch-mode .hud-minimap canvas { width: 100%; height: clamp(64px, 18dvh, 88px); }
+.touch-mode .hud-minimap-open { width: 100%; }
+.touch-mode .hud-clock { padding: 3px 4px; font-size: 9px; gap: 4px; flex-wrap: wrap; }
+.touch-mode .hud-minimap-open > span { padding: 1px 2px; font-size: 8px; }
+.touch-mode .hud-times { display: none; }
+@media (max-width: 480px) and (orientation: portrait) {
+  .touch-tools { top: max(132px, calc(env(safe-area-inset-top) + 124px)); }
 }

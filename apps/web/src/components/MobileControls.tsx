@@ -63,7 +63,9 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
   const mouseLook = cameraMode !== 'top-down';
   const joystick = useRef<{ id: number; x: number; y: number } | null>(null);
   const look = useRef<{ id: number; x: number; y: number } | null>(null);
-  const fire = useRef<number | null>(null);
+  const fire = useRef<{ id: number; x: number; y: number } | null>(null);
+  const [moveOrigin, setMoveOrigin] = useState<{ x: number; y: number } | null>(null);
+  const [fireOrigin, setFireOrigin] = useState<{ x: number; y: number } | null>(null);
   const [fireStick, setFireStick] = useState({ x: 0, y: 0 });
   const [stick, setStick] = useState({ x: 0, y: 0 });
   const [sprint, setSprint] = useState(false);
@@ -74,6 +76,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
     const reset = () => {
       controls.reset(); joystick.current = look.current = null; fire.current = null;
       setFireStick({ x: 0, y: 0 });
+      setMoveOrigin(null); setFireOrigin(null);
       setStick({ x: 0, y: 0 }); setSprint(false); setAim(false);
       setGestureEpoch((n) => n + 1);
     };
@@ -103,25 +106,35 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
   };
   const endMove = (e: PointerEvent<HTMLElement>) => {
     if (joystick.current?.id !== e.pointerId) return;
-    joystick.current = null; setStick({ x: 0, y: 0 }); controls.move(0, 0);
+    joystick.current = null; setMoveOrigin(null); setStick({ x: 0, y: 0 }); controls.move(0, 0);
   };
   const endLook = (e: PointerEvent<HTMLElement>) => {
     if (look.current?.id === e.pointerId) look.current = null;
   };
   const dragFire = (e: PointerEvent<HTMLElement>) => {
-    if (fire.current !== e.pointerId) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
+    const p = fire.current;
+    if (p?.id !== e.pointerId) return;
+    const x = e.clientX - p.x, y = e.clientY - p.y;
     const length = Math.hypot(x, y), scale = Math.max(40, length);
     setFireStick({ x: x / scale * 40, y: y / scale * 40 });
     controls.fireDirection(length > 8 ? x / length : 0, length > 8 ? y / length : 0);
   };
   const endFire = (e: PointerEvent<HTMLElement>) => {
-    if (fire.current !== e.pointerId) return;
-    fire.current = null; setFireStick({ x: 0, y: 0 }); controls.fireDirection(0, 0);
+    if (fire.current?.id !== e.pointerId) return;
+    fire.current = null; setFireOrigin(null); setFireStick({ x: 0, y: 0 }); controls.fireDirection(0, 0);
   };
   return <div key={gestureEpoch} className="touch-controls" data-nosound>
-    {mouseLook && <div className="touch-look" aria-label={t('touch.look')}
+    <div className="touch-zone touch-move-zone" role="group" aria-label={t('touch.move')}
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (joystick.current || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        const r = e.currentTarget.parentElement!.getBoundingClientRect();
+        joystick.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        setMoveOrigin({ x: e.clientX - r.left, y: e.clientY - r.top });
+        e.currentTarget.setPointerCapture(e.pointerId); move(e);
+      }} onPointerMove={move} onPointerUp={endMove} onPointerCancel={endMove} onLostPointerCapture={endMove} />
+    {mouseLook ? <div className="touch-zone touch-look" aria-label={t('touch.look')}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -134,33 +147,32 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
         if (p?.id !== e.pointerId) return;
         controls.look(e.clientX - p.x, e.clientY - p.y);
         p.x = e.clientX; p.y = e.clientY;
-      }} onPointerUp={endLook} onPointerCancel={endLook} onLostPointerCapture={endLook} />}
+      }} onPointerUp={endLook} onPointerCancel={endLook} onLostPointerCapture={endLook} /> :
+      <div className="touch-zone touch-fire-zone" role="group" aria-label={t('touch.dragFire')}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (fire.current || (e.pointerType === 'mouse' && e.button !== 0)) return;
+          const r = e.currentTarget.parentElement!.getBoundingClientRect();
+          fire.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+          setFireOrigin({ x: e.clientX - r.left, y: e.clientY - r.top });
+          e.currentTarget.setPointerCapture(e.pointerId); dragFire(e);
+        }} onPointerMove={dragFire} onPointerUp={endFire} onPointerCancel={endFire} onLostPointerCapture={endFire} />}
     <div className="touch-tools">
       <TouchKey controls={controls} icon="lucide:pause" label={t('touch.pause')} press={() => controls.action('pause')} />
       <TouchKey controls={controls} icon="lucide:backpack" label={t('touch.inventory')} press={() => controls.action('inventory')} />
       <TouchKey controls={controls} icon="lucide:message-circle" label={t('touch.chat')} press={() => { controls.reset(); controls.chat(); }} />
     </div>
-    <div className="touch-joystick" role="group" aria-label={t('touch.move')} data-active={!!joystick.current}
-      onPointerDown={(e) => {
-        e.preventDefault(); e.stopPropagation();
-        if (joystick.current || (e.pointerType === 'mouse' && e.button !== 0)) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        joystick.current = { id: e.pointerId, x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        e.currentTarget.setPointerCapture(e.pointerId); move(e);
-      }} onPointerMove={move} onPointerUp={endMove} onPointerCancel={endMove} onLostPointerCapture={endMove}>
+    <div className="touch-joystick" aria-hidden="true" data-active={!!moveOrigin}
+      style={moveOrigin ? { left: moveOrigin.x, top: moveOrigin.y, bottom: 'auto', transform: 'translate(-50%, -50%)' } : undefined}>
       <Icon name="lucide:move" />
       <i style={{ transform: `translate(${stick.x}px, ${stick.y}px)` }} />
     </div>
     <TouchKey controls={controls} className="touch-sprint" icon="lucide:footprints" label={t('touch.sprint')} pressed={sprint}
       press={() => { controls.button('sprint', !sprint); setSprint(!sprint); }} />
     {mouseLook ? <TouchKey controls={controls} className="touch-fire" icon="lucide:crosshair" label={t('touch.attack')} hold="attack" look /> :
-      <div className="touch-joystick touch-fire-stick" role="group" aria-label={t('touch.dragFire')} data-active={fire.current !== null}
-        onContextMenu={(e) => e.preventDefault()}
-        onPointerDown={(e) => {
-          e.preventDefault(); e.stopPropagation();
-          if (fire.current !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
-          fire.current = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId); dragFire(e);
-        }} onPointerMove={dragFire} onPointerUp={endFire} onPointerCancel={endFire} onLostPointerCapture={endFire}>
+      <div className="touch-joystick touch-fire-stick" aria-hidden="true" data-active={!!fireOrigin}
+        style={fireOrigin ? { left: fireOrigin.x, top: fireOrigin.y, right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' } : undefined}>
         <Icon name="lucide:crosshair" /><i style={{ transform: `translate(${fireStick.x}px, ${fireStick.y}px)` }} />
       </div>}
     <div className="touch-actions">
