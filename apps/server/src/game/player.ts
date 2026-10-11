@@ -1,3 +1,4 @@
+import type { SuspendedZombie } from '@zion/shared';
 import type { LifePlayer, TimedAction } from './base-life';
 import type { TutorialId } from '@zion/shared';
 import type { QuestEvent, QuestJournal } from './quests';
@@ -69,6 +70,9 @@ export class PoseHistory {
 }
 
 export class Player {
+  rank = { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' };
+  suspendedZombies: SuspendedZombie[] = [];
+  nextEncounterRestoreAt = 0;
   readonly state: CharacterState;
   readonly rig = HUMANOID_RIG;
   yaw = 0;

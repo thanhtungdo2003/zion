@@ -1,6 +1,7 @@
 import { baseLifeSchema, DEFAULT_BASE_LIFE } from './base-life';
 import { z } from 'zod';
 import { ITEMS } from './items';
+import { COLONEL_SEARCH_QUESTS } from './colonel-search';
 
 /**
  * Data-driven game content edited in the Camp Studio: quest NPCs, their dialogue and every quest.
@@ -54,6 +55,8 @@ export const questSchema = z
     allowCancel: z.boolean().optional(),
     availableFrom: z.number().int().min(0).optional(),
     availableUntil: z.number().int().min(0).optional(),
+    /** Server-only career score override; excluded from quest messages. */
+    rankPoints: z.number().int().min(1).max(5000).optional(),
     /** Quests that must be completed first. */
     prereq: z.array(id).max(10),
     objectives: z.array(objectiveSchema).min(1).max(8),
@@ -154,7 +157,7 @@ export function validateContent(raw: unknown): { ok: true; content: GameContent 
   }
   for (const npc of ['farmer', 'chef', 'colonel']) {
     const pool = c.quests.filter((q) => q.npc === npc);
-    if (pool.length !== 10 || pool.filter((q) => q.kind === 'daily').length !== 3 || pool.filter((q) => q.kind === 'long').length !== 7) errors.push(`npc ${npc}: requires exactly 10 quests, 3 daily and 7 long-term`);
+    if ((npc === 'colonel' ? pool.length < 10 : pool.length !== 10) || pool.filter((q) => q.kind === 'daily').length !== 3 || (npc === 'colonel' ? pool.filter((q) => q.kind === 'long').length < 7 : pool.filter((q) => q.kind === 'long').length !== 7)) errors.push(`npc ${npc}: requires 3 daily and at least 7 long-term quests`);
     if (pool.filter((q) => q.objectives.some((o) => o.type === 'visit' || o.type === 'retrieve' || o.type === 'kill')).length < 5) errors.push(`npc ${npc}: requires at least 5 external missions`);
   }
   // Prerequisite cycles make quests unreachable.
@@ -332,3 +335,5 @@ export const DEFAULT_CONTENT: GameContent = {
       dialogue: say('Kho vũ khí thiếu lựu đạn.', 'Mang tới đây.', 'Chưa đủ.', 'Kho đã đầy.') }),
   ],
 };
+
+DEFAULT_CONTENT.quests.push(...COLONEL_SEARCH_QUESTS);

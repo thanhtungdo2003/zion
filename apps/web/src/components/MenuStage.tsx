@@ -16,14 +16,14 @@ import {
   WebGLRenderer,
   type Object3D,
 } from 'three';
-import { EntityFlags } from '@zion/shared';
+import { EntityFlags, type RankTitle } from '@zion/shared';
 import { Avatar } from '@/game/render/avatars';
 import { loadCharacterModel } from '@/game/render/character-model';
 import { loadWeapons } from '@/game/render/weapons';
 import { ResourceDisposer } from '@/game/render/resources';
 
 /** Main-menu backdrop: the survivor standing centre stage with a rifle, idling. */
-export default function MenuStage({ onReady, members }: { onReady?: () => void; members?: string[] }) {
+export default function MenuStage({ onReady, members }: { onReady?: () => void; members?: Array<{ name: string; rank?: RankTitle }> }) {
   const host = useRef<HTMLDivElement>(null);
   const rosterKey = JSON.stringify(members ?? []);
 
@@ -32,7 +32,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     if (!el) return;
     let disposed = false;
     let raf = 0;
-    const names = JSON.parse(rosterKey) as string[];
+    const names = JSON.parse(rosterKey) as Array<{ name: string; rank?: RankTitle }>;
     const count = Math.max(1, names.length);
     const renderer = new WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
@@ -100,7 +100,8 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
           const avatar = new Avatar(character, true);
           avatar.setStance('rifle');
           avatar.setWeapon('ak47', weapons);
-          if (names[i]) avatar.setName(names[i]!);
+          avatar.setIdleClip('rifle_patrol_idle', i * 1.37);
+          if (names[i]) avatar.setName(names[i]!.name, names[i]!.rank);
           avatar.addTo(scene); avatars.push(avatar);
         }
         onReady?.();

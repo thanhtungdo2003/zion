@@ -11,6 +11,7 @@ import type { HttpDeps } from '../app';
 
 /** What the Camp Studio needs from the game: the live layout and a way to change it. */
 export interface StudioBackend {
+  playerCounts(): Promise<{ online: number; total: number }>;
   playerProgress(): Promise<unknown>;
   resetPlayerProgress(accountId?: string): Promise<void>;
   getContent(): GameContent;
@@ -95,6 +96,14 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     if (!canEdit(req, production)) return reply.code(403).send({ error: 'forbidden', message: 'Camp Studio requires the studio password' });
   };
 
+  if (deps.progression) {
+    app.get('/api/studio/ranks', { preHandler: guard }, async (_req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return deps.progression!.config;
+    });
+    app.post('/api/studio/ranks', { preHandler: guard }, async (req) => deps.progression!.configure(req.body));
+  }
+
   app.post('/api/studio/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const { password: given } = loginSchema.parse(req.body);
     if (!password || !samePassword(given, password)) {
@@ -105,6 +114,10 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   });
 
   app.get('/api/studio/players', { preHandler: guard }, async () => studio.playerProgress());
+  app.get('/api/studio/player-counts', { preHandler: guard }, async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return studio.playerCounts();
+  });
   app.post('/api/studio/players/reset', { preHandler: guard }, async (req, reply) => {
     const parsed = z.object({ accountId: z.string().uuid().optional(), all: z.boolean().optional() }).strict().safeParse(req.body);
     if (!parsed.success || (!parsed.data.accountId && parsed.data.all !== true) || (parsed.data.accountId && parsed.data.all)) return reply.code(400).send({ error: 'invalid_scope' });

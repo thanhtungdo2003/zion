@@ -35,6 +35,7 @@ function setup() {
     log: { info: vi.fn(), error: vi.fn() },
     players: new Map(), byAccount: new Map(), pendingSaves: new Map(), speechAt: new Map(),
     grid: { remove: vi.fn() }, life, lifeWorld: { plots: {}, nextGrowth: 0 }, lifeBusy: false,
+    zombies: { suspend: vi.fn(() => []) },
     plotLocks: new Map(), sendLife: vi.fn(), broadcastPlayerList: vi.fn(),
   });
   const connect = (id: number) => {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-10T04:31:57.725Z",
+  "generatedAt": "2026-10-11T02:22:49.760Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -177,9 +177,9 @@
       "kind": "bbmodel"
     },
     "characters/teen-wasteland-survivor.bbmodel": {
-      "url": "/assets/models/characters_teen-wasteland-survivor.7d97c8d7790d.bbmodel",
-      "sha256": "7d97c8d7790de7e8394c9af29e14f2f352465738c8ca9970d029648472764e82",
-      "bytes": 134624,
+      "url": "/assets/models/characters_teen-wasteland-survivor.cc676ef017be.bbmodel",
+      "sha256": "cc676ef017be5d288ebb8d95344233c3775dd5db16ed7f159de8fe510d1577b4",
+      "bytes": 146997,
       "kind": "bbmodel"
     },
     "dists/arrow-quiver.bbmodel": {
@@ -278,6 +278,12 @@
       "bytes": 40809,
       "kind": "bbmodel"
     },
+    "materias/binhnhi-badge.bbmodel": {
+      "url": "/assets/models/materias_binhnhi-badge.cc938e0e1a14.bbmodel",
+      "sha256": "cc938e0e1a148abf929b9f75dd5a40980c12a45d05e641d8550e2737cd8da0c6",
+      "bytes": 12908,
+      "kind": "bbmodel"
+    },
     "materias/branch-stick.bbmodel": {
       "url": "/assets/models/materias_branch-stick.42663bafc803.bbmodel",
       "sha256": "42663bafc8034366a89d1efd08b6328acc0f2c72c07fbb93c18756f9a05d8121",
@@ -336,6 +342,18 @@
       "url": "/assets/models/materias_cooked-porkchop.e1b22f52ee33.bbmodel",
       "sha256": "e1b22f52ee331a3272d1346fdc98b3d432d93d4362b16db4ffadceedb06bc346",
       "bytes": 5414,
+      "kind": "bbmodel"
+    },
+    "materias/corporal-badge.bbmodel": {
+      "url": "/assets/models/materias_corporal-badge.f536268337c4.bbmodel",
+      "sha256": "f536268337c40dd7f2c1f2c6a5af9a2d9c43970614957572f7a5de36f9bf0fb7",
+      "bytes": 13900,
+      "kind": "bbmodel"
+    },
+    "materias/elite-badge.bbmodel": {
+      "url": "/assets/models/materias_elite-badge.b94aa53e969b.bbmodel",
+      "sha256": "b94aa53e969b601434fca9b3040e87f3d8da6a8288d79b535e47e99932a26952",
+      "bytes": 15340,
       "kind": "bbmodel"
     },
     "materias/fertilizer-bag.bbmodel": {
@@ -506,6 +524,12 @@
       "bytes": 11524,
       "kind": "bbmodel"
     },
+    "materias/sergeant-badge.bbmodel": {
+      "url": "/assets/models/materias_sergeant-badge.4a66f0a9ff88.bbmodel",
+      "sha256": "4a66f0a9ff883e324d249f48cf6d0f916638ae5fc8cb81bd27afe022c6a935bf",
+      "bytes": 15531,
+      "kind": "bbmodel"
+    },
     "materias/shattered-glass-pane.bbmodel": {
       "url": "/assets/models/materias_shattered-glass-pane.0023b13a53e3.bbmodel",
       "sha256": "0023b13a53e34323585dc3d05452beee1e5f8917a85a41ec5bf75770a6d457ab",
@@ -516,6 +540,12 @@
       "url": "/assets/models/materias_small-transformer.07f68bb89cc1.bbmodel",
       "sha256": "07f68bb89cc1c3569e1e215de823196904cc1a6774cd9a2139cf15feb977a5ee",
       "bytes": 12249,
+      "kind": "bbmodel"
+    },
+    "materias/tanbinh-badge.bbmodel": {
+      "url": "/assets/models/materias_tanbinh-badge.724e852c05bf.bbmodel",
+      "sha256": "724e852c05bf705d4b814e3dd919009fadf66e9a2445e81894884f370a371318",
+      "bytes": 5923,
       "kind": "bbmodel"
     },
     "materias/utility-pole.bbmodel": {

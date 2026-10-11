@@ -9,6 +9,7 @@ import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
+import { ProgressionService } from './game/progression';
 import { atlasProvider, atlasTileProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
 import type { HealthReport } from './http/routes/health';
@@ -78,9 +79,12 @@ async function main(): Promise<void> {
     allowGuest: config.ALLOW_GUEST,
   });
 
-  const playerStates = new PlayerStateRepository(db, config.WORLD_ID);
+  const progression = new ProgressionService(db, config.WORLD_ID);
+  await progression.initialize();
+  const playerStates = new PlayerStateRepository(db, config.WORLD_ID, progression);
   const teams = new TeamService(await playerStates.loadTeams(), (id, team, player) => playerStates.saveTeam(id, team, player));
   const game = new GameServer({
+    progression,
     teams,
     config,
     logger,
@@ -123,6 +127,7 @@ async function main(): Promise<void> {
   }
 
   const app = await buildHttpApp({
+    progression,
     atlas: atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout),
     atlasTile: atlasTileProvider(world.generator, config.WORLD_ID),
     teams,
@@ -132,6 +137,7 @@ async function main(): Promise<void> {
     tokens,
     kv,
     studio: {
+      playerCounts: async () => ({ online: game.playerCount, total: Number((await db.query('SELECT COUNT(*) AS total FROM player_states WHERE world_id = $1', [config.WORLD_ID])).rows[0]?.total ?? 0) }),
       playerProgress: async () => (await db.query('SELECT a.id, a.username, p.quest_journal AS journal FROM player_states p JOIN accounts a ON a.id = p.account_id WHERE p.world_id = $1 ORDER BY a.username', [config.WORLD_ID])).rows,
       resetPlayerProgress: (accountId) => game.resetPlayerProgress(accountId),
       getContent: () => game.content,

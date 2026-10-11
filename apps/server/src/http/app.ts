@@ -11,6 +11,8 @@ import { AuthError, type AuthService } from '../security/auth-service';
 import type { AccessClaims, TokenService } from '../security/tokens';
 import { registerAuthRoutes } from './routes/auth';
 import { registerTeamRoutes } from './routes/teams';
+import { registerCareerRoutes } from './routes/career';
+import type { ProgressionService } from '../game/progression';
 import type { TeamService } from '../game/teams';
 import type { AtlasTile, WorldAtlas } from '@zion/shared';
 import { registerGameRoutes } from './routes/game';
@@ -18,6 +20,7 @@ import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
 
 export interface HttpDeps {
+  progression?: ProgressionService;
   config: AppConfig;
   logger: Logger;
   auth: AuthService;
@@ -116,6 +119,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerHealthRoutes(app, deps.health, config.METRICS_TOKEN);
   registerAuthRoutes(app, deps);
   registerTeamRoutes(app, deps);
+  registerCareerRoutes(app, deps);
   registerGameRoutes(app, deps);
   registerStudioRoutes(app, deps);
   return app;

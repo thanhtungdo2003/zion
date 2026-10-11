@@ -1,3 +1,4 @@
+import type { RankTitle } from '@zion/shared';
 import { zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore } from '@/lib/settings';
@@ -222,6 +223,7 @@ export class GameEngine {
   private effects: CombatEffects | null = null;
   private lastAmmoKey = '';
   private readonly names = new Map<number, string>();
+  private readonly ranks = new Map<number, RankTitle>();
   private readonly focus = new Vector3();
   private readonly camFocus = new Vector3();
   private camFocusInit = false;
@@ -942,7 +944,7 @@ export class GameEngine {
         // Four-legged: the whole body faces where it goes (no separate head turn).
         if (e.kind === EntityKind.Animal) r.avatar.rigid = true;
         r.avatar.addTo(this.scene);
-        r.avatar.setName(this.remoteName(e.id, e.kind));
+        r.avatar.setName(this.remoteName(e.id, e.kind), this.ranks.get(e.id));
         this.remotes.set(e.id, r);
       }
       r.entity.push(s.serverTime, e);
@@ -1103,15 +1105,16 @@ export class GameEngine {
         break;
       case 'players':
         this.names.clear();
-        for (const p of m.players) this.names.set(p.id, p.name);
-        for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind));
+        this.ranks.clear();
+        for (const p of m.players) { this.names.set(p.id, p.name); if (p.rank) this.ranks.set(p.id, p.rank); }
+        for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id));
         this.hud.set({ playersOnline: m.players.length });
         break;
       case 'teamState': {
         const previous = this.hud.get().team;
         const seen = new Set(previous?.id === m.team?.id ? previous?.chat.map((line) => line.id) : []);
         if (previous?.id !== m.team?.id) this.hud.set({ chat: this.hud.get().chat.filter((line) => line.channel !== 'team') });
-        for (const line of m.team?.chat ?? []) if (!seen.has(line.id)) this.hud.pushChat({ from: line.from, text: line.text, channel: 'team' });
+        for (const line of m.team?.chat ?? []) if (!seen.has(line.id)) this.hud.pushChat({ from: line.from, text: line.text, channel: 'team', rank: line.rank });
         const quests = [...this.hud.get().quests.filter((q) => !q.team), ...m.quests];
         const before = new Map(this.hud.get().quests.map((q) => [q.id, q.status]));
         if (m.quests.some((q) => q.status === 'claimed' && before.get(q.id) !== 'claimed')) this.sounds?.play('questComplete', { volume: 0.7 });
@@ -1122,13 +1125,17 @@ export class GameEngine {
         break;
       }
       case 'chat': {
-        this.hud.pushChat({ from: m.from, text: m.text, system: m.system, channel: m.channel });
+        this.hud.pushChat({ from: m.from, text: m.text, system: m.system, channel: m.channel, rank: m.rank, announcement: m.announcement });
         if (!m.system && (m.channel ?? 'world') === 'world') {
           const position = m.fromId === this.welcome?.playerId ? this.localAvatar?.root.position : this.remotes.get(m.fromId)?.avatar.root.position;
           if (position) this.showSpeech(m.fromId, m.text, Math.min(8000, Math.max(4000, m.text.length * 65)), position.x, position.y, position.z, true);
         }
         break;
       }
+      case 'rank':
+        this.hud.set({ rank: m.rank, ...(m.promoted ? { promotion: { rank: m.rank, introduction: m.introduction ?? '', at: Date.now() } } : {}) });
+        if (m.promoted) this.sounds?.play('questComplete', { volume: .9 });
+        break;
       case 'hit':
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
@@ -1334,12 +1341,12 @@ export class GameEngine {
     if (!local.dead) this.worldMap.explore(px, pz);
 
     const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
+    this.props?.update(px, pz, now, buildDeadline);
     this.processBuildQueue(px, pz, buildDeadline);
     this.vegetation?.update(px, pz, false, buildDeadline);
     if (this.effects) this.vegetation?.emitBurning(this.clock.now(), (x, y, z) => {
       ParticleFX.burning(this.effects!.particles, x, y, z);
     });
-    this.props?.update(px, pz, now);
 
     // Remote players render INTERPOLATION_DELAY in the past between two snapshots.
     const renderTime = this.clock.now() - INTERPOLATION_DELAY_MS;

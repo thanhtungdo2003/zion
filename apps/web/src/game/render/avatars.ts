@@ -1,6 +1,6 @@
 import { Ragdoll } from './ragdoll';
 import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
-import { EntityFlags } from '@zion/shared';
+import { EntityFlags, RANKS, type RankTitle } from '@zion/shared';
 import type { Stance } from '../inventory/items';
 import type { WeaponLibrary, WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
@@ -29,10 +29,10 @@ function wrapAngle(a: number): number {
   return a - Math.PI;
 }
 
-export function labelSprite(text: string): Sprite {
+export function labelSprite(text: string, rank?: RankTitle): Sprite {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
-  canvas.height = 48;
+  canvas.height = rank ? 76 : 48;
   const ctx = canvas.getContext('2d')!;
   ctx.font = '600 26px system-ui, sans-serif';
   ctx.textAlign = 'center';
@@ -41,11 +41,17 @@ export function labelSprite(text: string): Sprite {
   const w = Math.min(250, ctx.measureText(text).width + 20);
   ctx.fillRect(128 - w / 2, 6, w, 36);
   ctx.fillStyle = '#f0e9d8';
-  ctx.fillText(text, 128, 25);
+  ctx.fillText(text, rank ? 140 : 128, 25, rank ? 208 : 246);
+  if (rank) {
+    ctx.fillStyle = RANKS[rank.tier]!.color;
+    ctx.beginPath(); ctx.moveTo(8, 8); ctx.lineTo(30, 8); ctx.lineTo(28, 28); ctx.lineTo(19, 36); ctx.lineTo(10, 28); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#141617'; ctx.font = 'bold 17px system-ui'; ctx.fillText(RANKS[rank.tier]!.icon, 19, 20);
+    ctx.fillStyle = RANKS[rank.tier]!.color; ctx.font = '600 17px system-ui'; ctx.fillText(rank.title, 128, 57);
+  }
   const tex = new CanvasTexture(canvas);
   tex.minFilter = LinearFilter;
   const sprite = new Sprite(new SpriteMaterial({ map: tex, depthTest: true, transparent: true }));
-  sprite.scale.set(1.6, 0.3, 1);
+  sprite.scale.set(1.6, rank ? 0.475 : 0.3, 1);
   sprite.position.y = 2.15;
   return sprite;
 }
@@ -92,6 +98,7 @@ export class Avatar {
   private bodyYaw = Number.NaN;
   private headYaw = 0;
   private stance: Stance = 'unarmed';
+  private idleClip: string | null = null;
   private weaponId: string | null = null;
   private oneShot: string | null = null;
   private recoil = 0;
@@ -145,15 +152,16 @@ export class Avatar {
     this.armor.set(slot, objs);
   }
 
-  setName(name: string): void {
-    if (name === this.labelText) return;
-    this.labelText = name;
+  setName(name: string, rank?: RankTitle): void {
+    const key = `${name}:${rank?.step ?? ''}`;
+    if (key === this.labelText) return;
+    this.labelText = key;
     if (this.label) {
       this.root.remove(this.label);
       this.label.material.map?.dispose();
       this.label.material.dispose();
     }
-    this.label = labelSprite(name);
+    this.label = labelSprite(name, rank);
     this.root.add(this.label);
   }
 
@@ -238,7 +246,7 @@ export class Avatar {
       if (running) return this.play('run', Math.min(1.6, Math.max(0.7, speed / 6.2)));
       return this.play(STANCE_CLIPS[this.stance].walk, Math.min(1.8, Math.max(0.6, speed / 3.2)));
     }
-    this.play(STANCE_CLIPS[this.stance].idle);
+    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle);
   }
 
   private ragdoll: Ragdoll | null = null;
@@ -408,6 +416,12 @@ export class Avatar {
 
   setStance(stance: Stance): void {
     this.stance = stance;
+  }
+
+  /** Lobby presentation; held objects follow the animated hand, including wrist turns. */
+  setIdleClip(name: string | null, phase = 0): void {
+    this.idleClip = name && this.template.clips.has(name) ? name : null;
+    this.play(this.idleClip ?? STANCE_CLIPS[this.stance].idle, 1, phase);
   }
 
   /** Shows the given weapon in the right hand (null = empty hands). */

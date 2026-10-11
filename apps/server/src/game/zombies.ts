@@ -1,3 +1,4 @@
+import type { SuspendedZombie } from '@zion/shared';
 import { zombieScale } from '@zion/shared';
 import {
   CHUNK_SIZE,
@@ -126,6 +127,41 @@ function isNight(tod: number): boolean {
  * controller, and resolves limb damage, knockback and death. Fully server-authoritative.
  */
 export class ZombieDirector {
+  /** Removes the encounter without kills/loot; its health and limbs survive reconnects. */
+  suspend(player: Player): SuspendedZombie[] {
+    const saved: SuspendedZombie[] = [];
+    for (const [id, z] of this.zombies) {
+      if (!z.dead && (z.target === player || z.biteTarget === player)) {
+        saved.push({ x: z.state.x, y: z.state.y, z: z.state.z, health: z.health, limbs: z.limbs, variant: z.variant });
+        this.navigation.clear(z.navigation);
+        z.biteTarget = z.target = z.burnBy = null;
+        this.zombies.delete(id);
+      } else if (z.burnBy === player) z.burnBy = null;
+    }
+    return saved;
+  }
+
+  /** Retry unloaded collision areas; never discard a suspended encounter on a failed spawn. */
+  restore(player: Player): void {
+    player.suspendedZombies = player.suspendedZombies.filter((s) => {
+      if (this.zombies.size >= MAX_ZOMBIES) return true;
+      let x = s.x, zpos = s.z;
+      if (player.state && Math.hypot(x - player.state.x, zpos - player.state.z) > DESPAWN_DIST * .7) {
+        if (this.spawns.inSafeZone(player.state.x, player.state.z)) return true;
+        const angle = Math.random() * Math.PI * 2;
+        x = player.state.x + Math.cos(angle) * 16;
+        zpos = player.state.z + Math.sin(angle) * 16;
+      }
+      const pos = this.spawns.validateAt(x, zpos);
+      if (!pos) return true;
+      const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, s.variant);
+      z.health = Math.max(1, Math.min(z.maxHealth, s.health));
+      z.limbs = s.limbs;
+      z.target = player;
+      this.zombies.set(z.id, z);
+      return false;
+    });
+  }
   readonly zombies = new Map<number, Zombie>();
   private nextId = ZOMBIE_ID_BASE;
   private nextSpawnCheck = 0;
@@ -169,7 +205,7 @@ export class ZombieDirector {
   private spawnHordes(players: readonly Player[], night: boolean): void {
     const cap = night ? 18 : 11;
     for (const p of players) {
-      if (!p.active || p.dead || this.zombies.size >= MAX_ZOMBIES) continue;
+      if (!p.active || p.dead || p.suspendedZombies.length || this.zombies.size >= MAX_ZOMBIES) continue;
       let near = 0;
       for (const z of this.zombies.values()) if (!z.dead && dist2(z.state, p.state) < 70 * 70) near++;
       if (near + HORDE_MIN > cap || Math.random() > (night ? 0.45 : 0.25)) continue;

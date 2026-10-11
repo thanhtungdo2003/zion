@@ -1,4 +1,7 @@
 import { SharedChests } from './chests';
+import { randomUUID } from 'node:crypto';
+import type { ProgressionService } from './progression';
+import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
 import { recordZombieKill, tutorialProgress, tutorialProtected, updateTutorial } from './tutorial';
 import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
@@ -124,6 +127,7 @@ const MAX_PLAYERS = 256;
 const MAX_STEP_DISTANCE = DEFAULT_CHARACTER.sprintSpeed * TICK_DT * 3 + 0.5;
 
 export interface GameServerDeps {
+  progression?: ProgressionService;
   teams?: TeamService;
   config: AppConfig;
   logger: Logger;
@@ -165,6 +169,7 @@ export class GameServer {
   private readonly byAccount = new Map<string, Player>();
   private readonly grid = new InterestGrid<Player>();
   private readonly joining = new Map<number, [number, number]>();
+  private readonly joiningAccounts = new Set<string>();
   private readonly respawning = new Set<number>();
   private readonly log: Logger;
   private readonly epoch = performance.now();
@@ -199,7 +204,7 @@ export class GameServer {
     this.chests = new SharedChests({
       near: (p, id) => this.chestNear(p, id),
       load: (id) => deps.playerStates.loadChest(id),
-      commit: (id, data, p, inventory) => deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life) } : undefined),
+      commit: (id, data, p, inventory) => deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined),
       sync: (p) => { p.reloadAt = 0; this.syncLoadout(p); this.sendInv(p); },
       finish: (p) => this.finishQuestMutation(p),
       error: (err) => this.log.error({ err }, 'shared chest transaction failed'),
@@ -253,6 +258,7 @@ export class GameServer {
         !this.content.baseLife.trades.some((t) => t.npc === 'chef' && t.item === 'coal_carton')) {
       this.content.baseLife.trades.push(structuredClone(DEFAULT_BASE_LIFE.trades.find((t) => t.id === 'chef_coal_carton')!));
     }
+    for (const quest of COLONEL_SEARCH_QUESTS) if (!this.content.quests.some((q) => q.id === quest.id)) this.content.quests.push(structuredClone(quest));
     this.life = new BaseLife(this.content.baseLife ?? DEFAULT_BASE_LIFE);
     this.configureAnimals();
     this.quests = new QuestEngine(this.content);
@@ -272,6 +278,16 @@ export class GameServer {
       const loc = chooseMissionStructure(allStructures(this.deps.world.generator), o.structure, camp);
       if (loc) r.location = { x: loc.x, z: loc.z, radius: loc.radius };
     }
+  }
+
+  private async refreshRank(p: Player, announce = false): Promise<void> {
+    if (!this.deps.progression) return;
+    const rank = await this.deps.progression.title(p.accountId);
+    const promoted = announce && rank.step > p.rank.step;
+    p.rank = rank;
+    p.session.sendJson({ t: 'rank', rank, promoted, ...(promoted ? { introduction: `Đại tá: Chúc mừng ${p.username}. Cậu đã đạt ${rank.title}. Quân hàm ghi nhận những nhiệm vụ đã hoàn thành và bản lĩnh sống sót. Phần thưởng đã được gửi vào Quân nhu ở sảnh chính. Giữ vững danh hiệu; mỗi lần hy sinh đều ảnh hưởng đến hồ sơ quân vụ.` } : {}) });
+    if (promoted) this.broadcast({ t: 'chat', from: 'BỘ CHỈ HUY', fromId: 0, text: `📣 ${p.username} vừa được thăng quân hàm ${rank.title}!`, system: true, announcement: true, rank });
+    this.broadcastPlayerList();
   }
 
   /** Scatters this player's missing quest items at random spots inside the quest area. */
@@ -341,7 +357,10 @@ export class GameServer {
     p.questBusy = true;
     try {
       // Commit journal, inventory and wallet in ONE database statement before acknowledging.
-      await this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.health, coins: copy.coins, inventory: copy.inv.toJSON(), journal: copy.journal, life: structuredClone(p.life) }]);
+      const career = this.deps.progression?.config;
+      const claimed = copy.journal[def.id]?.status === 'claimed' && p.journal[def.id]?.status !== 'claimed';
+      const points = def.rankPoints ?? ((def.kind === 'daily' ? career?.dailyPoints : career?.longPoints) ?? 0) + (def.objectives.some((o) => o.type === 'retrieve' || o.type === 'visit' || o.type === 'kill') ? career?.externalBonus ?? 0 : 0);
+      await this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.health, coins: copy.coins, inventory: copy.inv.toJSON(), journal: copy.journal, life: structuredClone(p.life), suspendedZombies: p.suspendedZombies, ...(claimed ? { careerEvent: { id: `quest:${this.deps.worldId}:${def.id}:${def.kind === 'daily' ? copy.journal[def.id]!.cycle : 'once'}`, points } } : {}) }]);
       const stashed = copy.inv.items.filter((i) => isStash(i.container)).length - p.inv.items.filter((i) => isStash(i.container)).length;
       if (stashed > 0) this.reply(p, `Ba lô đầy: ${stashed} phần thưởng đã được gửi vào kho cá nhân ở căn cứ.`);
       p.journal = copy.journal;
@@ -351,6 +370,7 @@ export class GameServer {
       this.sendInv(p);
       p.session.sendJson({ t: 'wallet', coins: p.coins });
       this.sendQuests(p);
+      if (claimed) await this.refreshRank(p, true);
       if (msg.op === 'retrieve') return;
       const line = msg.op === 'accept' ? def.dialogue.accept : p.journal[def.id]?.status === 'claimed' ? def.dialogue.complete : def.dialogue.progress;
       if (entity) p.session.sendJson({ t: 'speech', npc: entity.id, text: line, duration: npc.bubbleMs, x: entity.x, y: entity.y, z: entity.z });
@@ -375,11 +395,11 @@ export class GameServer {
     p.questBusy = true;
     let coins: number | undefined;
     try {
-      const changed = await teams.quest(p.accountId, def.id, msg.op, { target, index: msg.index, x: p.state.x, z: p.state.z, reward: () => {
+      const changed = await teams.quest(p.accountId, def.id, msg.op, { target, index: msg.index, x: p.state.x, z: p.state.z, rankPoints: this.deps.progression?.config.teamPoints, reward: () => {
         coins = p.coins + def.coins;
-        return { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life) };
+        return { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies };
       } });
-      if (changed && coins !== undefined) { p.coins = coins; p.dirty = true; p.session.sendJson({ t: 'wallet', coins: p.coins }); }
+      if (changed && coins !== undefined) { p.coins = coins; p.dirty = true; p.session.sendJson({ t: 'wallet', coins: p.coins }); await this.refreshRank(p, true); }
       if (changed && entity && msg.op !== 'retrieve') p.session.sendJson({ t: 'speech', npc: entity.id, text: msg.op === 'accept' ? `${def.offer} Đi cùng nhau và nhớ trở về!` : msg.op === 'turnin' ? 'Cả đội đã hoàn thành xuất sắc. Phần thưởng của cậu đây; các đồng đội cũng có phần riêng.' : 'Ta sẽ chờ đội các cậu sẵn sàng cho lần tới.', duration: npc.bubbleMs, x: entity.x, y: entity.y, z: entity.z });
     } catch (err) { if (err instanceof TeamError) this.reply(p, err.message); else this.log.error({ err }, 'team quest transaction failed'); }
     finally {
@@ -516,7 +536,8 @@ export class GameServer {
   private finishQuestMutation(p: Player): void {
     p.questBusy = false;
     for (const deferred of p.afterQuest.splice(0)) deferred();
-    if (!p.session.open || p.onLeaveSaved) void this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life) }]).catch((err: unknown) => this.log.error({ err }, 'post-disconnect transaction save failed')).finally(() => { p.onLeaveSaved?.(); p.onLeaveSaved = null; });
+    if (p.questBusy) return;
+    if (!p.session.open || p.onLeaveSaved) void this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }]).catch((err: unknown) => this.log.error({ err }, 'post-disconnect transaction save failed')).finally(() => { p.onLeaveSaved?.(); p.onLeaveSaved = null; });
   }
 
   private queueQuestEvent(p: Player, event: QuestEvent): void {
@@ -533,7 +554,7 @@ export class GameServer {
     if (!changed) return;
     p.questBusy = true;
     try {
-      await this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: owner.journal, life: structuredClone(p.life) }]);
+      await this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: owner.journal, life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }]);
       p.journal = owner.journal;
       p.dirty = true;
       this.sendQuests(p);
@@ -842,11 +863,25 @@ export class GameServer {
   async join(session: ClientSession): Promise<void> {
     const acc = session.account;
     if (!acc) throw new Error('join without account');
-    if (this.players.size + this.joining.size >= MAX_PLAYERS) {
+    if (this.joiningAccounts.has(acc.accountId)) {
+      session.sendError('duplicate_session', 'account is already joining', true);
+      session.close(CloseCode.DuplicateSession, 'duplicate session');
+      return;
+    }
+    if (this.players.size + this.joiningAccounts.size >= MAX_PLAYERS) {
       session.sendError('server_full', 'server is full', true);
       session.close(CloseCode.ServerFull, 'server full');
       return;
     }
+    // Reserve the account before loading state or consuming Quân nhu deliveries. Two sockets
+    // must never enter with separate snapshots of the same wallet/inventory.
+    this.joiningAccounts.add(acc.accountId);
+    try { await this.joinAccount(session); }
+    finally { this.joiningAccounts.delete(acc.accountId); }
+  }
+
+  private async joinAccount(session: ClientSession): Promise<void> {
+    const acc = session.account!;
     const existing = this.byAccount.get(acc.accountId);
     if (existing) {
       existing.session.sendError('duplicate_session', 'you logged in from another location', true);
@@ -855,7 +890,7 @@ export class GameServer {
     }
 
     await this.pendingSaves.get(acc.accountId);
-    const saved = await this.deps.playerStates.load(acc.accountId);
+    let saved = await this.deps.playerStates.load(acc.accountId);
     let pos: ValidatedPosition | null = null;
     let health = PLAYER_MAX_HEALTH;
     const pin = saved ? ([Math.floor(saved.x / CHUNK_SIZE), Math.floor(saved.z / CHUNK_SIZE)] as [number, number]) : null;
@@ -871,6 +906,9 @@ export class GameServer {
       this.joining.delete(session.id);
     }
     if (!session.open) return;
+    if (this.deps.progression) saved = await this.deps.playerStates.deliverRequisitions({ accountId: acc.accountId, x: pos.x, y: pos.y, z: pos.z, yaw: saved?.yaw ?? 0, health, coins: saved?.coins ?? STARTING_ZCOIN, inventory: saved?.inventory ?? defaultLoadout(), journal: saved?.journal, life: saved?.life, suspendedZombies: saved?.suspendedZombies ?? [] });
+    const joinedRank = await this.deps.progression?.title(acc.accountId);
+    if (!session.open) return;
     if (this.byAccount.has(acc.accountId)) {
       session.sendError('duplicate_session', 'already connected', true);
       session.close(CloseCode.DuplicateSession, 'duplicate session');
@@ -885,6 +923,8 @@ export class GameServer {
     player.life.capacity = Math.min(this.life.config.stamina.maximum, Math.max(this.life.config.stamina.minimumCapacity, player.life.capacity));
     player.life.stamina = Math.max(0, Math.min(player.life.capacity, player.life.stamina));
     player.journal = saved?.journal ?? {};
+    player.suspendedZombies = saved?.suspendedZombies ?? [];
+    if (joinedRank) player.rank = joinedRank;
     this.quests.reset(player, Date.now());
     player.inv.load(saved?.inventory ?? defaultLoadout());
     this.syncLoadout(player);
@@ -910,6 +950,8 @@ export class GameServer {
       spawn: { x: pos.x, y: pos.y, z: pos.z, yaw: player.yaw },
     });
     session.sendJson({ t: 'wallet', coins: player.coins });
+    session.sendJson({ t: 'rank', rank: player.rank });
+    this.zombies.restore(player);
     this.syncVegetation(player);
     this.sendInv(player);
     this.sendQuests(player);
@@ -929,6 +971,7 @@ export class GameServer {
     session.player = null;
     if (this.players.get(p.id) !== p) return;
     this.cancelLifeAction(p, false);
+    p.suspendedZombies.push(...this.zombies.suspend(p));
     p.active = false;
     this.players.delete(p.id);
     this.deps.teams?.position(p.accountId, null);
@@ -940,7 +983,7 @@ export class GameServer {
     const saved = p.questBusy
       ? new Promise<void>((resolve) => { p.onLeaveSaved = resolve; })
       : this.deps.playerStates
-        .saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life) }])
+        .saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }])
         .catch((err: unknown) => this.log.error({ err, accountId: p.accountId }, 'failed to save player on leave'));
     const tracked: Promise<void> = Promise.race([saved.then(() => undefined), new Promise<void>((r) => setTimeout(r, 10_000))]).finally(() => {
       if (this.pendingSaves.get(p.accountId) === tracked) this.pendingSaves.delete(p.accountId);
@@ -1067,7 +1110,7 @@ export class GameServer {
     if (!text) return;
     if (channel === 'team') {
       if (!this.deps.teams?.forAccount(p.accountId)) { this.reply(p, 'Bạn chưa tham gia đội.'); return; }
-      void this.deps.teams.action(p.accountId, p.username, { op: 'chat', text }).then(() => {
+      void this.deps.teams.action(p.accountId, p.username, { op: 'chat', text }, p.rank).then(() => {
         for (const member of this.players.values()) if (member === p || this.allied(p, member)) this.sendTeam(member);
       }).catch((err: unknown) => this.reply(p, err instanceof Error ? err.message : 'Không gửi được tin nhắn đội.'));
       return;
@@ -1084,7 +1127,7 @@ export class GameServer {
     }
     s.lastChat = text;
     s.lastChatAt = now;
-    this.broadcast({ t: 'chat', from: p.username, fromId: p.id, text });
+    this.broadcast({ t: 'chat', from: p.username, fromId: p.id, text, rank: p.rank });
   }
 
   /** Replies to one player only, as a greyed system line in their chat. */
@@ -1268,6 +1311,10 @@ export class GameServer {
       if (p.questBusy) continue;
       if (!(p.lastButtons & Buttons.Sprint)) this.life.rest(p.life, TICK_DT);
       if (this.tick % TICK_RATE === 0) p.session.sendJson({ t: 'baseLife', ...this.lifeStats(p) });
+      if (p.suspendedZombies.length && now >= p.nextEncounterRestoreAt) {
+        p.nextEncounterRestoreAt = now + 1000;
+        this.zombies.restore(p);
+      }
       p.budget.earn();
       let processed = 0;
       while (p.inputs.length > 0 && processed < MAX_INPUTS_PER_TICK && p.budget.tryConsume()) {
@@ -1618,6 +1665,7 @@ export class GameServer {
 
   /** Final death. Active quests are lost, and so are the quest items being carried. */
   private killPlayer(t: Player, attackerId: number | null, now: number): void {
+    if (t.dead) return;
     t.downed = false;
     t.bleed = 0;
     t.reviving = null;
@@ -1647,6 +1695,14 @@ export class GameServer {
     t.dirty = true;
     for (const p of this.players.values()) if (p.reviving?.target === t) { p.reviving = null; p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 }); }
     this.broadcastNear(t, { t: 'death', playerId: t.id, killerId: attackerId });
+    if (this.deps.progression) {
+      const commit = () => {
+        t.questBusy = true;
+        void this.deps.playerStates.saveMany([{ accountId: t.accountId, x: t.state.x, y: t.state.y, z: t.state.z, yaw: t.yaw, health: 0, coins: t.coins, inventory: t.inv.toJSON(), journal: structuredClone(t.journal), life: structuredClone(t.life), suspendedZombies: t.suspendedZombies, careerEvent: { id: `death:${randomUUID()}`, death: true } }])
+          .then(() => this.refreshRank(t)).catch((err: unknown) => this.log.error({ err }, 'death career save failed')).finally(() => this.finishQuestMutation(t));
+      };
+      if (t.questBusy) t.afterQuest.push(commit); else commit();
+    }
   }
 
   /** Bleeding out, and revives in progress. */
@@ -2350,7 +2406,7 @@ export class GameServer {
   }
 
   private broadcastPlayerList(): void {
-    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username }));
+    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank }));
     this.broadcast({ t: 'players', players });
   }
 
@@ -2361,7 +2417,7 @@ export class GameServer {
     for (const p of this.players.values()) {
       if (p.questBusy || (!all && !p.dirty)) continue;
       p.dirty = false;
-      batch.push({ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life) });
+      batch.push({ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies });
     }
     try {
       await this.deps.playerStates.saveMany(batch, this.lifeBusy ? undefined : this.lifeWorld);

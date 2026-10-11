@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Vector3 } from 'three';
+import { Group, Matrix4, Vector3 } from 'three';
+import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
 import { buildBBModel, type CharacterTemplate, type RawModel } from './character-model';
@@ -17,6 +18,33 @@ function bodyUp(avatar: Avatar): Vector3 {
   const bone = avatar.root.getObjectByName('root')!;
   return new Vector3(0, 1, 0).transformDirection(bone.matrixWorld);
 }
+
+describe('lobby rifle patrol', () => {
+  it('loops the authored pose and carries the rifle with the animated right hand', () => {
+    const avatar = new Avatar(template, true);
+    const weapons: WeaponLibrary = new Map([['ak47', {
+      itemId: 'ak47', object: new Group(), display: new Group(), attach: new Matrix4(),
+      clips: new Map(), reloadClip: null, muzzle: new Vector3(0, 0, -1), eject: null,
+    }]]);
+    avatar.setStance('rifle');
+    avatar.setWeapon('ak47', weapons);
+    avatar.setIdleClip('rifle_patrol_idle');
+    const pose = (phase: number) => {
+      avatar.setIdleClip(null);
+      avatar.setIdleClip('rifle_patrol_idle', phase);
+      avatar.update(0, 0, 0, 0, EntityFlags.Grounded, 0.2, phase);
+      avatar.root.updateMatrixWorld(true);
+      const muzzle = new Vector3();
+      expect(avatar.weaponPoint('muzzle', muzzle)).toBe(true);
+      const hand = avatar.root.getObjectByName('hand_right')!;
+      expect(muzzle.distanceTo(new Vector3(0, 0, -1).applyMatrix4(hand.matrixWorld))).toBeLessThan(1e-6);
+      return muzzle;
+    };
+    const start = pose(0);
+    expect(start.distanceTo(pose(6.3))).toBeGreaterThan(0.1);
+    expect(start.distanceTo(pose(8))).toBeLessThan(1e-6);
+  });
+});
 
 describe('survivor roll recovery', () => {
   it.each([30, 60, 144])('finishes upright and never unwinds the tumble while blending to idle at %s FPS', (fps) => {

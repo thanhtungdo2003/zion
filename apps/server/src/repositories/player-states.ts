@@ -1,11 +1,14 @@
 import { withTransaction, type DbClient } from '../db/pool';
-import type { ChestData, TeamRecord } from '@zion/shared';
+import { InventoryModel, type ChestData, type TeamRecord, type SuspendedZombie } from '@zion/shared';
+import type { CareerEvent, ProgressionService } from '../game/progression';
 import type { LifePlayer, LifeWorld } from '../game/base-life';
 import { STARTING_ZCOIN, type InventoryData } from '@zion/shared';
 import type { QuestJournal } from '../game/quests';
 import type { Db } from '../db/pool';
 
 export interface PlayerStateRecord {
+  careerEvent?: CareerEvent;
+  suspendedZombies?: SuspendedZombie[];
   accountId: string;
   journal?: QuestJournal;
   life?: LifePlayer;
@@ -25,6 +28,7 @@ export class PlayerStateRepository {
   constructor(
     private readonly db: Db,
     private readonly worldId: string,
+    private readonly progression?: ProgressionService,
   ) {}
 
   resetQuestJournals(accountId?: string): Promise<void> {
@@ -38,12 +42,12 @@ export class PlayerStateRepository {
   async load(accountId: string): Promise<PlayerStateRecord | null> {
     let pending: Promise<void>;
     do { pending = this.writing; await pending; } while (pending !== this.writing);
-    const { rows } = await this.db.query<{ pos_x: number; pos_y: number; pos_z: number; yaw: number; health: number; coins: number; inventory: InventoryData | null; quest_journal: QuestJournal; life_state: LifePlayer }>(
-      'SELECT pos_x, pos_y, pos_z, yaw, health, coins, inventory, quest_journal, life_state FROM player_states WHERE account_id = $1 AND world_id = $2',
+    const { rows } = await this.db.query<{ pos_x: number; pos_y: number; pos_z: number; yaw: number; health: number; coins: number; inventory: InventoryData | null; quest_journal: QuestJournal; life_state: LifePlayer; suspended_zombies: SuspendedZombie[] }>(
+      'SELECT pos_x, pos_y, pos_z, yaw, health, coins, inventory, quest_journal, life_state, suspended_zombies FROM player_states WHERE account_id = $1 AND world_id = $2',
       [accountId, this.worldId],
     );
     const r = rows[0];
-    return r ? { accountId, x: r.pos_x, y: r.pos_y, z: r.pos_z, yaw: r.yaw, health: r.health, coins: r.coins, inventory: r.inventory, journal: r.quest_journal, life: r.life_state } : null;
+    return r ? { accountId, x: r.pos_x, y: r.pos_y, z: r.pos_z, yaw: r.yaw, health: r.health, coins: r.coins, inventory: r.inventory, journal: r.quest_journal, life: r.life_state, suspendedZombies: r.suspended_zombies ?? [] } : null;
   }
 
   async loadChest(id: string): Promise<ChestData | null> {
@@ -86,7 +90,9 @@ export class PlayerStateRepository {
   saveMany(states: readonly PlayerStateRecord[], worldLife?: LifeWorld): Promise<void> {
     const snapshot = structuredClone(states);
     const worldSnapshot = worldLife ? structuredClone(worldLife) : undefined;
-    const next = this.writing.then(() => this.writeMany(snapshot, worldSnapshot));
+    const next = this.writing.then(() => snapshot.some((s) => s.careerEvent)
+      ? withTransaction(this.db, (client) => this.writeMany(snapshot, worldSnapshot, client))
+      : this.writeMany(snapshot, worldSnapshot));
     this.writing = next.catch(() => undefined);
     return next;
   }
@@ -97,14 +103,14 @@ export class PlayerStateRepository {
       `WITH saved_life AS (
          INSERT INTO world_base_life (world_id, state) SELECT $1, $12::jsonb WHERE $12::jsonb IS NOT NULL
          ON CONFLICT (world_id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()
-       ) INSERT INTO player_states (account_id, world_id, pos_x, pos_y, pos_z, yaw, health, coins, inventory, quest_journal, life_state, updated_at)
-       SELECT a, $1, x, y, z, w, h, c, i, j, l, now()
-         FROM unnest($2::uuid[], $3::float8[], $4::float8[], $5::float8[], $6::real[], $7::smallint[], $8::integer[], $9::jsonb[], $10::jsonb[], $11::jsonb[])
-              AS t(a, x, y, z, w, h, c, i, j, l)
+       ) INSERT INTO player_states (account_id, world_id, pos_x, pos_y, pos_z, yaw, health, coins, inventory, quest_journal, life_state, suspended_zombies, updated_at)
+       SELECT a, $1, x, y, z, w, h, c, i, j, l, COALESCE(sz, '[]'::jsonb), now()
+         FROM unnest($2::uuid[], $3::float8[], $4::float8[], $5::float8[], $6::real[], $7::smallint[], $8::integer[], $9::jsonb[], $10::jsonb[], $11::jsonb[], $13::jsonb[])
+              AS t(a, x, y, z, w, h, c, i, j, l, sz)
        ON CONFLICT (account_id, world_id) DO UPDATE
          SET pos_x = EXCLUDED.pos_x, pos_y = EXCLUDED.pos_y, pos_z = EXCLUDED.pos_z,
              yaw = EXCLUDED.yaw, health = EXCLUDED.health, coins = EXCLUDED.coins,
-             quest_journal = EXCLUDED.quest_journal, life_state = EXCLUDED.life_state, inventory = COALESCE(EXCLUDED.inventory, player_states.inventory), updated_at = now()`,
+             quest_journal = EXCLUDED.quest_journal, life_state = EXCLUDED.life_state, suspended_zombies = EXCLUDED.suspended_zombies, inventory = COALESCE(EXCLUDED.inventory, player_states.inventory), updated_at = now()`,
       [
         this.worldId,
         states.map((s) => s.accountId),
@@ -118,7 +124,37 @@ export class PlayerStateRepository {
         states.map((s) => JSON.stringify(s.journal ?? {})),
         states.map((s) => JSON.stringify(s.life ?? {})),
         worldLife ? JSON.stringify(worldLife) : null,
+        states.map((s) => JSON.stringify(s.suspendedZombies ?? [])),
       ],
     );
+    for (const s of states) if (s.careerEvent && this.progression) await this.progression.record(executor, s.accountId, s.careerEvent);
+  }
+
+  /** Delivery and the camp inventory commit together, before the player enters simulation. */
+  deliverRequisitions(state: PlayerStateRecord): Promise<PlayerStateRecord> {
+    const snapshot = structuredClone(state);
+    const next = this.writing.then(() => withTransaction(this.db, async (db) => {
+      const result = await db.query('SELECT id, reward FROM survival_requisitions WHERE account_id = $1 AND world_id = $2 AND NOT delivered ORDER BY id FOR UPDATE', [state.accountId, this.worldId]);
+      const inv = new InventoryModel(snapshot.inventory!);
+      for (const row of result.rows) {
+        const r = row.reward;
+        if (r.kind === 'coins') {
+          if ((snapshot.coins ?? 0) + r.quantity > 2_147_483_647) continue;
+          snapshot.coins = (snapshot.coins ?? 0) + r.quantity;
+        } else if (r.kind === 'item') {
+          const trial = new InventoryModel(inv.toJSON());
+          let fits = true;
+          for (let i = 0; i < r.quantity; i++) if (!trial.addToStash(r.id)) { fits = false; break; }
+          if (!fits) continue;
+          inv.load(trial.toJSON());
+        } else continue;
+        await db.query('UPDATE survival_requisitions SET delivered = true WHERE id = $1', [row.id]);
+      }
+      snapshot.inventory = inv.toJSON();
+      if (result.rows.length) await this.writeMany([snapshot], undefined, db);
+      return snapshot;
+    }));
+    this.writing = next.then(() => undefined, () => undefined);
+    return next;
   }
 }

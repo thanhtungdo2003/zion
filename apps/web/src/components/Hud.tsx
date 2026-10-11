@@ -1,5 +1,7 @@
 'use client';
 import { Icon } from './Icon';
+import { RankBadge } from './RankBadge';
+import { RankPromotion } from './RankPromotion';
 
 import { itemIcons } from '@/game/inventory/icons';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -112,6 +114,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
   };
 
   return (
+    <>
+    <RankPromotion promotion={state.promotion} />
     <div className="hud">
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
       {showWorld && (
@@ -176,8 +180,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               {state.team && <div className="chat-channels"><button className={chatChannel === 'world' ? 'on' : ''} onPointerDown={(e) => e.preventDefault()} onClick={() => setChatChannel('world')}>Thế giới</button><button className={chatChannel === 'team' ? 'on' : ''} onPointerDown={(e) => e.preventDefault()} onClick={() => setChatChannel('team')}><i /> Đội · {state.team.name}</button></div>}
               <div className="chat-log">
                 {state.chat.filter((l) => l.system || (l.channel ?? 'world') === (state.team ? chatChannel : 'world')).slice(-8).map((l) => (
-                  <div key={l.id} style={l.system ? { color: 'var(--muted)' } : undefined}>
-                    {!l.system && <b>{l.from}: </b>}
+                  <div key={l.id} className={l.announcement ? 'chat-announcement' : undefined} style={l.system && !l.announcement ? { color: 'var(--muted)' } : undefined}>
+                    {!l.system && <b><RankBadge rank={l.rank} /> {l.from} <small className="chat-rank-title">{l.rank?.title}</small>: </b>}
                     {l.msg ? tm(l.msg.key === 'chat.died' && !l.msg.vars?.name ? { ...l.msg, vars: { name: t('chat.someone') } } : l.msg) : l.text}
                   </div>
                 ))}
@@ -359,5 +363,6 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         </div>
       )}
     </div>
+    </>
   );
 }

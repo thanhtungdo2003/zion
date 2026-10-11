@@ -1,3 +1,4 @@
+import type { RankTitle } from '@zion/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { TEAM_LIMIT, TEAM_QUESTS, type TeamAction, type TeamLobby, type TeamRecord, type TeamView, type TeamQuestRun, type QuestStateMessage } from '@zion/shared';
 import type { PlayerStateRecord } from '../repositories/player-states';
@@ -59,7 +60,7 @@ export class TeamService {
     } else this.teams.delete(team.id);
   }
 
-  action(accountId: string, name: string, action: TeamAction): Promise<TeamLobby> {
+  action(accountId: string, name: string, action: TeamAction, rank?: RankTitle): Promise<TeamLobby> {
     return this.serial(async () => {
       const current = this.forAccount(accountId);
       if (action.op === 'create') {
@@ -102,7 +103,7 @@ export class TeamService {
         } else if (action.op === 'chat') {
           const last = team.chat.filter((m) => m.from === member.name).at(-1);
           if (last && Date.now() - last.at < 700) throw new TeamError(429, 'Hãy chờ một chút trước khi gửi tiếp.');
-          team.chat.push({ id: randomUUID(), from: member.name, text: action.text, at: Date.now() });
+          team.chat.push({ id: randomUUID(), from: member.name, text: action.text, at: Date.now(), rank });
           team.chat = team.chat.slice(-40);
         }
         await this.save(team);
@@ -130,7 +131,7 @@ export class TeamService {
     });
   }
 
-  quest(accountId: string, id: string, op: 'accept' | 'cancel' | 'retrieve' | 'turnin', opts: { target?: TeamQuestRunTarget; index?: number; x: number; z: number; reward?: () => PlayerStateRecord }): Promise<boolean> {
+  quest(accountId: string, id: string, op: 'accept' | 'cancel' | 'retrieve' | 'turnin', opts: { target?: TeamQuestRunTarget; index?: number; x: number; z: number; reward?: () => PlayerStateRecord; rankPoints?: number }): Promise<boolean> {
     return this.serial(async () => {
       const current = this.forAccount(accountId), def = TEAM_QUESTS.find((q) => q.id === id);
       if (!current || !def) throw new TeamError(404, 'Không tìm thấy nhiệm vụ đội.');
@@ -161,6 +162,7 @@ export class TeamService {
         } else {
           if (run.stage < 3 || run.claimed.includes(accountId) || !opts.reward) return false;
           reward = opts.reward();
+          reward.careerEvent = { id: `team:${id}:${def.kind === 'daily' ? run.cycle : 'once'}`, points: opts.rankPoints ?? 100 };
           if (!Number.isSafeInteger((reward.coins ?? 0) + def.coins) || (reward.coins ?? 0) + def.coins > 2_147_483_647) throw new TeamError(409, 'Ví đã đạt giới hạn.');
           reward.coins = (reward.coins ?? 0) + def.coins;
           run.claimed.push(accountId); run.stage = 4;

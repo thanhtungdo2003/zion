@@ -21,3 +21,5 @@ export * from './chests';
 export * from './teams';
 export * from './atlas';
 export * from './tutorial';
+export * from './ranks';
+export * from './colonel-search';

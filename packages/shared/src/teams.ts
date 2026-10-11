@@ -1,8 +1,9 @@
+import type { RankTitle } from './ranks';
 import type { QuestStateMessage } from './protocol/server';
 
 export const TEAM_LIMIT = 5;
 export interface TeamMember { accountId: string; name: string; ready: boolean }
-export interface TeamChatLine { id: string; from: string; text: string; at: number }
+export interface TeamChatLine { id: string; from: string; text: string; at: number; rank?: RankTitle }
 export interface TeamQuestRun {
   id: string; cycle: number; stage: number; progress: number;
   participants: string[]; claimed: string[];
@@ -15,7 +16,7 @@ export interface TeamRecord {
   launchId: string | null; launchedAt: number;
 }
 export interface TeamView extends TeamRecord {
-  members: Array<TeamMember & { online: boolean; inGame: boolean; entityId?: number; x?: number; y?: number; z?: number; health?: number; downed?: boolean }>;
+  members: Array<TeamMember & { online: boolean; inGame: boolean; entityId?: number; x?: number; y?: number; z?: number; health?: number; downed?: boolean; rank?: RankTitle }>;
 }
 export interface TeamLobby { team: TeamView | null; available: Array<{ id: string; name: string; count: number; leader: string }> }
 export type TeamAction =

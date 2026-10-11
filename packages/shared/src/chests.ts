@@ -26,6 +26,10 @@ const elite = ['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rock
 /** Per-slot odds: ammo 52%, supplies 30%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
 export function rollChestItem(random: () => number = Math.random): string {
   const roll = random();
+  if (roll >= .995 && roll < .998) {
+    const rarity = random();
+    return `badge_${rarity < .55 ? 'recruit' : rarity < .8 ? 'private' : rarity < .93 ? 'corporal' : rarity < .985 ? 'sergeant' : 'elite'}`;
+  }
   const pool = roll < .52 ? ammo : roll < .82 ? supplies : roll < .95 ? tools : roll < .979 ? guns : roll < .998 ? armor : elite;
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!;
 }
