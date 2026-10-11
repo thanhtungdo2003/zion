@@ -250,9 +250,6 @@ export default function MainMenu() {
         </button>
         {teamError && !teamOpen && <p className="error">{teamError}</p>}
         {error && <p className="error">{error}</p>}
-        <Link className="menu-studio" href="/studio">
-          {t('menu.studio')}
-        </Link>
       </div>
 
       {nameOpen && <div className="overlay menu-name-overlay" role="dialog" aria-modal="true" aria-labelledby="player-name-title">
