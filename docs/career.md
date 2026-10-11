@@ -37,6 +37,15 @@ Huy hiệu là vật phẩm lưu niệm, không tự tăng quân hàm. Mỗi ô 
 ra huy hiệu; trong nhóm đó tỷ lệ lần lượt 55%, 25%, 13%, 5,5%, 1,5%.
 Bán cho thương nhân được 120 / 240 / 440 / 720 / 1.200 ZCoin.
 
+## Cấp tiền trong Studio
+
+Nút **Cấp tiền** trên thanh công cụ Studio tìm người chơi theo tên hoặc ID (bao gồm tài khoản
+chưa vào Sinh tồn), hiển thị số dư và tiền đang chờ cấp. Mỗi lần cấp từ 1 đến 1.000.000 ZCoin,
+có ghi chú tùy chọn. Tiền vào thẳng ví Sinh tồn; người ngoại tuyến tự nhận ở lần vào tiếp theo.
+Người đang giao dịch nhận ngay sau khi giao dịch kết thúc. Giao dịch được lưu trước khi cấp,
+có mã duy nhất chống cộng trùng khi thử lại, lưu người cấp/ghi chú và ghi nhật ký Studio.
+Nếu ví đạt giới hạn số nguyên, tiền được giữ trong hàng chờ. Không cộng điểm quân hàm.
+
 ## Zombie và đăng nhập lại
 
 Rời game sẽ gỡ các zombie đang nhắm hoặc đang chuẩn bị cắn người chơi đó; không

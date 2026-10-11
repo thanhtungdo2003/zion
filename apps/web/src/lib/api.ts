@@ -1,4 +1,4 @@
-import type { CareerView, RankConfig } from '@zion/shared';
+import type { CareerView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
 import type { AtlasTile, GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
@@ -276,6 +276,8 @@ export function studioSaveContent(content: GameContent): Promise<GameContent> {
 export interface PlayerProgress { id: string; username: string; journal: Record<string, { status: string; stage: number; progress: number }> }
 export function studioPlayers(): Promise<PlayerProgress[]> { return studioRequest('/api/studio/players'); }
 export function studioPlayerCounts(): Promise<{ online: number; total: number }> { return studioRequest('/api/studio/player-counts'); }
+export function studioCurrencyPlayers(search = ''): Promise<StudioCurrencyPlayer[]> { return studioRequest(`/api/studio/currency/players?search=${encodeURIComponent(search)}`); }
+export function studioGrantCurrency(grant: StudioCurrencyGrant): Promise<StudioCurrencyResult> { return studioRequest('/api/studio/currency/grant', { method: 'POST', body: JSON.stringify(grant) }); }
 export function getCareer(): Promise<CareerView> { return request('/api/career', { auth: true }); }
 export function deployRequisition(key: string): Promise<CareerView> { return request('/api/career/deploy', { auth: true, method: 'POST', body: JSON.stringify({ key }) }); }
 export function studioRanks(): Promise<RankConfig> { return studioRequest('/api/studio/ranks'); }

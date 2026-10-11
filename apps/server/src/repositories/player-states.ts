@@ -130,11 +130,12 @@ export class PlayerStateRepository {
     for (const s of states) if (s.careerEvent && this.progression) await this.progression.record(executor, s.accountId, s.careerEvent);
   }
 
-  /** Delivery and the camp inventory commit together, before the player enters simulation. */
-  deliverRequisitions(state: PlayerStateRecord): Promise<PlayerStateRecord> {
+  /** Delivery and wallet/inventory commit together; callers lock live player mutations first. */
+  deliverRequisitions(state: PlayerStateRecord, studioCoinsOnly = false): Promise<PlayerStateRecord> {
     const snapshot = structuredClone(state);
     const next = this.writing.then(() => withTransaction(this.db, async (db) => {
-      const result = await db.query('SELECT id, reward FROM survival_requisitions WHERE account_id = $1 AND world_id = $2 AND NOT delivered ORDER BY id FOR UPDATE', [state.accountId, this.worldId]);
+      const result = await db.query(`SELECT id, reward FROM survival_requisitions WHERE account_id = $1 AND world_id = $2 AND NOT delivered
+        AND (NOT $3::boolean OR (reward->>'source' = 'studio' AND reward->>'kind' = 'coins')) ORDER BY id FOR UPDATE`, [state.accountId, this.worldId, studioCoinsOnly]);
       const inv = new InventoryModel(snapshot.inventory!);
       for (const row of result.rows) {
         const r = row.reward;

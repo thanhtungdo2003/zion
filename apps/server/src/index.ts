@@ -1,5 +1,5 @@
 import type { LifeWorld } from './game/base-life';
-import { validateContent } from '@zion/shared';
+import { STARTING_ZCOIN, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -137,6 +137,23 @@ async function main(): Promise<void> {
     tokens,
     kv,
     studio: {
+      currencyPlayers: async (search) => {
+        const result = await db.query(`SELECT a.id, a.username, COALESCE(p.coins, $3) AS coins,
+          COALESCE((SELECT SUM((r.reward->>'quantity')::bigint) FROM survival_requisitions r WHERE r.account_id = a.id AND r.world_id = $1 AND NOT r.delivered AND r.reward->>'kind' = 'coins'), 0) AS pending_coins
+          FROM accounts a LEFT JOIN player_states p ON p.account_id = a.id AND p.world_id = $1
+          WHERE strpos(lower(a.username), lower($2)) > 0 OR a.id::text = $2
+          ORDER BY a.username, a.id LIMIT 100`, [config.WORLD_ID, search, STARTING_ZCOIN]);
+        return result.rows.map((r) => {
+          const live = game.studioWallet(r.id);
+          return { id: r.id, username: r.username, coins: live ?? r.coins, pendingCoins: Number(r.pending_coins), online: live !== undefined };
+        });
+      },
+      grantCurrency: async (grant, actorId) => {
+        const created = await progression.grantCoins(grant, actorId);
+        if (created) audit.record({ event: 'studio.currency.grant', accountId: actorId, details: { ...grant, via: actorId ? 'account' : 'password' } });
+        await game.receiveStudioCurrency(grant.accountId);
+        return { requestId: grant.requestId, delivered: await progression.coinGrantDelivered(grant.requestId) };
+      },
       playerCounts: async () => ({ online: game.playerCount, total: Number((await db.query('SELECT COUNT(*) AS total FROM player_states WHERE world_id = $1', [config.WORLD_ID])).rows[0]?.total ?? 0) }),
       playerProgress: async () => (await db.query('SELECT a.id, a.username, p.quest_journal AS journal FROM player_states p JOIN accounts a ON a.id = p.account_id WHERE p.world_id = $1 ORDER BY a.username', [config.WORLD_ID])).rows,
       resetPlayerProgress: (accountId) => game.resetPlayerProgress(accountId),

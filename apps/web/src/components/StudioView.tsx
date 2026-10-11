@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import Link from 'next/link';
 import { ContentEditor } from './ContentEditor';
 import { StudioPlayerCount } from './StudioPlayerCount';
+import { StudioCurrency } from './StudioCurrency';
 import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAMP_ASSETS } from '@zion/assets';
@@ -495,6 +496,7 @@ export default function StudioView() {
         </Link>
         <h1>Camp Studio</h1>
         <StudioPlayerCount />
+        <StudioCurrency />
         <ContentEditor />
         <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Custom layout' : 'Generated default'}</span>
         {dirty && <span className="studio-badge unsaved">Unsaved changes</span>}

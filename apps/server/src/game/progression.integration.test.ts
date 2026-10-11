@@ -87,4 +87,17 @@ describe.skipIf(process.env.ZION_CAREER_INTEGRATION !== '1' || !process.env.DATA
     expect(elsewhere.config.deathBase).toBe(55);
     expect((await elsewhere.view(account)).rank).toEqual((await service.view(account)).rank);
   });
+  it('credits an offline account once despite concurrent Studio request retries', async () => {
+    const grant = { requestId: randomUUID(), accountId: other, amount: 500, reason: 'Integration reward' };
+    const attempts = await Promise.all(Array.from({ length: 10 }, () => service.grantCoins(grant, null)));
+    expect(attempts.filter(Boolean)).toHaveLength(1);
+    expect(await service.coinGrantDelivered(grant.requestId)).toBe(false);
+    const delivered = await states.deliverRequisitions(state(other));
+    expect(delivered.coins).toBe(600);
+    expect(await service.coinGrantDelivered(grant.requestId)).toBe(true);
+    expect(await service.grantCoins(grant, null)).toBe(false);
+    const loaded = await states.load(other);
+    expect((await states.deliverRequisitions(loaded!)).coins).toBe(600);
+    await expect(service.grantCoins({ ...grant, amount: 900 }, null)).rejects.toMatchObject({ statusCode: 409 });
+  });
 });

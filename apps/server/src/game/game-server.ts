@@ -170,6 +170,7 @@ export class GameServer {
   private readonly grid = new InterestGrid<Player>();
   private readonly joining = new Map<number, [number, number]>();
   private readonly joiningAccounts = new Set<string>();
+  private readonly requisitionRetries = new Map<string, number>();
   private readonly respawning = new Set<number>();
   private readonly log: Logger;
   private readonly epoch = performance.now();
@@ -315,6 +316,31 @@ export class GameServer {
       await this.deps.playerStates.resetQuestJournals(accountId);
       for (const p of players) { p.journal = {}; p.questEvents = []; this.sendQuests(p); }
     } finally { for (const p of players) p.questBusy = false; }
+  }
+
+  studioWallet(accountId: string): number | undefined { return this.byAccount.get(accountId)?.coins; }
+
+  /** Queue busy/joining players; offline accounts receive their durable credit on their next join. */
+  async receiveStudioCurrency(accountId: string): Promise<void> {
+    const p = this.byAccount.get(accountId);
+    if (!p) {
+      if (this.joiningAccounts.has(accountId)) this.requisitionRetries.set(accountId, Date.now() + 1000);
+      return;
+    }
+    if (p.questBusy) { this.requisitionRetries.set(accountId, Date.now() + 1000); return; }
+    this.requisitionRetries.delete(accountId);
+    p.questBusy = true;
+    try {
+      const state = await this.deps.playerStates.deliverRequisitions({ accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }, true);
+      const received = (state.coins ?? p.coins) - p.coins;
+      p.coins = state.coins ?? p.coins;
+      p.dirty = true;
+      p.session.sendJson({ t: 'wallet', coins: p.coins });
+      if (received > 0) this.reply(p, `Bạn vừa được cấp ${received.toLocaleString('vi-VN')} ZCoin từ Studio.`);
+    } catch (err) {
+      this.requisitionRetries.set(accountId, Date.now() + 5000);
+      this.log.error({ err, accountId }, 'Studio currency delivery deferred');
+    } finally { this.finishQuestMutation(p); }
   }
 
   private sendQuests(p: Player): void {
@@ -974,6 +1000,7 @@ export class GameServer {
     p.suspendedZombies.push(...this.zombies.suspend(p));
     p.active = false;
     this.players.delete(p.id);
+    this.requisitionRetries.delete(p.accountId);
     this.deps.teams?.position(p.accountId, null);
     if (this.byAccount.get(p.accountId) === p) this.byAccount.delete(p.accountId);
     this.grid.remove(p);
@@ -1292,6 +1319,8 @@ export class GameServer {
     }
     for (const p of this.players.values()) {
       if (!p.active || p.questBusy) continue;
+      const retry = this.requisitionRetries.get(p.accountId);
+      if (retry !== undefined && Date.now() >= retry) { void this.receiveStudioCurrency(p.accountId); continue; }
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
       if (p.dead) {
         this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_RANK_CONFIG, rankConfigSchema, rankStep, rankTitle, type CareerView, type RankConfig, type RankTitle, type RequisitionReward, type TeamLobby } from '@zion/shared';
 import { withTransaction, type Db, type DbClient } from '../db/pool';
+import { studioCurrencyGrantSchema, type StudioCurrencyGrant } from '@zion/shared';
 
 export interface CareerEvent { id: string; points?: number; death?: boolean }
 type Executor = Pick<DbClient, 'query'>;
@@ -36,6 +37,26 @@ export class ProgressionService {
   async title(accountId: string): Promise<RankTitle> {
     const { rows } = await this.db.query('SELECT score FROM account_careers WHERE account_id = $1', [accountId]);
     return rankTitle(rankStep(rows[0]?.score ?? 0, this.config));
+  }
+  /** A durable, idempotent Studio credit, also safe for accounts that have never entered a world. */
+  async grantCoins(raw: StudioCurrencyGrant, actorId: string | null): Promise<boolean> {
+    const grant = studioCurrencyGrantSchema.parse(raw);
+    const reward = { kind: 'coins', id: 'zcoin', name: 'ZCoin', mode: 'survival', quantity: grant.amount, source: 'studio', reason: grant.reason, actorId };
+    const result = await this.db.query(`INSERT INTO survival_requisitions(id, account_id, world_id, reward)
+      SELECT $1, id, $3, $4::jsonb FROM accounts WHERE id = $2
+      ON CONFLICT(id) DO NOTHING RETURNING id`, [grant.requestId, grant.accountId, this.worldId, JSON.stringify(reward)]);
+    if (result.rows.length) return true;
+    const previous = await this.db.query('SELECT account_id, world_id, reward FROM survival_requisitions WHERE id = $1', [grant.requestId]);
+    const row = previous.rows[0];
+    if (!row) throw Object.assign(new Error('Không tìm thấy người chơi.'), { statusCode: 404 });
+    if (row.account_id !== grant.accountId || row.world_id !== this.worldId || row.reward.source !== 'studio' || row.reward.quantity !== grant.amount || row.reward.reason !== grant.reason || row.reward.actorId !== actorId) {
+      throw Object.assign(new Error('Mã giao dịch đã được dùng cho một lần cấp tiền khác.'), { statusCode: 409 });
+    }
+    return false;
+  }
+  async coinGrantDelivered(requestId: string): Promise<boolean> {
+    const result = await this.db.query('SELECT delivered FROM survival_requisitions WHERE id = $1 AND world_id = $2', [requestId, this.worldId]);
+    return result.rows[0]?.delivered === true;
   }
   async lobbyRanks(lobby: TeamLobby): Promise<TeamLobby> {
     if (!lobby.team) return lobby;

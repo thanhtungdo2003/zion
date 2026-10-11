@@ -8,9 +8,12 @@ import { z } from 'zod';
 import { CAMP_ASSET } from '@zion/assets';
 import type { CampNpcLayout, CampPart } from '@zion/worldgen';
 import type { HttpDeps } from '../app';
+import { studioCurrencyGrantSchema, type StudioCurrencyGrant, type StudioCurrencyPlayer, type StudioCurrencyResult } from '@zion/shared';
 
 /** What the Camp Studio needs from the game: the live layout and a way to change it. */
 export interface StudioBackend {
+  currencyPlayers(search: string): Promise<StudioCurrencyPlayer[]>;
+  grantCurrency(grant: StudioCurrencyGrant, actorId: string | null): Promise<StudioCurrencyResult>;
   playerCounts(): Promise<{ online: number; total: number }>;
   playerProgress(): Promise<unknown>;
   resetPlayerProgress(accountId?: string): Promise<void>;
@@ -114,6 +117,16 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   });
 
   app.get('/api/studio/players', { preHandler: guard }, async () => studio.playerProgress());
+  app.get('/api/studio/currency/players', { preHandler: guard }, async (req, reply) => {
+    const { search } = z.object({ search: z.string().trim().max(80).default('') }).strict().parse(req.query);
+    reply.header('cache-control', 'no-store');
+    return studio.currencyPlayers(search);
+  });
+  app.post('/api/studio/currency/grant', { preHandler: guard, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const grant = studioCurrencyGrantSchema.parse(req.body);
+    reply.header('cache-control', 'no-store');
+    return studio.grantCurrency(grant, req.claims?.sub ?? null);
+  });
   app.get('/api/studio/player-counts', { preHandler: guard }, async (_req, reply) => {
     reply.header('cache-control', 'no-store');
     return studio.playerCounts();

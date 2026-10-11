@@ -23,3 +23,4 @@ export * from './atlas';
 export * from './tutorial';
 export * from './ranks';
 export * from './colonel-search';
+export * from './studio-currency';
