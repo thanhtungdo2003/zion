@@ -2323,10 +2323,14 @@ export class GameEngine {
       return;
     }
     if (this.input.touchEnabled) {
-      const heading = this.input.touchHeading ?? this.input.yaw;
+      const heading = this.input.touchFacing(CAM_YAW);
       this.input.touchHeading = heading;
       this.input.yaw = heading;
       this.input.pitch = 0;
+      if (!this.input.touchFireActive) {
+        this.aimPoint.set(px - Math.sin(heading) * 30, py, pz - Math.cos(heading) * 30);
+        return;
+      }
       const spec = weaponSpec(this.equippedWeapon());
       const range = spec?.kind === 'gun' ? Math.min(60, spec.range) : 0;
       let bestScore = Infinity;

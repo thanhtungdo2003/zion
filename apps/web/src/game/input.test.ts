@@ -20,6 +20,36 @@ function setup() {
   return { input, win, doc, element };
 }
 describe('mobile input', () => {
+  it('faces movement in top view and gives the fire stick priority until released', () => {
+    const { input } = setup();
+    const cameraYaw = Math.PI / 4;
+    input.touchMove(0, 1);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(cameraYaw);
+    input.touchMove(1, 0);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(-Math.PI / 4);
+    input.touchFireDirection(0, -1, cameraYaw);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(cameraYaw);
+    input.touchMove(-1, 0);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(cameraYaw);
+    input.touchFireDirection(0, 0, cameraYaw);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(3 * Math.PI / 4);
+    input.touchMove(0, 0);
+    expect(input.touchFacing(cameraYaw)).toBeCloseTo(3 * Math.PI / 4);
+  });
+
+  it('releases fire-stick priority on reset and keeps first-person facing independent of movement', () => {
+    const { input } = setup();
+    input.touchFireDirection(1, 0, 0);
+    input.resetTouch();
+    expect(input.touchFireActive).toBe(false);
+    input.touchMove(0, 1);
+    expect(input.touchFacing(0)).toBeCloseTo(0);
+    input.setMouseLook(true);
+    input.yaw = .7;
+    input.touchMove(1, 0);
+    expect(input.touchFacing(0)).toBeCloseTo(.7);
+  });
+
   it('aims the right stick relative to the camera and fires until released', () => {
     const { input } = setup();
     input.touchMove(0, 1);

@@ -52,6 +52,7 @@ export class InputController {
   touchEnabled = false;
   /** Manual stick heading, kept separate from the assisted shot heading. */
   touchHeading: number | null = null;
+  touchFireActive = false;
   private touchX = 0;
   private touchZ = 0;
   private touchBits = 0;
@@ -186,6 +187,7 @@ export class InputController {
   resetTouch(): void {
     this.touchX = this.touchZ = this.touchBits = this.touchPresses = 0;
     this.touchAim = false;
+    this.touchFireActive = false;
   }
 
   private clearInput(): void {
@@ -237,12 +239,23 @@ export class InputController {
     if (!this.touchEnabled || this.mouseLook || this.suspended || !this.active || this.freeCursorFlag) return;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const length = Math.hypot(x, y);
+    this.touchFireActive = length > 0;
     if (length > 0) {
       const wx = Math.cos(cameraYaw) * x + Math.sin(cameraYaw) * y;
       const wz = -Math.sin(cameraYaw) * x + Math.cos(cameraYaw) * y;
       this.touchHeading = Math.atan2(-wx, -wz);
     }
     this.touchButton('attack', length > 0);
+  }
+
+  /** In top view, movement sets facing until the fire stick takes over. */
+  touchFacing(cameraYaw: number): number {
+    if (this.touchEnabled && !this.mouseLook && !this.touchFireActive && (this.touchX !== 0 || this.touchZ !== 0)) {
+      const wx = Math.cos(cameraYaw) * this.touchX - Math.sin(cameraYaw) * this.touchZ;
+      const wz = -Math.sin(cameraYaw) * this.touchX - Math.cos(cameraYaw) * this.touchZ;
+      this.touchHeading = Math.atan2(-wx, -wz);
+    }
+    return this.touchHeading ?? this.yaw;
   }
 
   /** True while the player is "in" the game (clicked in, not paused with Esc). */
