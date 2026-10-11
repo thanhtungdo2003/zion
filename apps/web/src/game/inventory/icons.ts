@@ -4,6 +4,10 @@ import { ITEMS } from './items';
 
 /** itemId → PNG data URL of the real 3D model, rendered once while loading. */
 export const itemIcons = new Map<string, string>();
+const listeners = new Set<() => void>();
+let version = 0;
+export const itemIconVersion = () => version;
+export const subscribeItemIcons = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 
 const PX_PER_CELL = 96;
 /** Camera offset for the diagonal view: above, from the side the models face (their front). */
@@ -13,6 +17,7 @@ const inv = new Quaternion();
 
 /** Renders a side view of every weapon model into an image for the inventory/hotbar tiles. */
 export function renderItemIcons(weapons: WeaponLibrary): void {
+  if (![...weapons.keys()].some((id) => !id.startsWith('proj_') && !itemIcons.has(id))) return;
   const canvas = document.createElement('canvas');
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.outputColorSpace = SRGBColorSpace;
@@ -27,7 +32,7 @@ export function renderItemIcons(weapons: WeaponLibrary): void {
   const center = new Vector3();
   try {
     for (const [itemId, visual] of weapons) {
-      if (itemId.startsWith('proj_')) continue;
+      if (itemId.startsWith('proj_') || itemIcons.has(itemId)) continue;
       // Non-items (the ZCoin) get a square icon.
       const def = ITEMS[itemId] ?? { w: 1, h: 1 };
       const model = visual.display.clone(true);
@@ -69,5 +74,7 @@ export function renderItemIcons(weapons: WeaponLibrary): void {
   } finally {
     renderer.dispose();
     renderer.forceContextLoss();
+    version++;
+    for (const listener of listeners) listener();
   }
 }

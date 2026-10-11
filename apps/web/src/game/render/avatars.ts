@@ -5,6 +5,7 @@ import type { Stance } from '../inventory/items';
 import type { WeaponLibrary, WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { armorPieces } from './armor-models';
+import { RifleGrip } from './rifle-grip';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -100,6 +101,7 @@ export class Avatar {
   private stance: Stance = 'unarmed';
   private idleClip: string | null = null;
   private weaponId: string | null = null;
+  private rifleGrip: RifleGrip | null = null;
   private oneShot: string | null = null;
   private recoil = 0;
   private aimPitch = 0;
@@ -370,6 +372,17 @@ export class Avatar {
     // ...and the character is shoved back a few centimetres (model faces −Z, so back is +Z).
     this.model.position.z = dead ? 0 : this.recoil * 0.12;
     this.model.position.y = dead ? 0.2 : (flags & EntityFlags.Swimming) !== 0 ? -0.1 : 0;
+    if (held) {
+      held.obj.matrix.copy(held.visual.attach);
+      held.obj.matrixWorldNeedsUpdate = true;
+      const right = this.bones.get('hand_right')?.node;
+      const left = this.bones.get('hand_left')?.node;
+      const leftArm = this.bones.get('arm_left')?.node;
+      if (!dead && !this.healing && this.cur.clip?.name === 'rifle_patrol_idle' && held.visual.twoHandGrip && right && left && leftArm && body) {
+        this.rifleGrip ??= new RifleGrip();
+        this.rifleGrip.pose(held.obj, held.visual, right, left, leftArm, body.node);
+      }
+    }
     // Idle breathing so a standing character never looks frozen.
     this.breath += dt;
     if (body && !this.cur.clip && !dead) body.node.position.y += Math.sin(this.breath * 2.2) * 0.25 * PX * (1 - 0.5 * (1 - this.fade));

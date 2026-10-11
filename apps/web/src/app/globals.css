@@ -173,6 +173,18 @@ button {
 .rank-timeline { overflow-y: auto; padding: 0 8px 12px 16px; border-left: 1px solid var(--line); }
 .rank-timeline > button { display: flex; align-items: center; gap: 14px; width: 100%; padding: 18px 12px; margin-bottom: 6px; background: #ffffff03; color: var(--text); border: 1px solid var(--line); text-align: left; cursor: pointer; }
 .rank-timeline > button > div { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.rank-milestone { min-width: 0; }
+.rank-milestone-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rank-milestone-heading > small { white-space: nowrap; font: 10px var(--mono); }
+.rank-timeline .awarded .rank-milestone-heading > small { color: #72b48c; }
+.rank-rewards { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+.career-reward { display: flex; flex-direction: column; width: 76px; gap: 5px; }
+.career-reward-cell { position: relative; display: grid; place-items: center; width: 76px; height: 76px; overflow: hidden; border: 1px solid #ffffff1c; border-bottom: 2px solid var(--reward-tint); background: linear-gradient(0deg, color-mix(in srgb, var(--reward-tint) 22%, transparent), transparent 65%), repeating-linear-gradient(0deg, #ffffff04 0 1px, transparent 1px 19px), repeating-linear-gradient(90deg, #ffffff04 0 1px, transparent 1px 19px), #181e21; }
+.career-reward-cell img { width: 100%; height: 100%; padding: 8px 5px 16px; object-fit: contain; filter: drop-shadow(0 3px 4px #0008); }
+.career-reward-cell > svg { width: 28px; height: 28px; color: var(--reward-tint); }
+.career-reward-cell > strong { position: absolute; right: 4px; bottom: 3px; color: #fff; font: 700 11px var(--mono); text-shadow: 0 1px 3px #000; }
+.career-reward-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 10px/1.3 var(--sans); }
+.rank-timeline > button:hover .career-reward-cell { border-color: #ffffff40; border-bottom-color: var(--reward-tint); }
 .rank-timeline b { font: 700 20px var(--cond); }
 .rank-timeline small { color: var(--muted); font: 11px/1.6 var(--sans); }
 .rank-timeline > button > span:last-child { font: 10px var(--mono); color: var(--muted); white-space: nowrap; }
@@ -181,8 +193,12 @@ button {
 .rank-timeline .selected { background: #ffb0000b; border-color: #ffb00066; }
 .career-stock { overflow-y: auto; flex: 1; min-height: 0; }
 .career-stock > p { font: 13px/1.6 var(--sans); color: var(--muted); }
-.requisition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.requisition-grid > button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 140px; padding: 16px; border: 1px solid var(--line); background: #1b2022; color: var(--text); cursor: pointer; }
+.requisition-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.requisition-grid > button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 140px; padding: 12px 8px; border: 1px solid var(--line); background: #1b2022; color: var(--text); cursor: pointer; }
+.requisition-grid > button:hover { border-color: var(--accent); background: #242a2c; }
+.requisition-grid .career-reward { width: 92px; }
+.requisition-grid .career-reward-cell { width: 92px; height: 92px; }
+.requisition-grid .career-reward-name { max-width: 92px; text-align: center; }
 .requisition-grid svg { width: 36px; height: 36px; color: var(--accent); }
 .requisition-grid b { font: 700 17px var(--cond); }
 .requisition-grid small { color: var(--muted); font: 10px var(--mono); }

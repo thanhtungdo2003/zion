@@ -23,7 +23,7 @@ export function BadgeModel({ url, animated = false }: { url: string; animated?: 
     const scene = new Scene(), camera = new OrthographicCamera(-1, 1, 1, -1, .01, 100);
     scene.add(new AmbientLight(0xffffff, 1.6));
     const light = new DirectionalLight(0xffe6b8, 2.5);
-    light.position.set(2, 4, 6); scene.add(light);
+    light.position.set(3, 5, -6); scene.add(light);
     const resources = new ResourceDisposer();
     const fit = () => {
       const w = el.clientWidth || 1, h = el.clientHeight || 1;
@@ -41,8 +41,8 @@ export function BadgeModel({ url, animated = false }: { url: string; animated?: 
       const scale = 2 / Math.max(size.x, size.y, size.z, .001);
       root.scale.setScalar(scale); root.position.multiplyScalar(scale);
       scene.add(root);
-      // A shallow view reveals the relief without hiding the emblem's face.
-      camera.position.set(0.25, 0.15, 6); camera.lookAt(0, 0, 0);
+      // The emblem faces -Z; view it from above and to the side to show all three faces.
+      camera.position.set(3.8, 3.2, -6); camera.lookAt(0, 0, 0);
       fit();
       if (animated) {
         const frame = (now: number) => {

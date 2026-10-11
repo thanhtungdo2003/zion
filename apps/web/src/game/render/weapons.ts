@@ -18,6 +18,8 @@ interface WeaponSpec {
   barrel: Vec3;
   up: Vec3;
   grip: Vec3;
+  /** Left palm under the handguard, for the two-handed lobby pose. */
+  support?: Vec3;
   /** Muzzle tip and ejection port (optional for non-guns). */
   muzzle?: Vec3;
   eject?: Vec3;
@@ -42,7 +44,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   badge_corporal: { url: '/models/materias/corporal-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_sergeant: { url: '/models/materias/sergeant-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_elite: { url: '/models/materias/elite-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
-  ak47: { url: '/models/weapons/ak47-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 0.5, 4.5], muzzle: [0, 36, 1], eject: [1, 11, 0.5], reloadClip: 'reload' },
+  ak47: { url: '/models/weapons/ak47-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 0.5, 4.5], support: [0, 18, 3], muzzle: [0, 36, 1], eject: [1, 11, 0.5], reloadClip: 'reload' },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0, 10.5, -8], eject: [1, 11.5, 0.5], reloadClip: 'reload' },
   awm: { url: '/models/weapons/awm-sniper-4x.bbmodel', length: 1.15, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -4.5], muzzle: [0, 56, 0.5], eject: [2, 20, 1.5] },
@@ -101,6 +103,8 @@ export interface WeaponVisual {
   object: Group;
   /** Transform relative to the right-hand bone. */
   attach: Matrix4;
+  /** Contact points in the weapon's model space; used by the patrol idle pose. */
+  twoHandGrip?: { grip: Vector3; support: Vector3; up: Vector3 };
   /** Real-size model, muzzle → +X and top → +Y, centred on the grip (icons, thrown grenades). */
   display: Group;
   /** The model's own clips (reload…), and the clip played on reload. */
@@ -215,6 +219,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         itemId,
         object: built.root,
         attach: fitToHand(character, spec, stance, built.root),
+        ...(spec.support ? { twoHandGrip: { grip: local(spec.grip)!, support: local(spec.support)!, up: new Vector3(...spec.up) } } : {}),
         display: displayModel(spec, built.root),
         clips: built.clips,
         reloadClip: spec.reloadClip && built.clips.has(spec.reloadClip) ? spec.reloadClip : null,

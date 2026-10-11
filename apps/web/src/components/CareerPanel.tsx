@@ -1,13 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { RANKS, rankTitle, type CareerView, type RequisitionEntry } from '@zion/shared';
 import { deployRequisition, getCareer } from '@/lib/api';
 import { BadgeModel } from './BadgeModel';
 import { RankBadge } from './RankBadge';
 import { Icon } from './Icon';
+import { CareerReward } from './CareerReward';
+import { itemIconVersion, subscribeItemIcons } from '@/game/inventory/icons';
+
+const serverIconVersion = () => 0;
 
 export function CareerPanel({ session }: { session: boolean }) {
+  useSyncExternalStore(subscribeItemIcons, itemIconVersion, serverIconVersion);
   const [career, setCareer] = useState<CareerView | null>(null);
   const [tab, setTab] = useState<'ranks' | 'armory' | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
@@ -49,13 +54,13 @@ export function CareerPanel({ session }: { session: boolean }) {
         {!session ? <p className="career-empty">Hãy tạo nhân vật hoặc đăng nhập để lưu danh hiệu và nhận quân nhu.</p> : tab === 'ranks' ? <div className="career-ranks">
           <aside><BadgeModel url={RANKS[Math.floor(shown / 5)]!.model} animated /><RankBadge rank={rankTitle(shown)} title /><p>Hoàn thành nhiệm vụ để được ghi nhận. Hy sinh sẽ ảnh hưởng đến quân hàm.</p><small>Danh hiệu hiện tại: {rank.title}</small></aside>
           <div className="rank-timeline">{career?.milestones.map((m) => <button key={m.rank.step} className={`${m.awarded ? 'awarded' : ''} ${m.rank.step === rank.step ? 'current' : ''} ${m.rank.step === shown ? 'selected' : ''}`} onClick={() => setSelected(m.rank.step)}>
-            <RankBadge rank={m.rank} /><div><b>{m.rank.title}</b><small>{m.rewards.length ? m.rewards.map((r) => `${r.quantity}× ${r.name}`).join(' · ') : 'Khởi đầu hành trình'}</small></div><span>{m.awarded ? 'Đã cấp' : 'Chưa đạt'}</span>
+            <RankBadge rank={m.rank} /><div className="rank-milestone"><span className="rank-milestone-heading"><b>{m.rank.title}</b><small>{m.awarded ? 'Đã cấp' : 'Chưa đạt'}</small></span>{m.rewards.length ? <span className="rank-rewards">{m.rewards.map((reward, i) => <CareerReward key={`${reward.kind}:${reward.id}:${i}`} reward={reward} />)}</span> : <small>Khởi đầu hành trình</small>}</div>
           </button>)}</div>
         </div> : <div className="career-stock">
           <p>Phần quà của tài khoản dùng chung cho các chế độ. Chọn vật phẩm hoặc nhấn chuột phải để đưa vào Sinh tồn.</p>
           {!!career?.pendingSurvival && <p className="career-note">{career.pendingSurvival} kiện đang chờ cấp vào Sinh tồn. Nếu kho căn cứ đầy, kiện vẫn được giữ để cấp ở lần vào tiếp theo.</p>}
           <div className="requisition-grid">{career?.armory.map((entry) => <button key={entry.key} disabled={busy} onClick={(e) => { e.stopPropagation(); setMenu({ entry, x: Math.min(e.clientX, window.innerWidth - 230), y: Math.min(e.clientY, window.innerHeight - 130) }); }} onContextMenu={(e) => { e.preventDefault(); setMenu({ entry, x: Math.min(e.clientX, window.innerWidth - 230), y: Math.min(e.clientY, window.innerHeight - 130) }); }}>
-            <Icon name={entry.kind === 'coins' ? 'lucide:coins' : entry.kind === 'item' ? 'lucide:package' : 'lucide:sparkles'} /><b>{entry.name}</b><span>×{entry.quantity}</span><small>{entry.source}</small>
+            <CareerReward reward={entry} /><small>{entry.source}</small>
           </button>)}</div>
           {!career?.armory.length && <p className="career-empty">Quân nhu đang trống. Phần thưởng thăng quân hàm sẽ được gửi về đây.</p>}
         </div>}

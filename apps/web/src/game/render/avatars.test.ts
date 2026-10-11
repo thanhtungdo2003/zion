@@ -4,7 +4,7 @@ import { Group, Matrix4, Vector3 } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
-import { buildBBModel, type CharacterTemplate, type RawModel } from './character-model';
+import { BB_UNITS_PER_METER, buildBBModel, type CharacterTemplate, type RawModel } from './character-model';
 
 let template: CharacterTemplate;
 beforeAll(async () => {
@@ -20,6 +20,38 @@ function bodyUp(avatar: Avatar): Vector3 {
 }
 
 describe('lobby rifle patrol', () => {
+  it('keeps the trigger and handguard in separate palms through the complete patrol loop', () => {
+    const avatar = new Avatar(template, true);
+    const px = 1 / BB_UNITS_PER_METER;
+    const rifle = new Group(); rifle.name = 'patrol-rifle';
+    const grip = new Vector3(0, .5, 4.5).multiplyScalar(px);
+    const support = new Vector3(0, 18, 3).multiplyScalar(px);
+    const attach = new Matrix4().makeScale(.95 * 1.5 / (50 * px), .95 * 1.5 / (50 * px), .95 * 1.5 / (50 * px));
+    const weapons: WeaponLibrary = new Map([['ak47', {
+      itemId: 'ak47', object: rifle, display: new Group(), attach,
+      twoHandGrip: { grip, support, up: new Vector3(0, 0, -1) },
+      clips: new Map(), reloadClip: null, muzzle: new Vector3(0, 36, 1).multiplyScalar(px), eject: null,
+    }]]);
+    avatar.setStance('rifle'); avatar.setWeapon('ak47', weapons); avatar.setIdleClip('rifle_patrol_idle');
+    const palm = new Vector3(0, 2, -.2).multiplyScalar(px);
+    for (let frame = 0; frame <= 480; frame++) {
+      avatar.update(0, 0, 0, .35, EntityFlags.Grounded, 1 / 60, frame / 60);
+      avatar.root.updateMatrixWorld(true);
+      const weapon = avatar.root.getObjectByName('patrol-rifle')!;
+      const right = palm.clone().applyMatrix4(avatar.root.getObjectByName('hand_right')!.matrixWorld);
+      const left = palm.clone().applyMatrix4(avatar.root.getObjectByName('hand_left')!.matrixWorld);
+      expect(grip.clone().applyMatrix4(weapon.matrixWorld).distanceTo(right)).toBeLessThan(1e-5);
+      expect(support.clone().applyMatrix4(weapon.matrixWorld).distanceTo(left)).toBeLessThan(1e-5);
+      if (frame === 120) {
+        const barrel = new Vector3(0, 1, 0).transformDirection(weapon.matrixWorld);
+        expect(Math.abs(barrel.x)).toBeGreaterThan(Math.abs(barrel.z));
+      }
+    }
+    avatar.setIdleClip(null);
+    avatar.update(0, 0, 0, 0, EntityFlags.Grounded, .2, 9);
+    expect(avatar.root.getObjectByName('patrol-rifle')!.matrix.equals(attach)).toBe(true);
+  });
+
   it('loops the authored pose and carries the rifle with the animated right hand', () => {
     const avatar = new Avatar(template, true);
     const weapons: WeaponLibrary = new Map([['ak47', {

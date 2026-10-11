@@ -21,6 +21,7 @@ import { Avatar } from '@/game/render/avatars';
 import { loadCharacterModel } from '@/game/render/character-model';
 import { loadWeapons } from '@/game/render/weapons';
 import { ResourceDisposer } from '@/game/render/resources';
+import { renderItemIcons } from '@/game/inventory/icons';
 
 /** Main-menu backdrop: the survivor standing centre stage with a rifle, idling. */
 export default function MenuStage({ onReady, members }: { onReady?: () => void; members?: Array<{ name: string; rank?: RankTitle }> }) {
@@ -104,6 +105,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
           if (names[i]) avatar.setName(names[i]!.name, names[i]!.rank);
           avatar.addTo(scene); avatars.push(avatar);
         }
+        try { renderItemIcons(weapons); } catch { /* Keep the lobby usable when icon rendering is unavailable. */ }
         onReady?.();
       } catch {
         for (const root of ownedModels) resources.object(root);
