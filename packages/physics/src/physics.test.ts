@@ -47,16 +47,26 @@ function run(ctrl: CharacterController, s: ReturnType<typeof createCharacterStat
 }
 
 describe('prone movement', () => {
-  it('crawls without sprinting, jumping or rolling', () => {
+  it('crawls without sprinting or rolling', () => {
     const ctrl = new CharacterController(makeWorld(() => 0));
     const s = createCharacterState(16, 0, 16);
     s.grounded = true;
-    run(ctrl, s, input({ prone: true, mz: 1, sprint: true, jump: true, roll: true }), 30);
+    run(ctrl, s, input({ prone: true, mz: 1, sprint: true, roll: true }), 30);
     expect(s.prone).toBe(true);
     expect(s.grounded).toBe(true);
     expect(s.rollTicks).toBe(0);
     expect(Math.hypot(s.vx, s.vz)).toBeCloseTo(PRONE_SPEED);
     expect(s.y).toBeCloseTo(0, 1);
+  });
+
+  it('stands and jumps on a jump press while prone', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0));
+    const s = createCharacterState(16, 0, 16);
+    s.grounded = true; s.prone = true;
+    const info = ctrl.step(s, input({ prone: true, jump: true }), DT);
+    expect(s.prone).toBe(false);
+    expect(info.jumped).toBe(true);
+    expect(s.vy).toBeGreaterThan(0);
   });
 
   it('fits under a low roof and cannot stand until clear', () => {
@@ -66,10 +76,35 @@ describe('prone movement', () => {
     s.prone = true;
     run(ctrl, s, input(), 3);
     expect(s.prone).toBe(true);
+    const blocked = ctrl.step(s, input({ jump: true }), DT);
+    expect(s.prone).toBe(true);
+    expect(blocked.jumped).toBe(false);
     run(ctrl, s, input({ prone: true, mz: 1 }), 90);
     expect(s.z).toBeLessThan(14);
     ctrl.step(s, input(), DT);
     expect(s.prone).toBe(false);
+  });
+});
+
+describe('dodge direction', () => {
+  it('ignores steering and aim changes until the committed roll ends', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0));
+    const s = createCharacterState(16, 0, 16);
+    s.grounded = true;
+    ctrl.step(s, input({ mz: 1, roll: true }), DT);
+    const heading = s.rollYaw;
+    while (s.rollTicks > 1) {
+      const x = s.x, z = s.z;
+      ctrl.step(s, input({ mx: 1, mz: -1, yaw: Math.PI / 2, jump: true, prone: true }), DT);
+      expect(s.rollYaw).toBe(heading);
+      expect(s.x).toBeCloseTo(x);
+      expect(s.z).toBeLessThan(z);
+      expect(s.prone).toBe(false);
+    }
+    run(ctrl, s, input({ mx: 1, mz: -1 }), 15);
+    expect(s.rollTicks).toBe(0);
+    expect(s.vx).toBeGreaterThan(0);
+    expect(s.vz).toBeGreaterThan(0);
   });
 });
 

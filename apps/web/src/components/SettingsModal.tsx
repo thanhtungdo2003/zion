@@ -1,8 +1,8 @@
 'use client';
 import { Icon } from './Icon';
 
-import { useEffect, type ReactNode } from 'react';
-import { settingsStore, useSettings } from '@/lib/settings';
+import { useEffect, useState, type ReactNode } from 'react';
+import { isRollKey, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
 
 interface Props {
@@ -19,7 +19,12 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, t } = useSettings();
+  const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, t } = useSettings();
+
+  useEffect(() => {
+    if (!open) setTab('general');
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -45,6 +50,17 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
           </div>
           <span className="set-badge">v1.0</span>
         </header>
+
+        <div className="set-tabs" role="tablist" aria-label={t('settings.title')}>
+          {(['general', 'controls', 'display'] as const).map(id => (
+            <button key={id} type="button" role="tab" id={`settings-tab-${id}`} aria-selected={tab === id}
+              aria-controls={`settings-panel-${id}`} onClick={() => setTab(id)}>
+              {t(id === 'general' ? 'settings.general' : id === 'controls' ? 'settings.controls_tab' : 'settings.display_tab')}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'general' && <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
 
         <section className="set-section">
           <h3>
@@ -105,16 +121,16 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
               </button>
             ))}
           </div>
-          <label className="set-slider" style={{ marginTop: 12 }}>
-            <span>{t('settings.sensitivity')}</span>
-            <input type="range" min={1} max={100} value={mouseSens} onChange={(e) => settingsStore.set({ mouseSens: Number(e.target.value) })} />
-            <em>{mouseSens}</em>
-          </label>
+          <p className="set-camera-hint"><kbd>P</kbd> {t('keys.camera')}</p>
         </section>
 
+        {children}
+        </div>}
+
+        {tab === 'display' && <div role="tabpanel" id="settings-panel-display" aria-labelledby="settings-tab-display">
         <section className="set-section">
           <h3>
-            <span>04</span> {t('settings.display')}
+            <span>01</span> {t('settings.display')}
           </h3>
           <label className="set-slider">
             <span>{t('settings.brightness')}</span>
@@ -129,17 +145,29 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
             <em>{Math.round(brightness * 100)}%</em>
           </label>
         </section>
+        </div>}
 
+        {tab === 'controls' && <div role="tabpanel" id="settings-panel-controls" aria-labelledby="settings-tab-controls">
         <section className="set-section">
-          <h3><span>05</span> {t('settings.controls')}</h3>
+          <h3><span>01</span> {t('settings.controls')}</h3>
+          <label className="set-keybind">
+            <span>{t('settings.roll_key')}</span>
+            <select value={rollKey} onChange={(e) => { if (isRollKey(e.target.value)) settingsStore.set({ rollKey: e.target.value }); }}>
+              {ROLL_KEYS.map(code => <option key={code} value={code}>{rollKeyLabel(code)}</option>)}
+            </select>
+          </label>
+          <label className="set-slider" style={{ marginBottom: 12 }}>
+            <span>{t('settings.sensitivity')}</span>
+            <input type="range" min={1} max={100} value={mouseSens} onChange={(e) => settingsStore.set({ mouseSens: Number(e.target.value) })} />
+            <em>{mouseSens}</em>
+          </label>
           <button type="button" className="set-touch-toggle" role="switch" aria-checked={touchControls} onClick={() => settingsStore.set({ touchControls: !touchControls })}>
             <Icon name="lucide:smartphone" />
             <span>{t('settings.touch_controls')}</span>
             <Icon name={touchControls ? 'lucide:toggle-right' : 'lucide:toggle-left'} />
           </button>
         </section>
-
-        {children}
+        </div>}
 
         <footer className="set-foot">
           <kbd>ESC</kbd> {t('settings.close_hint')}

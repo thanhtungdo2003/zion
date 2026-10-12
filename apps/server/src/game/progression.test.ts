@@ -23,6 +23,16 @@ function fixture() {
 }
 
 describe('authoritative career awards', () => {
+  it('returns standings without internal scores, account IDs or invite codes', async () => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [{ username: 'One', score: 1000 }, { username: 'Two', score: 0 }] })
+      .mockResolvedValueOnce({ rows: [{ name: 'Alpha', members: '3' }] });
+    const service = new ProgressionService({ query } as unknown as Db, 'survival');
+    const result = await service.leaderboard();
+    expect(result.individuals.map(p => [p.position, p.name, p.rank.title])).toEqual([[1, 'One', 'Binh Nhì I'], [2, 'Two', 'Tân Binh I']]);
+    expect(result.teams).toEqual([{ position: 1, name: 'Alpha', members: 3 }]);
+    expect(JSON.stringify(result)).not.toMatch(/score|accountId|code|threshold/);
+    expect(query.mock.calls[1]![1]).toEqual(['survival']);
+  });
   it('awards every crossed star once, ignores duplicate completion and never reissues after demotion', async () => {
     const { service, db, account, rewards } = fixture();
     await service.record(db, 'player', { id: 'quest:one', points: 1000 });

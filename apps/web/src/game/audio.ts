@@ -4,6 +4,8 @@ import { cachedFetch } from '@/lib/preload';
 
 export const SOUND_FILES = {
   akShot: '/sounds/ak47-shot.mp3',
+  pkmShot: '/sounds/machine-gun.mp3',
+  barrettShot: '/sounds/barrett.mp3',
   akReload: '/sounds/ak47-reload.mp3',
   shotgunShot: '/sounds/shotgun-shot.mp3',
   shotgunReload: '/sounds/shotgun-reload.mp3',
@@ -45,6 +47,8 @@ export type SoundName = keyof typeof SOUND_FILES;
 export interface PlayOptions {
   volume?: number;
   rate?: number;
+  /** Loop start offset; footsteps default to a random offset. */
+  loopOffset?: number;
   /**
    * World position: louder and clearer up close, quieter and muffled further away, silent beyond
    * `maxDistance` (default 70 m). Full volume within `refDistance` (default 3 m).
@@ -243,7 +247,7 @@ export class SoundBank {
       src.connect(filter).connect(gain).connect(panner).connect(this.master);
       src.onended = () => { src.disconnect(); filter.disconnect(); gain.disconnect(); panner.disconnect(); };
       // Start somewhere in the recording so two walkers never step in sync.
-      src.start(t, Math.random() * buffer.duration);
+      src.start(t, opts.loopOffset ?? Math.random() * buffer.duration);
       loop = { src, gain, panner, filter };
       this.loops.set(key, loop);
     }

@@ -56,8 +56,8 @@ function TouchKey({ icon, label, hold, press, pressed, disabled, className = '',
 }
 
 /** Independent captured pointers let movement, aiming and firing work together. */
-export function MobileControls({ controls, canAim, canReload, reloading, rollCooldown, weaponUid }: {
-  controls: TouchControlsPort; canAim: boolean; canReload: boolean; reloading: boolean; rollCooldown: number; weaponUid: number | null;
+export function MobileControls({ controls, canAim, canReload, reloading, rollCooldown, weaponUid, c4 = false }: {
+  controls: TouchControlsPort; canAim: boolean; canReload: boolean; reloading: boolean; rollCooldown: number; weaponUid: number | null; c4?: boolean;
 }) {
   const { t, cameraMode } = useSettings();
   const mouseLook = cameraMode !== 'top-down';
@@ -176,7 +176,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
         <Icon name="lucide:crosshair" /><i style={{ transform: `translate(${fireStick.x}px, ${fireStick.y}px)` }} />
       </div>}
     <div className="touch-actions">
-      {canAim ? <TouchKey controls={controls} icon="lucide:scan" label={t('touch.aim')} pressed={aim} press={() => { controls.button('aim', !aim); setAim(!aim); }} /> : <span />}
+      {c4 ? <TouchKey controls={controls} icon="lucide:bomb" label={t('touch.throw_c4')} hold="throwC4" /> : canAim ? <TouchKey controls={controls} icon="lucide:scan" label={t('touch.aim')} pressed={aim} press={() => { controls.button('aim', !aim); setAim(!aim); }} /> : <span />}
       <TouchKey controls={controls} icon="lucide:rotate-cw" label={t('touch.reload')} disabled={!canReload || reloading} press={() => controls.action('reload')} />
       <TouchKey controls={controls} icon="lucide:hand" label={t('touch.interact')} press={() => controls.action('interact')} />
       <TouchKey controls={controls} icon="lucide:heart-pulse" label={t('touch.heal')} press={() => controls.action('heal')} />

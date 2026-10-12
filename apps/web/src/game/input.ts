@@ -1,8 +1,9 @@
 import { Buttons } from '@zion/shared';
+import { cycleCameraMode, settingsStore } from '@/lib/settings';
 
-export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll';
+export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll' | 'throwC4';
 export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause' | 'prone';
-const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll };
+const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll, throwC4: Buttons.ThrowC4 };
 
 /**
  * Keyboard/mouse capture for the top-down view. Produces intent only (screen-relative axes,
@@ -95,6 +96,11 @@ export class InputController {
         return;
       }
       if (this.suspended || !this.active) return;
+      if (e.code === 'KeyP') {
+        if (!e.repeat) cycleCameraMode();
+        return;
+      }
+      if (e.code === 'Space') this.prone = false;
       if (e.code === 'Enter' || e.code === 'KeyT') {
         e.preventDefault();
         this.keys.clear();
@@ -214,6 +220,7 @@ export class InputController {
     if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
     if (button === 'aim') this.touchAim = true;
     else {
+      if (button === 'jump') this.prone = false;
       this.touchBits |= TOUCH_BITS[button];
       this.touchPresses |= TOUCH_BITS[button];
     }
@@ -325,7 +332,7 @@ export class InputController {
     if (this.keys.has('Space')) b |= Buttons.Jump;
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
-    if (this.keys.has('KeyQ')) b |= Buttons.Roll;
+    if (this.keys.has(settingsStore.get().rollKey)) b |= Buttons.Roll;
     return b;
   }
 

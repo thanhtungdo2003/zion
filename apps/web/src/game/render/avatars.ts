@@ -1,6 +1,7 @@
 import { Ragdoll } from './ragdoll';
 import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
-import { EntityFlags, RANKS, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
+import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
+import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
 import type { WeaponLibrary, WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
@@ -254,8 +255,8 @@ export class Avatar {
       this.slash();
       return;
     }
-    if (attackStart && !busy && (!this.weaponId || this.weaponId === 'grenade')) {
-      this.playOnce(this.weaponId === 'grenade' ? 'grenade_throw' : 'melee_attack');
+    if (attackStart && !busy && (!this.weaponId || this.weaponId === 'grenade' || this.weaponId === 'c4')) {
+      this.playOnce(this.weaponId ? 'grenade_throw' : 'melee_attack');
       return;
     }
     if (busy) return;
@@ -297,7 +298,7 @@ export class Avatar {
     this.ragdoll = Ragdoll.start(this.model, (n) => this.bones.get(n)?.node, PX, ground, kx, kz, force);
   }
 
-  update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number): void {
+  update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number, rollState?: { rollTicks: number; rollYaw: number }): void {
     const prone = (flags & EntityFlags.Prone) !== 0;
     this.proneShotFor = Math.max(0, this.proneShotFor - dt);
     if (this.label) this.label.visible = !prone;
@@ -324,9 +325,11 @@ export class Avatar {
     const speed = Math.hypot(dx, dz) * inv;
     const vy = (y - this.lastY) * inv;
     const wasRolling = this.cur.clip?.name === 'roll';
+    // Local simulation owns the end of the action; never keep tumbling after steering resumes.
+    if (rollState && rollState.rollTicks === 0 && wasRolling) this.cur.time = this.cur.clip!.length;
     this.choose(speed, vy, flags, dt);
     const rolling = this.cur.clip?.name === 'roll';
-    if (rolling && !wasRolling) this.rollYaw = yaw;
+    if (rolling && !wasRolling) this.rollYaw = rollState?.rollYaw ?? (speed > 1 ? Math.atan2(-dx, -dz) : yaw);
     if (this.bodyYaw !== this.bodyYaw || this.rigid) this.bodyYaw = yaw;
     if (prone) {
       this.bodyYaw = yaw;
@@ -358,7 +361,6 @@ export class Avatar {
     // A roll tumbles along its travel direction, which may differ from where the mouse aims.
     if (rolling) {
       this.recoveringFromRoll = true;
-      if ((flags & EntityFlags.Rolling) !== 0 && speed > 1) this.rollYaw = Math.atan2(-dx, -dz);
       this.root.rotation.y = this.rollYaw;
       this.bodyYaw = this.rollYaw;
       this.headYaw = 0;
@@ -379,6 +381,10 @@ export class Avatar {
       } else l.time += dt * l.rate;
     }
     this.updateWeaponAnim(dt);
+    if (rolling && rollState && this.cur.clip) {
+      const durationTicks = Math.max(1, Math.round(DEFAULT_CHARACTER.rollDuration / TICK_DT));
+      this.cur.time = this.cur.clip.length * Math.max(0, Math.min(1, 1 - rollState.rollTicks / durationTicks));
+    }
     this.fade = Math.min(1, this.fade + dt / FADE_SEC);
     this.applyPose();
     const head = this.bones.get('head');

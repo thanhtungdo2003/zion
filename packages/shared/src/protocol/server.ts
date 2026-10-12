@@ -109,6 +109,15 @@ export interface ExplosionEvent {
   kind?: 'grenade' | 'grenade40' | 'rocket';
 }
 
+export interface C4Pose {
+  id: number;
+  x: number; y: number; z: number;
+  nx: number; ny: number; nz: number;
+  stuck: boolean;
+}
+/** Complete interest-filtered set, including charges already placed before a player arrived. */
+export interface C4StateEvent { t: 'c4'; charges: C4Pose[]; }
+
 /** Damaged 1 m ground-cover cells; local x/z, ground height, server-clock fire expiry. */
 export type VegetationCell = [lx: number, lz: number, y: number, burnUntil: number];
 export interface VegetationMessage {
@@ -256,6 +265,7 @@ export type ServerJsonMessage =
   | HitEvent
   | ShotEvent
   | GrenadeEvent
+  | C4StateEvent
   | ExplosionEvent
   | ProjectileEvent
   | ProjectileEndEvent

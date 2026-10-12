@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { SettingsModal } from '@/components/SettingsModal';
 import { TUTORIAL_RESTART_EVENT } from '@/components/Onboarding';
 import type { HudState } from '@/game/hud-store';
-import { useSettings } from '@/lib/settings';
+import { rollKeyLabel, useSettings } from '@/lib/settings';
 import { Coins } from './Inventory';
 import type { TKey } from '@/lib/i18n';
 
@@ -49,7 +49,7 @@ function phase(tod: number): TKey {
 }
 
 export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
-  const { t, tm, cameraMode } = useSettings();
+  const { t, tm, cameraMode, rollKey } = useSettings();
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -165,8 +165,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
                   <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
                 </div>
               )}
-              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title={t('hud.roll')}>
-                <kbd>Q</kbd>
+              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title={t('hud.roll', { key: rollKeyLabel(rollKey) })}>
+                <kbd>{rollKeyLabel(rollKey)}</kbd>
                 <div className="hud-roll-bar">
                   <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
                 </div>
@@ -275,11 +275,11 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
             <h2>{t('pause.title')}</h2>
             <div className="keys">
               <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> {t('keys.move')} · <kbd>Shift</kbd> {t('keys.sprint')} · <kbd>Space</kbd>{' '}
-              {t('keys.jump')} · <kbd>Q</kbd> {t('keys.roll')} · <kbd>C</kbd> {t('keys.prone')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
+              {t('keys.jump')} · <kbd>{rollKeyLabel(rollKey)}</kbd> {t('keys.roll')} · <kbd>C</kbd> {t('keys.prone')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
               {t('keys.weapon')}
               <br />
               <kbd>Mouse</kbd> {t('keys.aim')} · <kbd>LMB</kbd> {t('keys.shoot')} · <kbd>RMB</kbd> {t('keys.scope')} · <kbd>R</kbd>{' '}
-              {t('keys.reload')} · <kbd>H</kbd> {t('keys.heal')} · <kbd>Enter</kbd> {t('keys.chat')} · <kbd>Esc</kbd> {t('keys.pause')}
+              {t('keys.reload')} · <kbd>H</kbd> {t('keys.heal')} · <kbd>P</kbd> {t('keys.camera')} · <kbd>Enter</kbd> {t('keys.chat')} · <kbd>Esc</kbd> {t('keys.pause')}
             </div>
             <div className="pause-actions">
               <button

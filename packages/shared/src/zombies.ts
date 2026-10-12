@@ -1,7 +1,7 @@
 /**
  * Zombie rules shared by server and client. Zombie entity ids live in their own range so they
  * never collide with player ids. In snapshots a zombie's `weapon` byte carries its broken-limb
- * mask in bits 0..3 and its variant in bits 4..5 (zombies hold no weapons).
+ * mask in bits 0..3, its variant in bits 4..5, and a severed head in bit 6.
  */
 
 export const ZOMBIE_ID_BASE = 1_000_000;
@@ -11,6 +11,7 @@ export const Limb = {
   ArmR: 1 << 1,
   LegL: 1 << 2,
   LegR: 1 << 3,
+  Head: 1 << 6,
 } as const;
 
 export const LIMB_BY_ZONE: Readonly<Record<string, number>> = {
@@ -43,7 +44,7 @@ export const ZOMBIE_MAX_HEALTH = 100;
 export const ZombieVariant = { Rotting: 0, Gaunt: 1, Brute: 2, Crimson: 3 } as const;
 export type ZombieVariant = (typeof ZombieVariant)[keyof typeof ZombieVariant];
 export function zombieVariant(packed: number): ZombieVariant {
-  const value = packed >>> 4;
+  const value = (packed >>> 4) & 3;
   return value === 1 || value === 2 || value === 3 ? value : 0;
 }
 export function zombieMaxHealth(variant: ZombieVariant): number {

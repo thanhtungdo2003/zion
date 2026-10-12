@@ -41,6 +41,8 @@ export class RecoilSpring {
 
 /** Peak camera lift in degrees, tuned for each weapon's weight and firing cadence. */
 const KICK: Partial<Record<WeaponId, number>> = {
+  [WeaponId.PKM]: 1.1,
+  [WeaponId.Barrett]: 3.4,
   [WeaponId.AK47]: 1.05,
   [WeaponId.M4A1]: .72,
   [WeaponId.AUG]: .62,

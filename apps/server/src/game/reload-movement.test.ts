@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CharacterController, CollisionWorld, Heightfield } from '@zion/physics';
-import { Buttons, DEFAULT_BASE_LIFE, TICK_DT, type InputMessage, type InvMessage } from '@zion/shared';
+import { Buttons, DEFAULT_BASE_LIFE, TICK_DT, WEAPON_BY_ITEM, weaponStaminaFactor, type InputMessage, type InvMessage } from '@zion/shared';
 import { LocalPlayer } from '../../../web/src/game/prediction';
 import { BaseLife } from './base-life';
 import { GameServer } from './game-server';
@@ -30,6 +30,7 @@ function setup() {
     sendInv: vi.fn(), flag: vi.fn(),
   });
   const sprint = () => {
+    server.syncLoadout(player); local.speedMul = player.speedMul;
     const msg = local.step(0, 1, 0, 0, Buttons.Sprint, undefined);
     server.applyInput(player, msg, performance.now());
     expect(player.lastButtons & Buttons.Sprint).toBe(Buttons.Sprint);
@@ -51,7 +52,7 @@ describe('running after reloading', () => {
       expect(gun.mag).toBe(17);
       const stamina = player.life.stamina;
       for (let tick = 0; tick < 3; tick++) sprint();
-      expect(player.life.stamina).toBeCloseTo(stamina - DEFAULT_BASE_LIFE.stamina.sprintPerSecond * TICK_DT * 3, 8);
+      expect(player.life.stamina).toBeCloseTo(stamina - DEFAULT_BASE_LIFE.stamina.sprintPerSecond * TICK_DT * 3 * weaponStaminaFactor(WEAPON_BY_ITEM.gl18!), 8);
       expect(player.reloadAt).toBe(0);
       expect(player.reloadUid).toBe(0);
     }

@@ -49,7 +49,7 @@ export class LocalPlayer {
   }
 
   /** Advances prediction by one fixed tick and returns the message to send. */
-  /** Armour-weight movement multiplier (mirrors the server's). */
+  /** Armour and held-weapon movement multiplier (mirrors the server's). */
   speedMul = 1;
 
   step(mx: number, mz: number, yaw: number, pitch: number, buttons: number, renderTime: number | undefined, weapon = 0): InputMessage {

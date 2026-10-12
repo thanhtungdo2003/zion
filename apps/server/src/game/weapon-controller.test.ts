@@ -1,8 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
-import { WeaponId, WEAPON_SPECS, gunBlocksSprint } from '@zion/shared';
+import { WeaponId, WEAPON_SPECS, InventoryModel, CONTAINERS, accepts, ITEMS, gunBlocksSprint } from '@zion/shared';
 import { WeaponController } from '../../../web/src/game/weapon-controller';
 
 describe('reload magazine reconciliation', () => {
+  it('fires 100 PKM rounds, reloads from its belt box and leaves other ammunition intact', () => {
+    const inventory = new InventoryModel();
+    const gun = inventory.add('pkm')!;
+    inventory.add('ammo_pkm');
+    inventory.add('ammo_762x54');
+    expect(gun.container).toBe('heavy');
+    expect(accepts(CONTAINERS.primary, ITEMS.pkm!)).toBe(false);
+    const c = new WeaponController({ available: () => inventory.ammoFor('pkm'), take: (_weapon, n) => inventory.takeAmmo('pkm', n) });
+    c.syncMag(WeaponId.PKM, 100);
+    for (let i = 0; i < 100; i++) expect(c.tick(1000 + i * 100, WeaponId.PKM, true, true)).toBe('shot');
+    expect(c.tick(11000, WeaponId.PKM, true, true)).toBe('none');
+    c.reload(11000, WeaponId.PKM);
+    expect(c.tick(14999, WeaponId.PKM, true, true)).toBe('none');
+    c.tick(15000, WeaponId.PKM, false, true);
+    expect(c.view(15000, WeaponId.PKM)?.mag).toBe(100);
+    expect(inventory.ammoFor('pkm')).toBe(0);
+    expect(inventory.ammoFor('svd')).toBe(20);
+    expect(c.tick(15001, WeaponId.PKM, true, true)).toBe('shot');
+  });
+  it('throws C4 on a secondary press and detonates on a primary press without repeating held clicks', () => {
+    const c = new WeaponController({ available: () => 0, take: () => 0 });
+    expect(c.tick(100, WeaponId.C4, false, true, false, true)).toBe('throw');
+    expect(c.tick(2000, WeaponId.C4, false, true, false, true)).toBe('none');
+    expect(c.tick(2001, WeaponId.C4, true, true, false, false)).toBe('detonate');
+    expect(c.tick(2002, WeaponId.C4, true, true, false, false)).toBe('none');
+    c.tick(2100, WeaponId.C4, false, false, false, false);
+    expect(c.tick(2200, WeaponId.C4, false, false, false, true)).toBe('none');
+  });
   it('repeats semi-automatic shots for the mobile fire stick at the normal fire rate', () => {
     const controller = new WeaponController({ available: () => 0, take: () => 0 });
     const spec = WEAPON_SPECS[WeaponId.GL18];

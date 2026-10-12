@@ -5,6 +5,7 @@ import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
 import { recordZombieKill, tutorialProgress, tutorialProtected, updateTutorial } from './tutorial';
 import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
+import { C4Charge } from './c4';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
@@ -42,6 +43,10 @@ import {
   maxCount,
   armorProtection,
   armorSpeedFactor,
+  armorStaminaFactor,
+  weaponSpeedFactor,
+  weaponStaminaFactor,
+  rollsDecapitation,
   packArmor,
   MEDKIT_USE_MS,
   DEV_COIN_GRANT,
@@ -178,6 +183,7 @@ export class GameServer {
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
   private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number }> = [];
+  private readonly c4Charges = new Map<number, C4Charge>();
   private nextGrenadeId = 1;
   readonly zombies: ZombieDirector;
   readonly guards: CampGuardDirector;
@@ -954,6 +960,12 @@ export class GameServer {
     if (joinedRank) player.rank = joinedRank;
     this.quests.reset(player, Date.now());
     player.inv.load(saved?.inventory ?? defaultLoadout());
+    // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
+    player.inv.load({ ...player.inv.toJSON(), items: player.inv.items.filter(item => {
+      if (item.itemId !== 'c4_detonator') return true;
+      const charge = item.chargeId ? this.c4Charges.get(item.chargeId) : undefined;
+      return charge?.accountId === player.accountId && charge.itemUid === item.uid;
+    }) });
     this.syncLoadout(player);
     player.state.grounded = true;
     player.streamer = new ChunkStreamer(session, this.deps.world, this.deps.world.generator.config.sizeChunks, this.deps.metrics);
@@ -1433,6 +1445,9 @@ export class GameServer {
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
     this.stepRounds(now);
+    for (const charge of this.c4Charges.values()) {
+      charge.step(this.collision, [...this.zombies.near(charge.s.x, charge.s.z, 4), ...this.animals.values(), ...this.guards.guards], TICK_DT);
+    }
     this.stepStrikes(now);
     this.stepReloads(now);
     this.stepBurning(now);
@@ -1471,18 +1486,18 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
-    if (s.swimming) buttons &= ~Buttons.Attack;
-    if (tutorialProtected(p, this.serverTime)) buttons &= ~Buttons.Attack;
+    if (s.swimming) buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
+    if (tutorialProtected(p, this.serverTime)) buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     if (p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
-    if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump);
+    if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Staggered by a hit: no steering until it lands.
     if (now < p.stunUntil) { input = { ...input, mx: 0, mz: 0 }; buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump); }
-    if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT)) buttons &= ~Buttons.Sprint;
-    if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll)) buttons &= ~Buttons.Roll;
+    if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT * this.effort(p))) buttons &= ~Buttons.Sprint;
+    if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll * this.effort(p))) buttons &= ~Buttons.Roll;
     input = { ...input, b: buttons };
     p.lastButtons = buttons;
     const wasRolling = p.state.rollTicks > 0;
@@ -1507,7 +1522,10 @@ export class GameServer {
       p.strike = null;
       p.attackingUntil = 0;
     }
-    if (!s.swimming && (input.b & Buttons.Attack) !== 0) {
+    if (!s.swimming && p.weapon === WeaponId.C4 && s.rollTicks === 0) {
+      if (input.b & Buttons.ThrowC4) this.tryThrowC4(p, now, input.td);
+      else if (input.b & Buttons.Attack) this.tryDetonateC4(p, now);
+    } else if (!s.swimming && (input.b & Buttons.Attack) !== 0 && p.weapon !== WeaponId.C4) {
       const spec = weaponSpec(p.weapon);
       if (spec?.kind === 'gun') {
         // No shooting while airborne (jumping/falling).
@@ -1525,7 +1543,7 @@ export class GameServer {
 
   /** Neutral step when a client's inputs stall (keeps gravity/water physics authoritative). */
   private coast(p: Player): void {
-    this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false, prone: p.state.prone }, TICK_DT, this.stepInfo);
+    this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false, prone: p.state.prone, speedMul: p.speedMul }, TICK_DT, this.stepInfo);
   }
 
   private teleport(p: Player, pos: ValidatedPosition): void {
@@ -1565,7 +1583,7 @@ export class GameServer {
 
   private tryAttack(p: Player, now: number, renderTime: number | undefined, blade?: MeleeSpec): void {
     if (now < p.attackReadyAt - FIRE_TOLERANCE_MS) return;
-    if (!this.life.spend(p.life, this.life.config.stamina.attack)) return;
+    if (!this.life.spend(p.life, this.attackStaminaCost(p))) return;
     p.attackReadyAt = now + (blade?.cooldownMs ?? MELEE.cooldownMs);
     p.attackingUntil = now + (blade?.swingMs ?? MELEE.swingMs);
     if (renderTime !== undefined && (renderTime > now + 1000 || renderTime < now - 2000)) {
@@ -1602,7 +1620,11 @@ export class GameServer {
       ? resolveBladeSweep(p, candidates, this.collision, now, renderTime, { range, damage: blade.damage, halfAngle: blade.halfAngle ?? 1.05 })
       : resolveMelee(p, candidates, this.collision, now, renderTime);
     if (!res) return;
-    this.hitTarget(p, res.target, res.damage, blade && res.zone === 'torso' ? 'slash' : res.zone, res.x, res.y, res.z, -Math.sin(p.yaw), -Math.cos(p.yaw), blade ? 4 : 2.5, now);
+    const apply = (target: Combatant, damage: number, zone: string, x: number, y: number, z: number, force: number) => {
+      const sever = target instanceof Zombie && !target.dead && rollsDecapitation(blade);
+      this.hitTarget(p, target, sever ? target.health : damage, sever ? 'decapitation' : zone, x, y, z, -Math.sin(p.yaw), -Math.cos(p.yaw), force, now);
+    };
+    apply(res.target, res.damage, blade && res.zone === 'torso' ? 'slash' : res.zone, res.x, res.y, res.z, blade ? 4 : 2.5);
     if (blade?.stunMs && res.target instanceof Zombie) this.zombies.stun(res.target, blade.stunMs, now);
     if (blade) {
       // Secondary cuts only affect zombies; each keeps its own reach and wall check.
@@ -1612,7 +1634,7 @@ export class GameServer {
         seen.add(target);
         const splash = resolveBladeSweep(p, [target], this.collision, now, renderTime, { range, damage: blade.damage * (blade.cleaveMultiplier ?? .5), halfAngle: blade.halfAngle ?? 1.05 });
         if (splash) {
-          this.hitTarget(p, target, splash.damage, 'slash', splash.x, splash.y, splash.z, -Math.sin(p.yaw), -Math.cos(p.yaw), 2, now);
+          apply(target, splash.damage, 'slash', splash.x, splash.y, splash.z, 2);
           if (blade.stunMs) this.zombies.stun(target, blade.stunMs, now);
         }
       }
@@ -1638,24 +1660,24 @@ export class GameServer {
   }
 
   /** Routes a hit to a player or a zombie. */
-  private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number): void {
+  private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, knockbackMultiplier = 1): void {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else {
       const t = target as Player;
       if (!this.playerAttackAllowed(attacker, t, now) || tutorialProtected(t, this.serverTime)) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now);
-      if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now);
+      if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
     }
   }
 
   /** Shot: thrown off the feet away from the shooter (brief stagger, no steering mid-air). */
-  private knockback(t: Player, dirX: number, dirZ: number, now: number): void {
+  private knockback(t: Player, dirX: number, dirZ: number, now: number, multiplier = 1): void {
     if (t.dead) return;
     const l = Math.hypot(dirX, dirZ) || 1;
-    t.state.vx = (dirX / l) * 6;
-    t.state.vz = (dirZ / l) * 6;
-    t.state.vy = Math.max(t.state.vy, 3.5);
+    t.state.vx = (dirX / l) * 6 * multiplier;
+    t.state.vz = (dirZ / l) * 6 * multiplier;
+    t.state.vy = Math.max(t.state.vy, 3.5 * Math.sqrt(multiplier));
     t.state.grounded = false;
     t.stunUntil = now + 550;
     t.dirty = true;
@@ -1824,8 +1846,8 @@ export class GameServer {
   private tryShoot(p: Player, now: number, renderTime: number | undefined): void {
     const spec = WEAPON_SPECS[p.weapon as Exclude<WeaponId, 0>];
     if (spec?.kind !== 'gun' || now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
-    if (p.life.stamina < this.life.config.stamina.attack || !this.useRound(p)) return;
-    this.life.spend(p.life, this.life.config.stamina.attack);
+    if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
+    this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
     const ox = s.x;
@@ -1861,18 +1883,18 @@ export class GameServer {
       }
     }
     this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends });
-    for (const [t, d] of damageBy) this.hitTarget(p, t, Math.round(d.dmg), d.zone, d.x, d.y, d.z, ax, az, d.pellets * spec.damage * 0.12, now);
+    for (const [t, d] of damageBy) this.hitTarget(p, t, Math.round(d.dmg), d.zone, d.x, d.y, d.z, ax, az, d.pellets * spec.damage * 0.12 * (spec.knockback ?? 1), now, spec.knockback ?? 1);
     this.zombies.alert(ox, oz, 45, now);
   }
 
   private tryThrow(p: Player, now: number, targetDist?: number): void {
     const spec = WEAPON_SPECS[WeaponId.Grenade];
-    if (spec.kind !== 'throw' || now < p.throwReadyAt || p.life.stamina < this.life.config.stamina.attack) return;
+    if (spec.kind !== 'throw' || now < p.throwReadyAt || p.life.stamina < this.attackStaminaCost(p)) return;
     if (p.inv.equippedItem()?.itemId !== 'grenade') return;
     p.inv.consumeEquipped();
     this.syncLoadout(p);
     this.sendInv(p);
-    this.life.spend(p.life, this.life.config.stamina.attack);
+    this.life.spend(p.life, this.attackStaminaCost(p));
     p.throwReadyAt = now + spec.cooldownMs;
     p.attackingUntil = now + 400;
     const s = p.state;
@@ -1900,6 +1922,40 @@ export class GameServer {
     };
     this.grenades.push(g);
     this.broadcastNear(p, { t: 'grenade', id: g.id, ownerId: p.id, ...pick(g.s), fuseMs: spec.fuseMs });
+  }
+
+  private tryThrowC4(p: Player, now: number, targetDist?: number): void {
+    const item = p.inv.equippedItem();
+    const spec = WEAPON_SPECS[WeaponId.C4];
+    if (item?.itemId !== 'c4' || spec.kind !== 'throw' || now < p.throwReadyAt || p.life.stamina < this.attackStaminaCost(p)) return;
+    if ([...this.c4Charges.values()].filter(c => c.accountId === p.accountId).length >= 32) return;
+    const s = p.state, fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    // Start at the body, so even a wall touching the player is swept before the bomb passes it.
+    const oy = s.y + (s.prone ? muzzleHeight(true) : 1.6);
+    const distance = Math.min(spec.maxRange, Math.max(0, targetDist ?? spec.maxRange));
+    const ground = this.collision.terrainHeight(s.x + fx * distance, s.z + fz * distance);
+    const speed = throwSpeed(spec, distance, (Number.isFinite(ground) ? ground : s.y) - oy);
+    const h = Math.cos(spec.elevation) * speed;
+    const id = this.nextGrenadeId++;
+    this.c4Charges.set(id, new C4Charge(id, p.accountId, item.uid, { x: s.x, y: oy, z: s.z, vx: fx * h, vy: Math.sin(spec.elevation) * speed, vz: fz * h, resting: false }));
+    item.itemId = 'c4_detonator';
+    item.chargeId = id;
+    p.throwReadyAt = now + spec.cooldownMs;
+    p.attackingUntil = now + 400;
+    this.life.spend(p.life, this.attackStaminaCost(p));
+    this.syncLoadout(p); this.sendInv(p);
+  }
+
+  private tryDetonateC4(p: Player, now: number): void {
+    const item = p.inv.equippedItem();
+    if (item?.itemId !== 'c4_detonator') return;
+    const charge = item.chargeId ? this.c4Charges.get(item.chargeId) : undefined;
+    const spec = WEAPON_SPECS[WeaponId.C4];
+    if (!charge || charge.accountId !== p.accountId || charge.itemUid !== item.uid || spec.kind !== 'throw') return;
+    this.c4Charges.delete(charge.id);
+    p.inv.consumeEquipped();
+    this.syncLoadout(p); this.sendInv(p);
+    this.explode(charge.id, charge.s.x, charge.s.y, charge.s.z, spec.radius, spec.damage, p, 'grenade', now);
   }
 
   private stepGrenades(now: number): void {
@@ -1957,8 +2013,8 @@ export class GameServer {
   private tryLaunch(p: Player, spec: GunSpec, now: number, targetDist?: number): void {
     const proj = spec.projectile;
     if (!proj || now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
-    if (p.life.stamina < this.life.config.stamina.attack || !this.useRound(p)) return;
-    this.life.spend(p.life, this.life.config.stamina.attack);
+    if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
+    this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
     const fx = -Math.sin(p.yaw);
@@ -2038,8 +2094,8 @@ export class GameServer {
   /** Flamethrower: a short cone of fire; zombies caught in it keep burning for a while. */
   private tryFlame(p: Player, spec: GunSpec, now: number): void {
     if (now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
-    if (p.life.stamina < this.life.config.stamina.attack || !this.useRound(p)) return;
-    this.life.spend(p.life, this.life.config.stamina.attack);
+    if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
+    this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
     const ox = s.x;
@@ -2120,7 +2176,7 @@ export class GameServer {
   private syncLoadout(p: Player): void {
     if (p.reloadUid && p.inv.equippedItem()?.uid !== p.reloadUid) p.cancelReload();
     p.armor = p.inv.worn();
-    p.speedMul = armorSpeedFactor(p.armor);
+    p.speedMul = armorSpeedFactor(p.armor) * weaponSpeedFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
     const back = p.inv.backItem();
     p.backWeapon = back ? (WEAPON_BY_ITEM[back.itemId] ?? 0) : 0;
     p.dirty = true;
@@ -2134,6 +2190,12 @@ export class GameServer {
     p.dirty = true;
     return true;
   }
+
+  private effort(p: Player): number {
+    return armorStaminaFactor(p.armor) * weaponStaminaFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
+  }
+
+  private attackStaminaCost(p: Player): number { return this.life.config.stamina.attack * this.effort(p); }
 
   /** Reload: after (most of) the gun's reload time, rounds move from boxes into the magazine. */
   private onReload(p: Player): void {
@@ -2425,6 +2487,9 @@ export class GameServer {
     const tod = this.timeOfDay();
     for (const p of this.players.values()) {
       if (!p.active || p.questBusy) continue;
+      p.session.sendJson({ t: 'c4', charges: [...this.c4Charges.values()]
+        .filter(c => Math.abs(Math.floor(c.s.x / CHUNK_SIZE) - p.chunkX) <= ENTITY_INTEREST_RADIUS_CHUNKS && Math.abs(Math.floor(c.s.z / CHUNK_SIZE) - p.chunkZ) <= ENTITY_INTEREST_RADIUS_CHUNKS)
+        .map(c => c.pose()) });
       const near = this.grid.query(p.chunkX, p.chunkZ, ENTITY_INTEREST_RADIUS_CHUNKS, this.scratch);
       const entities: EntityState[] = [];
       for (const o of near) {

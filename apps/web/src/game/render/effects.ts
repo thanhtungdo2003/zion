@@ -12,7 +12,7 @@ import {
   type Object3D,
   type Scene,
 } from 'three';
-import { GRENADE_GRAVITY, WeaponId, weaponSpec, type ProjectileEvent } from '@zion/shared';
+import { GRENADE_GRAVITY, WeaponId, weaponSpec, type C4Pose, type ProjectileEvent } from '@zion/shared';
 import { stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
 import type { SoundBank } from '../audio';
 import { ParticleFX, ParticleSystem } from './particles';
@@ -86,6 +86,9 @@ export class CombatEffects {
   private readonly blastLights: PointLight[] = [];
   private blastNext = 0;
   private readonly grenades = new Map<number, FlyingGrenade>();
+  private readonly c4Charges = new Map<number, { mesh: Object3D; pose: C4Pose }>();
+  private readonly c4Up = new Vector3(0, 1, 0);
+  private readonly c4Normal = new Vector3();
   /** Blast flashes fading out (pooled lights). */
   private readonly rings: Array<{ light: PointLight; t: number; radius: number }> = [];
   /** Per-shooter barrel heat 0…1 (keyed by entity id) and where their muzzle last was. */
@@ -97,6 +100,7 @@ export class CombatEffects {
   private projectileModels = new Map<string, Object3D>();
   /** Flamethrower loop per shooter: when its sound runs out, and its stop timer. */
   private readonly flameSound = new Map<number, { until: number; last: number; channel: object }>();
+  private readonly pkmSound = new Map<number, { last: number; channel: object }>();
   private readonly tmpDir = new Vector3();
   private readonly xAxis = new Vector3(1, 0, 0);
   private readonly fallbackRound = new Mesh(new IcosahedronGeometry(0.08), new MeshBasicMaterial({ color: 0x777755 }));
@@ -140,7 +144,7 @@ export class CombatEffects {
     const spec = weaponSpec(info.weapon);
     if (spec?.kind === 'gun' && spec.fire === 'flame') return this.flame(shooterId, m, d, spec.range);
     if (spec?.kind === 'gun' && spec.fire === 'projectile') return this.launchFlash(info.weapon, m, d);
-    const heavy = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel || info.weapon === WeaponId.AWM || info.weapon === WeaponId.SVD;
+    const heavy = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel || info.weapon === WeaponId.AWM || info.weapon === WeaponId.Barrett || info.weapon === WeaponId.SVD;
     ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, heavy);
     if (info.eject && info.right) ParticleFX.shellEject(this.particles, info.eject.x, info.eject.y, info.eject.z, info.right.x, info.right.z);
     const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
@@ -152,7 +156,12 @@ export class CombatEffects {
     h.h = Math.min(1, h.h + (heavy ? 0.35 : 0.09));
     h.at.copy(m);
     this.heat.set(shooterId, h);
-    this.gunSound(info.weapon, m);
+    if (info.weapon === WeaponId.PKM) {
+      let voice = this.pkmSound.get(shooterId);
+      if (!voice) this.pkmSound.set(shooterId, (voice = { last: 0, channel: {} }));
+      voice.last = performance.now();
+      this.sounds?.loopAt(voice.channel, 'pkmShot', { at: m, volume: 1, maxDistance: 130, loopOffset: 0 });
+    } else this.gunSound(info.weapon, m);
   }
 
   /** Per-gun voice: shared recordings pitched and levelled to the calibre. */
@@ -164,6 +173,7 @@ export class CombatEffects {
       case WeaponId.Saiga12: s.play('shotgunShot', { at, rate: 1.12, volume: 0.95, maxDistance: 90 }); break;
       case WeaponId.DoubleBarrel: s.play('shotgunShot', { at, rate: 0.88, volume: 1.15, maxDistance: 100 }); break;
       case WeaponId.AWM: s.play('akShot', { at, rate: 0.62, volume: 1.25, maxDistance: 160 }); break;
+      case WeaponId.Barrett: s.play('barrettShot', { at, volume: 1.3, maxDistance: 180 }); break;
       case WeaponId.SVD: s.play('akShot', { at, rate: 0.74, volume: 1.15, maxDistance: 140 }); break;
       case WeaponId.GL18: s.play('akShot', { at, rate: 1.35, volume: 0.7, maxDistance: 70 }); break;
       case WeaponId.Revolver: s.play('akShot', { at, rate: 0.9, volume: 1.05, maxDistance: 90 }); break;
@@ -252,7 +262,26 @@ export class CombatEffects {
     this.grenades.set(id, { age: 0, s: { ...s, resting: false }, mesh, spin: new Vector3(Math.random() * 10, Math.random() * 6, Math.random() * 10) });
   }
 
+  syncC4(charges: readonly C4Pose[]): void {
+    const live = new Set(charges.map(c => c.id));
+    for (const [id, c] of this.c4Charges) if (!live.has(id)) { this.scene.remove(c.mesh); this.c4Charges.delete(id); }
+    for (const pose of charges) {
+      let c = this.c4Charges.get(pose.id);
+      if (!c) {
+        const mesh = (this.projectileModels.get('c4') ?? this.fallbackGrenade).clone(true);
+        mesh.position.set(pose.x, pose.y, pose.z);
+        mesh.traverse(o => { o.castShadow = true; o.receiveShadow = true; });
+        this.scene.add(mesh);
+        c = { mesh, pose }; this.c4Charges.set(pose.id, c);
+      }
+      c.pose = pose;
+      if (pose.stuck) c.mesh.quaternion.setFromUnitVectors(this.c4Up, this.c4Normal.set(pose.nx, pose.ny, pose.nz).normalize());
+    }
+  }
+
   explode(id: number, x: number, y: number, z: number, radius: number, kind: 'grenade' | 'grenade40' | 'rocket' = 'grenade'): void {
+    const c4 = this.c4Charges.get(id);
+    if (c4) { this.scene.remove(c4.mesh); this.c4Charges.delete(id); }
     const round = this.rounds.get(id);
     if (round) {
       this.scene.remove(round.mesh);
@@ -311,6 +340,11 @@ export class CombatEffects {
       g.age += dt;
       if (g.age > 12) { this.scene.remove(g.mesh); this.grenades.delete(id); }
     }
+    for (const c of this.c4Charges.values()) {
+      const k = 1 - Math.exp(-dt * 22);
+      c.mesh.position.lerp(this.c4Normal.set(c.pose.x, c.pose.y, c.pose.z), k);
+      if (!c.pose.stuck) c.mesh.rotation.x += dt * 6;
+    }
     if (world) {
       for (const g of this.grenades.values()) {
         stepProjectile(g.s, world, GRENADE_GRAVITY, dt);
@@ -339,6 +373,12 @@ export class CombatEffects {
       }
     }
     const nowMs = performance.now();
+    for (const [id, voice] of this.pkmSound) {
+      if (nowMs - voice.last > 160) {
+        this.sounds?.stopLoop(voice.channel);
+        this.pkmSound.delete(id);
+      }
+    }
     for (const [id, f] of this.flameSound) {
       if (nowMs - f.last > 220) {
         this.sounds?.stop(f.channel);
@@ -371,9 +411,13 @@ export class CombatEffects {
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);
     for (const g of this.grenades.values()) this.scene.remove(g.mesh);
+    for (const c of this.c4Charges.values()) this.scene.remove(c.mesh);
+    this.c4Charges.clear();
     for (const r of this.rounds.values()) this.scene.remove(r.mesh);
     for (const f of this.flameSound.values()) this.sounds?.stop(f.channel);
     this.flameSound.clear();
+    for (const voice of this.pkmSound.values()) this.sounds?.stopLoop(voice.channel);
+    this.pkmSound.clear();
     this.grenades.clear();
     this.rounds.clear();
     this.heat.clear();

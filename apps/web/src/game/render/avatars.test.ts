@@ -221,6 +221,21 @@ describe('lobby rifle patrol', () => {
 });
 
 describe('survivor roll recovery', () => {
+  it('keeps the committed heading and finishes with the simulation even after position corrections', () => {
+    const avatar = new Avatar(template, true);
+    const dt = 1 / 60;
+    const layer = () => (avatar as unknown as { cur: { clip: { name: string }; time: number } }).cur;
+    avatar.update(0, 0, 0, 0, EntityFlags.Grounded, dt, 0);
+    avatar.update(0, 0, -.25, 0, EntityFlags.Grounded | EntityFlags.Rolling, dt, 0, { rollTicks: 24, rollYaw: 0 });
+    expect(layer().time).toBe(0);
+    avatar.update(1, 0, 1, Math.PI, EntityFlags.Grounded | EntityFlags.Rolling, dt, 0, { rollTicks: 12, rollYaw: 0 });
+    expect(avatar.root.rotation.y).toBe(0);
+    expect(layer().time).toBeCloseTo(template.clips.get('roll')!.length / 2);
+    // The next snapshot may arrive after the entire recovery interval.
+    avatar.update(1, 0, 1.1, Math.PI, EntityFlags.Grounded, dt, 0, { rollTicks: 0, rollYaw: 0 });
+    expect(layer().clip.name).not.toBe('roll');
+    expect(bodyUp(avatar).y).toBeGreaterThan(.99);
+  });
   it.each([30, 60, 144])('finishes upright and never unwinds the tumble while blending to idle at %s FPS', (fps) => {
     const avatar = new Avatar(template, true);
     const dt = 1 / fps;

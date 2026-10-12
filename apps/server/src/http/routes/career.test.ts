@@ -5,6 +5,20 @@ import { registerCareerRoutes } from './career';
 import type { HttpDeps } from '../app';
 
 describe('account career routes', () => {
+  it('allows viewing standings before login and exposes both ranking categories', async () => {
+    const app = Fastify();
+    app.decorate('requireAuth', async (_req, reply) => { await reply.code(401).send(); });
+    const result = { individuals: [{ position: 1, name: 'Survivor', rank: rankTitle(6) }], teams: [{ position: 1, name: 'Alpha', members: 3 }] };
+    const leaderboard = vi.fn(async () => result);
+    registerCareerRoutes(app, { progression: { leaderboard } } as unknown as HttpDeps);
+    try {
+      const response = await app.inject('/api/leaderboard');
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.json()).toEqual(result);
+      expect(leaderboard).toHaveBeenCalledOnce();
+    } finally { await app.close(); }
+  });
   it('uses authenticated identity, returns only a title and blocks transfer errors', async () => {
     const app = Fastify();
     app.decorate('requireAuth', async (req, reply) => {

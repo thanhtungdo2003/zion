@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCrawling, zombieScale, ZombieVariant } from '@zion/shared';
+import { isCrawling, zombieScale, zombieVariant, Limb, ZombieVariant } from '@zion/shared';
 import { ZOMBIE_RIG, CollisionWorld } from '@zion/physics';
 import { castCombatRay } from './combat';
 import type { SpawnService } from './spawn';
@@ -9,6 +9,16 @@ import type { Player } from './player';
 const director = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => undefined });
 
 describe('zombie damage', () => {
+  it.each([0, 1, 2, 3] as const)('decapitation kills variant %s at full health and preserves its snapshot variant', variant => {
+    const zombie = new Zombie(1_000_020, 10, 0, 10, variant);
+    const result = director.hit(zombie, 'decapitation', 1, 1, 0, 4, 100, null);
+    expect(result.killed).toBe(true);
+    expect(zombie.health).toBe(0);
+    expect(zombie.dead).toBe(true);
+    expect(zombie.limbs & Limb.Head).toBe(Limb.Head);
+    expect(zombieVariant(zombie.limbs | (variant << 4))).toBe(variant);
+    expect(director.hit(zombie, 'decapitation', 1, 1, 0, 4, 101, null).killed).toBe(false);
+  });
   it('keeps shared zombies in the map when their target disconnects near another player', () => {
     const local = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => {} });
     const leaving = { active: true, dead: false, state: { x: 20, z: 20 } } as Player;

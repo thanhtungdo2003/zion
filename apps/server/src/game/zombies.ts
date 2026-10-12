@@ -500,7 +500,10 @@ export class ZombieDirector {
     z.staggerUntil = Math.max(z.staggerUntil, now + 120 + impulse * 60);
     if (attacker && !attacker.dead) z.target = attacker;
     const broke = 0;
-    if (zone === 'head' && z.variant !== ZombieVariant.Brute) {
+    if (zone === 'decapitation') {
+      z.limbs |= Limb.Head;
+      z.health = 0;
+    } else if (zone === 'head' && z.variant !== ZombieVariant.Brute) {
       z.health = 0;
     } else if (zone.startsWith('arm_') || zone.startsWith('leg_')) {
       // Limbs don't break (no crippling): they just take a bit less damage than the body.

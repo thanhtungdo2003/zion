@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Vector3 } from 'three';
+import { Box3, Scene, Vector3 } from 'three';
 import { EntityFlags, Limb, zombieScale, type ZombieVariant } from '@zion/shared';
 import { buildBBModel, type RawModel } from './character-model';
 import { ZombieAvatar } from './zombie-avatar';
@@ -20,6 +20,35 @@ async function avatar(variant = 0) {
 }
 
 describe('zombie death ragdolls', () => {
+  it.each([0, 1, 2, 3])('variant %s loses its head once, falls to terrain and removes the detached model with the corpse', async variant => {
+    const zombie = await avatar(variant), scene = new Scene();
+    zombie.addTo(scene);
+    const head = zombie.root.getObjectByName('head')!;
+    zombie.severHead(1, 0, 4);
+    const detached = zombie.root.getObjectByName('detached-zombie-head')!;
+    const before = new Box3().setFromObject(detached).getCenter(new Vector3());
+    expect(head.visible).toBe(false);
+    zombie.severHead(1, 0, 4);
+    expect(zombie.root.getObjectsByProperty('name', 'detached-zombie-head')).toHaveLength(1);
+    zombie.startRagdoll(1, 0, 4, () => 0);
+    for (let i = 0; i < 420; i++) zombie.update(20, 0, 20, 0, EntityFlags.Dead, Limb.Head, 1 / 60);
+    const after = detached.getWorldPosition(new Vector3());
+    expect(after.x).toBeGreaterThan(before.x);
+    expect(after.y).toBeLessThan(before.y);
+    expect(after.y).toBeCloseTo(.18 * zombieScale(variant as ZombieVariant), 2);
+    expect(head.visible).toBe(false);
+    zombie.dispose(scene);
+    expect(scene.children).toHaveLength(0);
+    expect(detached.parent).toBeNull();
+  });
+  it('restores headless corpses from snapshot data without the original hit event', async () => {
+    const zombie = await avatar(2);
+    zombie.update(10, 0, 10, 0, EntityFlags.Dead, Limb.Head, .1);
+    expect(zombie.root.getObjectByName('head')!.visible).toBe(false);
+    expect(zombie.root.getObjectByName('detached-zombie-head')).toBeDefined();
+    zombie.update(10, 0, 10, 0, EntityFlags.Dead, Limb.Head, .1);
+    expect(zombie.root.getObjectsByProperty('name', 'detached-zombie-head')).toHaveLength(1);
+  });
   it('switches the brute to run_roar strictly below half health', async () => {
     const zombie = await avatar(2);
     const clip = () => (zombie as unknown as { cur: { clip: { name: string } } }).cur.clip.name;

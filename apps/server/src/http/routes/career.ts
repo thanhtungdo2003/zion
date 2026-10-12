@@ -5,6 +5,10 @@ import type { HttpDeps } from '../app';
 export function registerCareerRoutes(app: FastifyInstance, deps: HttpDeps): void {
   const career = deps.progression;
   if (!career) return;
+  app.get('/api/leaderboard', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return career.leaderboard();
+  });
   app.get('/api/career', { preHandler: app.requireAuth }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
     return career.view(req.claims!.sub);

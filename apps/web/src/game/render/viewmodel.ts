@@ -41,6 +41,7 @@ export class ViewModel {
   }
 
   set(itemId: string | null, weapons: WeaponLibrary | null): void {
+    if (itemId === 'c4') itemId = 'c4_detonator';
     if (itemId === this.current) return;
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;

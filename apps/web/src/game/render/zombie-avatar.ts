@@ -1,4 +1,4 @@
-import { Group, Mesh, Vector3, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, Group, Matrix4, Mesh, Vector3, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, Limb, isCrawling, ZombieVariant } from '@zion/shared';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { Ragdoll } from './ragdoll';
@@ -75,6 +75,7 @@ export class ZombieAvatar {
   /** Same terrain lookup used by player corpses. */
   ground: ((x: number, z: number) => number) | null = null;
   private readonly tmp = new Vector3();
+  private detachedHead: { node: Group; position: Vector3; velocity: Vector3; age: number } | null = null;
 
   constructor(
     private readonly template: CharacterTemplate,
@@ -130,7 +131,56 @@ export class ZombieAvatar {
     return this.ragdoll;
   }
 
+  /** Clone only this zombie's head; shared mesh resources remain owned by the model library. */
+  severHead(kx = 0, kz = 1, force = 4): void {
+    if (this.detachedHead) return;
+    const head = this.bones.get('head')?.node;
+    if (!head) return;
+    this.root.updateMatrixWorld(true);
+    const copy = head.clone(true), pivot = new Group();
+    pivot.name = 'detached-zombie-head';
+    copy.matrix.copy(new Matrix4().copy(this.root.matrixWorld).invert().multiply(head.matrixWorld));
+    copy.matrix.decompose(copy.position, copy.quaternion, copy.scale);
+    copy.matrixAutoUpdate = true;
+    this.root.add(copy);
+    const position = new Box3().setFromObject(copy).getCenter(new Vector3());
+    this.root.add(pivot);
+    pivot.position.copy(this.root.worldToLocal(position.clone()));
+    pivot.updateMatrixWorld(true);
+    pivot.attach(copy);
+    head.visible = false;
+    const length = Math.hypot(kx, kz) || 1, push = Math.min(8, 2 + force * .45);
+    this.detachedHead = { node: pivot, position, velocity: new Vector3(kx / length * push, 3.5, kz / length * push), age: 0 };
+    this.onGore(position.x, position.y, position.z, 1.5);
+  }
+
+  private stepHead(dt: number): void {
+    const head = this.detachedHead;
+    if (!head || head.age >= 6) return;
+    let remaining = Math.min(.25, dt);
+    while (remaining > 0) {
+      const h = Math.min(1 / 60, remaining); remaining -= h; head.age += h;
+      head.velocity.y -= 18 * h;
+      head.position.addScaledVector(head.velocity, h);
+      const floor = (this.ground?.(head.position.x, head.position.z) ?? this.root.position.y) + .18 * this.root.scale.x;
+      if (head.position.y < floor) {
+        head.position.y = floor;
+        head.velocity.y = Math.abs(head.velocity.y) > .8 ? Math.abs(head.velocity.y) * .22 : 0;
+        head.velocity.x *= Math.exp(-h * 7); head.velocity.z *= Math.exp(-h * 7);
+      }
+      const spin = Math.min(1, head.velocity.length());
+      head.node.rotation.x += h * 6 * spin;
+      head.node.rotation.z += h * 4 * spin;
+    }
+    head.node.position.copy(this.root.worldToLocal(head.position.clone()));
+  }
+
   update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number, health = 100): void {
+    if ((limbs & Limb.Head) && !this.detachedHead) {
+      if (!this.ragdoll && this.deadFor < 0) { this.root.position.set(x, y, z); this.root.rotation.y = yaw; }
+      this.severHead(Math.sin(yaw), Math.cos(yaw));
+    }
+    this.stepHead(dt);
     if (this.ragdoll) {
       this.ragdoll.step(dt);
       this.updateVisibility(dt);
@@ -274,6 +324,8 @@ export class ZombieAvatar {
   dispose(scene: Scene): void {
     this.ragdoll?.release();
     this.ragdoll = null;
+    this.detachedHead?.node.removeFromParent();
+    this.detachedHead = null;
     scene.remove(this.root);
   }
 }

@@ -24,9 +24,13 @@ export const WeaponId = {
   Quam: 18,
   Shovel: 19,
   Sledgehammer: 20,
+  C4: 21,
+  PKM: 22,
+  Barrett: 23,
+  FireAxe: 24,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 20;
+export const MAX_WEAPON_ID = 24;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'hitscan' | 'projectile' | 'flame';
@@ -47,6 +51,9 @@ export interface ProjectileSpec {
 }
 
 export interface GunSpec {
+  weight: number;
+  /** Multiplier for the physical hit impulse. */
+  knockback?: number;
   kind: 'gun';
   fire?: FireMode;
   /** Minimum time between shots (flame: between fuel ticks). */
@@ -69,7 +76,9 @@ export interface GunSpec {
 }
 
 export interface ThrowSpec {
+  weight: number;
   kind: 'throw';
+  remote?: boolean;
   cooldownMs: number;
   /** Launch speed (m/s, used when no target distance is given) and elevation (radians). */
   speed: number;
@@ -86,6 +95,9 @@ export interface ThrowSpec {
 }
 
 export interface MeleeSpec {
+  weight: number;
+  /** Chance per confirmed zombie hit; never applies to players or animals. */
+  decapitationChance?: number;
   kind: 'melee';
   damage: number;
   range: number;
@@ -104,46 +116,55 @@ export type WeaponSpec = GunSpec | ThrowSpec | MeleeSpec;
 export const GRENADE_GRAVITY = 20;
 
 export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
-  [WeaponId.AK47]: { kind: 'gun', fireMs: 100, damage: 14, pellets: 1, spread: 0.025, range: 70, magazine: 30, reloadMs: 2300, auto: true },
-  [WeaponId.Shotgun]: { kind: 'gun', fireMs: 850, damage: 10, pellets: 8, spread: 0.1, range: 24, magazine: 6, reloadMs: 2600, auto: false },
-  [WeaponId.GL18]: { kind: 'gun', fireMs: 140, damage: 11, pellets: 1, spread: 0.035, range: 45, magazine: 17, reloadMs: 1500, auto: false },
-  [WeaponId.AWM]: { kind: 'gun', fireMs: 1400, damage: 95, pellets: 1, spread: 0.004, range: 130, magazine: 5, reloadMs: 3200, auto: false, scope: 8 },
-  [WeaponId.M4A1]: { kind: 'gun', fireMs: 85, damage: 13, pellets: 1, spread: 0.02, range: 75, magazine: 30, reloadMs: 2200, auto: true },
-  [WeaponId.MP5]: { kind: 'gun', fireMs: 70, damage: 9, pellets: 1, spread: 0.04, range: 40, magazine: 30, reloadMs: 1900, auto: true },
-  [WeaponId.Revolver]: { kind: 'gun', fireMs: 420, damage: 34, pellets: 1, spread: 0.02, range: 50, magazine: 6, reloadMs: 2800, auto: false },
-  [WeaponId.SVD]: { kind: 'gun', fireMs: 450, damage: 62, pellets: 1, spread: 0.008, range: 110, magazine: 10, reloadMs: 2800, auto: false, scope: 4 },
-  [WeaponId.AUG]: { kind: 'gun', fireMs: 90, damage: 13, pellets: 1, spread: 0.018, range: 75, magazine: 30, reloadMs: 2400, auto: true, scope: 2 },
-  [WeaponId.Saiga12]: { kind: 'gun', fireMs: 260, damage: 9, pellets: 8, spread: 0.1, range: 24, magazine: 8, reloadMs: 2900, auto: false },
-  [WeaponId.DoubleBarrel]: { kind: 'gun', fireMs: 300, damage: 12, pellets: 9, spread: 0.12, range: 22, magazine: 2, reloadMs: 2200, auto: false },
+  [WeaponId.AK47]: { kind: 'gun', weight: 3.8, fireMs: 100, damage: 14, pellets: 1, spread: 0.025, range: 70, magazine: 30, reloadMs: 2300, auto: true },
+  [WeaponId.PKM]: { kind: 'gun', weight: 15, fireMs: 100, damage: 22, pellets: 1, spread: .04, range: 85, magazine: 100, reloadMs: 4000, auto: true },
+  [WeaponId.Barrett]: { kind: 'gun', weight: 14, fireMs: 1700, damage: 145, pellets: 1, spread: .003, range: 180, magazine: 10, reloadMs: 4200, auto: false, scope: 10, knockback: 1.8 },
+  [WeaponId.Shotgun]: { kind: 'gun', weight: 3.6, fireMs: 850, damage: 10, pellets: 8, spread: 0.1, range: 24, magazine: 6, reloadMs: 2600, auto: false },
+  [WeaponId.GL18]: { kind: 'gun', weight: 0.9, fireMs: 140, damage: 11, pellets: 1, spread: 0.035, range: 45, magazine: 17, reloadMs: 1500, auto: false },
+  [WeaponId.AWM]: { kind: 'gun', weight: 6.5, fireMs: 1400, damage: 95, pellets: 1, spread: 0.004, range: 130, magazine: 5, reloadMs: 3200, auto: false, scope: 8 },
+  [WeaponId.M4A1]: { kind: 'gun', weight: 3.1, fireMs: 85, damage: 13, pellets: 1, spread: 0.02, range: 75, magazine: 30, reloadMs: 2200, auto: true },
+  [WeaponId.MP5]: { kind: 'gun', weight: 2.5, fireMs: 70, damage: 9, pellets: 1, spread: 0.04, range: 40, magazine: 30, reloadMs: 1900, auto: true },
+  [WeaponId.Revolver]: { kind: 'gun', weight: 1.2, fireMs: 420, damage: 34, pellets: 1, spread: 0.02, range: 50, magazine: 6, reloadMs: 2800, auto: false },
+  [WeaponId.SVD]: { kind: 'gun', weight: 4.3, fireMs: 450, damage: 62, pellets: 1, spread: 0.008, range: 110, magazine: 10, reloadMs: 2800, auto: false, scope: 4 },
+  [WeaponId.AUG]: { kind: 'gun', weight: 3.6, fireMs: 90, damage: 13, pellets: 1, spread: 0.018, range: 75, magazine: 30, reloadMs: 2400, auto: true, scope: 2 },
+  [WeaponId.Saiga12]: { kind: 'gun', weight: 3.8, fireMs: 260, damage: 9, pellets: 8, spread: 0.1, range: 24, magazine: 8, reloadMs: 2900, auto: false },
+  [WeaponId.DoubleBarrel]: { kind: 'gun', weight: 3.4, fireMs: 300, damage: 12, pellets: 9, spread: 0.12, range: 22, magazine: 2, reloadMs: 2200, auto: false },
   [WeaponId.GrenadeLauncher]: {
-    kind: 'gun', fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 45, magazine: 6, reloadMs: 3400, auto: false,
+    kind: 'gun', weight: 7, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 45, magazine: 6, reloadMs: 3400, auto: false,
     projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
   },
   [WeaponId.RocketLauncher]: {
-    kind: 'gun', fire: 'projectile', fireMs: 600, damage: 0, pellets: 1, spread: 0.01, range: 90, magazine: 1, reloadMs: 3000, auto: false,
+    kind: 'gun', weight: 9, fire: 'projectile', fireMs: 600, damage: 0, pellets: 1, spread: 0.01, range: 90, magazine: 1, reloadMs: 3000, auto: false,
     projectile: { kind: 'rocket', speed: 34, gravity: 0.6, blast: { radius: 7, damage: 180 }, maxFlightSec: 3 },
   },
   [WeaponId.Crossbow]: {
-    kind: 'gun', fire: 'projectile', fireMs: 400, damage: 72, pellets: 1, spread: 0.004, range: 90, magazine: 1, reloadMs: 850, auto: false, scope: 4,
+    kind: 'gun', weight: 3.2, fire: 'projectile', fireMs: 400, damage: 72, pellets: 1, spread: 0.004, range: 90, magazine: 1, reloadMs: 850, auto: false, scope: 4,
     projectile: { kind: 'bolt', speed: 60, gravity: 4, maxFlightSec: 2.5 },
   },
   [WeaponId.Flamethrower]: {
-    kind: 'gun', fire: 'flame', fireMs: 100, damage: 5, pellets: 1, spread: 0.3, range: 8, magazine: 100, reloadMs: 3000, auto: true,
+    kind: 'gun', weight: 16, fire: 'flame', fireMs: 100, damage: 5, pellets: 1, spread: 0.3, range: 8, magazine: 100, reloadMs: 3000, auto: true,
     burn: { seconds: 4, dps: 7 },
   },
-  [WeaponId.Grenade]: { kind: 'throw', cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 22, scatterBase: 1.2, scatterPerM: 0.08, fuseMs: 2600, radius: 7, damage: 120 },
-  [WeaponId.Katana]: { kind: 'melee', damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
-  [WeaponId.Quam]: { kind: 'melee', damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
-  [WeaponId.Shovel]: { kind: 'melee', damage: 30, range: 2.7, cooldownMs: 750, swingMs: 400 },
-  [WeaponId.Sledgehammer]: { kind: 'melee', damage: 90, range: 3.4, cooldownMs: 1800, swingMs: 1200, hitDelayMs: 450, animationMs: 1200, halfAngle: 1.4, cleaveMultiplier: .75, stunMs: 1300 },
+  [WeaponId.Grenade]: { kind: 'throw', weight: 0.4, cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 22, scatterBase: 1.2, scatterPerM: 0.08, fuseMs: 2600, radius: 7, damage: 120 },
+  [WeaponId.C4]: { kind: 'throw', weight: 0.8, remote: true, cooldownMs: 1100, speed: 8, elevation: 0.62, maxRange: 8, scatterBase: .35, scatterPerM: .04, fuseMs: 0, radius: 8, damage: 220 },
+  [WeaponId.Katana]: { kind: 'melee', weight: 1.4, decapitationChance: .12, damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
+  [WeaponId.Quam]: { kind: 'melee', weight: 2.2, decapitationChance: .16, damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
+  [WeaponId.Shovel]: { kind: 'melee', weight: 2.5, damage: 30, range: 2.7, cooldownMs: 750, swingMs: 400 },
+  [WeaponId.Sledgehammer]: { kind: 'melee', weight: 8, damage: 90, range: 3.4, cooldownMs: 1800, swingMs: 1200, hitDelayMs: 450, animationMs: 1200, halfAngle: 1.4, cleaveMultiplier: .75, stunMs: 1300 },
+  [WeaponId.FireAxe]: { kind: 'melee', weight: 3.5, damage: 65, range: 2.8, cooldownMs: 1050, swingMs: 650, hitDelayMs: 260, animationMs: 650, halfAngle: 1.1, cleaveMultiplier: .55, decapitationChance: .18 },
 };
 
 /** Inventory item id → weapon id. */
 export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   ak47: WeaponId.AK47,
+  pkm: WeaponId.PKM,
+  barrett: WeaponId.Barrett,
+  fire_axe: WeaponId.FireAxe,
   shotgun: WeaponId.Shotgun,
   gl18: WeaponId.GL18,
   grenade: WeaponId.Grenade,
+  c4_detonator: WeaponId.C4,
+  c4: WeaponId.C4,
   awm: WeaponId.AWM,
   m4a1: WeaponId.M4A1,
   mp5: WeaponId.MP5,
@@ -199,4 +220,18 @@ export function throwSpeed(spec: ThrowSpec, dist: number, dy: number): number {
 /** Shooting keeps movement at walking speed, including the interval between rounds. */
 export function gunBlocksSprint(weapon: number, trigger: boolean, now: number, fireReadyAt: number): boolean {
   return WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun' && (trigger || now < fireReadyAt);
+}
+
+/** Only the weapon in hand burdens movement; backpack and slung weapons do not. */
+export function weaponSpeedFactor(weapon: number): number {
+  return Math.max(.6, 1 - (weaponSpec(weapon)?.weight ?? 0) * .018);
+}
+
+/** Extra effort from wielding a weapon, applied to running, dodging and attacks. */
+export function weaponStaminaFactor(weapon: number): number {
+  return 1 + (weaponSpec(weapon)?.weight ?? 0) * .055;
+}
+
+export function rollsDecapitation(blade: MeleeSpec | undefined, random = Math.random): boolean {
+  return !!blade?.decapitationChance && random() < blade.decapitationChance;
 }

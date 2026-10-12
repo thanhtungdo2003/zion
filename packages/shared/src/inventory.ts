@@ -61,6 +61,8 @@ export interface PlacedItem {
   issued?: boolean;
   /** Quest item: id of the quest it was found for (it counts for that quest even after a re-accept). */
   quest?: string;
+  /** Deployed C4 paired with this remote; distinct from reusable inventory UIDs. */
+  chargeId?: number;
 }
 
 /** What the server persists and sends to its player. */
@@ -143,6 +145,7 @@ export class InventoryModel {
       const def = ITEMS[i.itemId];
       if (!def || !Number.isInteger(i.uid) || valid.some((v) => v.uid === i.uid) || !canPlace(valid, i.container, i.itemId, i.x, i.y, !!i.rotated)) continue;
       i.rotated = !!i.rotated;
+      if (i.itemId !== 'c4_detonator' || !Number.isSafeInteger(i.chargeId) || i.chargeId! < 1) delete i.chargeId;
       const max = maxCount(def);
       if (max) i.count = Math.max(0, Math.min(max, Number.isFinite(i.count) ? (i.count as number) : max));
       else delete i.count;

@@ -3,6 +3,15 @@ import { itemName, translate, translateMsg, type Lang, type Msg, type TKey } fro
 
 /** User settings (language, audio) shared by the menu and the in-game pause screen. */
 export type CameraMode = 'top-down' | 'first-person' | 'third-person';
+/** Keys not already used by movement, chat or another action. */
+export const ROLL_KEYS = ['KeyQ', 'KeyF', 'KeyG', 'KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
+export type RollKey = typeof ROLL_KEYS[number];
+export function isRollKey(code: unknown): code is RollKey { return ROLL_KEYS.some(key => key === code); }
+export function rollKeyLabel(code: RollKey): string { return code.slice(3); }
+export function cycleCameraMode(): void {
+  const modes: CameraMode[] = ['top-down', 'third-person', 'first-person'];
+  settingsStore.set({ cameraMode: modes[(modes.indexOf(settingsStore.get().cameraMode) + 1) % modes.length]! });
+}
 
 export interface SettingsState {
   lang: Lang;
@@ -15,10 +24,11 @@ export interface SettingsState {
   cameraMode: CameraMode;
   /** Mouse-look sensitivity, 1…100 (radians per pixel = value × 0.00004). */
   mouseSens: number;
+  rollKey: RollKey;
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30 };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ' };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
@@ -27,6 +37,7 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     if (!raw) return { state: defaults, manualTouch: false };
     const saved = JSON.parse(raw) as Partial<SettingsState> & { firstPerson?: boolean; manualTouch?: boolean };
     const state: SettingsState = { ...defaults };
+    if (isRollKey(saved.rollKey)) state.rollKey = saved.rollKey;
     // The playable UI and server-authored content currently ship in Vietnamese.
     // Migrate the old English default so returning players also see one language.
     state.lang = 'vi';

@@ -15,6 +15,7 @@ import { getTeamLobby, teamAction } from '@/lib/api';
 import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
+import { LeaderboardModal } from '@/components/LeaderboardModal';
 import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
@@ -46,6 +47,7 @@ export default function MainMenu() {
   const [linkedReady, setLinkedReady] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [teamOpen, setTeamOpen] = useState(false);
@@ -200,6 +202,7 @@ export default function MainMenu() {
         </div>
         <div className="menu-top-actions">
           <LibraryNav />
+          <button className="menu-account menu-leaderboard" aria-label="Bảng xếp hạng" title="Bảng xếp hạng" onClick={() => setLeaderboardOpen(true)}><Icon name="lucide:trophy" /><span>Bảng xếp hạng</span></button>
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden focusable="false">
               <path
@@ -314,6 +317,7 @@ export default function MainMenu() {
         </form>
       </div>}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {loading && <LoadingScreen onDone={doneLoading} />}
     </main>
   );

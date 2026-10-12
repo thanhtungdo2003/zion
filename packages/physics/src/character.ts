@@ -102,7 +102,7 @@ export interface CharacterInput {
   sprint: boolean;
   roll?: boolean;
   prone?: boolean;
-  /** Movement speed multiplier (armour weight); 1 when omitted. */
+  /** Movement speed multiplier (armour and held weapon); 1 when omitted. */
   speedMul?: number;
 }
 
@@ -202,8 +202,8 @@ export class CharacterController {
     const wading = !s.swimming && submersion > p.wadeDepth;
 
     if (s.swimming || s.climbing) s.prone = false;
-    else if (input.prone && s.grounded && s.rollTicks === 0) s.prone = true;
-    else if (!input.prone && s.prone && this.isFree(s.x, s.y, s.z)) s.prone = false;
+    else if (input.prone && !input.jump && s.grounded && s.rollTicks === 0) s.prone = true;
+    else if ((!input.prone || input.jump) && s.prone && this.isFree(s.x, s.y, s.z)) s.prone = false;
 
     let speed = (s.swimming ? (input.sprint ? p.swimSprintSpeed : p.swimSpeed) : input.sprint && mz > 0.3 ? p.sprintSpeed : p.walkSpeed) * (input.speedMul ?? 1);
     if (s.prone) speed = PRONE_SPEED * (input.speedMul ?? 1);

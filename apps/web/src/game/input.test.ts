@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Buttons } from '@zion/shared';
 import { InputController } from './input';
+import { settingsStore } from '@/lib/settings';
 
 const controllers: InputController[] = [];
-afterEach(() => { for (const input of controllers.splice(0)) input.dispose(); vi.unstubAllGlobals(); });
+afterEach(() => { for (const input of controllers.splice(0)) input.dispose(); settingsStore.set({ rollKey: 'KeyQ', cameraMode: 'top-down' }); vi.unstubAllGlobals(); });
 function setup() {
   const win = new EventTarget();
-  const doc = Object.assign(new EventTarget(), { hidden: false, pointerLockElement: null, exitPointerLock: vi.fn() });
+  const doc = Object.assign(new EventTarget(), { documentElement: { lang: 'vi' }, hidden: false, pointerLockElement: null, exitPointerLock: vi.fn() });
   vi.stubGlobal('window', win); vi.stubGlobal('document', doc);
   const element = Object.assign(new EventTarget(), {
     style: {}, requestPointerLock: vi.fn(),
@@ -20,6 +21,54 @@ function setup() {
   return { input, win, doc, element };
 }
 describe('mobile input', () => {
+  it('retains a quick C4 throw tap for one simulation input without setting scope or primary fire', () => {
+    const { input } = setup();
+    input.touchButton('throwC4', true); input.touchButton('throwC4', false);
+    expect(input.buttons() & Buttons.ThrowC4).toBeTruthy();
+    expect(input.buttons() & Buttons.Attack).toBeFalsy();
+    expect(input.aiming).toBe(false);
+    input.acknowledgeTouchPresses();
+    expect(input.buttons() & Buttons.ThrowC4).toBeFalsy();
+  });
+  it('cycles camera on P once per press and ignores it while suspended', () => {
+    const { input, win } = setup();
+    const press = (repeat = false) => win.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyP', repeat }));
+    settingsStore.set({ cameraMode: 'top-down' });
+    press();
+    expect(settingsStore.get().cameraMode).toBe('third-person');
+    press(true);
+    expect(settingsStore.get().cameraMode).toBe('third-person');
+    press();
+    expect(settingsStore.get().cameraMode).toBe('first-person');
+    press();
+    expect(settingsStore.get().cameraMode).toBe('top-down');
+    input.suspended = true; press();
+    expect(settingsStore.get().cameraMode).toBe('top-down');
+  });
+
+  it.each(['keyboard', 'touch'])('clears prone when jumping with %s and keeps it cleared after release', mode => {
+    const { input, win } = setup();
+    input.toggleProne();
+    const key = (type: string) => win.dispatchEvent(Object.assign(new Event(type), { code: 'Space', repeat: false }));
+    if (mode === 'keyboard') key('keydown'); else input.touchButton('jump', true);
+    expect(input.buttons() & Buttons.Prone).toBeFalsy();
+    expect(input.buttons() & Buttons.Jump).toBeTruthy();
+    if (mode === 'keyboard') key('keyup'); else input.touchButton('jump', false);
+    input.acknowledgeTouchPresses();
+    expect(input.buttons() & (Buttons.Prone | Buttons.Jump)).toBe(0);
+  });
+  it('applies a changed dodge key immediately and releases the old binding', () => {
+    const { input, win } = setup();
+    const key = (type: string, code: string) => win.dispatchEvent(Object.assign(new Event(type), { code, repeat: false }));
+    key('keydown', 'KeyQ');
+    expect(input.buttons() & Buttons.Roll).toBeTruthy();
+    settingsStore.set({ rollKey: 'KeyV' });
+    expect(input.buttons() & Buttons.Roll).toBeFalsy();
+    key('keydown', 'KeyV');
+    expect(input.buttons() & Buttons.Roll).toBeTruthy();
+    key('keyup', 'KeyV');
+    expect(input.buttons() & Buttons.Roll).toBeFalsy();
+  });
   it('uses Q to dodge and C to toggle prone once per press, keeping stance while paused', () => {
     const { input, win } = setup();
     const key = (type: string, code: string, repeat = false) => win.dispatchEvent(Object.assign(new Event(type), { code, repeat }));

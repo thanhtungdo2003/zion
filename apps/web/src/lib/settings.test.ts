@@ -25,6 +25,22 @@ describe('camera settings', () => {
   });
 });
 
+describe('dodge key settings', () => {
+  it('persists a custom dodge key across sessions', () => {
+    storage({});
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().rollKey).toBe('KeyQ');
+    settings.set({ rollKey: 'KeyV' });
+    const restored = new SettingsStore(); restored.hydrate();
+    expect(restored.get().rollKey).toBe('KeyV');
+  });
+  it.each(['KeyC', 'KeyW', 'KeyP', 'Escape', 'invalid'])('falls back to Q for a conflicting or invalid saved key %s', rollKey => {
+    storage({ rollKey });
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().rollKey).toBe('KeyQ');
+  });
+});
+
 describe('Vietnamese interface', () => {
   it.each([{}, { lang: 'en' }, { lang: 'vi' }])('uses Vietnamese for new and returning players: %j', saved => {
     storage({ ...saved, volume: .5, cameraMode: 'third-person' });

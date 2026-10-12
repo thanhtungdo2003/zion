@@ -49,6 +49,9 @@ export const ITEMS: Record<string, ItemDef> = {
   crossbow: { id: 'crossbow', name: 'Nỏ', category: 'rifle', w: 4, h: 2, stance: 'rifle', color: '#3c3f44', info: 'Silent · one bolt per reload · RMB 4× scope' },
   rocket_launcher: { id: 'rocket_launcher', name: 'Súng phóng tên lửa', category: 'heavy', w: 6, h: 2, stance: 'rifle', color: '#4d5a3c', info: 'Single-shot · reload after every rocket' },
   flamethrower: { id: 'flamethrower', name: 'Súng phun lửa', category: 'heavy', w: 5, h: 2, stance: 'rifle', color: '#7a4a2a', info: 'Short-range fire cone · sets targets ablaze' },
+  pkm: { id: 'pkm', name: 'Súng máy PKM', category: 'heavy', w: 7, h: 2, stance: 'rifle', color: '#4e5741', info: '7.62×54R · băng 100 viên · súng máy tự động' },
+  barrett: { id: 'barrett', name: 'Barrett M82', category: 'heavy', w: 8, h: 2, stance: 'rifle', color: '#53574e', info: '.50 BMG · băng 10 viên · ngắm 10× · đẩy lùi mạnh' },
+  fire_axe: { id: 'fire_axe', name: 'Rìu cứu hỏa', category: 'melee', w: 5, h: 2, stance: 'melee', color: '#873c2c', info: 'Rìu sắc · 18% chặt đầu zombie · đòn chém chậm, mạnh' },
   katana: { id: 'katana', name: 'Katana', category: 'melee', w: 5, h: 1, stance: 'melee', color: '#4a3f52', info: 'Fast blade · sweeping cut' },
   shovel: { id: 'shovel', name: 'Xẻng', category: 'melee', w: 6, h: 1, stance: 'melee', color: '#6b6653', info: 'Heavy shovel · sweeping strike' },
   long_sledgehammer: { id: 'long_sledgehammer', name: 'Búa tạ dài', category: 'melee', w: 7, h: 2, stance: 'melee', color: '#68615a', info: 'Slow heavy swing · wide cleave and stun' },
@@ -64,6 +67,8 @@ export const ITEMS: Record<string, ItemDef> = {
   nuclear_cell: { id: 'nuclear_cell', name: 'Pin năng lượng hạt nhân', category: 'resource', w: 1, h: 2, stance: 'unarmed', color: '#3a6a3a', info: 'Energy cell salvaged from industrial ruins' },
   coal_carton: { id: 'coal_carton', name: 'Thùng than', category: 'resource', w: 2, h: 2, stance: 'unarmed', color: '#3a3a3a', info: 'An old carton of coal' },
   grenade: { id: 'grenade', name: 'Lựu đạn', category: 'grenade', w: 1, h: 1, stance: 'grenade', color: '#56663f', info: 'Frag grenade' },
+  c4: { id: 'c4', name: 'C4 điều khiển từ xa', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'Chuột phải: ném tầm ngắn · bám địa hình và mob · chuột trái: kích nổ' },
+  c4_detonator: { id: 'c4_detonator', name: 'Bộ kích nổ C4', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'C4 đã được ném · cầm bộ kích nổ rồi nhấn chuột trái để kích nổ' },
   ammo_762: { id: 'ammo_762', name: '7.62×39', category: 'ammo', w: 1, h: 1, stance: 'unarmed', color: '#6e5a32', info: 'AK-47 ammo box · 30 rounds', ammo: { guns: ['ak47'], capacity: 30 } },
   ammo_556: { id: 'ammo_556', name: '5.56 NATO', category: 'ammo', w: 1, h: 1, stance: 'unarmed', color: '#5d6440', info: 'M4A1 / AUG ammo box · 30 rounds', ammo: { guns: ['m4a1', 'aug'], capacity: 30 } },
   ammo_762x54: { id: 'ammo_762x54', name: '7.62×54R', category: 'ammo', w: 1, h: 1, stance: 'unarmed', color: '#6a4b30', info: 'SVD ammo box · 20 rounds', ammo: { guns: ['svd'], capacity: 20 } },
@@ -75,6 +80,8 @@ export const ITEMS: Record<string, ItemDef> = {
   rocket: { id: 'rocket', name: 'Đạn tên lửa', category: 'ammo', w: 2, h: 1, stance: 'unarmed', color: '#5a5a40', info: 'One rocket for the launcher', ammo: { guns: ['rocket_launcher'], capacity: 1 } },
   bolts: { id: 'bolts', name: 'Ống tên nỏ', category: 'ammo', w: 1, h: 2, stance: 'unarmed', color: '#4a3c2c', info: 'Crossbow bolts · 10', ammo: { guns: ['crossbow'], capacity: 10 } },
   fuel_tank: { id: 'fuel_tank', name: 'Bình nhiên liệu', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#8a3a24', info: 'Flamethrower fuel · 100 units', ammo: { guns: ['flamethrower'], capacity: 100 } },
+  ammo_pkm: { id: 'ammo_pkm', name: 'Hộp đạn PKM 7.62×54R', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#53613d', info: 'Dây đạn 7.62×54R cho PKM · 100 viên', ammo: { guns: ['pkm'], capacity: 100 } },
+  ammo_50bmg: { id: 'ammo_50bmg', name: 'Hộp đạn .50 BMG', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#756441', info: 'Đạn Barrett M82 · 10 viên', ammo: { guns: ['barrett'], capacity: 10 } },
 };
 
 // Armour pieces (one 2×2 item each), generated from the shared armour table.

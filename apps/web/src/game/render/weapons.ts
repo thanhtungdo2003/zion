@@ -47,6 +47,11 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   badge_sergeant: { url: '/models/materias/sergeant-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_elite: { url: '/models/materias/elite-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   ak47: { url: '/models/weapons/ak47-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 0.5, 4.5], support: [0, 18, 3], patrolTriggerHand: 'left', muzzle: [0, 36, 1], eject: [1, 11, 0.5], reloadClip: 'reload' },
+  pkm: { url: '/models/weapons/pkm-machine-gun.bbmodel', length: 1.17, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -5], support: [0, 29, -2], muzzle: [0, 52, 0], eject: [2, 22, 0], reloadClip: 'reload_ammo_box' },
+  ammo_pkm: { url: '/models/weapons/pkm-ammo-box.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
+  barrett: { url: '/models/weapons/barrett-m82.bbmodel', length: 1.45, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 15, -6], support: [0, 31, -2], muzzle: [0, 68, 1], eject: [2, 27, 1] },
+  ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
+  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0] },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0, 10.5, -8], eject: [1, 11.5, 0.5], reloadClip: 'reload' },
   awm: { url: '/models/weapons/awm-sniper-4x.bbmodel', length: 1.15, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -4.5], muzzle: [0, 56, 0.5], eject: [2, 20, 1.5] },
@@ -85,6 +90,9 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   medkit: { url: '/models/tools/first-aid-kit.bbmodel', length: 0.35, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5.5, 0] },
   zcoin: { url: '/models/materias/gold-coin-z.bbmodel', length: 0.05, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 7, 0] },
   grenade: { url: '/models/weapons/frag-grenade.bbmodel', length: 0.16, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 5, 0] },
+  c4: { url: '/models/weapons/remote-c4-bomb.bbmodel', length: .42, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
+  c4_detonator: { url: '/models/weapons/c4-clacker-detonator.bbmodel', length: .1, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 6, 0] },
+  proj_c4: { url: '/models/weapons/c4-bomb.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-3, 0, 0] },
 };
 
 WEAPON_SPECS.flashlight = { url: '/models/tools/flashlight.bbmodel', length: 0.22, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 2, 0] };
@@ -245,6 +253,13 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
     const resources = new ResourceDisposer();
     for (const root of ownedRoots) resources.object(root);
     throw failure.reason;
+  }
+  // The bundle is an inventory display only; the player always holds the clacker.
+  const c4 = lib.get('c4'), remote = lib.get('c4_detonator');
+  if (c4 && remote) {
+    c4.object = remote.object;
+    c4.attach = remote.attach;
+    c4.clips = remote.clips;
   }
   return lib;
 }

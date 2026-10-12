@@ -64,6 +64,10 @@ import {
   ARMOR_BY_ID,
   ARMOR_SLOTS,
   armorSpeedFactor,
+  weaponSpeedFactor,
+  weaponStaminaFactor,
+  armorStaminaFactor,
+  Limb,
   unpackArmor,
   type ArmorLoadout,
   MEDKIT_USE_MS,
@@ -897,7 +901,7 @@ export class GameEngine {
     if (!this.effects) {
       this.effects = new CombatEffects(this.scene, this.weapons?.get('grenade')?.display ?? null, this.sounds, () => this.camera.position);
       const rounds = new Map<string, Object3D>();
-      for (const kind of ['grenade40', 'rocket', 'bolt']) {
+      for (const kind of ['grenade40', 'rocket', 'bolt', 'c4']) {
         const model = this.weapons?.get(`proj_${kind}`)?.display;
         if (model) rounds.set(kind, model);
       }
@@ -947,13 +951,15 @@ export class GameEngine {
       if (e.kind === EntityKind.Zombie) {
         let zb = this.zombies.get(e.id);
         if (!zb) {
-          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon)), zombieVariant(e.weapon)), variant: zombieVariant(e.weapon), limbs: e.weapon & 15, voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
+          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon)), zombieVariant(e.weapon)), variant: zombieVariant(e.weapon), limbs: e.weapon & (15 | Limb.Head), voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
           zb.avatar.ground = (x, z) => this.groundY(x, z);
+          zb.avatar.root.position.set(e.x, e.y, e.z);
+          zb.avatar.root.rotation.y = e.yaw;
           zb.avatar.addTo(this.scene);
           this.zombies.set(e.id, zb);
         }
         zb.entity.push(s.serverTime, e);
-        zb.limbs = e.weapon & 15;
+        zb.limbs = e.weapon & (15 | Limb.Head);
         continue;
       }
       let r = this.remotes.get(e.id);
@@ -1176,6 +1182,7 @@ export class GameEngine {
         if (m.promoted) this.sounds?.play('questComplete', { volume: .9 });
         break;
       case 'hit':
+        if (m.zone === 'decapitation') this.zombies.get(m.targetId)?.avatar.severHead(m.kx ?? 0, m.kz ?? 1, m.force ?? 4);
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
           // Flames: no blood, the target catches fire for a moment (refreshed while it burns).
@@ -1237,6 +1244,9 @@ export class GameEngine {
       }
       case 'grenade':
         this.effects?.throwGrenade(m.id, { x: m.x, y: m.y, z: m.z, vx: m.vx, vy: m.vy, vz: m.vz, resting: false });
+        break;
+      case 'c4':
+        this.effects?.syncC4(m.charges);
         break;
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
@@ -1460,7 +1470,7 @@ export class GameEngine {
     this.localAvatar?.setWeapon(this.inventory.equippedItemId(), this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
-    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed);
+    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
     if (this.localAvatar && this.firstPerson) this.localAvatar.root.visible = false;
     if (this.viewModel) {
       const axes = this.input.axes();
@@ -1682,7 +1692,7 @@ export class GameEngine {
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
-    if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump);
+    if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
     // Scoped in: planted feet, so no walking, rolling or jumping.
     const equippedSpec = weaponSpec(weapon);
@@ -1701,19 +1711,26 @@ export class GameEngine {
       buttons = 0;
     }
     const trigger = (buttons & Buttons.Attack) !== 0;
-    buttons &= ~Buttons.Attack;
+    const c4Throw = (buttons & Buttons.ThrowC4) !== 0 || this.input.aiming;
+    buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
     // Exhausted (under 10% stamina): no sprinting or rolling (the server enforces the same).
     const life = this.hud.get().life;
     if (life && life.stamina < life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    const effort = armorStaminaFactor(this.inventory.wornArmor()) * weaponStaminaFactor(weapon);
+    if (life && life.stamina < life.config.stamina.roll * effort) buttons &= ~Buttons.Roll;
+    if (life && life.stamina < life.config.stamina.sprintPerSecond * TICK_DT * effort) buttons &= ~Buttons.Sprint;
+    const canAffordAttack = !life || life.stamina >= life.config.stamina.attack * effort || (weapon === WeaponId.C4 && !c4Throw);
     let yaw = this.shotYaw;
     let throwDist: number | undefined;
     // Swimming blocks every attack; guns also cannot fire mid-jump.
     const airborne = !local.state.grounded && !local.state.swimming;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
-    const action = this.weaponCtl.tick(actionTime, weapon, trigger, !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook);
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
+      weapon === WeaponId.C4 && this.inventory.equippedItemId() === 'c4' && c4Throw);
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
-    if (action !== 'none') buttons |= Buttons.Attack;
+    if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
+    else if (action !== 'none') buttons |= Buttons.Attack;
     const spec = weaponSpec(weapon);
     if (action === 'shot') {
       this.localShot(weapon);
@@ -1731,6 +1748,8 @@ export class GameEngine {
         () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
         weapon, variant,
       );
+    } else if (action === 'detonate') {
+      this.viewModel?.kick(.15);
     } else if (action === 'throw') {
       this.viewModel?.throw();
       // Land somewhere random inside the red circle around the cursor.
@@ -1962,10 +1981,10 @@ export class GameEngine {
   private syncArmor(): void {
     const loadout = this.inventory.wornArmor();
     const key = ARMOR_SLOTS.map((s) => loadout[s]).join(',');
+    if (this.local) this.local.speedMul = armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
     if (key === this.armorKey) return;
     const first = this.armorKey === '';
     this.armorKey = key;
-    if (this.local) this.local.speedMul = armorSpeedFactor(loadout);
     if (this.localAvatar) this.dressAvatar(this.localAvatar, loadout);
     this.preview?.setArmor(loadout);
     if (!first) this.sounds?.playEquip(ARMOR_SLOTS.some((s) => (ARMOR_BY_ID.get(loadout[s])?.weight ?? 0) >= 3));
@@ -2277,7 +2296,7 @@ export class GameEngine {
     // (Straight-firing rockets need no marker.)
     const blast = spec?.kind === 'gun' && spec.projectile?.lob ? spec.projectile.blast : undefined;
     const maxRange = spec?.kind === 'throw' ? spec.maxRange : spec?.kind === 'gun' && blast ? (spec.projectile?.lob?.maxRange ?? spec.range) : 0;
-    const show = maxRange > 0 && this.input.locked && !this.input.suspended && !this.local?.dead;
+    const show = maxRange > 0 && this.inventory.equippedItemId() !== 'c4_detonator' && this.input.locked && !this.input.suspended && !this.local?.dead;
     if (!show) {
       this.throwAim.r = 0;
       if (this.throwMarker) this.throwMarker.visible = false;
@@ -2681,14 +2700,16 @@ export class GameEngine {
 /** Guns with a big kick (recoil animation strength). */
 function heavyKick(weapon: number): boolean {
   return weapon === WeaponId.Shotgun || weapon === WeaponId.Saiga12 || weapon === WeaponId.DoubleBarrel || weapon === WeaponId.AWM || weapon === WeaponId.SVD
-    || weapon === WeaponId.RocketLauncher || weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.Revolver;
+    || weapon === WeaponId.RocketLauncher || weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.Revolver || weapon === WeaponId.PKM || weapon === WeaponId.Barrett;
 }
 
 /** Reload sound (and playback rate) for each gun. */
 function reloadSound(weapon: number): [SoundName, number] {
   switch (weapon) {
     case WeaponId.AK47:
+    case WeaponId.Barrett:
     case WeaponId.AWM:
+    case WeaponId.PKM:
       return ['akReload', 1];
     case WeaponId.M4A1:
     case WeaponId.AUG:

@@ -8,6 +8,7 @@ import type { ClientMessage, TutorialId } from '@zion/shared';
 import type { InventoryState } from '@/game/inventory/inventory';
 import { discoveryLesson, lessonContextOpen, type DiscoveryLesson } from '@/game/discovery-tutorial';
 import { ResourceDisposer } from '@/game/render/resources';
+import { rollKeyLabel, useSettings } from '@/lib/settings';
 
 /** Fired (e.g. from the settings panel) to replay the tutorial from the first step. */
 export const TUTORIAL_RESTART_EVENT = 'zion:tutorial-restart';
@@ -96,6 +97,7 @@ function DirectionArrow() {
 }
 
 export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState; inventory: InventoryState; onBlock: (block: boolean) => void; onGuide: (message: Extract<ClientMessage, { t: 'tutorial' }>) => void }) {
+  const { rollKey } = useSettings();
   const key = `zion:onboarding:v1:${hud.username}`;
   const [step, setStep] = useState(0); const [done, setDone] = useState(true);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -184,7 +186,7 @@ export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState
       <div className="tutorial-body">
         <header><small>CATTAIL // NGƯỜI ĐỒNG HÀNH</small><span>{String(currentIndex + 1).padStart(2, '0')}/{String(currentSteps.length).padStart(2, '0')}</span></header>
         <div className="tutorial-progress">{currentSteps.map((_, i) => <i key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'on' : ''} />)}</div>
-        <h2>{cur.title}</h2><p>{cur.text}</p>
+        <h2>{cur.title}</h2><p>{cur.text.replace('Q để lướt', `${rollKeyLabel(rollKey)} để lướt`)}</p>
         <footer>
           {passive
             ? <strong><Icon name="game-icons:compass" /> {cur.wait ? 'Đang chờ bạn nhận nhiệm vụ' : 'Di chuyển đến vị trí được chỉ dẫn'}</strong>

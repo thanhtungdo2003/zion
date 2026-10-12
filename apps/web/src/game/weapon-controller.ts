@@ -1,6 +1,6 @@
 import { WEAPON_SPECS, WeaponId, gunBlocksSprint, type GunSpec } from '@zion/shared';
 
-export type WeaponAction = 'none' | 'shot' | 'throw' | 'melee';
+export type WeaponAction = 'none' | 'shot' | 'throw' | 'melee' | 'detonate';
 
 export interface AmmoView {
   mag: number;
@@ -26,6 +26,7 @@ export class WeaponController {
   private nextFire = 0;
   private nextThrow = 0;
   private prevTrigger = false;
+  private prevSecondary = false;
   private reloadWeapon = 0;
   private reloadStart = 0;
   private reloadEnd = 0;
@@ -65,9 +66,11 @@ export class WeaponController {
   }
 
   /** One fixed tick. `trigger` = attack button held; returns what the press turned into. */
-  tick(now: number, weapon: number, trigger: boolean, canAct: boolean, repeatTrigger = false): WeaponAction {
+  tick(now: number, weapon: number, trigger: boolean, canAct: boolean, repeatTrigger = false, secondary = false): WeaponAction {
     const pressed = trigger && !this.prevTrigger;
+    const secondaryPressed = secondary && !this.prevSecondary;
     this.prevTrigger = trigger;
+    this.prevSecondary = secondary;
     if (this.reloadWeapon && now >= this.reloadEnd) {
       const w = this.reloadWeapon;
       const spec = this.gun(w);
@@ -80,6 +83,15 @@ export class WeaponController {
       this.serverDuringReload = null;
     }
     if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; } // swapping cancels
+    if (weapon === WeaponId.C4) {
+      if (!canAct) return 'none';
+      const spec = WEAPON_SPECS[WeaponId.C4];
+      if (secondaryPressed && now >= this.nextThrow && spec.kind === 'throw') {
+        this.nextThrow = now + spec.cooldownMs;
+        return 'throw';
+      }
+      return pressed ? 'detonate' : 'none';
+    }
     if (!canAct || !trigger) return 'none';
 
     if (weapon === WeaponId.None) return 'melee';

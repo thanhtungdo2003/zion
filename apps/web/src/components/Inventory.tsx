@@ -1,6 +1,7 @@
 'use client';
 import { Icon } from './Icon';
 import { ChestPanel } from './ChestPanel';
+import ModelPreview from './ModelPreview';
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
@@ -16,7 +17,7 @@ import {
 import { itemIcons } from '@/game/inventory/icons';
 import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
-import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
+import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { itemDescription } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
@@ -63,6 +64,8 @@ function tipRows(t: Tip, tr: Tr): Array<[string, string]> {
   }
   const w = WEAPON_BY_ITEM[def.id];
   const spec = w ? WEAPON_SPECS[w as Exclude<WeaponId, 0>] : undefined;
+  if (spec) rows.push([L('tip.weight'), `${spec.weight} kg`]);
+  if (spec?.kind === 'melee' && spec.decapitationChance) rows.push([L('tip.decapitation'), `${Math.round(spec.decapitationChance * 100)}%`]);
   if (spec?.kind === 'gun') {
     const blast = spec.projectile?.blast;
     if (blast) {
@@ -355,6 +358,8 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
 export function InventoryPanel({ state, store, coins, side }: { state: InventoryState; store: InventoryStore; coins: number; side?: React.ReactNode }) {
+  const [merchantTab, setMerchantTab] = useState<'shop' | 'bag'>('shop');
+  useEffect(() => { if (!state.open || state.station !== 'shop') setMerchantTab('shop'); }, [state.open, state.station]);
   const busy = usePending();
   const { t, item, touchControls } = useSettings();
   const [mouse, setMouse] = useState({ x: -999, y: -999 });
@@ -369,7 +374,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  CELL = fitCell(!!state.station);
+  CELL = fitCell(!!state.station && state.station !== 'shop');
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => setMouse({ x: e.clientX, y: e.clientY });
@@ -408,11 +413,11 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
 
   return (
     <div className="inv-overlay" onContextMenu={(e) => e.preventDefault()}>
-      <div className="inv-wrap">
-      {side}
-      <div className="inv-panel">
+      <div className={`inv-wrap${state.station === 'shop' ? ' merchant-wrap' : ''}`}>
+      {state.station !== 'shop' && side}
+      <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
         <div className="inv-title">
-          <h2>{t('inv.title')}</h2>
+          <h2>{t(state.station === 'shop' ? 'shop.title' : 'inv.title')}</h2>
           <Coins n={coins} />
           <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.setOpen(false)}><Icon name="lucide:x" /></button>
           {touchControls && state.held && <div className="inv-touch-actions" onMouseUp={(e) => e.stopPropagation()}>
@@ -426,11 +431,16 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
               +
             </button>
           )}
-          <div className="keys">
+          <div className="keys" hidden={state.station === 'shop' && merchantTab === 'shop'}>
             <kbd>{t('inv.drag')}</kbd> {t('inv.move')} · <kbd>R</kbd> {t('inv.rotate')} · <kbd>{t('inv.dblclick')}</kbd> {t('inv.swap')} · {t('inv.drop_hint')} · {t('inv.use')} ·{' '}
             <kbd>E</kbd> {t('inv.close')}
           </div>
         </div>
+        {state.station === 'shop' && <nav className="merchant-tabs" aria-label="Cửa hàng và túi đồ">
+          <button className={merchantTab === 'shop' ? 'on' : ''} aria-pressed={merchantTab === 'shop'} onClick={() => { store.returnHeld(); setTip(null); setMerchantTab('shop'); }}><Icon name="lucide:store" />{t('shop.title')}</button>
+          <button className={merchantTab === 'bag' ? 'on' : ''} aria-pressed={merchantTab === 'bag'} onClick={() => { setTip(null); setMerchantTab('bag'); }}><Icon name="lucide:backpack" />{t('inv.title')}</button>
+        </nav>}
+        {state.station === 'shop' && merchantTab === 'shop' ? <ShopPanel state={state} store={store} coins={coins} /> :
         <div className="inv-bento">
           <div className="inv-col">
             <Grid id="heavy" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
@@ -448,7 +458,6 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
             <Grid id="backpack" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
           </div>
           {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
-          {state.station === 'shop' && <ShopPanel state={state} store={store} coins={coins} onTip={setTip} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
           {state.station === 'chest' && <ChestPanel state={state} store={store} />}
           {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && state.station !== 'chest' && (
@@ -484,7 +493,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
               {full && <div className="inv-cache-full">{t('inv.cache_full', { item: item(full) })}</div>}
             </section>
           )}
-        </div>
+        </div>}
       </div>
       </div>
       {tip && !state.held && <Tooltip tip={tip} x={mouse.x} y={mouse.y} />}
@@ -623,83 +632,55 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
 }
 
 /** Weapon merchant: buy from his stock or sell what you carry, paid in ZCoin (server wallet). */
-function ShopPanel({ state, store, coins, onTip }: { state: InventoryState; store: InventoryStore; coins: number; onTip: (t: Tip | null) => void }) {
+function ShopPanel({ state, store, coins }: { state: InventoryState; store: InventoryStore; coins: number }) {
   const busy = usePending();
-  const { t, item } = useSettings();
+  const tr = useSettings(), { t, item } = tr;
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [tab, setTab] = useState<ShopCategory>('guns');
-  const saleItems = state.items.flatMap((i) => {
-    const def = ITEMS[i.itemId];
-    if (!def || def.category === 'food') return [];
-    const max = maxCount(def);
-    const fill = max ? (i.count ?? max) / max : 1;
-    const price = i.issued || i.quest || isStash(i.container) ? 0 : sellPrice(i.itemId, fill);
-    return [{ i, def, max, price }];
-  }).sort((a, b) => Number(b.price > 0) - Number(a.price > 0));
-  return (
-    <section className="inv-box inv-shop">
-      <header>
-        <span>{t('shop.title')}</span>
-        <Coins n={coins} />
-      </header>
-      <div className="shop-modes">
-        <button className={mode === 'buy' ? 'on' : ''} onClick={() => setMode('buy')}>{t('shop.buy')}</button>
-        <button className={mode === 'sell' ? 'on' : ''} onClick={() => setMode('sell')}>{t('shop.sell')}</button>
-      </div>
-      {mode === 'buy' ? (
-        <>
-          <div className="shop-tabs">
-            {SHOP_TABS.map((c) => (
-              <button key={c} className={tab === c ? 'on' : ''} onClick={() => setTab(c)}>{t(`shop.cat.${c}`)}</button>
-            ))}
-          </div>
-          <div className="shop-list">
-            {SHOP_STOCK.filter((e) => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food').map((e) => {
-              const def = ITEMS[e.item];
-              if (!def) return null;
-              const afford = coins >= e.price;
-              return (
-                <div key={e.item} className="shop-row" style={ARMOR_BY_ITEM.get(e.item) ? { borderLeft: `3px solid ${RARITY_COLOR[ARMOR_BY_ITEM.get(e.item)!.rarity]}` } : undefined} onMouseEnter={() => onTip({ def })} onMouseLeave={() => onTip(null)}>
-                  <span className="shop-art" style={{ background: def.color }}>
-                    <ItemArt def={def} />
-                  </span>
-                  <span className="shop-name">
-                    {item(e.item)}
-                    <small>{def.ammo ? t('inv.rds', { n: def.ammo.capacity }) : `${def.w}×${def.h}`}</small>
-                  </span>
-                  <Coins n={e.price} className={afford ? '' : 'short'} />
-                  <button data-nosound className="btn shop-btn" disabled={!afford || busy(`buy:${e.item}`)} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onBuy?.(e.item)}>
-                    {busy(`buy:${e.item}`) ? <Spinner /> : t('shop.buy')}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      ) : (
-        <div className="shop-list">
-          {saleItems.length === 0 && <div className="shop-empty">{t('shop.nothing')}</div>}
-          {saleItems.map(({ i, def, max, price }) => {
-            return (
-              <div key={i.uid} className="shop-row" onMouseEnter={() => onTip({ def, count: i.count, issued: i.issued })} onMouseLeave={() => onTip(null)}>
-                <span className="shop-art" style={{ background: def.color }}>
-                  <ItemArt def={def} />
-                </span>
-                <span className="shop-name">
-                  {item(i.itemId)}
-                  <small>{i.issued ? t('tip.issued') : max ? `${i.count ?? max}/${max}` : t(`cat.${def.category}`)}</small>
-                </span>
-                <Coins n={price} />
-                <button data-nosound className="btn shop-btn" disabled={price <= 0 || busy(`sell:${i.uid}`)} onMouseDown={(ev) => ev.stopPropagation()} onClick={() => store.onSell?.(i.uid)}>
-                  {busy(`sell:${i.uid}`) ? <Spinner /> : t('shop.sell')}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
+  const [selected, setSelected] = useState<string | number>('');
+  const products = mode === 'buy'
+    ? SHOP_STOCK.filter(e => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food')
+      .map(e => ({ key: e.item, id: e.item, price: e.price, count: undefined as number | undefined, issued: false }))
+    : state.items.flatMap(i => {
+      const def = ITEMS[i.itemId];
+      if (!def || def.category === 'food') return [];
+      const max = maxCount(def), fill = max ? (i.count ?? max) / max : 1;
+      return [{ key: i.uid, id: i.itemId, price: i.issued || i.quest || isStash(i.container) ? 0 : sellPrice(i.itemId, fill), count: i.count, issued: !!i.issued }];
+    }).sort((a,b) => Number(b.price > 0) - Number(a.price > 0));
+  const selection = products.find(p => p.key === selected) ?? products[0];
+  const def = selection ? ITEMS[selection.id] : undefined;
+  const spec = selection ? weaponSpec(WEAPON_BY_ITEM[selection.id] ?? 0) : undefined;
+  const gun = spec?.kind === 'gun' ? spec : undefined;
+  const ammo = def ? Object.values(ITEMS).filter(d => d.ammo?.guns.includes(def.id)) : [];
+  return <section className="merchant-shop">
+    <header className="merchant-shop-head"><div className="shop-modes">
+      <button className={mode === 'buy' ? 'on' : ''} onClick={() => { setMode('buy'); setSelected(''); }}>{t('shop.buy')}</button>
+      <button className={mode === 'sell' ? 'on' : ''} onClick={() => { setMode('sell'); setSelected(''); }}>{t('shop.sell')}</button>
+    </div><Coins n={coins} /></header>
+    {mode === 'buy' && <div className="shop-tabs">{SHOP_TABS.map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); }}>{t(`shop.cat.${c}`)}</button>)}</div>}
+    <div className="shop-browser"><div className="shop-catalog">
+      {!products.length && <div className="shop-empty">{t('shop.nothing')}</div>}
+      {products.map(p => {
+        const d = ITEMS[p.id]!;
+        const pending = busy(`${mode}:${p.key}`), enabled = mode === 'buy' ? coins >= p.price : p.price > 0;
+        return <article className={`shop-card${selection?.key === p.key ? ' selected' : ''}`} key={p.key}>
+          <button className="shop-card-select" aria-pressed={selection?.key === p.key} onClick={() => setSelected(p.key)}>
+            <span className="shop-card-art" style={{ background: d.color }}><ItemArt def={d} /></span>
+            <b>{item(p.id)}</b><small>{p.issued ? t('tip.issued') : maxCount(d) ? `${p.count ?? maxCount(d)}/${maxCount(d)}` : `${d.w}×${d.h}`}</small>
+          </button>
+          <div className="shop-card-action"><Coins n={p.price} className={enabled ? '' : 'short'} /><button className="btn shop-btn" data-nosound disabled={!enabled || pending} onClick={() => mode === 'buy' ? store.onBuy?.(p.id) : typeof p.key === 'number' && store.onSell?.(p.key)}>{pending ? <Spinner /> : t(mode === 'buy' ? 'shop.buy' : 'shop.sell')}</button></div>
+        </article>;
+      })}
+    </div>{def && <aside className="shop-detail">
+      <h3>{item(def.id)}</h3>
+      {gun ? <ModelPreview key={def.id} model={{ item: def.id }} title={item(def.id)} /> : <div className="shop-detail-art"><ItemArt def={def} /></div>}
+      <p>{itemInfo(tr, def)}</p>
+      {spec && <dl className="shop-stats"><div><dt>{t('tip.weight')}</dt><dd>{spec.weight} kg</dd></div><div><dt>Tốc độ khi cầm</dt><dd>{Math.round(weaponSpeedFactor(WEAPON_BY_ITEM[def.id] ?? 0) * 100)}%</dd></div><div><dt>Hao thể lực vũ khí</dt><dd>+{Math.round((weaponStaminaFactor(WEAPON_BY_ITEM[def.id] ?? 0) - 1) * 100)}%</dd></div>{spec.kind === 'melee' && !!spec.decapitationChance && <div><dt>{t('tip.decapitation')}</dt><dd>{Math.round(spec.decapitationChance * 100)}%</dd></div>}{gun?.scope && <div><dt>Ống ngắm</dt><dd>{gun.scope}×</dd></div>}</dl>}
+      {gun && <><dl className="shop-stats"><div><dt>Sát thương</dt><dd>{gun.damage}{gun.pellets > 1 ? ` × ${gun.pellets}` : ''}</dd></div><div><dt>Băng đạn</dt><dd>{gun.magazine} viên</dd></div><div><dt>Tầm bắn</dt><dd>{gun.range} m</dd></div><div><dt>Nạp đạn</dt><dd>{gun.reloadMs / 1000} s</dd></div></dl>
+        <h4>Đạn tương thích</h4><div className="shop-compatible">{ammo.map(d => <button key={d.id} onClick={() => { setMode('buy'); setTab('ammo'); setSelected(d.id); }}><span className="shop-ammo-art"><ItemArt def={d} /></span><span>{item(d.id)}<small>{d.ammo!.capacity} viên / hộp</small></span><Icon name="lucide:arrow-right" /></button>)}{!ammo.length && <p>Chưa có hộp đạn tương thích.</p>}</div>
+      </>}
+    </aside>}</div>
+  </section>;
 }
 
 /** Durability colour: green when new, through yellow, to red when nearly broken. */

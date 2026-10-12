@@ -38,6 +38,9 @@ export function buildHandbook(content: GameContent = DEFAULT_CONTENT): HandbookE
     const stats: HandbookEntry['stats'] = [{ label: 'Ô túi đồ', value: `${item.w} × ${item.h}` }];
     const tips: string[] = [];
     if (spec) {
+      stats.push({ label: 'Trọng lượng khi cầm', value: `${spec.weight} kg` });
+      tips.push('Vũ khí đang cầm làm giảm tốc độ và tăng hao thể lực; cất vũ khí nặng khi cần chạy nhanh.');
+      if (spec.kind === 'melee' && spec.decapitationChance) stats.push({ label: 'Chặt đầu zombie chết ngay', value: `${Math.round(spec.decapitationChance * 100)}% mỗi đòn trúng` });
       stats.push({ label: 'Sát thương', value: spec.kind === 'gun' && spec.pellets > 1 ? `${spec.damage} × ${spec.pellets}` : String(spec.damage) });
       if (spec.kind === 'gun') {
         stats.push({ label: 'Tầm bắn', value: `${spec.range} m` }, { label: 'Băng đạn', value: `${spec.magazine} viên` }, { label: 'Nạp đạn', value: `${spec.reloadMs / 1000} giây` }, { label: 'Tốc độ bắn', value: `${Math.round(60_000 / spec.fireMs)} phát/phút` }, { label: 'Chế độ bắn', value: spec.auto ? 'Tự động' : 'Từng phát' });
@@ -50,7 +53,8 @@ export function buildHandbook(content: GameContent = DEFAULT_CONTENT): HandbookE
         stats.push({ label: 'Tầm đánh', value: `${spec.range} m` }, { label: 'Nhịp đánh', value: `${Math.round(60_000 / spec.cooldownMs)} lần/phút` });
         tips.push('Đòn cận chiến tiêu hao thể lực. Chừa sức để rút lui.');
       } else {
-        stats.push({ label: 'Bán kính nổ', value: `${spec.radius} m` }, { label: 'Kíp nổ', value: `${spec.fuseMs / 1000} giây` }, { label: 'Tầm ném', value: `${spec.maxRange} m` });
+        stats.push({ label: 'Bán kính nổ', value: `${spec.radius} m` }, { label: 'Kíp nổ', value: spec.remote ? 'Điều khiển từ xa' : `${spec.fuseMs / 1000} giây` }, { label: 'Tầm ném', value: `${spec.maxRange} m` });
+        if (spec.remote) tips.push('Đặt vào ô lựu đạn. Chuột phải ném C4; bom bám địa hình và mob, không bám người chơi. Cầm đúng bộ kích nổ rồi nhấn chuột trái để kích nổ.');
         tips.push('Ném ra xa vị trí của bạn và đồng đội.');
       }
     } else if (armor) {

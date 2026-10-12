@@ -1,4 +1,4 @@
-import type { CareerView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
+import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
 import type { AtlasTile, GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
@@ -8,6 +8,10 @@ import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/share
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
  */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
+export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
+  return request('/api/leaderboard', { signal });
+}
 
 export async function getWorldAtlas(): Promise<WorldAtlas> {
   await ensureAccess();

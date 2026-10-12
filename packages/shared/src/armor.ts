@@ -101,10 +101,16 @@ export function armorProtection(a: ArmorLoadout): number {
 
 /** Movement speed multiplier from the carried armour weight: −0.4 % per kg, at most −10 %. */
 export function armorSpeedFactor(a: ArmorLoadout): number {
+  return 1 - Math.min(0.1, armorWeight(a) * 0.004);
+}
+
+export function armorWeight(a: ArmorLoadout): number {
   let kg = 0;
   for (const slot of ARMOR_SLOTS) kg += ARMOR_BY_ID.get(a[slot])?.weight ?? 0;
-  return 1 - Math.min(0.1, kg * 0.004);
+  return kg;
 }
+
+export function armorStaminaFactor(a: ArmorLoadout): number { return 1 + armorWeight(a) * .015; }
 
 export const RARITY_COLOR: Record<ArmorRarity, string> = {
   common: '#9aa0a6',

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_RANK_CONFIG, rankConfigSchema, rankStep, rankTitle, type CareerView, type RankConfig, type RankTitle, type RequisitionReward, type TeamLobby } from '@zion/shared';
 import { withTransaction, type Db, type DbClient } from '../db/pool';
 import { studioCurrencyGrantSchema, type StudioCurrencyGrant } from '@zion/shared';
+import type { LeaderboardView } from '@zion/shared';
 
 export interface CareerEvent { id: string; points?: number; death?: boolean }
 type Executor = Pick<DbClient, 'query'>;
@@ -37,6 +38,27 @@ export class ProgressionService {
   async title(accountId: string): Promise<RankTitle> {
     const { rows } = await this.db.query('SELECT score FROM account_careers WHERE account_id = $1', [accountId]);
     return rankTitle(rankStep(rows[0]?.score ?? 0, this.config));
+  }
+  /** Public standings omit hidden scores, account identifiers and team invite codes. */
+  async leaderboard(): Promise<LeaderboardView> {
+    const [players, teams] = await Promise.all([
+      this.db.query<{ username: string; score: number }>(`SELECT a.username, c.score
+        FROM account_careers c JOIN accounts a ON a.id = c.account_id
+        WHERE a.banned_until IS NULL OR a.banned_until <= now()
+        ORDER BY c.score DESC, a.id ASC LIMIT 50`),
+      this.db.query<{ name: string; members: string }>(`SELECT t.state->>'name' AS name, COUNT(*) AS members
+        FROM world_teams t
+        CROSS JOIN LATERAL jsonb_array_elements(t.state->'members') m
+        JOIN accounts a ON a.id = (m->>'accountId')::uuid
+        LEFT JOIN account_careers c ON c.account_id = a.id
+        WHERE t.world_id = $1 AND (a.banned_until IS NULL OR a.banned_until <= now())
+        GROUP BY t.team_id, t.state->>'name'
+        ORDER BY SUM(COALESCE(c.score, 0)) DESC, t.team_id ASC LIMIT 50`, [this.worldId]),
+    ]);
+    return {
+      individuals: players.rows.map((r, i) => ({ position: i + 1, name: r.username, rank: rankTitle(rankStep(r.score, this.config)) })),
+      teams: teams.rows.map((r, i) => ({ position: i + 1, name: r.name, members: Number(r.members) })),
+    };
   }
   /** A durable, idempotent Studio credit, also safe for accounts that have never entered a world. */
   async grantCoins(raw: StudioCurrencyGrant, actorId: string | null): Promise<boolean> {
