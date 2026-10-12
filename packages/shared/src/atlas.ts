@@ -5,7 +5,7 @@ export interface WorldAtlas {
   pixels: number;
   /** Packed RGB bytes, base64 encoded. */
   rgb: string;
-  roads?: Array<{ ax: number; az: number; bx: number; bz: number; width: number; bridge: boolean }>;
+  roads?: Array<{ ax: number; az: number; bx: number; bz: number; width: number; bridge: boolean; paved?: boolean; widthA?: number; widthB?: number }>;
   structures: Array<{ x: number; z: number; radius: number; kind: string }>;
   /** Oriented top-down footprints of the live camp layout, in world metres. */
   campParts?: AtlasFootprint[];

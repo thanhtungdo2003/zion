@@ -103,7 +103,7 @@ import { CampGuardDirector } from './camp-guards';
 import { CampNpc } from './merchant';
 import { NPC_STALLS, STRUCTURE_KINDS, allStructures, type CampNpcLayout, type CampPart, type StructureKind } from '@zion/worldgen';
 import { GUARD_POSTS } from './camp-guards';
-import { CAMP_HALF_SIZE } from '@zion/worldgen';
+import { CAMP_HALF_SIZE, CAMP_PAD, campDistance } from '@zion/worldgen';
 import { InterestGrid } from './interest';
 import { PhysicsChunkManager } from './physics-manager';
 import { Player } from './player';
@@ -800,6 +800,9 @@ export class GameServer {
       if (item?.itemId !== 'coal_carton') return;
       const x = p.state.x - Math.sin(p.yaw) * 2, z = p.state.z - Math.cos(p.yaw) * 2;
       if (!Number.isFinite(this.collision.terrainHeight(x, z))) return;
+      // Open fires are not allowed inside the main base; the chef's campfire serves it.
+      const camp = this.deps.world.generator.camp;
+      if (camp && campDistance(camp, x, z) <= CAMP_PAD) return;
       if (this.collision.raycast(p.state.x, p.state.y + 1, p.state.z, -Math.sin(p.yaw), 0, -Math.cos(p.yaw), 2.3, Mask.LineOfSight, this.blastHit)) return;
       if (!this.collision.raycast(x, p.state.y + 1, z, 0, -1, 0, 3, Mask.LineOfSight, this.blastHit)) return;
       const y = this.blastHit.y;

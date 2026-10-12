@@ -18,6 +18,10 @@ const SURFACE_HEX: Record<Surface, number> = {
   [Surface.DirtRoad]: 0x80694c,
   [Surface.WheelTrack]: 0x746049,
   [Surface.RoadVerge]: 0x5e743f,
+  [Surface.Asphalt]: 0x505452,
+  [Surface.MossyAsphalt]: 0x555f43,
+  [Surface.BrokenAsphalt]: 0x716b5b,
+  [Surface.GravelRoad]: 0x8a806c,
 };
 
 /** Linear-space copies (three.js lights in linear space). */

@@ -47,6 +47,7 @@ export interface ColumnSample {
   roadBridge: boolean;
   roadHalfWidth: number;
   roadBridgeEnd: number;
+  roadPaved: boolean;
 }
 
 export function makeColumnSample(): ColumnSample {
@@ -64,6 +65,7 @@ export function makeColumnSample(): ColumnSample {
     roadBridge: false,
     roadHalfWidth: 2.4,
     roadBridgeEnd: Infinity,
+    roadPaved: false,
   };
 }
 
@@ -167,14 +169,18 @@ export class WorldGenerator {
 
     out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
     out.roadBridge = false; out.roadHalfWidth = 2.4; out.roadBridgeEnd = Infinity;
+    out.roadPaved = false;
     if (roads) {
       roads.query(x, z, out);
       h += (out.roadHeight - h) * roads.blend(out);
       // Dry abutments ease under the deck, avoiding a vertical heightfield edge at its lip.
       // Wet columns keep their original riverbed and water surface.
       if (out.roadBridge && out.roadBridgeEnd < 4 && h > (Number.isFinite(water) ? water : sea) + .15) {
-        const target = out.roadHeight - .15 * out.roadBridgeEnd;
-        h += (target - h) * (1 - smoothstep(2, 4, out.roadBridgeEnd));
+        const improved = this.config.generatorVersion >= 6;
+        // Stay a few centimetres below the quantized deck so its flat collider wins ray ties.
+        const target = out.roadHeight - (improved ? .04 : .15 * out.roadBridgeEnd);
+        const across = improved ? 1 - smoothstep(out.roadHalfWidth, out.roadHalfWidth + 2, out.roadDistance) : 1;
+        h += (target - h) * (1 - smoothstep(2, 4, out.roadBridgeEnd)) * across;
       }
       if (h >= sea && (!Number.isFinite(water) || h >= water + .05)) { water = NaN; kind = WaterKind.None; }
     }

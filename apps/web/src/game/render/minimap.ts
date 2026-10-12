@@ -72,7 +72,7 @@ export class Minimap {
       for (let i = 0; i < n; i++) {
         const k = j * n + i;
         const surface = c.surface[k];
-        const col = surface === Surface.DirtRoad ? 0x9a805a : surface === Surface.WheelTrack ? 0x827050 : surface === Surface.RoadVerge ? 0x67754a : BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0xff00ff;
+        const col = surface === Surface.Asphalt ? 0x606562 : surface === Surface.MossyAsphalt ? 0x586046 : surface === Surface.BrokenAsphalt ? 0x716b5b : surface === Surface.GravelRoad ? 0x8a806c : surface === Surface.DirtRoad ? 0x9a805a : surface === Surface.WheelTrack ? 0x827050 : surface === Surface.RoadVerge ? 0x67754a : BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0xff00ff;
         const h = dequantizeHeight(c.heights[heightIndex(n, i, j)]!);
         const hl = dequantizeHeight(c.heights[heightIndex(n, i - 1, j - 1)]!);
         let shade = 1 + Math.max(-0.35, Math.min(0.35, (hl - h) * 0.08));

@@ -18,7 +18,7 @@ interface Harness {
   onLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>): Promise<void>;
   commitLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>, timed: boolean, batch?: CookingBatch): Promise<void>;
 }
-function setup(water = NaN) {
+function setup(water = NaN, camp = { x: 400, y: 0, z: 400 }) {
   const collision = new CollisionWorld({ worldSize: 64, seaLevel: -10 });
   for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) collision.addChunk(x, z,
     new Heightfield(x * 32, z * 32, 1, 33, new Float32Array(1089), new Float32Array(1089).fill(water)), []);
@@ -28,7 +28,7 @@ function setup(water = NaN) {
   p.active = true; p.life = life.initial();
   const saveMany = vi.fn(async () => {}), dropAnimalLoot = vi.fn();
   const server = Object.assign(Object.create(GameServer.prototype), {
-    deps: { world: { generator: { camp: { x: 32, y: 0, z: 32 } } }, playerStates: { saveMany } },
+    deps: { world: { generator: { camp } }, playerStates: { saveMany } },
     collision, blastHit: makeRayHit(), life, lifeWorld: { plots: {}, nextGrowth: 0 }, lifeBusy: false,
     animals: new Map(), players: new Map([[p.id, p]]), wild: new Map(),
     zombies: { near: () => [], zombies: new Map(), alert: vi.fn() },
@@ -114,6 +114,13 @@ describe('portable cooking coals', () => {
     saveMany.mockRejectedValueOnce(new Error('database unavailable'));
     await server.onLife(p, ignite(carton.uid));
     expect(p.inv.carriedItem(carton.uid)?.count).toBe(2);
+    expect(server.lifeWorld.coals).toBeUndefined();
+  });
+  it('refuses to light coals inside the main base', async () => {
+    const { server, p, saveMany } = setup(NaN, { x: 32, y: 0, z: 32 });
+    const carton = p.inv.add('coal_carton')!;
+    await server.onLife(p, ignite(carton.uid));
+    expect(saveMany).not.toHaveBeenCalled(); expect(carton.count).toBe(2);
     expect(server.lifeWorld.coals).toBeUndefined();
   });
   it.each(['wall', 'water', 'unloaded'] as const)('rejects placement at %s without consuming coal', async obstacle => {

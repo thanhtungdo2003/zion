@@ -19,13 +19,15 @@ describe('bridge entrances', () => {
         world.addChunk(cx, cz, collision.heightfield, collision.colliders);
       }
       const ux = (bridge.b.x - bridge.a.x) / bridge.length, uz = (bridge.b.z - bridge.a.z) / bridge.length;
-      const from = { x: bridge.a.x - ux * 2, z: bridge.a.z - uz * 2, y: 0 };
-      from.y = gen.heightAt(from.x, from.z) + .02;
-      const to = { x: bridge.b.x + ux * 2, z: bridge.b.z + uz * 2, y: 0 };
-      to.y = gen.heightAt(to.x, to.z) + .02;
       const map = new WalkingMap(world);
-      expect(map.reaches(from, to), JSON.stringify({ kind, bridge, from, to })).toBe(true);
-      expect(map.reaches(to, from), JSON.stringify({ kind, bridge, from, to })).toBe(true);
+      for (const across of [0, -bridge.clearHalfWidth + .7, bridge.clearHalfWidth - .7]) {
+        const from = { x: bridge.a.x - ux * 2 - uz * across, z: bridge.a.z - uz * 2 + ux * across, y: 0 };
+        from.y = gen.heightAt(from.x, from.z) + .02;
+        const to = { x: bridge.b.x + ux * 2 - uz * across, z: bridge.b.z + uz * 2 + ux * across, y: 0 };
+        to.y = gen.heightAt(to.x, to.z) + .02;
+        expect(map.reaches(from, to), JSON.stringify({ kind, across, bridge, from, to })).toBe(true);
+        expect(map.reaches(to, from), JSON.stringify({ kind, across, bridge, from, to })).toBe(true);
+      }
     }
   });
 });

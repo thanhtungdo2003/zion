@@ -45,7 +45,7 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
       const surface = chunk.surface[v]!;
       const humidity = chunk.humidity[v]! / 255;
       if (humidity > 0.5 && (surface === Surface.ForestFloor || surface === Surface.JungleFloor
-        || surface === Surface.Rock || surface === Surface.Mud || surface === Surface.RoadVerge)) {
+        || surface === Surface.Rock || surface === Surface.Mud || surface === Surface.RoadVerge || surface === Surface.MossyAsphalt)) {
         const cover = vegetationPatch(ox + i * step, oz + j * step, 12, cosmeticSeed ^ 0xb8);
         color.lerp(mossColor, Math.max(0, Math.min(1, (cover - 0.4) * 4)) * (humidity - 0.5) * 1.5);
       }

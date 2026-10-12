@@ -1,9 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BRIDGE_ASSET, VEHICLE_ASSET, CAMP_ASSET, assetColliders, createDefaultRegistry } from '@zion/assets';
 import { Mask, CollisionWorld, makeRayHit } from '../../physics/src/index';
-import { propTransform } from '@zion/shared';
+import { Surface, propTransform } from '@zion/shared';
 import { WorldGenerator, makeColumnSample } from './generator';
 import { normalizeSeed } from './config';
+import { ROAD_MAX_GRADE, roadHeightAt, roadWidthAt } from './roads';
 
 describe('bridge road network', () => {
   const registry = createDefaultRegistry();
@@ -19,6 +20,49 @@ describe('bridge road network', () => {
     // A connected undirected graph with E >= V has a cycle.
     const points = new Set(roads.segments.flatMap(s => [s.a, s.b]));
     expect(roads.segments.length).toBeGreaterThanOrEqual(points.size);
+  });
+
+  it('widens and levels both bridge mouths, with continuous widths and walkable ramp slopes', () => {
+    const roads = gen.roads!;
+    for (const bridge of roads.bridges) for (const end of [bridge.a, bridge.b]) {
+      const approaches = roads.segments.filter(s => !s.bridge && (s.a === end || s.b === end));
+      expect(approaches.length).toBeGreaterThan(0);
+      for (const segment of approaches) {
+        const start = segment.a === end, t = start ? 0 : 1;
+        expect(roadWidthAt(segment, t)).toBeGreaterThanOrEqual(bridge.halfWidth);
+        expect(segment.paved).toBe(true);
+        const landing = start ? segment.approachA! : segment.approachB!;
+        expect(landing).toBeGreaterThan(1);
+        for (const distance of [.1, landing * .5, landing * .9]) {
+          const u = start ? distance / segment.length : 1 - distance / segment.length;
+          expect(roadHeightAt(segment, u)).toBeCloseTo(end.y, 6);
+          expect(roadWidthAt(segment, u)).toBeGreaterThan(bridge.halfWidth * .9);
+        }
+        for (let i = 1; i <= 100; i++) {
+          expect(Math.abs(roadHeightAt(segment, i / 100) - roadHeightAt(segment, (i - 1) / 100)) / (segment.length / 100)).toBeLessThanOrEqual(ROAD_MAX_GRADE + .001);
+        }
+      }
+    }
+    const widths = new Map<object, number>();
+    for (const s of roads.segments.filter(s => !s.bridge)) for (const [point, width] of [[s.a, s.widthA!], [s.b, s.widthB!]] as const) {
+      if (widths.has(point)) expect(width).toBeCloseTo(widths.get(point)!, 6);
+      widths.set(point, width);
+    }
+  });
+
+  it('uses weathered asphalt with moss and dirt/stone patches along bridge routes', () => {
+    const types = new Set<Surface>(), query = { roadDistance: 0, roadHeight: 0, roadAlong: 0, roadPaved: false };
+    const paved = gen.roads!.segments.filter(s => s.paved && !s.bridge);
+    expect(paved.length).toBeGreaterThan(20);
+    for (const segment of paved) for (let d = 2; d < segment.length; d += 2) {
+      const t = d / segment.length, x = segment.a.x + (segment.b.x - segment.a.x) * t, z = segment.a.z + (segment.b.z - segment.a.z) * t;
+      gen.roads!.query(x, z, query);
+      if (!query.roadPaved) continue;
+      const surface = gen.roads!.surface(query, x, z)!;
+      expect([Surface.Asphalt, Surface.MossyAsphalt, Surface.BrokenAsphalt]).toContain(surface);
+      types.add(surface);
+    }
+    expect(types).toEqual(new Set([Surface.Asphalt, Surface.MossyAsphalt, Surface.BrokenAsphalt]));
   });
 
   it('preserves water and riverbeds below level decks and keeps enough clearance', () => {

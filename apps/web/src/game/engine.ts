@@ -400,6 +400,12 @@ export class GameEngine {
     this.inventory.onUseCoal = (uid) => {
       const item = this.inventory.get().items.find(i => i.uid === uid);
       if (item?.itemId !== 'coal_carton') return false;
+      const camp = this.welcome?.world.camp, local = this.local;
+      // Mirrors the server: no open fires inside the main base (its pad reaches 4 m past the walls).
+      if (camp && local && Math.max(Math.abs(local.state.x - camp.x), Math.abs(local.state.z - camp.z)) <= camp.halfSize + 6) {
+        this.toast({ key: 'toast.no_fire_in_camp' });
+        return true;
+      }
       this.lifeAction('ignite', 'coal_carton', undefined, uid);
       return true;
     };

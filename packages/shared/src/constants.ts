@@ -1,4 +1,4 @@
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** Fixed simulation rate shared by server and client prediction. */
 export const TICK_RATE = 30;

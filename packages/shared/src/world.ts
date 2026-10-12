@@ -116,9 +116,13 @@ export enum Surface {
   DirtRoad = 12,
   WheelTrack = 13,
   RoadVerge = 14,
+  Asphalt = 15,
+  MossyAsphalt = 16,
+  BrokenAsphalt = 17,
+  GravelRoad = 18,
 }
 
-export const SURFACE_COUNT = 15;
+export const SURFACE_COUNT = 19;
 
 export const SURFACE_NAMES: Readonly<Record<Surface, string>> = {
   [Surface.Grass]: 'Grass',
@@ -136,6 +140,10 @@ export const SURFACE_NAMES: Readonly<Record<Surface, string>> = {
   [Surface.DirtRoad]: 'Dirt road',
   [Surface.WheelTrack]: 'Faded wheel track',
   [Surface.RoadVerge]: 'Grassy roadside',
+  [Surface.Asphalt]: 'Weathered asphalt',
+  [Surface.MossyAsphalt]: 'Mossy asphalt',
+  [Surface.BrokenAsphalt]: 'Asphalt with dirt and stone',
+  [Surface.GravelRoad]: 'Dirt and gravel road',
 };
 
 /** Public world description sent to clients (never includes the seed). */

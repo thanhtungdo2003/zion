@@ -5,14 +5,23 @@ import { makeColumnSample, type WorldGenerator } from './generator';
 import { IndexHeap } from './heap';
 import { allStructures, insideStructure } from './structures';
 import { bridgeProp, buildBridgeProps, type BridgeSpan } from './bridges';
+import { Simplex2 } from './noise';
 
 export const ROAD_HALF_WIDTH = 2.4;
 export const ROAD_SHOULDER = 2;
 export const ROAD_MAX_GRADE = .24;
 interface Node { x: number; z: number; y: number; fixed: boolean }
-export interface RoadSegment { a: Node; b: Node; length: number; halfWidth: number; bridge?: BridgeSpan }
-export interface RoadQuery { roadDistance: number; roadHeight: number; roadAlong: number; roadBridge?: boolean; roadHalfWidth?: number; roadBridgeEnd?: number }
+export interface RoadSegment { a: Node; b: Node; length: number; halfWidth: number; bridge?: BridgeSpan; widthA?: number; widthB?: number; approachA?: number; approachB?: number; paved?: boolean }
+export interface RoadQuery { roadDistance: number; roadHeight: number; roadAlong: number; roadBridge?: boolean; roadHalfWidth?: number; roadBridgeEnd?: number; roadPaved?: boolean }
 interface Crossing { water: number; large: boolean }
+
+export function roadHeightAt(s: RoadSegment, t: number): number {
+  const u = s.approachA || s.approachB ? smoothstep(s.approachA ?? 0, s.length - (s.approachB ?? 0), t * s.length) : t;
+  return s.a.y + (s.b.y - s.a.y) * u;
+}
+export function roadWidthAt(s: RoadSegment, t: number): number {
+  return s.widthA === undefined ? s.halfWidth : s.widthA + ((s.widthB ?? s.widthA) - s.widthA) * smoothstep(0, 1, t);
+}
 
 /** A seeded, shared tree of graded routes from the camp gate to dry-land settlements. */
 export class RoadNetwork {
@@ -22,8 +31,12 @@ export class RoadNetwork {
   loopCount = 0;
   private readonly buckets = new Map<string, RoadSegment[]>();
   private readonly fences = new Map<string, PropInstance[]>();
+  private readonly improved: boolean;
+  private readonly wear: Simplex2;
 
   constructor(gen: WorldGenerator) {
+    this.improved = gen.config.generatorVersion >= 6;
+    this.wear = new Simplex2(gen.seed ^ 0xa5fa17);
     if (!gen.camp) return;
     // Site probing must not depend on the road network currently being constructed.
     const raw = gen.rawTerrain;
@@ -146,6 +159,7 @@ export class RoadNetwork {
     }
     const nodes = new Map<number, Node>(), edges: Array<[Node, Node]> = [], used = new Set<number>();
     const bridgeEdges: Array<{ a: Node; b: Node; crossing: Crossing }> = [];
+    const pavedNodes = new Set<Node>();
     const node = (k: number): Node => {
       let value = nodes.get(k);
       if (!value) { value = { x: (k % n) * step, z: Math.floor(k / n) * step, y: heights[k]!, fixed: false }; nodes.set(k, value); }
@@ -157,6 +171,9 @@ export class RoadNetwork {
         const deck = Math.max(a.y, b.y, crossing.water + (crossing.large ? 5 : 1.5));
         a.y = b.y = deck;
         bridgeEdges.push({ a, b, crossing });
+        if (this.improved) for (const start of [k, next]) {
+          for (let p = start; p >= 0; p = parent[p]!) { pavedNodes.add(node(p)); if (p === root) break; }
+        }
       }
     };
     edges.push([{ x: camp.x, z: camp.z + 50, y: camp.y, fixed: true }, node(root)]);
@@ -173,8 +190,14 @@ export class RoadNetwork {
         best = d; goal = k;
       }
       if (goal < 0) continue; // Separate islands retain their natural shore.
+      const route: number[] = [];
+      for (let k = goal; k >= 0; k = parent[k]!) { route.push(k); if (k === root) break; }
+      const paved = this.improved && route.some(k => parentBridge.has(k));
+      if (paved) for (const k of route) pavedNodes.add(node(k));
       this.connectedSites.push({ x: site.x, z: site.z });
-      edges.push([node(goal), { x, z, y: site.y, fixed: true }]);
+      const entrance = { x, z, y: site.y, fixed: true };
+      if (paved) pavedNodes.add(entrance);
+      edges.push([node(goal), entrance]);
       for (let k = goal; k !== root && k >= 0 && !used.has(k); k = parent[k]!) {
         used.add(k);
         if (parent[k]! >= 0) addEdge(k, parent[k]!, parentBridge.get(k) ?? null);
@@ -212,6 +235,7 @@ export class RoadNetwork {
         }
       }
     }
+    if (pavedNodes.has(node(root))) pavedNodes.add(edges[0]![0]);
     const shoreNodes = new Set(bridgeEdges.flatMap(e => [e.a, e.b]));
     const neighbours = new Map<Node, Node[]>();
     for (const [a, b] of edges) for (const [u, v] of [[a, b], [b, a]]) {
@@ -235,7 +259,9 @@ export class RoadNetwork {
       const spanPairs = new Map<Node, Set<Node>>();
       for (const { a, b } of bridgeEdges) { let set = spanPairs.get(a); if (!set) spanPairs.set(a, set = new Set()); set.add(b); }
       for (const [a, b] of edges) {
-        const distance = spanPairs.get(a)?.has(b) ? 0 : Math.hypot(b.x - a.x, b.z - a.z) * ROAD_MAX_GRADE;
+        const length = Math.hypot(b.x - a.x, b.z - a.z);
+        const landing = this.improved ? Math.min(8, length * .35) * (Number(shoreNodes.has(a)) + Number(shoreNodes.has(b))) : 0;
+        const distance = spanPairs.get(a)?.has(b) ? 0 : landing ? (length - landing) * .14 : length * ROAD_MAX_GRADE;
         adjacency[ids.get(a)!]!.push([ids.get(b)!, distance]); adjacency[ids.get(b)!]!.push([ids.get(a)!, distance]);
       }
       const project = (values: Float64Array) => {
@@ -271,6 +297,25 @@ export class RoadNetwork {
       }
       if (maximumExcess < .001) break;
     }
+    // Widen continuously along the road graph, with a broad landing at each bridge mouth.
+    const widths = new Map<Node, number>();
+    if (this.improved) {
+      for (const p of neighbours.keys()) widths.set(p, 1.5 + 1.9 * (1 - smoothstep(150, 1400, Math.hypot(p.x - camp.x, p.z - camp.z))));
+      for (const { a, b, crossing } of bridgeEdges) for (const source of [a, b]) {
+        const distances = new Map<Node, number>([[source, 0]]), queue = [source];
+        for (let i = 0; i < queue.length; i++) {
+          const point = queue[i]!, d = distances.get(point)!;
+          const base = widths.get(point)!;
+          widths.set(point, Math.max(base, (crossing.large ? 8 : 3) * (1 - smoothstep(10, 60, d))));
+          if (d < 60) pavedNodes.add(point);
+          for (const next of neighbours.get(point) ?? []) {
+            const distance = d + Math.hypot(next.x - point.x, next.z - point.z);
+            if (distance > 60 || distance >= (distances.get(next) ?? Infinity)) continue;
+            distances.set(next, distance); queue.push(next);
+          }
+        }
+      }
+    }
     for (const [a, b] of edges) {
       const length = Math.hypot(b.x - a.x, b.z - a.z);
       if (length < .1) continue;
@@ -285,8 +330,15 @@ export class RoadNetwork {
       const distanceFromCamp = Math.hypot((a.x + b.x) * .5 - gen.camp!.x, (a.z + b.z) * .5 - gen.camp!.z);
       const halfWidth = bridge?.halfWidth ?? (gen.config.generatorVersion >= 5 ? 1.5 + 1.9 * (1 - smoothstep(150, 1400, distanceFromCamp)) : ROAD_HALF_WIDTH);
       const segment: RoadSegment = { a, b, length, halfWidth, ...(bridge ? { bridge } : {}) };
+      if (this.improved && !bridge) {
+        segment.widthA = widths.get(a)!; segment.widthB = widths.get(b)!;
+        segment.halfWidth = Math.max(segment.widthA, segment.widthB);
+        segment.approachA = shoreNodes.has(a) ? Math.min(8, length * .35) : 0;
+        segment.approachB = shoreNodes.has(b) ? Math.min(8, length * .35) : 0;
+        segment.paved = pavedNodes.has(a) && pavedNodes.has(b);
+      }
       this.segments.push(segment);
-      const margin = halfWidth + (bridge?.bay ? 8 : 0) + ROAD_SHOULDER;
+      const margin = segment.halfWidth + (bridge?.bay ? 8 : 0) + ROAD_SHOULDER;
       for (let z = Math.floor((Math.min(a.z, b.z) - margin) / CHUNK_SIZE); z <= Math.floor((Math.max(a.z, b.z) + margin) / CHUNK_SIZE); z++) {
         for (let x = Math.floor((Math.min(a.x, b.x) - margin) / CHUNK_SIZE); x <= Math.floor((Math.max(a.x, b.x) + margin) / CHUNK_SIZE); x++) {
           const key = `${x}:${z}`;
@@ -299,13 +351,20 @@ export class RoadNetwork {
   query(x: number, z: number, out: RoadQuery): void {
     out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
     out.roadBridge = false; out.roadHalfWidth = ROAD_HALF_WIDTH; out.roadBridgeEnd = Infinity;
-    for (const { a, b, length, bridge, halfWidth } of this.buckets.get(`${Math.floor(x / CHUNK_SIZE)}:${Math.floor(z / CHUNK_SIZE)}`) ?? []) {
+    out.roadPaved = false;
+    for (const segment of this.buckets.get(`${Math.floor(x / CHUNK_SIZE)}:${Math.floor(z / CHUNK_SIZE)}`) ?? []) {
+      const { a, b, length, bridge } = segment;
       const dx = b.x - a.x, dz = b.z - a.z;
-      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (length * length)));
+      const along = ((x - a.x) * dx + (z - a.z) * dz) / (length * length);
+      if (this.improved && bridge && (along < 0 || along > 1)) continue;
+      const t = Math.max(0, Math.min(1, along));
       const distance = Math.hypot(x - a.x - dx * t, z - a.z - dz * t);
-      if (distance >= out.roadDistance) continue;
-      out.roadDistance = distance; out.roadHeight = a.y + (b.y - a.y) * t; out.roadAlong = t * length;
-      out.roadBridge = !!bridge; out.roadHalfWidth = halfWidth;
+      // A deck owns every column of its footprint, even where an angled approach is nearer.
+      const onDeck = this.improved && !!bridge && distance <= segment.halfWidth;
+      if (this.improved && out.roadBridge && !bridge && out.roadDistance <= (out.roadHalfWidth ?? ROAD_HALF_WIDTH)) continue;
+      if (distance >= out.roadDistance && !(onDeck && !out.roadBridge)) continue;
+      out.roadDistance = distance; out.roadHeight = roadHeightAt(segment, t); out.roadAlong = t * length;
+      out.roadBridge = !!bridge; out.roadHalfWidth = roadWidthAt(segment, t); out.roadPaved = !!segment.paved;
       if (bridge?.bay && t * length >= bridge.bay.start && t * length <= bridge.bay.end) out.roadHalfWidth += 8;
       out.roadBridgeEnd = bridge ? Math.min(t * length, (1 - t) * length) : Infinity;
     }
@@ -317,6 +376,17 @@ export class RoadNetwork {
     const width = sample.roadHalfWidth ?? ROAD_HALF_WIDTH;
     if (d > width + ROAD_SHOULDER) return null;
     if (d > width) return Surface.RoadVerge;
+    if (this.improved) {
+      const patch = this.wear.noise(x * .13, z * .13), fine = this.wear.noise(x * .63 + 91, z * .63 - 37);
+      const edge = smoothstep(width * .45, width, d);
+      if (sample.roadPaved) {
+        if (patch > .35 - edge * .18) return Surface.MossyAsphalt;
+        if (patch < -.38 + edge * .14 || (fine > .55 && edge > .25)) return Surface.BrokenAsphalt;
+        return Surface.Asphalt;
+      }
+      if (patch < -.28 || fine > .55) return Surface.GravelRoad;
+      if (patch > .4 && edge > .35) return Surface.RoadVerge;
+    }
     // Broad, faded ruts; broken patches keep the track from looking freshly painted.
     const worn = .25 + .15 * Math.sin(x * .17 + z * .13);
     return Math.abs(d - .95) < worn ? Surface.WheelTrack : Surface.DirtRoad;
@@ -329,6 +399,7 @@ export class RoadNetwork {
   }
 
   private buildFences(gen: WorldGenerator): void {
+    if (this.improved) { this.buildDangerBarriers(gen); return; }
     const left = makeColumnSample(), right = makeColumnSample();
     const query: RoadQuery = { roadDistance: 0, roadHeight: 0, roadAlong: 0 };
     for (let index = 0; index < this.segments.length; index++) {
@@ -358,4 +429,56 @@ export class RoadNetwork {
   }
 
   chunkProps(cx: number, cz: number): PropInstance[] { return this.fences.get(`${cx}:${cz}`) ?? []; }
+
+  private buildDangerBarriers(gen: WorldGenerator): void {
+    const adjacent = new Map<Node, Node[]>();
+    for (const s of this.segments) for (const [a, b] of [[s.a, s.b], [s.b, s.a]]) {
+      let points = adjacent.get(a!); if (!points) adjacent.set(a!, points = []); points.push(b!);
+    }
+    const query: RoadQuery = { roadDistance: 0, roadHeight: 0, roadAlong: 0 };
+    const ground = makeColumnSample();
+    for (const segment of this.segments) {
+      const { a, b, length, bridge } = segment;
+      if (bridge) continue;
+      const ux = (b.x - a.x) / length, uz = (b.z - a.z) / length, nx = -uz, nz = ux;
+      const curve = (point: Node, other: Node, start: boolean) => {
+        let strongest = 0;
+        for (const next of adjacent.get(point) ?? []) {
+          if (next === other) continue;
+          const d = Math.hypot(next.x - point.x, next.z - point.z);
+          const vx = (start ? point.x - next.x : next.x - point.x) / d, vz = (start ? point.z - next.z : next.z - point.z) / d;
+          if (ux * vx + uz * vz > .85) continue;
+          const cross = start ? vx * uz - vz * ux : ux * vz - uz * vx;
+          if (Math.abs(cross) > Math.abs(strongest)) strongest = cross;
+        }
+        return strongest;
+      };
+      const ca = curve(a, b, true), cb = curve(b, a, false);
+      for (let d = 2; d < length; d += 4) {
+        const t = d / length, x = a.x + ux * d, z = a.z + uz * d, y = roadHeightAt(segment, t), width = roadWidthAt(segment, t);
+        if (gen.camp && campDistance(gen.camp, x, z) < CAMP_PAD + 12 || insideStructure(gen, x, z, 10)) continue;
+        const turn = d < 10 && Math.abs(ca) > .45 ? ca : length - d < 10 && Math.abs(cb) > .45 ? cb : 0;
+        for (const side of [-1, 1]) {
+          gen.sampleColumn(x + nx * side * (width + 4), z + nz * side * (width + 4), ground);
+          const cliff = y - ground.height > 2.5;
+          const outsideBend = turn !== 0 && side === -Math.sign(turn);
+          const steep = Math.abs(b.y - a.y) / length > .14;
+          if (!cliff && !outsideBend && !steep) continue;
+          // Close-spaced low sheets form a continuous guardrail, outside the drivable width.
+          for (let offset = -1.5; offset <= 1.5; offset += .65) {
+            const along = Math.max(.3, Math.min(length - .3, d + offset));
+            const px = a.x + ux * along, pz = a.z + uz * along;
+            const edge = roadWidthAt(segment, along / length) + 1.25;
+            const fx = px + nx * side * edge, fz = pz + nz * side * edge;
+            this.query(fx, fz, query);
+            if (query.roadBridge || query.roadDistance < (query.roadHalfWidth ?? ROAD_HALF_WIDTH) + .8) continue;
+            gen.sampleColumn(fx, fz, ground);
+            const fy = ground.height + (query.roadHeight - ground.height) * this.blend(query);
+            const { key, prop } = bridgeProp(fx, fy, fz, CAMP_ASSET['rusty-corrugated-sheet'], Math.atan2(-uz, ux), .7);
+            let list = this.fences.get(key); if (!list) this.fences.set(key, list = []); list.push(prop);
+          }
+        }
+      }
+    }
+  }
 }

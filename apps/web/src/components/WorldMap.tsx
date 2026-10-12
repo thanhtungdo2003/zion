@@ -106,9 +106,18 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const road of atlas?.roads ?? []) {
       const a = to(road.ax, road.az), b = to(road.bx, road.bz);
-      ctx.strokeStyle = road.bridge ? '#92978e' : '#9a805a';
-      ctx.lineWidth = Math.max(.8, road.width * camera.scale);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const margin = road.width * camera.scale;
+      if (Math.max(a.x, b.x) < -margin || Math.min(a.x, b.x) > size.width + margin || Math.max(a.y, b.y) < -margin || Math.min(a.y, b.y) > size.height + margin) continue;
+      ctx.strokeStyle = road.bridge ? '#92978e' : road.paved ? '#606562' : '#9a805a';
+      // Short strokes approximate the smooth widening used by the physical roadbed.
+      const pieces = road.widthA !== road.widthB ? 6 : 1;
+      for (let i = 0; i < pieces; i++) {
+        const t = (i + .5) / pieces, u = t * t * (3 - 2 * t);
+        const width = (road.widthA ?? road.width) + ((road.widthB ?? road.width) - (road.widthA ?? road.width)) * u;
+        ctx.lineWidth = Math.max(.8, width * camera.scale);
+        ctx.beginPath(); ctx.moveTo(a.x + (b.x - a.x) * i / pieces, a.y + (b.y - a.y) * i / pieces);
+        ctx.lineTo(a.x + (b.x - a.x) * (i + 1) / pieces, a.y + (b.y - a.y) * (i + 1) / pieces); ctx.stroke();
+      }
     }
     ctx.lineCap = 'butt';
     if (atlas) for (const building of atlas.structures) {
