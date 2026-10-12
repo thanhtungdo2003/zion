@@ -1,8 +1,8 @@
-import { Group, Mesh, Quaternion, Vector3, type Camera } from 'three';
+import { Group, Matrix4, Mesh, Quaternion, Vector3, type Camera } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
-import { offhandLightPose } from './offhand-light';
+import { aimOffhandLight, offhandLightPose } from './offhand-light';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -16,6 +16,7 @@ export class ViewModel {
   private current: string | null = null;
   private offhandId: string | null = null;
   private offhandModel: Group | null = null;
+  private readonly offhandBase = new Matrix4();
   private readonly recoil = new RecoilSpring(22, .14);
   private bobPhase = 0;
   private bobAmount = 0;
@@ -115,7 +116,13 @@ export class ViewModel {
       }
     }
     obj.traverse(o => { if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
+    obj.updateMatrix(); this.offhandBase.copy(obj.matrix);
     this.pivot.add(obj); this.offhandModel = obj; this.offhandId = itemId;
+  }
+
+  /** Points the held flashlight along the view direction. */
+  aimOffhand(look: Vector3): void {
+    aimOffhandLight(this.offhandModel, this.offhandBase, look);
   }
 
   offhandLightPose(origin: Vector3, direction: Vector3): boolean {

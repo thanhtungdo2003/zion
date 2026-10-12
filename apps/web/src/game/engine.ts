@@ -116,6 +116,7 @@ import { DebrisSystem } from './render/debris';
 import { ParticleFX } from './render/particles';
 import { Minimap } from './render/minimap';
 import { CampLights } from './render/camp-lights';
+import { lookDirection } from './render/offhand-light';
 import { GroundItems } from './render/ground-items';
 import { CharacterPreview } from './render/character-preview';
 import { requestArmor } from './render/armor-models';
@@ -698,9 +699,10 @@ export class GameEngine {
    */
   private readonly torchOrigin = new Vector3();
   private readonly torchDirection = new Vector3();
+  private readonly torchLook = new Vector3();
 
   private updateFlashlights(): void {
-    type Carrier = { x: number; y: number; z: number; model: { offhandLightPose(origin: Vector3, direction: Vector3): boolean } };
+    type Carrier = { x: number; y: number; z: number; model: { offhandLightPose(origin: Vector3, direction: Vector3): boolean; aimOffhand(look: Vector3): void } };
     const local = this.local;
     const mine: Carrier | null = local && !local.dead && this.inventory.get().items.some(i => i.container === 'offhand' && i.itemId === 'flashlight')
       ? { x: local.state.x, y: local.state.y, z: local.state.z, model: (this.firstPerson ? this.viewModel : this.localAvatar)! }
@@ -710,6 +712,11 @@ export class GameEngine {
       .map(r => ({ x: r.avatar.root.position.x, y: r.avatar.root.position.y, z: r.avatar.root.position.z, model: r.avatar }))
       .sort((a, b) => Math.hypot(a.x - (local?.state.x ?? 0), a.z - (local?.state.z ?? 0)) - Math.hypot(b.x - (local?.state.x ?? 0), b.z - (local?.state.z ?? 0)))
       .slice(0, 3);
+    // Held lights point where their carrier looks, not wherever the hand animation swings them.
+    if (mine) mine.model.aimOffhand(lookDirection(this.shotYaw, this.shotPitch, this.torchLook));
+    for (const r of this.remotes.values()) {
+      if (r.entity.kind === EntityKind.Player && r.entity.pose.flags & EntityFlags.Flashlight) r.avatar.aimOffhand(lookDirection(r.entity.pose.yaw, r.entity.pose.pitch, this.torchLook));
+    }
     const slots = [mine, ...others];
     this.torches.forEach((light, index) => {
       const carrier = slots[index];

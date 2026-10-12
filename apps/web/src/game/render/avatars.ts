@@ -1,5 +1,5 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, CanvasTexture, Matrix4, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -9,7 +9,7 @@ import { armorPieces } from './armor-models';
 import { RifleGrip } from './rifle-grip';
 import { WeaponAim } from './weapon-aim';
 import { MeleeEdge } from './melee-edge';
-import { offhandLightPose } from './offhand-light';
+import { aimOffhandLight, offhandLightPose } from './offhand-light';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -87,6 +87,7 @@ const BACK_SCALE = 1.3;
 export class Avatar {
   private offhandId: string | null = null;
   private offhandObject: Object3D | null = null;
+  private offhandBase: Matrix4 | null = null;
   private weaponAim: WeaponAim | null = null;
   private readonly meleeEdge = new MeleeEdge();
   /** Animals: the body always faces the yaw (no head-then-body turning). */
@@ -557,7 +558,13 @@ export class Avatar {
     const obj = visual.object.clone(true);
     obj.name = 'offhand-item'; obj.matrixAutoUpdate = false; obj.matrix.copy(visual.offhandAttach);
     obj.traverse(o => { if (o instanceof Mesh) o.castShadow = false; });
-    hand.add(obj); this.offhandObject = obj; this.offhandId = itemId;
+    hand.add(obj); this.offhandObject = obj; this.offhandId = itemId; this.offhandBase = visual.offhandAttach.clone();
+  }
+
+  /** Points held gear (the flashlight) where this character looks. */
+  aimOffhand(look: Vector3): void {
+    const base = this.offhandId ? this.offhandBase : null;
+    if (base) aimOffhandLight(this.offhandObject, base, look);
   }
 
   offhandLightPose(origin: Vector3, direction: Vector3): boolean {

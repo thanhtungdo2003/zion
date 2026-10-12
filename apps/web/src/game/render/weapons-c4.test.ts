@@ -4,6 +4,7 @@ import { Box3, PerspectiveCamera, Vector3 } from 'three';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
 import { ViewModel } from './viewmodel';
+import { lookDirection } from './offhand-light';
 import { BB_UNITS_PER_METER, buildBBModel, type RawModel } from './character-model';
 import type * as CharacterModel from './character-model';
 import { loadWeapons, type WeaponLibrary } from './weapons';
@@ -54,6 +55,24 @@ describe('C4 supplied models', () => {
     expect(view.offhandLightPose(origin, direction)).toBe(false);
     expect(avatar.offhandLightPose(origin, direction)).toBe(false);
     view.dispose();
+  });
+  it('points the held flashlight beam along the view direction through swings', () => {
+    const avatar = new Avatar(character, true), camera = new PerspectiveCamera(), view = new ViewModel(camera);
+    avatar.setOffhand('flashlight', weapons); view.setOffhand('flashlight', weapons);
+    avatar.setWeapon('fire_axe', weapons); avatar.setStance('melee'); view.set('fire_axe', weapons);
+    avatar.slash(); view.swing(1);
+    const origin = new Vector3(), direction = new Vector3(), look = new Vector3();
+    for (let frame = 0; frame < 30; frame++) {
+      const yaw = frame * .2, pitch = -.4 + frame * .03;
+      avatar.update(0, 0, 0, yaw, EntityFlags.Grounded, 1 / 60, frame / 60);
+      view.update(1 / 60, { visible: true, moving: true, sprint: false, reloading: false, yaw, pitch });
+      lookDirection(yaw, pitch, look);
+      for (const rig of [avatar, view]) {
+        rig.aimOffhand(look);
+        expect(rig.offhandLightPose(origin, direction)).toBe(true);
+        expect(direction.dot(look)).toBeCloseTo(1, 5);
+      }
+    }
   });
   it('holds the rifle handguard or pistol grip with the character left arm through sway and recoil', () => {
     const camera = new PerspectiveCamera(), view = new ViewModel(camera);

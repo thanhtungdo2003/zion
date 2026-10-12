@@ -10,7 +10,7 @@ describe('real-scale vehicle models', () => {
     { id: VEHICLE_ASSET.motorcycle, size: [.85, 1.25, 2.15] },
     { id: VEHICLE_ASSET.car, size: [2.4, 1.75, 4.5] },
     { id: VEHICLE_ASSET.bus, size: [10.5, 3.2, 2.5] },
-    { id: CAMP_ASSET['old-rusty-tank'], size: [4.2, 3.6, 9] },
+    { id: CAMP_ASSET['old-rusty-tank'], size: [8.4, 7.2, 18] },
   ])('loads model $id at human-relative dimensions with matching collision', async ({ id, size }) => {
     const def = registry.byNumericId(id)!;
     if (def.model.kind !== 'bbmodel') throw new Error('vehicle must use its authored model');
