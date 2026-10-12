@@ -27,6 +27,34 @@ beforeAll(async () => {
 });
 
 describe('C4 supplied models', () => {
+  it('holds offhand gear and derives the beam from the actual lens during swings and recoil', () => {
+    const avatar = new Avatar(character, true), camera = new PerspectiveCamera(), view = new ViewModel(camera);
+    avatar.setOffhand('flashlight', weapons); view.setOffhand('flashlight', weapons);
+    const origin = new Vector3(), direction = new Vector3();
+    for (const id of ['fire_axe', 'katana', 'pkm', 'gl18']) {
+      avatar.setWeapon(id, weapons); avatar.setStance(id === 'gl18' ? 'pistol' : id === 'pkm' ? 'rifle' : 'melee');
+      view.set(id, weapons);
+      avatar.slash(); view.swing(1);
+      for (let frame = 0; frame < 30; frame++) {
+        if (frame === 5) { avatar.kick(.1); view.kick(); }
+        avatar.update(0, 0, 0, frame * .05, EntityFlags.Grounded, 1 / 60, frame / 60);
+        view.update(1 / 60, { visible: true, moving: true, sprint: false, reloading: false, yaw: frame * .05, pitch: .2 });
+        for (const [rig, model] of [[avatar, avatar.root.getObjectByName('offhand-item')!], [view, camera.getObjectByName('first-person-offhand')!]] as const) {
+          expect(rig.offhandLightPose(origin, direction)).toBe(true);
+          expect(origin.distanceTo(model.getObjectByName('weapon-emitter')!.getWorldPosition(new Vector3()))).toBeLessThan(1e-6);
+          const expected = (rig === avatar ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0)).transformDirection(model.matrixWorld);
+          expect(direction.dot(expected)).toBeCloseTo(1, 6);
+        }
+      }
+    }
+    view.set(null, weapons);
+    view.update(.1, { visible: true, moving: false, sprint: false, reloading: false, yaw: 0, pitch: 0 });
+    expect(camera.children[0]!.visible).toBe(true);
+    view.setOffhand(null, weapons); avatar.setOffhand(null, weapons);
+    expect(view.offhandLightPose(origin, direction)).toBe(false);
+    expect(avatar.offhandLightPose(origin, direction)).toBe(false);
+    view.dispose();
+  });
   it('holds the rifle handguard or pistol grip with the character left arm through sway and recoil', () => {
     const camera = new PerspectiveCamera(), view = new ViewModel(camera);
     for (const id of ['ak47', 'pkm', 'barrett', 'gl18', 'revolver']) {

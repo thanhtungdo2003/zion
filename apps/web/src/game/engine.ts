@@ -684,57 +684,35 @@ export class GameEngine {
    * Flashlights in the off hand switch on by themselves at night: a cone ahead of each carrier
    * (us first, then the nearest other players; a small fixed pool of lights).
    */
-  private updateFlashlights(): void {
-    type Carrier = { x: number; y: number; z: number; yaw: number; dark: number; pitch?: number };
-    const l = this.local;
-    // Slot 0 is always ours (the shadow-casting light), 1–3 the nearest other carriers.
-    let mine: Carrier | null = null;
-    if (l && !l.dead && this.inventory.get().items.some((i) => i.container === 'offhand' && i.itemId === 'flashlight')) {
-      mine = { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.input.yaw, dark: this.darkness(l.state.x, l.state.y, l.state.z), pitch: this.mouseLook ? this.input.pitch : undefined };
-    }
-    const others: Carrier[] = [...this.remotes.values()]
-      .filter((r) => r.entity.kind === EntityKind.Player && (r.entity.pose.flags & EntityFlags.Flashlight) && !(r.entity.pose.flags & EntityFlags.Dead))
-      .map((r) => ({ x: r.avatar.root.position.x, y: r.avatar.root.position.y, z: r.avatar.root.position.z, yaw: r.entity.pose.yaw, dark: 0 }))
-      .sort((a, b) => (a.x - (l?.state.x ?? 0)) ** 2 + (a.z - (l?.state.z ?? 0)) ** 2 - ((b.x - (l?.state.x ?? 0)) ** 2 + (b.z - (l?.state.z ?? 0)) ** 2))
-      .slice(0, 3);
-    for (const o of others) o.dark = this.darkness(o.x, o.y, o.z);
-    const slots = [mine, ...others];
-    this.torches.forEach((t, i) => {
-      const c = slots[i];
-      // On only where it is actually dark (night, under a roof, away from lamps).
-      if (!c || c.dark < 0.45) { t.intensity = 0; return; }
-      if (c.pitch !== undefined) { this.aimTorch(t, c); return; }
-      const fx = -Math.sin(c.yaw);
-      const fz = -Math.cos(c.yaw);
-      const oy = c.y + 1.3;
-      // The beam ends at the first wall straight ahead (others' lights have no shadow map).
-      const hit = this.store?.collision.raycast(c.x, oy, c.z, fx, 0, fz, 26, Mask.LineOfSight, this.torchHit);
-      const wall = hit ? this.torchHit.t : 26;
-      // Shine from just past the muzzle so the held gun doesn't shadow its own beam (but never
-      // from beyond a wall the player is facing).
-      const lead = Math.max(0.2, Math.min(1.25, wall - 0.25));
-      t.position.set(c.x + fx * lead, oy, c.z + fz * lead);
-      t.target.position.set(c.x + fx * 12, c.y + 0.2, c.z + fz * 12);
-      t.distance = hit ? Math.max(2, wall + 1.2) : 26;
-      t.intensity = 60 * Math.min(1, (c.dark - 0.45) / 0.3 + 0.35);
-    });
-  }
+  private readonly torchOrigin = new Vector3();
+  private readonly torchDirection = new Vector3();
 
-  /** First person: the beam follows the view (yaw and pitch) from the eye, like a head/gun light. */
-  private aimTorch(t: SpotLight, c: { yaw: number; pitch?: number; dark: number }): void {
-    const cam = this.camera.position;
-    const p = c.pitch ?? 0;
-    const fx = -Math.sin(c.yaw) * Math.cos(p);
-    const fy = Math.sin(p);
-    const fz = -Math.cos(c.yaw) * Math.cos(p);
-    const hit = this.store?.collision.raycast(cam.x, cam.y, cam.z, fx, fy, fz, 26, Mask.LineOfSight, this.torchHit);
-    const wall = hit ? this.torchHit.t : 26;
-    // Slightly below and right of the eye (the gun), never past a wall right in front.
-    const lead = Math.max(0.1, Math.min(0.5, wall - 0.2));
-    t.position.set(cam.x + fx * lead + Math.cos(c.yaw) * 0.15, cam.y - 0.15 + fy * lead, cam.z + fz * lead - Math.sin(c.yaw) * 0.15);
-    t.target.position.set(cam.x + fx * 12, cam.y + fy * 12, cam.z + fz * 12);
-    t.distance = hit ? Math.max(2, wall + 1.2) : 26;
-    t.intensity = 60 * Math.min(1, (c.dark - 0.45) / 0.3 + 0.35);
+  private updateFlashlights(): void {
+    type Carrier = { x: number; y: number; z: number; model: { offhandLightPose(origin: Vector3, direction: Vector3): boolean } };
+    const local = this.local;
+    const mine: Carrier | null = local && !local.dead && this.inventory.get().items.some(i => i.container === 'offhand' && i.itemId === 'flashlight')
+      ? { x: local.state.x, y: local.state.y, z: local.state.z, model: (this.firstPerson ? this.viewModel : this.localAvatar)! }
+      : null;
+    const others: Carrier[] = [...this.remotes.values()]
+      .filter(r => r.entity.kind === EntityKind.Player && (r.entity.pose.flags & EntityFlags.Flashlight) && !(r.entity.pose.flags & EntityFlags.Dead))
+      .map(r => ({ x: r.avatar.root.position.x, y: r.avatar.root.position.y, z: r.avatar.root.position.z, model: r.avatar }))
+      .sort((a, b) => Math.hypot(a.x - (local?.state.x ?? 0), a.z - (local?.state.z ?? 0)) - Math.hypot(b.x - (local?.state.x ?? 0), b.z - (local?.state.z ?? 0)))
+      .slice(0, 3);
+    const slots = [mine, ...others];
+    this.torches.forEach((light, index) => {
+      const carrier = slots[index];
+      const dark = carrier ? this.darkness(carrier.x, carrier.y, carrier.z) : 0;
+      if (!carrier?.model || dark < .45 || !carrier.model.offhandLightPose(this.torchOrigin, this.torchDirection)) {
+        light.intensity = 0; return;
+      }
+      const origin = this.torchOrigin, direction = this.torchDirection;
+      light.position.copy(origin);
+      light.target.position.copy(origin).addScaledVector(direction, 12);
+      light.target.updateMatrixWorld(true);
+      const hit = this.store?.collision.raycast(origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, 26, Mask.LineOfSight, this.torchHit);
+      light.distance = hit ? Math.max(.1, this.torchHit.t + .08) : 26;
+      light.intensity = 60 * Math.min(1, (dark - .45) / .3 + .35);
+    });
   }
 
   private readonly torchHit = makeRayHit();
@@ -1377,6 +1355,8 @@ export class GameEngine {
     if (equipped !== this.recoilWeapon) { this.recoil.reset(); this.recoilWeapon = equipped; }
     // Equip before firing ticks so a swap cannot clear the first shot's recoil.
     this.viewModel?.set(this.inventory.equippedItemId(), this.weapons);
+    const offhand = this.inventory.get().items.find(i => i.container === 'offhand')?.itemId ?? null;
+    this.viewModel?.setOffhand(offhand, this.weapons);
     if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
       // Change the actual input pitch so the camera, centre reticle and authoritative shots agree.
       this.input.pitch = this.recoil.apply(this.input.pitch, dt);
@@ -1413,6 +1393,7 @@ export class GameEngine {
       const pose = r.entity.sample(renderTime);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
       r.avatar.setWeapon(itemId, this.weapons);
+      r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
       r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
       r.avatar.setAimPitch(pose.pitch);
@@ -1459,7 +1440,6 @@ export class GameEngine {
     }
     this.updateCampfires(px, pz, now);
     this.updateFootsteps(dt);
-    this.updateFlashlights();
     // Quest items: settle them on the ground once their terrain has streamed in.
     if (now - this.lastDropFix > 1000) {
       this.lastDropFix = now;
@@ -1468,6 +1448,7 @@ export class GameEngine {
     }
     this.localAvatar?.setStance(this.inventory.stance());
     this.localAvatar?.setWeapon(this.inventory.equippedItemId(), this.weapons);
+    this.localAvatar?.setOffhand(offhand, this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
@@ -1502,6 +1483,7 @@ export class GameEngine {
       distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
       this.viewModel.aimAt(this.tmpC.copy(ray.direction).multiplyScalar(Math.max(1, distance)).add(ray.origin));
     }
+    this.updateFlashlights();
     for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
     const scopeSpec = weaponSpec(this.equippedWeapon());

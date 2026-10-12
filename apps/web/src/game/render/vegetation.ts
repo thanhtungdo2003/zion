@@ -28,6 +28,7 @@ const GRASS_DENSITY: Partial<Record<Surface, number>> = {
   [Surface.Dirt]: 0.12,
   [Surface.Sand]: 0.04,
   [Surface.Gravel]: 0.05,
+  [Surface.RoadVerge]: 0.65,
 };
 const FLOWER_DENSITY: Partial<Record<Surface, number>> = {
   [Surface.Grass]: 0.07,
@@ -297,7 +298,7 @@ export class VegetationRenderer {
         const meadow = patch(64, 0x94);
         const reedBed = patch(24, 0xa6);
         const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
-        const lush = surface === Surface.Grass || surface === Surface.DryGrass;
+        const lush = surface === Surface.Grass || surface === Surface.DryGrass || surface === Surface.RoadVerge;
         // Skip cliff faces; sample the same triangle heightfield used by the terrain.
         const slope = Math.hypot(
           chunkHeightAtLocal(chunk, Math.min(CHUNK_SIZE, lx + 0.35), lz) - y,

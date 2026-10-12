@@ -21,6 +21,7 @@ import { Hydrology, type RiverQuery } from './hydrology';
 import { CAMP_PAD, CAMP_BLEND, campDistance, campChunkProps, findCampSite, type CampSite } from './camp';
 import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
+import { RoadNetwork } from './roads';
 
 export const enum WaterKind {
   None = 0,
@@ -40,6 +41,9 @@ export interface ColumnSample {
   /** 0..1 strength of river influence (1 = in channel). */
   river: number;
   base: BaseSample;
+  roadDistance: number;
+  roadHeight: number;
+  roadAlong: number;
 }
 
 export function makeColumnSample(): ColumnSample {
@@ -51,6 +55,9 @@ export function makeColumnSample(): ColumnSample {
     humidity: 0,
     river: 0,
     base: makeBaseSample(),
+    roadDistance: Infinity,
+    roadHeight: 0,
+    roadAlong: 0,
   };
 }
 
@@ -73,6 +80,11 @@ export class WorldGenerator {
   readonly hydrology: Hydrology;
   private readonly rq: RiverQuery = { dist: 0, halfWidth: 0, surface: 0, depth: 0 };
   private readonly scratch = makeColumnSample();
+  private roadNetwork: RoadNetwork | null = null;
+  get roads(): RoadNetwork | null {
+    if (this.config.generatorVersion < 3 || this.rawTerrain) return null;
+    return this.roadNetwork ??= new RoadNetwork(this);
+  }
 
   constructor(
     input: WorldConfigInput,
@@ -81,7 +93,7 @@ export class WorldGenerator {
     this.config = parseWorldConfig(input);
     this.worldSize = this.config.sizeChunks * CHUNK_SIZE;
     this.seaLevel = this.config.seaLevel;
-    this.fields = new WorldFields(this.config.seed, this.worldSize);
+    this.fields = new WorldFields(this.config.seed, this.worldSize, this.config.generatorVersion >= 3 ? .42 : 1);
     this.hydrology = new Hydrology(this.fields, this.worldSize, this.seaLevel);
     if (this.config.generatorVersion >= 2) this.camp = findCampSite(this);
     this.rawTerrain = false;
@@ -105,6 +117,7 @@ export class WorldGenerator {
   /* --------------------------------- column sampling -------------------------------------- */
 
   sampleColumn(x: number, z: number, out: ColumnSample = makeColumnSample()): ColumnSample {
+    const roads = this.roads;
     const b = this.fields.base(x, z, out.base);
     const sea = this.seaLevel;
     const macro = sea + b.rel;
@@ -145,6 +158,13 @@ export class WorldGenerator {
       kind = WaterKind.Lake;
     }
     if (kind === WaterKind.None && h < sea) kind = WaterKind.Sea;
+
+    out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
+    if (roads) {
+      roads.query(x, z, out);
+      h += (out.roadHeight - h) * roads.blend(out);
+      if (h >= sea && (!Number.isFinite(water) || h >= water + .05)) { water = NaN; kind = WaterKind.None; }
+    }
 
     if (this.camp) {
       const d = campDistance(this.camp, x, z);
@@ -296,7 +316,7 @@ export class WorldGenerator {
         biome[idx] = b;
         surface[idx] = this.camp && campDistance(this.camp, x, z) <= CAMP_PAD
           ? (Math.abs(x - this.camp.x) < 5 || Math.abs(z - this.camp.z - 30) < 3 ? Surface.Gravel : Surface.Dirt)
-          : insideStructure(this, x, z, 0) ? Surface.Dirt : this.classifySurface(s, b, slope, x, z);
+          : insideStructure(this, x, z, 0) ? Surface.Dirt : this.roads?.surface(s, x, z) ?? this.classifySurface(s, b, slope, x, z);
         temperature[idx] = Math.round(s.temperature * 255);
         humidity[idx] = Math.round(s.humidity * 255);
         water[idx] = s.water === s.water ? quantizeHeight(s.water) : 0;
@@ -306,6 +326,7 @@ export class WorldGenerator {
     const props: PropInstance[] = lod <= PROPS_MAX_LOD ? scatterChunkProps(this, cx, cz) : [];
     if (this.camp && lod <= PROPS_MAX_LOD) props.push(...campChunkProps(this.camp, cx, cz));
     if (lod <= PROPS_MAX_LOD) props.push(...structureChunkProps(this, cx, cz));
+    if (lod <= PROPS_MAX_LOD) props.push(...this.roads?.chunkProps(cx, cz) ?? []);
     return {
       cx,
       cz,

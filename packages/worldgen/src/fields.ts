@@ -61,6 +61,7 @@ export class WorldFields {
   constructor(
     readonly seed: number,
     readonly worldSize: number,
+    private readonly mountainScale = 1,
   ) {
     const sub = (salt: number) => new Simplex2(hashCombine(seed, salt));
     this.warpA = sub(101);
@@ -109,7 +110,7 @@ export class WorldFields {
       smoothstep(0.06, 0.4, this.mountainMask.fbm(x / 2100, z / 2100, 3) + 0.08) * smoothstep(0.05, 0.26, c);
     if (mountain > 0) {
       const r = this.ridges.ridged(wx / 720, wz / 720, 5);
-      rel += mountain * (r * r * 330 + 16);
+      rel += mountain * (r * r * 330 + 16) * this.mountainScale;
     }
     rel += this.hills.fbm(x / 330, z / 330, 4) * 12 * land * (1 - mountain * 0.5);
 
@@ -137,7 +138,7 @@ export class WorldFields {
   /** Small-scale relief added on top of macro height (metres). */
   detail(x: number, z: number, mountain: number): number {
     let d = this.detailA.fbm(x / 42, z / 42, 3) * 1.3 + this.detailB.fbm(x / 9, z / 9, 2) * 0.22;
-    if (mountain > 0.05) d += mountain * this.rock.ridged(x / 26, z / 26, 3) * 5;
+    if (mountain > 0.05) d += mountain * this.rock.ridged(x / 26, z / 26, 3) * 5 * this.mountainScale;
     return d;
   }
 

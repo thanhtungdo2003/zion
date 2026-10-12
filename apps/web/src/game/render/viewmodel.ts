@@ -2,6 +2,7 @@ import { Group, Mesh, Quaternion, Vector3, type Camera } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
+import { offhandLightPose } from './offhand-light';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -13,6 +14,8 @@ export class ViewModel {
   private readonly pivot = new Group();
   private readonly models = new Map<string, Group>();
   private current: string | null = null;
+  private offhandId: string | null = null;
+  private offhandModel: Group | null = null;
   private readonly recoil = new RecoilSpring(22, .14);
   private bobPhase = 0;
   private bobAmount = 0;
@@ -91,6 +94,34 @@ export class ViewModel {
     this.strikeAxes = weapons?.get(itemId)?.melee?.display ?? null;
   }
 
+  /** Off-hand gear shares the action pivot, so its light follows its visible orientation. */
+  setOffhand(itemId: string | null, weapons: WeaponLibrary | null): void {
+    if (itemId === this.offhandId) return;
+    this.offhandModel?.removeFromParent(); this.offhandModel = null; this.offhandId = null;
+    const visual = itemId ? weapons?.get(itemId) : null;
+    if (!visual) return;
+    const obj = visual.display.clone(true);
+    obj.name = 'first-person-offhand';
+    obj.position.set(-.5, -.015, .025); obj.rotation.y = Math.PI / 2;
+    if (visual.offhandArm) {
+      const arm = visual.offhandArm.clone(true);
+      arm.name = 'first-person-offhand-arm';
+      arm.rotation.set(0, 0, 0); arm.scale.setScalar(.6);
+      const hand = arm.getObjectByName('hand_left');
+      if (hand) {
+        arm.quaternion.setFromUnitVectors(hand.position.clone().negate().normalize(), new Vector3(-.15, -.22, 0).normalize());
+        arm.position.copy(hand.position).multiplyScalar(-arm.scale.x).applyQuaternion(arm.quaternion);
+        obj.add(arm);
+      }
+    }
+    obj.traverse(o => { if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
+    this.pivot.add(obj); this.offhandModel = obj; this.offhandId = itemId;
+  }
+
+  offhandLightPose(origin: Vector3, direction: Vector3): boolean {
+    return offhandLightPose(this.offhandModel, origin, direction);
+  }
+
   /** A shot: kicks the gun back and up. */
   kick(strength = 1): void {
     this.recoil.kick(strength * .065);
@@ -140,7 +171,7 @@ export class ViewModel {
   }
 
   update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean }): void {
-    this.root.visible = s.visible && this.current !== null;
+    this.root.visible = s.visible && (this.current !== null || this.offhandId !== null);
     this.fireHold = Math.max(0, this.fireHold - dt);
     const firing = !s.reloading && (s.firing || this.fireHold > 0) ? 1 : 0;
     this.firing += (firing - this.firing) * (1 - Math.exp(-dt * (firing ? 24 : 9)));
@@ -207,7 +238,7 @@ export class ViewModel {
     const relaxed = 1 - this.firing;
     this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.25 + this.recoil.offset * .6 + az);
     const supportArm = this.current ? this.supportArms.get(this.current) : null;
-    if (supportArm) supportArm.visible = !s.reloading;
+    if (supportArm) supportArm.visible = !s.reloading && !this.offhandId;
     this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
     const model = this.current ? this.models.get(this.current) : null;
     if (model && this.strikeAxes) {

@@ -9,6 +9,7 @@ import { armorPieces } from './armor-models';
 import { RifleGrip } from './rifle-grip';
 import { WeaponAim } from './weapon-aim';
 import { MeleeEdge } from './melee-edge';
+import { offhandLightPose } from './offhand-light';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -84,6 +85,8 @@ const BACK_SCALE = 1.3;
 
 /** Player character built from the preloaded Blockbench model, driven by its own animation clips. */
 export class Avatar {
+  private offhandId: string | null = null;
+  private offhandObject: Object3D | null = null;
   private weaponAim: WeaponAim | null = null;
   private readonly meleeEdge = new MeleeEdge();
   /** Animals: the body always faces the yaw (no head-then-body turning). */
@@ -543,6 +546,22 @@ export class Avatar {
       this.weaponObjects.set(itemId, entry);
     }
     entry.obj.visible = true;
+  }
+
+  setOffhand(itemId: string | null, weapons: WeaponLibrary | null): void {
+    if (itemId === this.offhandId) return;
+    this.offhandObject?.removeFromParent(); this.offhandObject = null; this.offhandId = null;
+    const visual = itemId ? weapons?.get(itemId) : null;
+    const hand = this.bones.get('hand_left')?.node;
+    if (!visual?.offhandAttach || !hand) return;
+    const obj = visual.object.clone(true);
+    obj.name = 'offhand-item'; obj.matrixAutoUpdate = false; obj.matrix.copy(visual.offhandAttach);
+    obj.traverse(o => { if (o instanceof Mesh) o.castShadow = false; });
+    hand.add(obj); this.offhandObject = obj; this.offhandId = itemId;
+  }
+
+  offhandLightPose(origin: Vector3, direction: Vector3): boolean {
+    return offhandLightPose(this.offhandObject, origin, direction);
   }
 
   /**

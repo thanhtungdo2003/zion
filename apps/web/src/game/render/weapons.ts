@@ -23,6 +23,7 @@ interface WeaponSpec {
   edge?: Vec3;
   /** Centre of the blade/head in authored pixels, used to measure the swing. */
   strikePoint?: Vec3;
+  emitter?: Vec3;
   /** Left palm under the handguard, for the two-handed lobby pose. */
   support?: Vec3;
   /** Trigger hand for the authored patrol pose (the lobby rig carries the stock on its left locator). */
@@ -100,7 +101,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   proj_c4: { url: '/models/weapons/c4-bomb.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-3, 0, 0] },
 };
 
-WEAPON_SPECS.flashlight = { url: '/models/tools/flashlight.bbmodel', length: 0.22, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 2, 0] };
+WEAPON_SPECS.flashlight = { url: '/models/tools/flashlight.bbmodel', length: 0.22, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 2, 0], emitter: [0, 2, 9] };
 
 // Food and resources: inventory icons (and held/ground models).
 for (const [item, file] of Object.entries({ potato: 'potato', potato_cooked: 'potato-cooked', raw_mutton: 'raw-mutton', raw_porkchop: 'raw-porkchop', cooked_mutton: 'cooked-mutton', cooked_porkchop: 'cooked-porkchop', nuclear_cell: 'nuclear-power-cell', coal_carton: 'coal-in-old-carton' })) {
@@ -120,6 +121,8 @@ export interface WeaponVisual {
   object: Group;
   /** Transform relative to the right-hand bone. */
   attach: Matrix4;
+  offhandAttach?: Matrix4;
+  offhandArm?: Object3D;
   /** Authored bore axes and grip, independent of the animated wrist orientation. */
   aim?: { barrel: Vector3; up: Vector3; grip: Vector3 };
   melee?: { held: StrikeAxes; display: StrikeAxes };
@@ -158,12 +161,12 @@ function frame(forward: Vector3, up: Vector3): Matrix4 {
  * solves the hand-local transform that puts the grip in the fist with the muzzle pointing
  * forward and the top facing up. Walk/attack clips then carry the gun along with the hand.
  */
-function fitToHand(character: CharacterTemplate, spec: WeaponSpec, stance: Stance, weaponRoot: Group): Matrix4 {
+function fitToHand(character: CharacterTemplate, spec: WeaponSpec, stance: Stance, weaponRoot: Group, side: 'left' | 'right' = 'right'): Matrix4 {
   const avatar = new Avatar(character, true);
   avatar.setStance(stance);
   for (let i = 0; i < 3; i++) avatar.update(0, 0, 0, 0, EntityFlags.Grounded, 0.25, 0);
   avatar.root.updateMatrixWorld(true);
-  const hand = avatar.root.getObjectByName('hand_right');
+  const hand = avatar.root.getObjectByName(`hand_${side}`);
   if (!hand) throw new Error('character has no hand_right bone');
 
   const scale = ((spec.muzzle ? HELD_GUN_SCALE : 1) * spec.length) / Math.max(1e-3, measureAlong(weaponRoot, new Vector3(...spec.barrel)));
@@ -193,13 +196,17 @@ function displayModel(spec: WeaponSpec, root: Group): Group {
     .multiply(new Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z));
   const outer = new Group();
   outer.add(inner);
-  for (const key of ['muzzle', 'eject'] as const) {
+  for (const key of ['muzzle', 'eject', 'emitter'] as const) {
     const point = spec[key];
     if (!point) continue;
     const marker = new Group();
     marker.name = `weapon-${key}`;
     marker.position.set(...point).multiplyScalar(1 / BB_UNITS_PER_METER).applyMatrix4(inner.matrix);
     outer.add(marker);
+    if (key === 'emitter') {
+      const direction = new Group(); direction.name = 'weapon-light-direction';
+      direction.position.copy(marker.position).add(new Vector3(1, 0, 0)); outer.add(direction);
+    }
   }
   return outer;
 }
@@ -241,6 +248,13 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         }),
       ) as RawModel;
       const built = await buildBBModel(raw);
+      if (spec.emitter) {
+        const lens = new Group(); lens.name = 'weapon-emitter';
+        lens.position.set(...spec.emitter).multiplyScalar(1 / BB_UNITS_PER_METER);
+        const direction = new Group(); direction.name = 'weapon-light-direction';
+        direction.position.copy(lens.position).add(new Vector3(...spec.barrel));
+        built.root.add(lens, direction);
+      }
       ownedRoots.push(built.root);
       const stance = ITEMS[itemId]?.stance ?? 'rifle';
       const local = (p?: Vec3) => (p ? new Vector3(...p).multiplyScalar(1 / BB_UNITS_PER_METER) : null);
@@ -256,6 +270,8 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         itemId,
         object: built.root,
         attach: fitToHand(character, spec, stance, built.root),
+        ...(ITEMS[itemId]?.category === 'tool' ? { offhandAttach: fitToHand(character, spec, stance, built.root, 'left') } : {}),
+        ...(ITEMS[itemId]?.category === 'tool' && character.root.getObjectByName('arm_left') ? { offhandArm: character.root.getObjectByName('arm_left')! } : {}),
         ...(spec.muzzle ? { aim: { barrel: new Vector3(...spec.barrel), up: new Vector3(...spec.up), grip: local(spec.grip)! } } : {}),
         ...(spec.support ? { twoHandGrip: { grip: local(spec.grip)!, support: local(spec.support)!, up: new Vector3(...spec.up), triggerHand: spec.patrolTriggerHand ?? 'right' } } : {}),
         ...(heldAxes ? { melee: { held: heldAxes, display: {

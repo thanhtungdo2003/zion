@@ -15,6 +15,9 @@ const SURFACE_HEX: Record<Surface, number> = {
   [Surface.Rock]: 0x76726c,
   [Surface.Snow]: 0xeef2f6,
   [Surface.Seabed]: 0x8a8264,
+  [Surface.DirtRoad]: 0x80694c,
+  [Surface.WheelTrack]: 0x746049,
+  [Surface.RoadVerge]: 0x5e743f,
 };
 
 /** Linear-space copies (three.js lights in linear space). */
@@ -43,7 +46,7 @@ export function grassTint(temperature: number, humidity: number, out: Color): Co
 export function surfaceColor(surface: number, temperature: number, humidity: number, out: Color): Color {
   const base = SURFACE_LINEAR[surface] ?? SURFACE_LINEAR[Surface.Dirt]!;
   out.copy(base);
-  if (surface === Surface.Grass || surface === Surface.JungleFloor) {
+  if (surface === Surface.Grass || surface === Surface.JungleFloor || surface === Surface.RoadVerge) {
     grassTint(temperature, humidity, tmp);
     out.lerp(tmp, 0.75);
   } else if (surface === Surface.ForestFloor) {
