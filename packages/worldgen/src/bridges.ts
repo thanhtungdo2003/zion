@@ -85,16 +85,17 @@ export function buildBridgeProps(gen: WorldGenerator, bridges: readonly BridgeSp
     if (large && length >= 64 && hash3(gen.seed, index, 0, 0xcab) % 3 !== 0) {
       const along = Math.floor(length * .5 / tile) * tile, side = bridge.bay?.side ?? (index % 2 ? -1 : 1);
       const across = bridge.bay ? 12 : 6;
-      let p = point(along - (bridge.bay ? 10 : 0), side * across);
-      add(p.x, a.y, p.z, CAMP_ASSET['field-tent'], yaw, .5);
+      // Camp-sized tent; on a narrow shoulder it turns lengthwise and stays clear of the lane.
+      let p = point(along - (bridge.bay ? 10 : 0), side * (bridge.bay ? across : 5.8));
+      add(p.x, a.y, p.z, CAMP_ASSET['field-tent'], yaw + (bridge.bay ? 0 : Math.PI / 2), bridge.bay ? 1 : .9);
       p = point(along - (bridge.bay ? 3 : -7), side * across);
       add(p.x, a.y, p.z, CAMP_ASSET['military-wooden-crate'], yaw, 1);
       p = point(along - (bridge.bay ? 16 : 7), side * (across + .5));
-      add(p.x, a.y, p.z, CAMP_ASSET['rusty-oil-barrel'], yaw, .75);
+      add(p.x, a.y, p.z, CAMP_ASSET['rusty-oil-barrel'], yaw);
       // A tank occupies a long shoulder bay rather than either traffic lane.
       if (bridge.bay) {
         p = point(along + 10, side * across);
-        if (index % 2 === 0) add(p.x, a.y, p.z, CAMP_ASSET['old-rusty-tank'], yaw);
+        if (index % 2 === 0) add(p.x, a.y, p.z, CAMP_ASSET['old-rusty-tank'], yaw, .9); // 7.6 m wide: fills the 8 m bay.
         else add(p.x, a.y, p.z, VEHICLE_ASSET.bus, yaw + Math.PI / 2);
       } else if (length >= 80) {
         p = point(along + 15, -side * 6);

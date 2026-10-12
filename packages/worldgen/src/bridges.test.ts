@@ -121,13 +121,13 @@ describe('bridge road network', () => {
     }
   });
 
-  it('places real vehicle models in refuges and keeps tanks at full size', () => {
+  it('places real vehicle models in refuges and keeps bridge tanks near camp scale', () => {
     const ids = new Set<number>();
     for (const bridge of gen.roads!.bridges.filter(b => b.kind === 'large')) {
       const cx = Math.floor((bridge.a.x + bridge.b.x) / 2 / 32), cz = Math.floor((bridge.a.z + bridge.b.z) / 2 / 32);
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) for (const p of gen.roads!.chunkProps(cx + dx, cz + dz)) {
         ids.add(p.asset);
-        if (p.asset === CAMP_ASSET['old-rusty-tank']) expect(propTransform({ cx: cx + dx, cz: cz + dz }, p).scale).toBe(1);
+        if (p.asset === CAMP_ASSET['old-rusty-tank']) expect(propTransform({ cx: cx + dx, cz: cz + dz }, p).scale).toBeCloseTo(.9, 2);
       }
     }
     expect(ids.has(VEHICLE_ASSET.motorcycle)).toBe(true);
