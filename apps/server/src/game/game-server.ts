@@ -671,10 +671,10 @@ export class GameServer {
     void now;
   }
 
-  private hitAnimal(attacker: Player, animal: Livestock, damage: number, now: number, x = animal.state.x, y = animal.state.y + 0.5, z = animal.state.z): void {
+  private hitAnimal(attacker: Player | null, animal: Livestock, damage: number, now: number, x = animal.state.x, y = animal.state.y + 0.5, z = animal.state.z, fire = false): void {
     if (this.lifeBusy || animal.dead) return;
-    animal.hit(damage, attacker, now);
-    this.broadcastAt(animal.state.x, animal.state.z, { t: 'hit', attackerId: attacker.id, targetId: animal.id, damage, zone: 'torso', x, y, z });
+    animal.hit(damage, attacker, now, fire);
+    this.broadcastAt(animal.state.x, animal.state.z, { t: 'hit', attackerId: attacker?.id ?? 0, targetId: animal.id, damage, zone: fire ? 'fire' : 'torso', x, y, z });
     if (!animal.dead) return;
     this.dropAnimalLoot(animal);
     for (const p of this.players.values()) this.sendLife(p);
@@ -689,7 +689,7 @@ export class GameServer {
   private sendLife(p: Player): void {
     const camp = this.deps.world.generator.camp;
     const config = this.life.config;
-    const objects: Array<{ id: string; model: string; x: number; y: number; z: number }> = [];
+    const objects: Array<{ id: string; model: string; x: number; y: number; z: number; cooking?: boolean; expiresAt?: number }> = [];
     if (camp) {
       for (const item of [...config.plots, ...config.stations, ...(config.decorations ?? [])]) objects.push({ id: item.id, model: item.model, x: camp.x + item.x, y: camp.y, z: camp.z + item.z });
       for (const plot of config.plots) {
@@ -700,13 +700,14 @@ export class GameServer {
       }
     }
     for (const [id, animal] of this.animals) {
-      const model = config.itemModels?.[animal.def.lootItem];
+      const model = config.itemModels?.[animal.lootItem];
       if (animal.record.loot > 0 && model) objects.push({ id: `loot_${id}`, model, x: animal.state.x + 0.5, y: animal.state.y, z: animal.state.z });
     }
+    for (const coal of Object.values(this.lifeWorld.coals ?? {})) if (coal.expiresAt > Date.now()) objects.push({ ...coal, cooking: true, model: '/models/dists/glowing-coal-pile.bbmodel' });
     // The (large) config only when it is new to this player; world state on every change.
     const withConfig = p.lifeConfig !== config;
     p.lifeConfig = config;
-    p.session.sendJson({ t: 'baseLife', ...(withConfig ? { config } : {}), objects, plots: this.lifeWorld.plots, animalLoot: [...this.animals].filter(([, a]) => a.record.loot > 0).map(([id, a]) => ({ id, item: a.def.lootItem, quantity: a.record.loot, x: a.state.x, y: a.state.y, z: a.state.z })), ...this.lifeStats(p) });
+    p.session.sendJson({ t: 'baseLife', ...(withConfig ? { config } : {}), objects, plots: this.lifeWorld.plots, animalLoot: [...this.animals].filter(([, a]) => a.record.loot > 0).map(([id, a]) => ({ id, item: a.lootItem, quantity: a.record.loot, x: a.state.x, y: a.state.y, z: a.state.z })), ...this.lifeStats(p) });
   }
 
   /** Per-player stamina / timed action (small; sent every second). */
@@ -714,10 +715,26 @@ export class GameServer {
     return { stamina: p.life.stamina, capacity: p.life.capacity, action: p.lifeAction ? { end: p.lifeAction.end, kind: p.lifeAction.kind, ms: p.lifeAction.ms } : null };
   }
 
+  private cookingStation(p: Player, id: string, until = Date.now()): boolean {
+    const coal = this.lifeWorld.coals?.[id];
+    const camp = this.deps.world.generator.camp;
+    const station = this.life.config.stations.find(s => s.id === id);
+    const spot = coal && coal.expiresAt > until ? coal : !coal && camp && station ? { x: camp.x + station.x, y: camp.y, z: camp.z + station.z } : null;
+    return !!spot && Math.abs(p.state.y - spot.y) <= 3 && Math.hypot(p.state.x - spot.x, p.state.z - spot.z) <= this.life.config.interactionRange;
+  }
+
   private async onLife(p: Player, msg: Extract<ClientMessage, { t: 'life' }>): Promise<void> {
     if (p.dead || p.questBusy || p.lifeAction || this.lifeBusy) return;
-    if (msg.op === 'plant' || msg.op === 'cook' || msg.op === 'harvest') {
-      const spot = (msg.op === 'cook' ? this.life.config.stations : this.life.config.plots).find((s) => s.id === msg.target);
+    if (msg.op === 'cook') {
+      const batch = planCooking(this.life.config, p.inv.items);
+      if (!batch || !this.cookingStation(p, msg.target, Date.now() + batch.durationMs)) return;
+      p.lifeAction = { kind: 'cook', target: msg.target, choice: '', x: p.state.x, z: p.state.z,
+        end: Date.now() + batch.durationMs, ms: batch.durationMs, cookBatch: batch };
+      this.sendLife(p);
+      return;
+    }
+    if (msg.op === 'plant' || msg.op === 'harvest') {
+      const spot = this.life.config.plots.find((s) => s.id === msg.target);
       const camp = this.deps.world.generator.camp;
       if (!spot || !camp || Math.abs(p.state.y - camp.y) > 3 || Math.hypot(p.state.x - camp.x - spot.x, p.state.z - camp.z - spot.z) > this.life.config.interactionRange) return;
       if (msg.op === 'plant' && (this.lifeWorld.plots[spot.id] || this.plotLocks.has(spot.id))) return;
@@ -729,14 +746,6 @@ export class GameServer {
         this.plotLocks.set(spot.id, p.id);
         const ms = this.life.config.harvestMs ?? 3000;
         p.lifeAction = { kind: 'harvest', target: msg.target, choice: crop.id, x: p.state.x, z: p.state.z, end: Date.now() + ms, ms };
-        this.sendLife(p);
-        return;
-      }
-      if (msg.op === 'cook') {
-        const batch = planCooking(this.life.config, p.inv.items);
-        if (!batch) return;
-        p.lifeAction = { kind: 'cook', target: msg.target, choice: '', x: p.state.x, z: p.state.z,
-          end: Date.now() + batch.durationMs, ms: batch.durationMs, cookBatch: batch };
         this.sendLife(p);
         return;
       }
@@ -770,7 +779,7 @@ export class GameServer {
       ok = !!result;
       if (!result) p.session.sendJson({ t: 'error', code: 'invalid_message', message: 'Inventory full', fatal: false });
       if (result) event = { type: 'harvest', target: result.item, quantity: result.quantity };
-    } else if (msg.op === 'cook' && timed && cooking && close(this.life.config.stations.find((s) => s.id === msg.target), this.life.config.interactionRange)) {
+    } else if (msg.op === 'cook' && timed && cooking && this.cookingStation(p, msg.target)) {
       const result = this.life.cook(owner, cooking);
       ok = !!result;
       if (result) for (const item of result) cookingEvents.push({ type: 'cook', target: item.item, quantity: item.quantity });
@@ -783,9 +792,23 @@ export class GameServer {
       const record = world.animals?.[msg.target];
       if (animal && record && record.health <= 0 && record.loot > 0 && Math.abs(p.state.y - record.y) < 3 && Math.hypot(p.state.x - record.x, p.state.z - record.z) <= this.life.config.interactionRange) {
         ok = true;
-        for (let i = 0; i < record.loot; i++) if (!owner.inv.add(animal.def.lootItem)) { ok = false; break; }
-        if (ok) { event = { type: 'collect', target: animal.def.lootItem, quantity: record.loot }; record.loot = 0; }
+        for (let i = 0; i < record.loot; i++) if (!owner.inv.add(animal.lootItem)) { ok = false; break; }
+        if (ok) { event = { type: 'collect', target: animal.lootItem, quantity: record.loot }; record.loot = 0; }
       }
+    } else if (msg.op === 'ignite') {
+      const item = owner.inv.carriedItem(msg.uid ?? -1);
+      if (item?.itemId !== 'coal_carton') return;
+      const x = p.state.x - Math.sin(p.yaw) * 2, z = p.state.z - Math.cos(p.yaw) * 2;
+      if (!Number.isFinite(this.collision.terrainHeight(x, z))) return;
+      if (this.collision.raycast(p.state.x, p.state.y + 1, p.state.z, -Math.sin(p.yaw), 0, -Math.cos(p.yaw), 2.3, Mask.LineOfSight, this.blastHit)) return;
+      if (!this.collision.raycast(x, p.state.y + 1, z, 0, -1, 0, 3, Mask.LineOfSight, this.blastHit)) return;
+      const y = this.blastHit.y;
+      if (this.blastHit.ny < .8 || y <= this.collision.waterLevel(x, z) || Math.abs(y - p.state.y) > 1.5) return;
+      if (Object.values(world.coals ?? {}).some(c => c.expiresAt > Date.now() && Math.hypot(c.x - x, c.z - z) < 1.5)) return;
+      owner.inv.useCharge(item.uid);
+      const id = 'coal_' + randomUUID().replaceAll('-', '').slice(0, 24);
+      (world.coals ??= {})[id] = { id, x, y, z, expiresAt: Date.now() + 600_000 };
+      ok = true;
     } else if (msg.op === 'eat') ok = this.life.eat(owner, msg.uid ?? -1);
     if (!ok) return;
     if (event) this.quests.event(owner, event, Date.now());
@@ -1331,7 +1354,12 @@ export class GameServer {
     this.tick++;
     this.worldTimeMs += TICK_MS;
     const now = this.serverTime;
+
     this.chests.step();
+
+    if (!this.lifeBusy && this.life.expireCoals(this.lifeWorld, Date.now())) {
+      for (const p of this.players.values()) this.sendLife(p);
+    }
 
     if (!this.lifeBusy && this.life.growth(this.lifeWorld, Date.now())) {
       for (const p of this.players.values()) this.sendLife(p);
@@ -2125,6 +2153,15 @@ export class GameServer {
         if (zb.burnAt < now) zb.burnAt = now + 500;
       }
     }
+    for (const animal of this.animals.values()) {
+      if (!animal.active || animal.dead || !inCone(animal.state.x, animal.state.y + .5, animal.state.z)) continue;
+      this.hitAnimal(p, animal, spec.damage, now, animal.state.x, animal.state.y + .5, animal.state.z, true);
+      if (spec.burn && !animal.dead) {
+        animal.burnUntil = now + spec.burn.seconds * 1000;
+        animal.burnBy = p; animal.burnDps = spec.burn.dps;
+        if (animal.burnAt < now) animal.burnAt = now + 500;
+      }
+    }
     for (const t of this.grid.query(p.chunkX, p.chunkZ, 1, this.scratch)) {
       if (t === p || !t.active || t.dead || !inCone(t.state.x, t.state.y + 1, t.state.z)) continue;
       this.damage(p.id, t, spec.damage, 'fire', t.state.x, t.state.y + 1, t.state.z, now);
@@ -2148,6 +2185,12 @@ export class GameServer {
 
   /** Afterburn ticks for zombies set on fire. */
   private stepBurning(now: number): void {
+    for (const animal of this.animals.values()) {
+      if (this.lifeBusy || animal.dead || animal.burnUntil <= now || now < animal.burnAt) continue;
+      animal.burnAt = now + 500;
+      const owner = animal.burnBy && this.players.get(animal.burnBy.id) === animal.burnBy ? animal.burnBy : null;
+      this.hitAnimal(owner, animal, Math.max(1, Math.round(animal.burnDps * .5)), now, animal.state.x, animal.state.y + .5, animal.state.z, true);
+    }
     for (const zb of this.zombies.zombies.values()) {
       if (zb.dead || zb.burnUntil <= now || now < zb.burnAt) continue;
       zb.burnAt = now + 500;
@@ -2362,7 +2405,7 @@ export class GameServer {
       const z = animal.state.z + Math.sin(a) * d;
       const ground = this.collision.terrainHeight(x, z);
       const y = Number.isFinite(ground) && Math.abs(ground - animal.state.y) < 1.5 ? ground : animal.state.y;
-      const g = { itemId: animal.def.lootItem, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS, livestock: true };
+      const g = { itemId: animal.lootItem, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS, livestock: true };
       this.groundItems.set(id, g);
       items.push({ id, itemId: g.itemId, x: g.x, y: g.y, z: g.z });
     }

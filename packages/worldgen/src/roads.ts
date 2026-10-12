@@ -10,7 +10,7 @@ export const ROAD_HALF_WIDTH = 2.4;
 export const ROAD_SHOULDER = 2;
 export const ROAD_MAX_GRADE = .24;
 interface Node { x: number; z: number; y: number; fixed: boolean }
-export interface RoadSegment { a: Node; b: Node; length: number; bridge?: BridgeSpan }
+export interface RoadSegment { a: Node; b: Node; length: number; halfWidth: number; bridge?: BridgeSpan }
 export interface RoadQuery { roadDistance: number; roadHeight: number; roadAlong: number; roadBridge?: boolean; roadHalfWidth?: number; roadBridgeEnd?: number }
 interface Crossing { water: number; large: boolean }
 
@@ -282,9 +282,11 @@ export class RoadNetwork {
         bridge.bay = { side: this.bridges.length % 2 ? -1 : 1, start, end: start + 48 };
       }
       if (bridge) this.bridges.push(bridge);
-      const segment: RoadSegment = { a, b, length, ...(bridge ? { bridge } : {}) };
+      const distanceFromCamp = Math.hypot((a.x + b.x) * .5 - gen.camp!.x, (a.z + b.z) * .5 - gen.camp!.z);
+      const halfWidth = bridge?.halfWidth ?? (gen.config.generatorVersion >= 5 ? 1.5 + 1.9 * (1 - smoothstep(150, 1400, distanceFromCamp)) : ROAD_HALF_WIDTH);
+      const segment: RoadSegment = { a, b, length, halfWidth, ...(bridge ? { bridge } : {}) };
       this.segments.push(segment);
-      const margin = (bridge?.halfWidth ?? ROAD_HALF_WIDTH) + (bridge?.bay ? 8 : 0) + ROAD_SHOULDER;
+      const margin = halfWidth + (bridge?.bay ? 8 : 0) + ROAD_SHOULDER;
       for (let z = Math.floor((Math.min(a.z, b.z) - margin) / CHUNK_SIZE); z <= Math.floor((Math.max(a.z, b.z) + margin) / CHUNK_SIZE); z++) {
         for (let x = Math.floor((Math.min(a.x, b.x) - margin) / CHUNK_SIZE); x <= Math.floor((Math.max(a.x, b.x) + margin) / CHUNK_SIZE); x++) {
           const key = `${x}:${z}`;
@@ -297,13 +299,13 @@ export class RoadNetwork {
   query(x: number, z: number, out: RoadQuery): void {
     out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
     out.roadBridge = false; out.roadHalfWidth = ROAD_HALF_WIDTH; out.roadBridgeEnd = Infinity;
-    for (const { a, b, length, bridge } of this.buckets.get(`${Math.floor(x / CHUNK_SIZE)}:${Math.floor(z / CHUNK_SIZE)}`) ?? []) {
+    for (const { a, b, length, bridge, halfWidth } of this.buckets.get(`${Math.floor(x / CHUNK_SIZE)}:${Math.floor(z / CHUNK_SIZE)}`) ?? []) {
       const dx = b.x - a.x, dz = b.z - a.z;
       const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (length * length)));
       const distance = Math.hypot(x - a.x - dx * t, z - a.z - dz * t);
       if (distance >= out.roadDistance) continue;
       out.roadDistance = distance; out.roadHeight = a.y + (b.y - a.y) * t; out.roadAlong = t * length;
-      out.roadBridge = !!bridge; out.roadHalfWidth = bridge?.halfWidth ?? ROAD_HALF_WIDTH;
+      out.roadBridge = !!bridge; out.roadHalfWidth = halfWidth;
       if (bridge?.bay && t * length >= bridge.bay.start && t * length <= bridge.bay.end) out.roadHalfWidth += 8;
       out.roadBridgeEnd = bridge ? Math.min(t * length, (1 - t) * length) : Infinity;
     }
@@ -312,8 +314,9 @@ export class RoadNetwork {
   surface(sample: RoadQuery, x: number, z: number): Surface | null {
     if (sample.roadBridge) return null;
     const d = sample.roadDistance;
-    if (d > ROAD_HALF_WIDTH + ROAD_SHOULDER) return null;
-    if (d > ROAD_HALF_WIDTH) return Surface.RoadVerge;
+    const width = sample.roadHalfWidth ?? ROAD_HALF_WIDTH;
+    if (d > width + ROAD_SHOULDER) return null;
+    if (d > width) return Surface.RoadVerge;
     // Broad, faded ruts; broken patches keep the track from looking freshly painted.
     const worn = .25 + .15 * Math.sin(x * .17 + z * .13);
     return Math.abs(d - .95) < worn ? Surface.WheelTrack : Surface.DirtRoad;
@@ -321,14 +324,15 @@ export class RoadNetwork {
 
   blend(sample: RoadQuery): number {
     if (sample.roadBridge) return 0;
-    return 1 - smoothstep(ROAD_HALF_WIDTH, ROAD_HALF_WIDTH + ROAD_SHOULDER, sample.roadDistance);
+    const width = sample.roadHalfWidth ?? ROAD_HALF_WIDTH;
+    return 1 - smoothstep(width, width + ROAD_SHOULDER, sample.roadDistance);
   }
 
   private buildFences(gen: WorldGenerator): void {
     const left = makeColumnSample(), right = makeColumnSample();
     const query: RoadQuery = { roadDistance: 0, roadHeight: 0, roadAlong: 0 };
     for (let index = 0; index < this.segments.length; index++) {
-      const { a, b, length, bridge } = this.segments[index]!;
+      const { a, b, length, bridge, halfWidth } = this.segments[index]!;
       if (bridge) continue;
       const nx = -(b.z - a.z) / length, nz = (b.x - a.x) / length;
       for (let d = 2; d < length; d += 4) {
@@ -339,7 +343,7 @@ export class RoadNetwork {
         gen.sampleColumn(x - nx * 8, z - nz * 8, right);
         const side = left.height < right.height ? 1 : -1;
         if (y - Math.min(left.height, right.height) < 2.5) continue;
-        const fx = x + nx * side * (ROAD_HALF_WIDTH + 1), fz = z + nz * side * (ROAD_HALF_WIDTH + 1);
+        const fx = x + nx * side * (halfWidth + 1), fz = z + nz * side * (halfWidth + 1);
         this.query(fx, fz, query);
         if (query.roadDistance < (query.roadHalfWidth ?? ROAD_HALF_WIDTH) + .65) continue; // Leave junctions and bridge approaches open.
         const cx = Math.floor(fx / CHUNK_SIZE), cz = Math.floor(fz / CHUNK_SIZE), key = `${cx}:${cz}`;

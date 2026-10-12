@@ -12,6 +12,9 @@ describe('graded dirt roads', () => {
   it('connects the camp gate to settlements, with bounded grades and level carriageways', () => {
     const roads = gen.roads!;
     expect(roads.segments.length).toBeGreaterThan(10);
+    const widths = roads.segments.filter(s => !s.bridge).map(s => s.halfWidth * 2);
+    expect(Math.max(...widths) - Math.min(...widths)).toBeGreaterThan(1);
+    expect(Math.min(...widths)).toBeGreaterThanOrEqual(3);
     expect(roads.connectedSites.length).toBeGreaterThan(allStructures(gen).length * .6);
     const sample = makeColumnSample();
     let roadSamples = 0, fences = 0;
@@ -41,7 +44,7 @@ describe('graded dirt roads', () => {
     roads.query(x, z, query);
     expect(roads.surface(query, x, z)).toBe(Surface.DirtRoad);
     expect(roads.surface({ ...query, roadDistance: .95 }, x, z)).toBe(Surface.WheelTrack);
-    expect(roads.surface({ ...query, roadDistance: 3 }, x, z)).toBe(Surface.RoadVerge);
+    expect(roads.surface({ ...query, roadDistance: segment.halfWidth + .5 }, x, z)).toBe(Surface.RoadVerge);
     const cx = Math.floor(x / 32), cz = Math.floor(z / 32), chunk = gen.generateChunk(cx, cz, 0);
     for (let j = 0; j < chunk.verts; j++) {
       expect(chunk.heights[heightIndex(chunk.verts, 0, j)]).toBe(quantizeHeight(gen.heightAt(cx * 32, cz * 32 + j)));

@@ -8,13 +8,19 @@ export interface LifePlayer {
   tutorial?: TutorialProgress;
 }
 export interface PlotState { crop: string; stage: number }
-export interface AnimalRecord { health: number; x: number; y: number; z: number; loot: number; diedAt?: number }
-export interface LifeWorld { animals?: Record<string, AnimalRecord>; plots: Record<string, PlotState>; nextGrowth: number }
+export interface AnimalRecord { health: number; x: number; y: number; z: number; loot: number; diedAt?: number; cooked?: boolean }
+export interface CoalPile { id: string; x: number; y: number; z: number; expiresAt: number }
+export interface LifeWorld { coals?: Record<string, CoalPile>; animals?: Record<string, AnimalRecord>; plots: Record<string, PlotState>; nextGrowth: number }
 export interface LifeOwner { inv: InventoryModel; coins: number; life: LifePlayer }
 export interface TimedAction { kind: 'plant' | 'cook' | 'harvest'; target: string; choice: string; x: number; z: number; end: number; ms: number; cookBatch?: CookingBatch }
 export class BaseLife {
   constructor(readonly config: BaseLifeConfig) {}
   initial(): LifePlayer { return { stamina: this.config.stamina.maximum, capacity: this.config.stamina.maximum, quotas: {} }; }
+  expireCoals(world: LifeWorld, now: number): boolean {
+    let changed = false;
+    for (const [id, pile] of Object.entries(world.coals ?? {})) if (pile.expiresAt <= now) { delete world.coals![id]; changed = true; }
+    return changed;
+  }
   spend(life: LifePlayer, amount: number): boolean {
     if (life.stamina < amount) return false;
     life.stamina -= amount;

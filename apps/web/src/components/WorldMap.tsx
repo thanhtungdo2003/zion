@@ -103,6 +103,14 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
         ctx.imageSmoothingEnabled = false; ctx.drawImage(image, p.x, p.y, side, side);
       }
     }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const road of atlas?.roads ?? []) {
+      const a = to(road.ax, road.az), b = to(road.bx, road.bz);
+      ctx.strokeStyle = road.bridge ? '#92978e' : '#9a805a';
+      ctx.lineWidth = Math.max(.8, road.width * camera.scale);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
     if (atlas) for (const building of atlas.structures) {
       const p = to(building.x, building.z), r = Math.max(1.5, building.radius * camera.scale * 0.65);
       if (p.x < -r || p.y < -r || p.x > size.width + r || p.y > size.height + r) continue;

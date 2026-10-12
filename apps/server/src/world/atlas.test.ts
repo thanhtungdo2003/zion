@@ -12,6 +12,7 @@ describe('world cartography', () => {
     expect(atlas.worldId).toBe('atlas-world'); expect(atlas.size).toBe(512);
     expect(Buffer.from(atlas.rgb, 'base64')).toHaveLength(atlas.pixels ** 2 * 3);
     expect(atlas).not.toHaveProperty('seed');
+    expect(atlas.roads).toEqual(world.roads!.segments.map(s => ({ ax: s.a.x, az: s.a.z, bx: s.b.x, bz: s.b.z, width: s.halfWidth * 2, bridge: !!s.bridge })));
     expect(get()).toBe(a);
   });
   it('maps scaled and rotated camp geometry and refreshes when Studio replaces the layout', async () => {

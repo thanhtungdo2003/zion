@@ -14,6 +14,16 @@ function setup(coarse = true) {
 }
 
 describe('mobile fullscreen', () => {
+  it('preserves the user gesture for the install-app button instead of requesting fullscreen', () => {
+    const { request, page } = setup();
+    const target = new (class extends Element { override closest(selector: string) { return selector.includes('[data-no-fullscreen]') ? this : null; } })();
+    const event = Object.assign(new Event('pointerup'), { pointerType: 'touch' });
+    Object.defineProperty(event, 'target', { value: target });
+    const unbind = bindMobileFullscreen();
+    page.dispatchEvent(event);
+    expect(request).not.toHaveBeenCalled();
+    unbind();
+  });
   it('waits for a touch and enters fullscreen once without forcing re-entry', async () => {
     const { request, page, release } = setup();
     const unbind = bindMobileFullscreen();

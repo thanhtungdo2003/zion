@@ -11,7 +11,7 @@ export function bindMobileFullscreen(): () => void {
   };
   const enter = (event: PointerEvent) => {
     if (disposed || entered || pending || event.pointerType !== 'touch' || !window.matchMedia('(pointer: coarse)').matches) return;
-    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"], [data-no-fullscreen]')) return;
     const request = root.requestFullscreen ?? root.webkitRequestFullscreen;
     if (!request) return;
     pending = true;

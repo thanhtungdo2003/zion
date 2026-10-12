@@ -240,7 +240,7 @@ export interface QuestStateMessage {
 export interface QuestNpcMessage { t: 'questNpcs'; npcs: Array<{ id: number; key: string; name: string; model: string; x: number; y: number; z: number }> }
 export interface SpeechMessage { t: 'speech'; npc: number; text: string; duration: number; x: number; y: number; z: number }
 /** Base life state; `config` / world parts are omitted when unchanged (merge into the last one). */
-export interface BaseLifeMessage { t: 'baseLife'; objects?: Array<{ id: string; model: string; x: number; y: number; z: number }>; config?: BaseLifeConfig; plots?: Record<string, { crop: string; stage: number }>; animalLoot?: Array<{ id: string; item: string; quantity: number; x: number; y: number; z: number }>; stamina: number; capacity: number; action: { end: number; kind: string; ms: number } | null }
+export interface BaseLifeMessage { t: 'baseLife'; objects?: Array<{ id: string; model: string; x: number; y: number; z: number; cooking?: boolean; expiresAt?: number }>; config?: BaseLifeConfig; plots?: Record<string, { crop: string; stage: number }>; animalLoot?: Array<{ id: string; item: string; quantity: number; x: number; y: number; z: number }>; stamina: number; capacity: number; action: { end: number; kind: string; ms: number } | null }
 /** A downed player called for help (sent to everyone nearby). */
 export interface DistressMessage { t: 'distress'; playerId: number; name: string; x: number; z: number }
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */

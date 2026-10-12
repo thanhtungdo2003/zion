@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-12T12:10:25.416Z",
+  "generatedAt": "2026-10-12T13:50:44.452Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -198,6 +198,12 @@
       "url": "/assets/models/dists_barbed-wire-fence.bf7dda6dd8e0.bbmodel",
       "sha256": "bf7dda6dd8e0f1aec132ad654956fffa8eb73fe5a9c37daa577c7d358e29ebed",
       "bytes": 11318,
+      "kind": "bbmodel"
+    },
+    "dists/glowing-coal-pile.bbmodel": {
+      "url": "/assets/models/dists_glowing-coal-pile.e83069cc65cc.bbmodel",
+      "sha256": "e83069cc65cc6b1002d1fb52bf1d5af808f41850a44c555ffefb5ba58724da43",
+      "bytes": 8156,
       "kind": "bbmodel"
     },
     "dists/military-lamp-post.bbmodel": {
@@ -684,6 +690,12 @@
       "url": "/assets/models/npcs_military-chef-npc.37e22300c0f1.bbmodel",
       "sha256": "37e22300c0f17b8543d5d00bd0a98246abe9ac65f9306cb68654f8e255857385",
       "bytes": 22666,
+      "kind": "bbmodel"
+    },
+    "npcs/scrap-dealer-npc.bbmodel": {
+      "url": "/assets/models/npcs_scrap-dealer-npc.3b9f3ec1250c.bbmodel",
+      "sha256": "3b9f3ec1250c46cc108d1a857c2806fcf5a1a8b965d33fbc993dbc05d9088892",
+      "bytes": 21885,
       "kind": "bbmodel"
     },
     "npcs/special-forces-soldier.bbmodel": {

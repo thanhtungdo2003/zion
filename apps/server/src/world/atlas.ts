@@ -56,7 +56,7 @@ export function atlasTileProvider(generator: WorldGenerator, worldId: string): (
 async function generateAtlas(generator: WorldGenerator, worldId: string): Promise<WorldAtlas> {
   const pixels = 256, size = generator.worldSize;
   const rgb = await terrainRgb(generator, 0, 0, size, pixels);
-  return { worldId, size, pixels, rgb, structures: [...allStructures(generator)].map(({ x, z, radius, kind }) => ({ x, z, radius, kind })) };
+  return { worldId, size, pixels, rgb, roads: generator.roads?.segments.map(s => ({ ax: s.a.x, az: s.a.z, bx: s.b.x, bz: s.b.z, width: s.halfWidth * 2, bridge: !!s.bridge })), structures: [...allStructures(generator)].map(({ x, z, radius, kind }) => ({ x, z, radius, kind })) };
 }
 
 async function terrainRgb(generator: WorldGenerator, x: number, z: number, size: number, pixels: number): Promise<string> {

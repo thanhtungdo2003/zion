@@ -2423,6 +2423,18 @@ kbd {
 .leaderboard-table tr[data-top="true"] td:first-child { color: #edcf8c; font-weight: 700; }
 .leaderboard-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 24px; color: #aaa; }
 .menu-leaderboard { display: flex; align-items: center; gap: 8px; }
+.menu-install { display: flex; align-items: center; gap: 8px; border-color: var(--accent, #d9a441); }
+.pwa-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid #685536; background: #111619; color: #e8e4da; font: inherit; overflow-y: auto; }
+.pwa-dialog::backdrop { background: rgba(0, 0, 0, .75); }
+.pwa-dialog .set-head { padding: 0 0 16px; }
+.pwa-dialog .set-head h2 { display: flex; gap: 10px; align-items: center; }
+.pwa-dialog p { font-size: 14px; line-height: 1.7; }
+.pwa-dialog .pwa-note { color: #a6aba8; font-size: 12px; }
+.pwa-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+@media (max-width: 1100px) {
+  .menu-install span { display: none; }
+  .menu .menu-install { width: 44px; height: 44px; padding: 0; justify-content: center; flex-shrink: 0; }
+}
 @media (max-width: 640px) {
   .menu-leaderboard span { display: none; }
   .menu .menu-leaderboard { width: 44px; height: 44px; padding: 0; justify-content: center; }

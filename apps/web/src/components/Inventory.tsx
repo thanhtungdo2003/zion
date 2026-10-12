@@ -340,6 +340,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
           // Started first aid: close the inventory so the bandaging can be seen.
           if (under && ITEMS[under.itemId]?.category === 'melee') store.rotateItem(under.uid);
           else if (under?.itemId === 'medkit' && store.onUseMedkit?.(under.uid)) store.setOpen(false);
+          else if (under?.itemId === 'coal_carton' && store.onUseCoal?.(under.uid)) store.setOpen(false);
           else if (under) store.onEat?.(under.uid);
         }}
       >
@@ -449,7 +450,8 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
           {touchControls && state.held && <div className="inv-touch-actions" onMouseUp={(e) => e.stopPropagation()}>
             <button type="button" className="inv-close" aria-label={t('inv.rotate')} onClick={() => store.rotateHeld()}><Icon name="lucide:rotate-cw" /></button>
             <button type="button" className="inv-close" aria-label={t('inv.swap')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); store.quickMove(uid); }}><Icon name="lucide:arrow-left-right" /></button>
-            {heldDef?.category === 'food' && <button type="button" className="inv-close" aria-label={t('inv.use')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); if (store.onEat?.(uid)) store.setOpen(false); }}><Icon name="lucide:utensils" /></button>}
+            {heldDef?.id === 'coal_carton' && <button type="button" className="inv-close" aria-label={heldDef.info} onClick={() => { const uid = state.held!.uid; store.returnHeld(); if (store.onUseCoal?.(uid)) store.setOpen(false); }}><Icon name="lucide:flame" /></button>}
+            {heldDef?.category === 'food'  && <button type="button" className="inv-close" aria-label={t('inv.use')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); if (store.onEat?.(uid)) store.setOpen(false); }}><Icon name="lucide:utensils" /></button>}
             <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.returnHeld()}><Icon name="lucide:undo-2" /></button>
           </div>}
           {process.env.NODE_ENV !== 'production' && (

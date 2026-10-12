@@ -16,6 +16,7 @@ import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
 import { LeaderboardModal } from '@/components/LeaderboardModal';
+import { InstallAppButton } from '@/components/InstallAppButton';
 import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
@@ -201,6 +202,7 @@ export default function MainMenu() {
           ZI<span>O</span>N<small>The Last Light</small>
         </div>
         <div className="menu-top-actions">
+          <InstallAppButton />
           <LibraryNav />
           <button className="menu-account menu-leaderboard" aria-label="Bảng xếp hạng" title="Bảng xếp hạng" onClick={() => setLeaderboardOpen(true)}><Icon name="lucide:trophy" /><span>Bảng xếp hạng</span></button>
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>

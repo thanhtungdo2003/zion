@@ -156,6 +156,7 @@ export class InventoryStore {
   /** Use a first aid kit (H / right-click); `uid` picks a specific one. Returns whether it started. */
   onUseMedkit: ((uid?: number) => boolean) | null = null;
   /** Right-click food: eat it (returns false when it isn't edible). */
+  onUseCoal: ((uid: number) => boolean) | null = null;
   onEat: ((uid: number) => boolean) | null = null;
   /** Testing aid: + 1000 ZCoin. */
   onDevCoins: (() => void) | null = null;

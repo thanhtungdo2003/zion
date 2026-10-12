@@ -65,7 +65,7 @@ export const ITEMS: Record<string, ItemDef> = {
   cooked_mutton: { id: 'cooked_mutton', name: 'Thịt cừu chín', category: 'food', w: 1, h: 1, stance: 'unarmed', color: '#7a4a2a', info: 'Hearty cooked meat · right-click to eat' },
   cooked_porkchop: { id: 'cooked_porkchop', name: 'Thịt lợn rừng chín', category: 'food', w: 1, h: 1, stance: 'unarmed', color: '#8a5a2a', info: 'Cooked meat · right-click to eat' },
   nuclear_cell: { id: 'nuclear_cell', name: 'Pin năng lượng hạt nhân', category: 'resource', w: 1, h: 2, stance: 'unarmed', color: '#3a6a3a', info: 'Energy cell salvaged from industrial ruins' },
-  coal_carton: { id: 'coal_carton', name: 'Thùng than', category: 'resource', w: 2, h: 2, stance: 'unarmed', color: '#3a3a3a', info: 'An old carton of coal' },
+  coal_carton: { id: 'coal_carton', name: 'Thùng than', category: 'resource', w: 2, h: 2, uses: 2, stance: 'unarmed', color: '#3a3a3a', info: 'Nhấn chuột phải để đặt than cháy · 2 lần sử dụng · nướng đồ ăn trong 10 phút' },
   grenade: { id: 'grenade', name: 'Lựu đạn', category: 'grenade', w: 1, h: 1, stance: 'grenade', color: '#56663f', info: 'Frag grenade' },
   c4: { id: 'c4', name: 'C4 điều khiển từ xa', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'Chuột phải: ném tầm ngắn · bám địa hình và mob · chuột trái: kích nổ' },
   c4_detonator: { id: 'c4_detonator', name: 'Bộ kích nổ C4', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'C4 đã được ném · cầm bộ kích nổ rồi nhấn chuột trái để kích nổ' },

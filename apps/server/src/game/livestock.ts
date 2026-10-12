@@ -10,6 +10,10 @@ export class Livestock {
   readonly state;
   active = false;
   yaw = 0;
+  burnUntil = 0;
+  burnAt = 0;
+  burnDps = 0;
+  burnBy: Player | null = null;
   private threat: Player | null = null;
   private retaliation = false;
   private alertUntil = 0;
@@ -28,7 +32,8 @@ export class Livestock {
   }
   get retaliating(): boolean { return !!this.threat && this.retaliation && !this.dead; }
   get dead(): boolean { return this.record.health <= 0; }
-  hit(amount: number, attacker: Player, now: number): boolean {
+  get lootItem(): string { return this.record.cooked ? this.def.lootItem.replace(/^raw_/, 'cooked_') : this.def.lootItem; }
+  hit(amount: number, attacker: Player | null, now: number, fire = false): boolean {
     if (this.dead || amount <= 0) return false;
     this.record.health = Math.max(0, this.record.health - amount);
     this.threat = attacker;
@@ -36,6 +41,7 @@ export class Livestock {
     this.alertUntil = now + 15_000;
     if (!this.dead) return false;
     this.record.diedAt = now;
+    this.record.cooked = fire;
     this.record.loot = this.def.lootMin + Math.floor(this.random() * (this.def.lootMax - this.def.lootMin + 1));
     return true;
   }
@@ -59,6 +65,9 @@ export class Livestock {
     this.record.health = this.def.health;
     this.record.loot = 0;
     delete this.record.diedAt;
+    delete this.record.cooked;
+    this.burnUntil = this.burnAt = this.burnDps = 0;
+    this.burnBy = null;
     this.state.x = this.record.x = spot.x;
     this.state.z = this.record.z = spot.z;
     this.state.vx = this.state.vz = 0;

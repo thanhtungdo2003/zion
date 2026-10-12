@@ -131,7 +131,7 @@ export class GameConnection {
     this.send({ t: 'quest', op, npc, quest, ...(index !== undefined ? { index } : {}) });
   }
 
-  sendLife(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot', target: string, choice?: string, uid?: number): void {
+  sendLife(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot' | 'ignite', target: string, choice?: string, uid?: number): void {
     this.send({ t: 'life', op, target, choice, uid });
   }
 

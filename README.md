@@ -175,6 +175,8 @@ Edge-level protection (TLS termination, volumetric DDoS scrubbing, WAF) still be
 
 ## Operations
 
+The main menu's **Tải ứng dụng / Download app** button installs ZION as a standalone PWA in supporting browsers. Serve the production web app over HTTPS (localhost is allowed for testing). Safari on iPhone/iPad uses Share → Add to Home Screen; other unsupported browsers receive installation instructions. `/manifest.webmanifest`, `/sw.js` and `/pwa/*` must reach the web app; do not apply long-lived proxy caching to `/sw.js`. The service worker caches only an offline notice, leaving game pages, API requests and account data on the network. Internet is required to play. Service worker registration is disabled in development mode.
+
 For aaPanel deployments, run `pnpm install --frozen-lockfile` then `pnpm build` from the repository root. Restart the service only after the build succeeds. The web postbuild step copies `.next/static` and `public` (including game models) into the standalone app. Set the web process startup file to `apps/web/aapanel-start.mjs`, or use `pnpm --filter @zion/web start`; configure `PORT` and `HOSTNAME=127.0.0.1` to match the reverse proxy. The monorepo server entry is `.next/standalone/apps/web/server.js` inside `apps/web`. Build output is ignored by Git and must be generated or uploaded in full on each deployment. `pnpm --filter @zion/web test:standalone` checks artifact validation and asset preparation.
 
 - `GET /health/live` is a liveness check. `GET /health/ready` checks the database, Redis or the memory store, the worldgen workers and simulation tick p99, and returns 503 when degraded.

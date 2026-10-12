@@ -123,7 +123,7 @@ export const invMessageSchema = z.discriminatedUnion('op', [
 /** Reload the gun in hand (the server moves rounds from ammo boxes into its magazine). */
 export const reloadMessageSchema = z.object({ t: z.literal('reload') }).strict();
 
-export const lifeMessageSchema = z.object({ t: z.literal('life'), op: z.enum(['plant', 'harvest', 'cook', 'buy', 'sell', 'eat', 'loot']), target: itemId, choice: itemId.optional(), uid: u32.optional() }).strict();
+export const lifeMessageSchema = z.object({ t: z.literal('life'), op: z.enum(['plant', 'harvest', 'cook', 'buy', 'sell', 'eat', 'loot', 'ignite']), target: itemId, choice: itemId.optional(), uid: u32.optional() }).strict();
 
 export const questMessageSchema = z.object({ t: z.literal('quest'), op: z.enum(['list', 'accept', 'cancel', 'turnin', 'retrieve']), npc: itemId, quest: itemId.optional(), /** retrieve: which placed item. */ index: z.number().int().min(0).max(63).optional() }).strict();
 

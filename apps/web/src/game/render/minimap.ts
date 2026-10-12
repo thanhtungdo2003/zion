@@ -1,5 +1,5 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
-import { BIOME_MAP_COLORS, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
+import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
 import { drawLocationIcon } from './location-icon';
@@ -16,7 +16,7 @@ export function mapMarker(ox: number, oz: number, yaw: number, edge: number): { 
   return { x, y, off };
 }
 
-type PropShape = { kind: 'tree' | 'shrub' | 'rock' | 'dot'; r: number } | { kind: 'boxes'; boxes: Array<{ cx: number; cz: number; hx: number; hz: number; yaw: number }> };
+type PropShape = { kind: 'tree' | 'shrub' | 'rock' | 'dot'; r: number } | { kind: 'boxes'; deck?: boolean; boxes: Array<{ cx: number; cz: number; hx: number; hz: number; yaw: number }> };
 
 const TREE_GENERATORS = new Set(['spruce', 'broadleaf', 'birch', 'jungle', 'palm', 'dead', 'willow', 'cactus']);
 
@@ -29,7 +29,7 @@ function shapeOf(def: AssetDefinition): PropShape {
   if (layer === 'shrubs' || gen === 'bush' || gen === 'fern' || gen === 'reeds') return { kind: 'shrub', r: Math.min(1.2, Math.max(0.4, def.bounds.radius * 0.6)) };
   if (layer === 'rocks') return { kind: 'rock', r: Math.min(3, Math.max(0.5, def.bounds.radius * 0.8)) };
   const boxes = def.colliders.flatMap((c) => (c.type === 'box' ? [{ cx: c.center[0], cz: c.center[2], hx: c.halfExtents[0], hz: c.halfExtents[2], yaw: c.yaw }] : []));
-  if (boxes.length) return { kind: 'boxes', boxes };
+  if (boxes.length) return { kind: 'boxes', boxes, deck: def.tags.includes('bridge-deck') };
   return { kind: 'dot', r: Math.min(1.5, Math.max(0.35, def.bounds.radius * 0.6)) };
 }
 
@@ -71,7 +71,8 @@ export class Minimap {
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
         const k = j * n + i;
-        const col = BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0xff00ff;
+        const surface = c.surface[k];
+        const col = surface === Surface.DirtRoad ? 0x9a805a : surface === Surface.WheelTrack ? 0x827050 : surface === Surface.RoadVerge ? 0x67754a : BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0xff00ff;
         const h = dequantizeHeight(c.heights[heightIndex(n, i, j)]!);
         const hl = dequantizeHeight(c.heights[heightIndex(n, i - 1, j - 1)]!);
         let shade = 1 + Math.max(-0.35, Math.min(0.35, (hl - h) * 0.08));
@@ -101,7 +102,7 @@ export class Minimap {
   private shape(asset: number): PropShape | null {
     if (this.shapes.has(asset)) return this.shapes.get(asset)!;
     const def = this.registry?.byNumericId(asset);
-    const s = def ? shapeOf(def) : null;
+    const s = def && !(def.tags.includes('bridge') && !def.tags.includes('bridge-deck')) ? shapeOf(def) : null;
     this.shapes.set(asset, s);
     return s;
   }
@@ -114,13 +115,14 @@ export class Minimap {
     const list = c.props
       .map((p) => ({ t: propTransform(c, p), s: this.shape(p.asset) }))
       .filter((e): e is { t: ReturnType<typeof propTransform>; s: PropShape } => e.s !== null)
-      .sort((a, b) => order[a.s.kind] - order[b.s.kind]);
+      .sort((a, b) => (a.s.kind === 'boxes' && a.s.deck ? -1 : order[a.s.kind]) - (b.s.kind === 'boxes' && b.s.deck ? -1 : order[b.s.kind]));
     ctx.lineWidth = 1;
     for (const { t, s } of list) {
       const x = (t.x - ox) * PX_PER_M;
       const z = (t.z - oz) * PX_PER_M;
       ctx.fillStyle = PROP_FILL[s.kind]!;
       if (s.kind === 'boxes') {
+        if (s.deck) ctx.fillStyle = '#92978e';
         ctx.strokeStyle = 'rgba(30,24,18,0.85)';
         for (const b of s.boxes) {
           // three.js yaw about +Y maps (x, z) → (x cos + z sin, −x sin + z cos): canvas angle is −yaw.
@@ -134,7 +136,7 @@ export class Minimap {
           const w = Math.max(1, b.hx * 2 * t.scale * PX_PER_M);
           const h = Math.max(1, b.hz * 2 * t.scale * PX_PER_M);
           ctx.fillRect(-w / 2, -h / 2, w, h);
-          ctx.strokeRect(-w / 2, -h / 2, w, h);
+          if (!s.deck) ctx.strokeRect(-w / 2, -h / 2, w, h);
           ctx.restore();
         }
         continue;

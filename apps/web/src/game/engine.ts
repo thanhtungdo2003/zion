@@ -195,7 +195,7 @@ export class GameEngine {
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
-  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; attacking?: boolean; armor?: number }>();
+  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; attacking?: boolean; armor?: number; burnUntil?: number }>();
   /** Shop trades waiting for the server's wallet answer: request id → what to do on success. */
   private readonly trades = new Map<number, { buy?: string; sellUid?: number; heal?: boolean }>();
   private nextTrade = 1;
@@ -397,6 +397,12 @@ export class GameEngine {
       prev = now;
       prevEquipped = st.equipped;
     }));
+    this.inventory.onUseCoal = (uid) => {
+      const item = this.inventory.get().items.find(i => i.uid === uid);
+      if (item?.itemId !== 'coal_carton') return false;
+      this.lifeAction('ignite', 'coal_carton', undefined, uid);
+      return true;
+    };
     this.inventory.onEat = (uid) => {
       const item = this.inventory.get().items.find((i) => i.uid === uid);
       if (!item || !this.hud.get().life?.config.foods?.some((f) => f.item === item.itemId)) return false;
@@ -542,7 +548,7 @@ export class GameEngine {
     for (const unsubscribe of this.subscriptions) unsubscribe();
     this.subscriptions.length = 0;
     this.inventory.send = this.inventory.onBuy = this.inventory.onSell = this.inventory.onUseMedkit = null;
-    this.inventory.onEat = this.inventory.onNurseHeal = this.inventory.onDevCoins = null;
+    this.inventory.onUseCoal = this.inventory.onEat = this.inventory.onNurseHeal = this.inventory.onDevCoins = null;
     this.inventory.preview = null;
     this.preview?.dispose();
     this.localAvatar?.dispose(this.scene);
@@ -618,7 +624,7 @@ export class GameEngine {
     this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open;
   }
 
-  lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot', target: string, choice?: string, uid?: number): void {
+  lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot' | 'ignite', target: string, choice?: string, uid?: number): void {
     if (op === 'buy' || op === 'sell') markPending(`trade:${target}:${op}`);
     if (op === 'plant') markPending('plant');
     this.conn.sendLife(op, target, choice, uid);
@@ -731,7 +737,7 @@ export class GameEngine {
         const d = Math.hypot(lamp.x - x, lamp.z - z);
         if (d < 10) light += (1 - d / 10) * 0.9 * night;
       }
-      if (this.fireLight && this.fireLight.intensity > 0 && this.fireLight.position.distanceTo(this.tmpC.set(x, y, z)) < 6) light += 0.5 * night;
+      if (this.fireLights.some(l => l.intensity > 0 && l.position.distanceTo(this.tmpC.set(x, y, z)) < 6)) light += 0.5 * night;
     }
     return Math.max(0, Math.min(1, 1 - light));
   }
@@ -760,31 +766,31 @@ export class GameEngine {
     this.conn.sendGiveUp();
   }
 
-  private fireLight: PointLight | null = null;
+  private readonly fireLights: PointLight[] = [];
   private lastDropFix = 0;
 
   /** Burning campfires (cooking stations): flames + a flickering warm light on the nearest one. */
   private updateCampfires(px: number, pz: number, now: number): void {
     const life = this.hud.get().life;
     if (!life || !this.effects) return;
-    let nearest: { x: number; y: number; z: number } | null = null;
-    let nd = 45 * 45;
-    for (const st of life.config.stations) {
-      const o = life.objects.find((ob) => ob.id === st.id);
-      if (!o) continue;
+    const fires: Array<{ x: number; y: number; z: number; distance: number }> = [];
+    for (const o of life.objects) {
+      if (!(o.cooking || life.config.stations.some(s => s.id === o.id)) || (o.expiresAt && o.expiresAt <= Date.now())) continue;
       const d = (o.x - px) ** 2 + (o.z - pz) ** 2;
       if (d > 45 * 45) continue;
       ParticleFX.campfire(this.effects.particles, o.x, o.y, o.z);
-      if (d < nd) { nd = d; nearest = o; }
+      fires.push({ ...o, distance: d });
     }
-    if (!this.fireLight) {
-      this.fireLight = new PointLight(0xff9a40, 0, 12, 2);
-      this.scene.add(this.fireLight);
+    fires.sort((a, b) => a.distance - b.distance);
+    for (let i = 0; i < 4; i++) {
+      let light = this.fireLights[i];
+      if (!light) { light = new PointLight(0xff9a40, 0, 12, 2); this.fireLights.push(light); this.scene.add(light); }
+      const fire = fires[i];
+      if (fire) {
+        light.position.set(fire.x, fire.y + 0.8, fire.z);
+        light.intensity = 9 + Math.sin(now * .023 + i) * 1.6 + Math.sin(now * .061 + i) * 1.2 + Math.random() * .8;
+      } else light.intensity = 0;
     }
-    if (nearest) {
-      this.fireLight.position.set(nearest.x, nearest.y + 0.8, nearest.z);
-      this.fireLight.intensity = 9 + Math.sin(now * 0.023) * 1.6 + Math.sin(now * 0.061) * 1.2 + Math.random() * 0.8;
-    } else this.fireLight.intensity = 0;
   }
 
   /** Ground height at a point (streamed terrain; 0 before it loads). */
@@ -1166,6 +1172,8 @@ export class GameEngine {
           // Flames: no blood, the target catches fire for a moment (refreshed while it burns).
           const zb = this.zombies.get(m.targetId);
           if (zb) zb.burnUntil = performance.now() + 700;
+          const animal = this.remotes.get(m.targetId);
+          if (animal?.entity.kind === EntityKind.Animal) animal.burnUntil = performance.now() + 700;
           if (m.targetId === this.welcome?.playerId) this.hud.set({ hurtAt: performance.now(), hurtAmount: 0.4 });
           break;
         }
@@ -1391,6 +1399,7 @@ export class GameEngine {
     const renderTime = this.clock.now() - INTERPOLATION_DELAY_MS;
     for (const r of this.remotes.values()) {
       const pose = r.entity.sample(renderTime);
+      if (r.burnUntil && r.burnUntil > now && r.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
       r.avatar.setWeapon(itemId, this.weapons);
       r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
@@ -2167,9 +2176,9 @@ export class GameEngine {
         }
         continue;
       }
-      if (life.config.stations.some((p) => p.id === o.id)) {
+      if ((o.cooking || life.config.stations.some((p) => p.id === o.id)) && (!o.expiresAt || o.expiresAt > Date.now())) {
         const batch = planCooking(life.config, this.inventory.get().items);
-        if (batch) return { label: { key: 'interact.cook_all', vars: { n: batch.quantity, seconds: Math.ceil(batch.durationMs / 1000) } }, run: () => this.lifeAction('cook', o.id) };
+        if (batch && (!o.expiresAt || o.expiresAt > Date.now() + batch.durationMs)) return { label: { key: 'interact.cook_all', vars: { n: batch.quantity, seconds: Math.ceil(batch.durationMs / 1000) } }, run: () => this.lifeAction('cook', o.id) };
         return { label: { key: 'interact.need_food', vars: { item: '' } } };
       }
     }
