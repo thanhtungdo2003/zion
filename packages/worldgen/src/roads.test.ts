@@ -15,12 +15,14 @@ describe('graded dirt roads', () => {
     expect(roads.connectedSites.length).toBeGreaterThan(allStructures(gen).length * .6);
     const sample = makeColumnSample();
     let roadSamples = 0, fences = 0;
-    for (const { a, b, length } of roads.segments) {
+    for (const { a, b, length, bridge } of roads.segments) {
       expect(Math.abs(b.y - a.y) / length, JSON.stringify({ a, b, length })).toBeLessThan(ROAD_MAX_GRADE + .015);
+      if (bridge) continue; // Decks are colliders above the preserved riverbed.
       const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
       if (gen.camp && Math.max(Math.abs(x - gen.camp.x), Math.abs(z - gen.camp.z)) < 75) continue;
       if (allStructures(gen).some(s => Math.hypot(x - s.x, z - s.z) < s.radius + 18)) continue;
       gen.sampleColumn(x, z, sample);
+      if (sample.roadBridge) continue;
       expect(sample.height).toBeCloseTo(sample.roadHeight, 5);
       const nx = -(b.z - a.z) / length, nz = (b.x - a.x) / length;
       expect(gen.heightAt(x + nx, z + nz)).toBeCloseTo(sample.height, 3);

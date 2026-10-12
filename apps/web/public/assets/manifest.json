@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-11T07:50:19.632Z",
+  "generatedAt": "2026-10-12T12:10:25.416Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -177,9 +177,9 @@
       "kind": "bbmodel"
     },
     "characters/teen-wasteland-survivor.bbmodel": {
-      "url": "/assets/models/characters_teen-wasteland-survivor.cc676ef017be.bbmodel",
-      "sha256": "cc676ef017be5d288ebb8d95344233c3775dd5db16ed7f159de8fe510d1577b4",
-      "bytes": 146997,
+      "url": "/assets/models/characters_teen-wasteland-survivor.a43c0456bf95.bbmodel",
+      "sha256": "a43c0456bf95c6525cfd11e1ead805c0fbd0656ebdf59f8b9a382c9b7d9577e4",
+      "bytes": 183448,
       "kind": "bbmodel"
     },
     "dists/arrow-quiver.bbmodel": {
@@ -276,6 +276,30 @@
       "url": "/assets/models/hunched-rotting-zombie.a70db493b0d8.bbmodel",
       "sha256": "a70db493b0d8beef5baf3608757663018157c3bcc2049d8efa5e83f173ca297e",
       "bytes": 40809,
+      "kind": "bbmodel"
+    },
+    "materias/asphalt-concrete-slab-moss-2.bbmodel": {
+      "url": "/assets/models/materias_asphalt-concrete-slab-moss-2.5da74f21bebe.bbmodel",
+      "sha256": "5da74f21bebe93b806cefafe44e6ffb3494719a222dcaa1294033dbb2dfd9676",
+      "bytes": 15396,
+      "kind": "bbmodel"
+    },
+    "materias/asphalt-concrete-slab-moss-3.bbmodel": {
+      "url": "/assets/models/materias_asphalt-concrete-slab-moss-3.7cdf2105f4fe.bbmodel",
+      "sha256": "7cdf2105f4feac9feea0720429a9941ba7ed557bf1af92a3fb007f8c8c8761de",
+      "bytes": 14980,
+      "kind": "bbmodel"
+    },
+    "materias/asphalt-concrete-slab-moss.bbmodel": {
+      "url": "/assets/models/materias_asphalt-concrete-slab-moss.1e84007afeb7.bbmodel",
+      "sha256": "1e84007afeb7d8d3cc80a15034152b2559f108add3bcc33e5670e07edd4e2e12",
+      "bytes": 12157,
+      "kind": "bbmodel"
+    },
+    "materias/asphalt-concrete-slab.bbmodel": {
+      "url": "/assets/models/materias_asphalt-concrete-slab.be65913566d2.bbmodel",
+      "sha256": "be65913566d26c0286773ae8284336256e97993cc52c947e46346664fbcd5c8e",
+      "bytes": 5284,
       "kind": "bbmodel"
     },
     "materias/binhnhi-badge.bbmodel": {
@@ -494,6 +518,12 @@
       "bytes": 5079,
       "kind": "bbmodel"
     },
+    "materias/red-primer-steel-column.bbmodel": {
+      "url": "/assets/models/materias_red-primer-steel-column.7a23c014ba38.bbmodel",
+      "sha256": "7a23c014ba38b2a8ee63e791bb3b41759ccc24b093e5c5db1d3714de296279e8",
+      "bytes": 6817,
+      "kind": "bbmodel"
+    },
     "materias/rusted-wire-coil.bbmodel": {
       "url": "/assets/models/materias_rusted-wire-coil.173b460dcb2a.bbmodel",
       "sha256": "173b460dcb2adec4495f4c344027a273535f6289482ded6906c753fd7e9a2e38",
@@ -516,6 +546,24 @@
       "url": "/assets/models/materias_rusty-metal-plate.8d82a8afeb1a.bbmodel",
       "sha256": "8d82a8afeb1a2aa3ee157b1f770dabf32cf0900fca46ed23206736640cac5f3f",
       "bytes": 8326,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-old-motorcycle.bbmodel": {
+      "url": "/assets/models/materias_rusty-old-motorcycle.128c5c1c40fc.bbmodel",
+      "sha256": "128c5c1c40fc058eb8ecb865531adf38f459bb663b7756ef4274eb3afd9abb1d",
+      "bytes": 32615,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-school-bus.bbmodel": {
+      "url": "/assets/models/materias_rusty-school-bus.bb6f01d9b5c5.bbmodel",
+      "sha256": "bb6f01d9b5c591f09596a6bef9988fda0cf76136738e70e3c3fc1b8bb2b0c292",
+      "bytes": 34938,
+      "kind": "bbmodel"
+    },
+    "materias/rusty-wrecked-car.bbmodel": {
+      "url": "/assets/models/materias_rusty-wrecked-car.1ff40a25df9c.bbmodel",
+      "sha256": "1ff40a25df9c93246212f6ac042d29d558e6d496e24b9a47afbe3dd6103e803d",
+      "bytes": 30990,
       "kind": "bbmodel"
     },
     "materias/sandbag-wall.bbmodel": {
@@ -740,6 +788,30 @@
       "bytes": 14550,
       "kind": "bbmodel"
     },
+    "weapons/barrett-m82.bbmodel": {
+      "url": "/assets/models/weapons_barrett-m82.bef535416485.bbmodel",
+      "sha256": "bef535416485377d9de7ae02ee3474a088784f150b212175287c341e0b9cfc6d",
+      "bytes": 17469,
+      "kind": "bbmodel"
+    },
+    "weapons/bmg50-ammo-box.bbmodel": {
+      "url": "/assets/models/weapons_bmg50-ammo-box.d2dc31379613.bbmodel",
+      "sha256": "d2dc31379613dcb89f6dee393b930971c56f9b4edf44eb3814ed5c186bf20570",
+      "bytes": 21052,
+      "kind": "bbmodel"
+    },
+    "weapons/c4-bomb.bbmodel": {
+      "url": "/assets/models/weapons_c4-bomb.03f29e4c1a4f.bbmodel",
+      "sha256": "03f29e4c1a4f61b04dcef6026618ac861a7761eb896ba6e89716eb453f129ad3",
+      "bytes": 6434,
+      "kind": "bbmodel"
+    },
+    "weapons/c4-clacker-detonator.bbmodel": {
+      "url": "/assets/models/weapons_c4-clacker-detonator.47094a0da5cc.bbmodel",
+      "sha256": "47094a0da5cc645d57b83e0f90f99281d7f30062d93d17ebb88c678b7e2c39ea",
+      "bytes": 8922,
+      "kind": "bbmodel"
+    },
     "weapons/cay-quam.bbmodel": {
       "url": "/assets/models/weapons_cay-quam.3fcfd1282b7d.bbmodel",
       "sha256": "3fcfd1282b7d25d3ab0c4594d4acce1a1208a032015ea27a0d956fdd3cfd45d2",
@@ -750,6 +822,12 @@
       "url": "/assets/models/weapons_double-barrel-shotgun.33697e71b185.bbmodel",
       "sha256": "33697e71b185a680b9ffc3f3d0cc5f4fb6925abb96820f097d104458e2ca8e6a",
       "bytes": 10261,
+      "kind": "bbmodel"
+    },
+    "weapons/fire-axe.bbmodel": {
+      "url": "/assets/models/weapons_fire-axe.081638df7d7b.bbmodel",
+      "sha256": "081638df7d7b8dfe92f3524a73ef46c6c90ad1bf102f002737ada96dea50c8ed",
+      "bytes": 8874,
       "kind": "bbmodel"
     },
     "weapons/flamethrower-fuel-tank.bbmodel": {
@@ -800,6 +878,12 @@
       "bytes": 8427,
       "kind": "bbmodel"
     },
+    "weapons/long-sledgehammer.bbmodel": {
+      "url": "/assets/models/weapons_long-sledgehammer.661f6fe752ef.bbmodel",
+      "sha256": "661f6fe752ef25e7ae7c131a8d63cadc8bd9e9dd730f01970a792a2600f21d7e",
+      "bytes": 11292,
+      "kind": "bbmodel"
+    },
     "weapons/m4a1-rifle.bbmodel": {
       "url": "/assets/models/weapons_m4a1-rifle.95bfe82a968e.bbmodel",
       "sha256": "95bfe82a968e338c632f9cc43ea4df48de68a2e338955148a2a05bec63532a00",
@@ -818,10 +902,28 @@
       "bytes": 10222,
       "kind": "bbmodel"
     },
+    "weapons/pkm-ammo-box.bbmodel": {
+      "url": "/assets/models/weapons_pkm-ammo-box.9ecf5cc4ac68.bbmodel",
+      "sha256": "9ecf5cc4ac683aebef53b937d3e9f042004b1aa6287b2e230c4462e228c6ec4e",
+      "bytes": 11267,
+      "kind": "bbmodel"
+    },
+    "weapons/pkm-machine-gun.bbmodel": {
+      "url": "/assets/models/weapons_pkm-machine-gun.f0fc7401658a.bbmodel",
+      "sha256": "f0fc7401658a48c4219bf230e7b4582d599f7da86bbb088732fbe794ec0aa838",
+      "bytes": 17688,
+      "kind": "bbmodel"
+    },
     "weapons/pump-shotgun.bbmodel": {
       "url": "/assets/models/weapons_pump-shotgun.5b7a1b543c38.bbmodel",
       "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
       "bytes": 12792,
+      "kind": "bbmodel"
+    },
+    "weapons/remote-c4-bomb.bbmodel": {
+      "url": "/assets/models/weapons_remote-c4-bomb.9ccbda2fee31.bbmodel",
+      "sha256": "9ccbda2fee31d1aef43aa8e818d25998a837299b1c483218c7d5e5b481dcbab8",
+      "bytes": 10588,
       "kind": "bbmodel"
     },
     "weapons/revolver.bbmodel": {

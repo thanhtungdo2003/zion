@@ -77,13 +77,13 @@ for (let py = 0; py < W; py++) {
 const tMap = performance.now() - t1;
 
 // Keep narrow dirt routes legible even when one preview pixel covers several metres.
-for (const { a, b, length } of gen.roads?.segments ?? []) {
+for (const { a, b, length, bridge } of gen.roads?.segments ?? []) {
   for (let distance = 0; distance <= length; distance += mpp * .4) {
     const t = distance / length;
     const x = Math.floor((a.x + (b.x - a.x) * t) / mpp), z = Math.floor((a.z + (b.z - a.z) * t) / mpp);
     if (x < 0 || z < 0 || x >= W || z >= W) continue;
     const k = (z * W + x) * 3;
-    rgb[k] = 155; rgb[k + 1] = 124; rgb[k + 2] = 84;
+    rgb[k] = bridge ? 225 : 155; rgb[k + 1] = bridge ? 200 : 124; rgb[k + 2] = bridge ? 145 : 84;
   }
 }
 
@@ -111,6 +111,7 @@ console.log(`init (hydrology) ${tInit.toFixed(0)} ms, map ${tMap.toFixed(0)} ms,
 console.log('hydrology', gen.hydrology.stats);
 console.log(`spawn candidates: ${spawns.length}`);
 console.log(`roads: ${gen.roads?.segments.length ?? 0} segments, ${gen.roads?.connectedSites.length ?? 0} connected sites`);
+console.log(`bridges: ${gen.roads?.bridges.length ?? 0}, alternate routes: ${gen.roads?.loopCount ?? 0}`);
 for (const [b, n] of [...counts.entries()].sort((a, c) => c[1] - a[1])) {
   console.log(`  ${BIOME_NAMES[b].padEnd(14)} ${((n / total) * 100).toFixed(1)}%`);
 }

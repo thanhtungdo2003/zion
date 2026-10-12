@@ -1874,10 +1874,11 @@ export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
       "kind": "bbmodel",
       "path": "dists/old-rusty-tank.bbmodel",
       "unitsPerMeter": 4,
+      "axisScale": [1.05, 0.9, 1.44],
       "offset": [
         -0.0,
         0,
-        1.125
+        1.62
       ]
     },
     "colliders": [
@@ -1885,19 +1886,19 @@ export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
         "type": "box",
         "center": [
           0,
-          2.0,
+          1.8,
           0
         ],
         "halfExtents": [
-          2.0,
-          2.0,
-          3.125
+          2.1,
+          1.8,
+          4.5
         ]
       }
     ],
     "bounds": {
-      "radius": 3.7102055199139574,
-      "height": 4.0
+      "radius": 4.965884,
+      "height": 3.6
     },
     "render": {
       "maxDistance": 360

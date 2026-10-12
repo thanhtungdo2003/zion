@@ -1,4 +1,6 @@
 import { CAMP_ASSETS } from './camp-assets';
+import { BRIDGE_ASSETS } from './bridge-assets';
+import { VEHICLE_ASSETS } from './vehicle-assets';
 import { Biome } from '@zion/shared';
 import { AssetRegistry } from './registry';
 import type { AssetDefinitionInput } from './schema';
@@ -12,6 +14,8 @@ import type { AssetDefinitionInput } from './schema';
  */
 export const BUILTIN_ASSETS: readonly AssetDefinitionInput[] = [
   ...CAMP_ASSETS,
+  ...BRIDGE_ASSETS,
+  ...VEHICLE_ASSETS,
   {
     id: 'nature.tree.spruce',
     numericId: 1,

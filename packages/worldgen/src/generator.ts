@@ -44,6 +44,9 @@ export interface ColumnSample {
   roadDistance: number;
   roadHeight: number;
   roadAlong: number;
+  roadBridge: boolean;
+  roadHalfWidth: number;
+  roadBridgeEnd: number;
 }
 
 export function makeColumnSample(): ColumnSample {
@@ -58,6 +61,9 @@ export function makeColumnSample(): ColumnSample {
     roadDistance: Infinity,
     roadHeight: 0,
     roadAlong: 0,
+    roadBridge: false,
+    roadHalfWidth: 2.4,
+    roadBridgeEnd: Infinity,
   };
 }
 
@@ -160,9 +166,16 @@ export class WorldGenerator {
     if (kind === WaterKind.None && h < sea) kind = WaterKind.Sea;
 
     out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
+    out.roadBridge = false; out.roadHalfWidth = 2.4; out.roadBridgeEnd = Infinity;
     if (roads) {
       roads.query(x, z, out);
       h += (out.roadHeight - h) * roads.blend(out);
+      // Dry abutments ease under the deck, avoiding a vertical heightfield edge at its lip.
+      // Wet columns keep their original riverbed and water surface.
+      if (out.roadBridge && out.roadBridgeEnd < 4 && h > (Number.isFinite(water) ? water : sea) + .15) {
+        const target = out.roadHeight - .15 * out.roadBridgeEnd;
+        h += (target - h) * (1 - smoothstep(2, 4, out.roadBridgeEnd));
+      }
       if (h >= sea && (!Number.isFinite(water) || h >= water + .05)) { water = NaN; kind = WaterKind.None; }
     }
 

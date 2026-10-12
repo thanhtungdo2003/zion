@@ -3,6 +3,7 @@ import {
   BufferGeometry,
   Euler,
   Matrix4,
+  Matrix3,
   MeshLambertMaterial,
   NearestFilter,
   SRGBColorSpace,
@@ -34,7 +35,7 @@ export const FACES: Record<FaceName, { corners: Array<[number, number, number]>;
 
 const DEG = Math.PI / 180;
 
-function elementMatrix(e: BBElement, scale: number, offset: readonly [number, number, number]): Matrix4 {
+function elementMatrix(e: BBElement, scale: number, offset: readonly [number, number, number], axisScale: readonly [number, number, number]): Matrix4 {
   const origin = new Vector3(...(e.origin ?? [0, 0, 0]));
   let euler: Euler | null = null;
   if (Array.isArray(e.rotation)) {
@@ -45,7 +46,7 @@ function elementMatrix(e: BBElement, scale: number, offset: readonly [number, nu
     if (r.origin) origin.set(...r.origin);
     euler = new Euler(r.axis === 'x' ? r.angle * DEG : 0, r.axis === 'y' ? r.angle * DEG : 0, r.axis === 'z' ? r.angle * DEG : 0);
   }
-  const m = new Matrix4().makeTranslation(offset[0], offset[1], offset[2]).multiply(new Matrix4().makeScale(scale, scale, scale));
+  const m = new Matrix4().makeTranslation(offset[0], offset[1], offset[2]).multiply(new Matrix4().makeScale(scale * axisScale[0], scale * axisScale[1], scale * axisScale[2]));
   if (euler) {
     m.multiply(new Matrix4().makeTranslation(origin.x, origin.y, origin.z))
       .multiply(new Matrix4().makeRotationFromEuler(euler))
@@ -71,7 +72,7 @@ function faceUvs(face: BBFace, w: number, h: number): Array<[number, number]> {
  * Converts a validated Blockbench model into geometry grouped by texture (one part per texture),
  * ready for instancing. Only cube elements are supported; meshes/locators are skipped.
  */
-export async function loadBBModel(json: unknown, unitsPerMeter: number, offset: readonly [number, number, number]): Promise<ModelPart[]> {
+export async function loadBBModel(json: unknown, unitsPerMeter: number, offset: readonly [number, number, number], axisScale: readonly [number, number, number] = [1, 1, 1]): Promise<ModelPart[]> {
   const model: BBModel = parseBBModel(json);
   const texW = model.resolution.width;
   const texH = model.resolution.height;
@@ -99,8 +100,8 @@ export async function loadBBModel(json: unknown, unitsPerMeter: number, offset: 
     const inflate = e.inflate ?? 0;
     const from = e.from.map((c, i) => Math.min(c, e.to[i]!) - inflate);
     const to = e.to.map((c, i) => Math.max(c, e.from[i]!) + inflate);
-    const m = elementMatrix(e, scale, offset);
-    const normalMatrix = new Matrix4().extractRotation(m);
+    const m = elementMatrix(e, scale, offset, axisScale);
+    const normalMatrix = new Matrix3().getNormalMatrix(m);
     for (const name of Object.keys(FACES) as FaceName[]) {
       const face = faces[name];
       if (!face || face.texture === null) continue;
@@ -111,7 +112,7 @@ export async function loadBBModel(json: unknown, unitsPerMeter: number, offset: 
       const def = FACES[name];
       const uvs = faceUvs(face, texW, texH);
       const quad = def.corners.map(([cx, cy, cz]) => v.set(cx ? to[0]! : from[0]!, cy ? to[1]! : from[1]!, cz ? to[2]! : from[2]!).applyMatrix4(m).toArray());
-      nrm.set(...def.normal).applyMatrix4(normalMatrix).normalize();
+      nrm.set(...def.normal).applyMatrix3(normalMatrix).normalize();
       for (const k of [0, 3, 2, 0, 2, 1]) {
         bucket.pos.push(...quad[k]!);
         bucket.nrm.push(nrm.x, nrm.y, nrm.z);

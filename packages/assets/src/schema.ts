@@ -35,6 +35,7 @@ export const PROCEDURAL_GENERATORS = [
   'reeds',
   'rock',
   'slab',
+  'bridge_block',
 ] as const;
 
 export const modelSourceSchema = z.discriminatedUnion('kind', [
@@ -60,6 +61,8 @@ export const modelSourceSchema = z.discriminatedUnion('kind', [
       path: z.string().regex(/^[a-z0-9_\-/]+\.bbmodel$/),
       /** Blockbench units per metre (16 = one Minecraft block per metre). */
       unitsPerMeter: positive.default(16),
+      /** Correct authored vehicle proportions before the final metre-space offset. */
+      axisScale: z.tuple([positive, positive, positive]).default([1, 1, 1]),
       offset: vec3.default([0, 0, 0]),
     })
     .strict(),

@@ -257,6 +257,18 @@ function slab(p: Params, rng: Rng): BufferGeometry {
 }
 
 const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeometry> = {
+  bridge_block: (p, rng) => {
+    const w = num(p, 'width', 2), h = num(p, 'height', .3), d = num(p, 'depth', 2);
+    const color = typeof p.color === 'string' ? new Color(p.color).getHex() : 0x77766b;
+    const y = (p.topOrigin ? -1 : 1) * h / 2;
+    // Narrow plank joints retain a continuous driving collider below the visible wood.
+    if (p.color === '#756047') {
+      const parts = [];
+      for (let i = 0; i < 8; i++) parts.push(paint(new BoxGeometry(w, h, d / 8 - .012).translate(0, y, -d / 2 + (i + .5) * d / 8), color, rng, .12));
+      return merge(parts);
+    }
+    return merge([paint(new BoxGeometry(w, h, d).translate(0, y, 0), color, rng, .05)]);
+  },
   spruce,
   broadleaf: (p, rng) => broadleaf(p, rng),
   birch,

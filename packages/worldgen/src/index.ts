@@ -9,3 +9,4 @@ export * from './scatter';
 export * from './png';
 export * from './structures';
 export * from './roads';
+export * from './bridges';

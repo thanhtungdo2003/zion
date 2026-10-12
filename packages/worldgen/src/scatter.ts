@@ -78,7 +78,7 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         if (insideStructure(gen, x, z)) continue;
         gen.sampleColumn(x, z, sample);
         // Leave the carriageway clear; only low shrubs/decor may grow on the verge.
-        if (sample.roadDistance < (spec.layer === 'trees' || spec.layer === 'rocks' ? 5.5 : 2.7)) continue;
+        if (sample.roadDistance < sample.roadHalfWidth + (spec.layer === 'trees' || spec.layer === 'rocks' ? 3.1 : .3)) continue;
         if (sample.height < gen.seaLevel - 1.5) continue; // open sea: nothing grows
         const slope = gen.slopeAt(x, z, sample.height);
         const biome = gen.classifyBiome(sample, slope);
@@ -159,7 +159,7 @@ function placeAmmoCaches(gen: WorldGenerator, ox: number, oz: number, sample: Co
     if (gen.camp && Math.max(Math.abs(x - gen.camp.x), Math.abs(z - gen.camp.z)) < 80) continue;
     if (insideStructure(gen, x, z, 4)) continue;
     gen.sampleColumn(x, z, sample);
-    if (sample.roadDistance < 5.5) continue;
+    if (sample.roadDistance < sample.roadHalfWidth + 3.1) continue;
     if (sample.height < gen.seaLevel + 1 || hasWater(gen, sample) || gen.slopeAt(x, z, sample.height) > 0.35) continue;
     out.push({
       asset: CAMP_ASSET['zion-ammo-cache-station'],

@@ -165,7 +165,7 @@ export class AssetLibrary {
         const geometry = buildProceduralGeometry(model.generator, model.params, def.numericId);
         const material = swayMaterial(def.render.sway);
         if (model.generator === 'rock' || model.generator === 'slab') naturalMaterial(material, 'rock');
-        else naturalMaterial(material, 'tree');
+        else if (model.generator !== 'bridge_block') naturalMaterial(material, 'tree');
         return { def, parts: [{ geometry, material }] };
       }
       case 'bbmodel': {
@@ -173,7 +173,7 @@ export class AssetLibrary {
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const res = await cachedFetch(entry.url);
         if (!res.ok) throw new Error(`fetch ${entry.url} failed (${res.status})`);
-        return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset) };
+        return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset, model.axisScale) };
       }
       case 'glb': {
         const entry = (await this.getManifest()).files[model.path];
