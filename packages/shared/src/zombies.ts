@@ -47,7 +47,7 @@ export function zombieVariant(packed: number): ZombieVariant {
   return value === 1 || value === 2 || value === 3 ? value : 0;
 }
 export function zombieMaxHealth(variant: ZombieVariant): number {
-  return variant === ZombieVariant.Brute ? 240 : variant === ZombieVariant.Crimson ? 65 : ZOMBIE_MAX_HEALTH;
+  return variant === ZombieVariant.Brute ? 280 : variant === ZombieVariant.Crimson ? 65 : ZOMBIE_MAX_HEALTH;
 }
 
 export function zombieScale(variant: ZombieVariant): number { return variant === ZombieVariant.Brute ? 1.5 : 1; }

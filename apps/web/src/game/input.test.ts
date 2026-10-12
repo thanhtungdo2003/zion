@@ -20,6 +20,23 @@ function setup() {
   return { input, win, doc, element };
 }
 describe('mobile input', () => {
+  it('uses Q to dodge and C to toggle prone once per press, keeping stance while paused', () => {
+    const { input, win } = setup();
+    const key = (type: string, code: string, repeat = false) => win.dispatchEvent(Object.assign(new Event(type), { code, repeat }));
+    key('keydown', 'KeyQ');
+    expect(input.buttons() & Buttons.Roll).toBeTruthy();
+    key('keyup', 'KeyQ');
+    key('keydown', 'KeyC');
+    expect(input.buttons() & Buttons.Prone).toBeTruthy();
+    expect(input.buttons() & Buttons.Roll).toBeFalsy();
+    key('keydown', 'KeyC', true); key('keyup', 'KeyC');
+    expect(input.buttons() & Buttons.Prone).toBeTruthy();
+    input.suspended = true;
+    expect(input.buttons()).toBe(Buttons.Prone);
+    input.suspended = false;
+    key('keydown', 'KeyC');
+    expect(input.buttons() & Buttons.Prone).toBeFalsy();
+  });
   it('faces movement in top view and gives the fire stick priority until released', () => {
     const { input } = setup();
     const cameraYaw = Math.PI / 4;

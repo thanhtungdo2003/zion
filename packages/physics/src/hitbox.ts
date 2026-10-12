@@ -46,6 +46,16 @@ export const ZOMBIE_CRAWL_RIG: readonly RigPart[] = [
   { zone: 'leg_r', a: [0.12, 0.18, 0.35], b: [0.14, 0.1, 1.1], r: 0.135 },
 ];
 
+/** Authored prone root tilts the body forward, with the head raised just above the ground. */
+export const PRONE_RIG: readonly RigPart[] = [
+  { zone: 'head', a: [0, .4, -1.5], b: [0, .4, -1.5], r: .14 },
+  { zone: 'torso', a: [0, .28, -.8], b: [0, .3, -1.2], r: .22 },
+  { zone: 'arm_l', a: [-.3, .3, -1.2], b: [-.25, .25, -1.65], r: .08 },
+  { zone: 'arm_r', a: [.3, .3, -1.2], b: [.25, .25, -1.65], r: .08 },
+  { zone: 'leg_l', a: [-.12, .18, -.08], b: [-.12, .2, -.8], r: .1 },
+  { zone: 'leg_r', a: [.12, .18, -.08], b: [.12, .2, -.8], r: .1 },
+];
+
 function bruteRig(rig: readonly RigPart[]): readonly RigPart[] {
   return rig.map((p) => ({ ...p, a: [p.a[0] * 1.5, p.a[1] * 1.5, p.a[2] * 1.5], b: [p.b[0] * 1.5, p.b[1] * 1.5, p.b[2] * 1.5], r: p.r * 1.5 }));
 }

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { Box3, BoxGeometry, Group, Matrix4, Mesh, Vector3 } from 'three';
+import { Box3, BoxGeometry, Group, Matrix4, Mesh, Sprite, Vector3 } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
@@ -18,6 +18,30 @@ function bodyUp(avatar: Avatar): Vector3 {
   const bone = avatar.root.getObjectByName('root')!;
   return new Vector3(0, 1, 0).transformDirection(bone.matrixWorld);
 }
+
+describe('prone animations', () => {
+  it('uses the authored prone, crawl and shooting clips and returns to standing', () => {
+    const avatar = new Avatar(template, true);
+    const layer = () => (avatar as unknown as { cur: { clip: { name: string } } }).cur.clip.name;
+    const label = new Sprite();
+    (avatar as unknown as { label: Sprite }).label = label;
+    for (let i = 0; i < 60; i++) avatar.update(10, 0, 10, 0, EntityFlags.Grounded | EntityFlags.Prone, 1 / 60, 0);
+    expect(layer()).toBe('prone');
+    expect(label.visible).toBe(false);
+    expect(Math.abs(bodyUp(avatar).y)).toBeLessThan(.2);
+    avatar.setStance('rifle');
+    avatar.update(10, 0, 10, 0, EntityFlags.Grounded | EntityFlags.Prone, .1, 0);
+    expect(layer()).toBe('prone_rifle_idle');
+    avatar.update(10, 0, 9.9, 0, EntityFlags.Grounded | EntityFlags.Prone, .1, 0);
+    expect(layer()).toBe('prone_rifle_crawl');
+    avatar.kick(1);
+    avatar.update(10, 0, 9.9, 0, EntityFlags.Grounded | EntityFlags.Prone, .1, 0);
+    expect(layer()).toBe('prone_rifle_shoot');
+    for (let i = 0; i < 120; i++) avatar.update(10, 0, 9.9, 0, EntityFlags.Grounded, 1 / 60, 0);
+    expect(bodyUp(avatar).y).toBeGreaterThan(.99);
+    expect(label.visible).toBe(true);
+  });
+});
 
 describe('stowed weapons', () => {
   const library = (): WeaponLibrary => {

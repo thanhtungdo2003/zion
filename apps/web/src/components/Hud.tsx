@@ -166,7 +166,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
                 </div>
               )}
               <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title={t('hud.roll')}>
-                <kbd>C</kbd>
+                <kbd>Q</kbd>
                 <div className="hud-roll-bar">
                   <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
                 </div>
@@ -275,7 +275,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
             <h2>{t('pause.title')}</h2>
             <div className="keys">
               <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> {t('keys.move')} · <kbd>Shift</kbd> {t('keys.sprint')} · <kbd>Space</kbd>{' '}
-              {t('keys.jump')} · <kbd>C</kbd> {t('keys.roll')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
+              {t('keys.jump')} · <kbd>Q</kbd> {t('keys.roll')} · <kbd>C</kbd> {t('keys.prone')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
               {t('keys.weapon')}
               <br />
               <kbd>Mouse</kbd> {t('keys.aim')} · <kbd>LMB</kbd> {t('keys.shoot')} · <kbd>RMB</kbd> {t('keys.scope')} · <kbd>R</kbd>{' '}
@@ -318,7 +318,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         </div>
       )}
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onCameraChange={onResume}>
         {state.status === 'playing' && (
           <section className="set-section">
             <h3>

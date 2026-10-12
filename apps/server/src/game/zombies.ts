@@ -36,10 +36,6 @@ const MAX_ZOMBIES = 90;
 /** Reinforcements appear this far (plus up to REINFORCE_SPREAD) from the hunted player. */
 const REINFORCE_MIN_DIST = 40;
 const REINFORCE_SPREAD = 24;
-/** A player must stay in plain sight this long before a zombie commits to the hunt. */
-const DETECT_MS = 3000;
-/** Out of sight, the suspicion fades at this fraction of the rate it built up. */
-const DETECT_DECAY = 0.5;
 /** A committed hunter only gives up once its prey is at least this far away. */
 const CHASE_GIVE_UP_DIST = 70;
 const CORPSE_MS = 9000;
@@ -83,9 +79,6 @@ export class Zombie {
   limbs = 0;
   /** Committed prey: chased even out of sight, until it gets too far away. */
   target: Player | null = null;
-  /** Player currently in plain sight but not yet hunted; `noticeMs` builds up toward DETECT_MS. */
-  noticing: Player | null = null;
-  noticeMs = 0;
   /** Point this zombie wanders around when it has no prey. */
   anchorX: number;
   anchorZ: number;
@@ -142,7 +135,6 @@ export class ZombieDirector {
   suspend(player: Player, players: readonly Player[] = []): SuspendedZombie[] {
     const saved: SuspendedZombie[] = [];
     for (const [id, z] of this.zombies) {
-      if (z.noticing === player) { z.noticing = null; z.noticeMs = 0; }
       if (!z.dead && (z.target === player || z.biteTarget === player)) {
         if (players.some(p => p !== player && p.active && !p.dead && dist2(z.state, p.state) < DESPAWN_DIST ** 2)) {
           if (z.target === player) z.target = null;
@@ -365,15 +357,6 @@ export class ZombieDirector {
       goalX = z.target.state.x;
       goalZ = z.target.state.z;
       chasing = true;
-    } else if (z.noticing) {
-      // Suspicious: stops and stares at the player it has spotted, but does not attack yet.
-      const ns = z.noticing.state;
-      const len = Math.hypot(ns.x - s.x, ns.z - s.z) || 1;
-      const want = Math.atan2(-(ns.x - s.x) / len, -(ns.z - s.z) / len);
-      z.yaw = wrapAngle(z.yaw + Math.max(-0.25, Math.min(0.25, wrapAngle(want - z.yaw))));
-      this.navigation.clear(z.navigation);
-      this.stepPhysics(z, 0, 0);
-      return;
     } else if (now < z.alertUntil) {
       goalX = z.alertX;
       goalZ = z.alertZ;
@@ -411,7 +394,7 @@ export class ZombieDirector {
     // Attack when in reach.
     const t = z.target;
     const inReach = !s.swimming && t && dist < ATTACK_RANGE * zombieScale(z.variant) && Math.abs(s.y - t.state.y) < 1.2 &&
-      this.collision.lineOfSight(s.x, s.y + 0.9, s.z, t.state.x, t.state.y + 0.9, t.state.z,
+      this.collision.lineOfSight(s.x, s.y + 0.9, s.z, t.state.x, t.state.y + (t.state.prone ? .4 : .9), t.state.z,
         Mask.LineOfSight, this.attackHit);
     // A started bite resolves after its wind-up: only if the victim is still within reach.
     if (z.biteAt && now >= z.biteAt) {
@@ -466,11 +449,7 @@ export class ZombieDirector {
     this.stepPhysics(z, move && !idleRandom ? 1 : 0, approachSpeed, want);
   }
 
-  /**
-   * Builds suspicion of the nearest player in plain sight within `sense`. Only after DETECT_MS of
-   * (mostly) continuous sight does the zombie commit to the hunt; a player hiding behind cover is
-   * never targeted, however close. Being shot (`hit`) still commits immediately.
-   */
+  /** Acquire visible players immediately; prone players have 35% of the normal detection range. */
   private detect(z: Zombie, players: readonly Player[], sense: number): void {
     const s = z.state;
     let seen: Player | null = null;
@@ -478,24 +457,13 @@ export class ZombieDirector {
     for (const p of players) {
       if (!p.active || p.dead) continue;
       const d = dist2(s, p.state);
-      if (d < best && this.collision.lineOfSight(s.x, s.y + .9, s.z, p.state.x, p.state.y + .9, p.state.z, Mask.LineOfSight, this.attackHit)) {
+      const range = p.state.prone ? sense * .35 : sense;
+      if (d < best && d < range * range && this.collision.lineOfSight(s.x, s.y + .9, s.z, p.state.x, p.state.y + (p.state.prone ? .4 : .9), p.state.z, Mask.LineOfSight, this.attackHit)) {
         best = d;
         seen = p;
       }
     }
-    const dt = TICK_DT * 1000;
-    if (seen) {
-      if (seen !== z.noticing) { z.noticing = seen; z.noticeMs = 0; }
-      z.noticeMs += dt;
-      if (z.noticeMs >= DETECT_MS) {
-        z.target = seen;
-        z.noticing = null;
-        z.noticeMs = 0;
-      }
-    } else if (z.noticing) {
-      z.noticeMs -= dt * DETECT_DECAY;
-      if (z.noticeMs <= 0 || z.noticing.dead || !z.noticing.active) { z.noticing = null; z.noticeMs = 0; }
-    }
+    if (seen) z.target = seen;
   }
 
   private stepPhysics(z: Zombie, mz: number, speed: number, yaw = z.yaw): void {
@@ -507,7 +475,7 @@ export class ZombieDirector {
   private canBite(z: Zombie, v: Player): boolean {
     const s = z.state;
     return !s.swimming && Math.hypot(v.state.x - s.x, v.state.z - s.z) < ATTACK_RANGE * zombieScale(z.variant) + 0.2 && Math.abs(s.y - v.state.y) < 1.2 &&
-      this.collision.lineOfSight(s.x, s.y + 0.9, s.z, v.state.x, v.state.y + 0.9, v.state.z, Mask.LineOfSight, this.attackHit);
+      this.collision.lineOfSight(s.x, s.y + 0.9, s.z, v.state.x, v.state.y + (v.state.prone ? .4 : .9), v.state.z, Mask.LineOfSight, this.attackHit);
   }
 
   /** A heavy blow interrupts the bite and spring wind-up as well as stopping locomotion. */
@@ -530,7 +498,7 @@ export class ZombieDirector {
     s.vx += (dirX / len) * impulse;
     s.vz += (dirZ / len) * impulse;
     z.staggerUntil = Math.max(z.staggerUntil, now + 120 + impulse * 60);
-    if (attacker && !attacker.dead) { z.target = attacker; z.noticing = null; z.noticeMs = 0; }
+    if (attacker && !attacker.dead) z.target = attacker;
     const broke = 0;
     if (zone === 'head' && z.variant !== ZombieVariant.Brute) {
       z.health = 0;

@@ -1,7 +1,7 @@
 import { Buttons } from '@zion/shared';
 
 export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll';
-export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause';
+export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause' | 'prone';
 const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll };
 
 /**
@@ -49,6 +49,7 @@ export class InputController {
   private active = false;
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
+  private prone = false;
   touchEnabled = false;
   /** Manual stick heading, kept separate from the assisted shot heading. */
   touchHeading: number | null = null;
@@ -106,7 +107,7 @@ export class InputController {
         this.handlers.openInventory();
         return;
       }
-      if (e.code === 'KeyQ' && !e.repeat) this.handlers.cycleHotbar(1);
+      if (e.code === 'KeyC' && !e.repeat) this.toggleProne();
       if (e.code === 'KeyR' && !e.repeat) this.handlers.reload();
       if (e.code === 'KeyH' && !e.repeat) this.handlers.heal();
       const digit = /^Digit([1-9])$/.exec(e.code);
@@ -220,6 +221,7 @@ export class InputController {
 
   /** Keep taps shorter than one simulation tick until the next input is sent. */
   acknowledgeTouchPresses(): void { this.touchPresses = 0; }
+  toggleProne(): void { this.prone = !this.prone; }
 
   touchLook(dx: number, dy: number, zoom = 1): void {
     if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
@@ -317,12 +319,13 @@ export class InputController {
   }
 
   buttons(): number {
-    if (this.suspended || !this.active) return 0;
-    let b = this.touchBits | this.touchPresses;
+    const stance = this.prone ? Buttons.Prone : 0;
+    if (this.suspended || !this.active) return stance;
+    let b = this.touchBits | this.touchPresses | stance;
     if (this.keys.has('Space')) b |= Buttons.Jump;
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
-    if (this.keys.has('KeyC')) b |= Buttons.Roll;
+    if (this.keys.has('KeyQ')) b |= Buttons.Roll;
     return b;
   }
 

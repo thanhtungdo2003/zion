@@ -197,7 +197,10 @@ export class Avatar {
   /** Weapon kick: muzzle climb that decays over a few frames. */
   kick(amount: number): void {
     this.recoil = Math.min(0.5, this.recoil + amount);
+    this.proneShotFor = .6;
   }
+
+  private proneShotFor = 0;
 
   private play(name: string | null, rate = 1, start = 0, fade = 0): void {
     const clip = name ? (this.template.clips.get(name) ?? null) : null;
@@ -229,6 +232,13 @@ export class Avatar {
       this.oneShot = null;
       this.recoil = 0;
       return this.play(this.template.clips.has('cpr_kneel') ? 'cpr_kneel' : 'bandage_wrap', 1, 0, .3);
+    }
+    if ((flags & EntityFlags.Prone) !== 0) {
+      this.oneShot = null;
+      const gun = this.stance === 'rifle' || this.stance === 'pistol';
+      const firing = gun && (attacking || this.proneShotFor > 0);
+      const clip = firing ? 'prone_rifle_shoot' : speed > .2 ? 'prone_rifle_crawl' : gun ? 'prone_rifle_idle' : 'prone';
+      return this.play(this.template.clips.has(clip) ? clip : 'prone', speed > .2 && !firing ? Math.min(1.6, Math.max(.4, speed / 1.15)) : 1, 0, .3);
     }
     if ((flags & EntityFlags.Rolling) !== 0) {
       // Snapshot/prediction flags can end before the last rendered frame of the clip.
@@ -288,6 +298,9 @@ export class Avatar {
   }
 
   update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number): void {
+    const prone = (flags & EntityFlags.Prone) !== 0;
+    this.proneShotFor = Math.max(0, this.proneShotFor - dt);
+    if (this.label) this.label.visible = !prone;
     // Down (bleeding out) or dead: limp. Starts here too when no hit started it (bites…).
     const limp = (flags & (EntityFlags.Dead | EntityFlags.Downed)) !== 0;
     if (limp && !this.ragdoll && this.ground) this.startRagdoll(0, 1, 1, this.ground);
@@ -315,7 +328,10 @@ export class Avatar {
     const rolling = this.cur.clip?.name === 'roll';
     if (rolling && !wasRolling) this.rollYaw = yaw;
     if (this.bodyYaw !== this.bodyYaw || this.rigid) this.bodyYaw = yaw;
-    if ((flags & EntityFlags.Climbing) !== 0) {
+    if (prone) {
+      this.bodyYaw = yaw;
+      this.headYaw = 0;
+    } else if ((flags & EntityFlags.Climbing) !== 0) {
       // On a ladder: keep facing the rungs.
       this.headYaw = 0;
     } else if ((flags & EntityFlags.Swimming) !== 0 && speed > 0.4) {

@@ -74,14 +74,14 @@ import {
   isZombieId,
   Buttons,
   ITEM_BY_WEAPON,
-  MUZZLE_HEIGHT,
+  muzzleHeight,
   throwScatter,
   WEAPON_BY_ITEM,
   WEAPON_SPECS,
   WeaponId,
   propTransform,
 } from '@zion/shared';
-import { DEFAULT_CHARACTER, Mask, makeRayHit, raycastRig, zombieHitRig } from '@zion/physics';
+import { DEFAULT_CHARACTER, characterEyeHeight, Mask, makeRayHit, raycastRig, zombieHitRig, PRONE_RIG } from '@zion/physics';
 import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
 import { itemName, type Msg } from '@/lib/i18n';
@@ -845,6 +845,7 @@ export class GameEngine {
     else if (action === 'interact') { this.input.resetTouch(); this.onInteract(); }
     else if (action === 'inventory') { this.input.resetTouch(); this.inventory.setOpen(true); }
     else if (action === 'heal') void this.useMedkit();
+    else if (action === 'prone') this.input.toggleProne();
     else if (action === 'weapon') { this.input.touchButton('aim', false); this.inventory.cycle(1); }
   }
 
@@ -1421,12 +1422,13 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting;
+    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone;
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
       (local.state.grounded ? EntityFlags.Grounded : 0) |
       (local.state.swimming ? EntityFlags.Swimming : 0) |
       (local.state.rollTicks > 0 ? EntityFlags.Rolling : 0) |
+      (local.state.prone ? EntityFlags.Prone : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0);
     this.updateAim(px, py, pz);
@@ -1497,7 +1499,7 @@ export class GameEngine {
     if (this.hud.get().scoped !== this.scoped || this.hud.get().scopeMagnification !== scopeMagnification) {
       this.hud.set({ scoped: this.scoped, scopeMagnification });
     }
-    this.vision?.update(px, py + DEFAULT_CHARACTER.eyeHeight, pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
+    this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
     if (this.ocean) snapOcean(this.ocean, this.camera.position.x, this.camera.position.z, this.welcome!.world.seaLevel);
     if (this.waterMaterial) {
@@ -1680,6 +1682,7 @@ export class GameEngine {
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
+    if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
     // Scoped in: planted feet, so no walking, rolling or jumping.
     const equippedSpec = weaponSpec(weapon);
@@ -1795,7 +1798,7 @@ export class GameEngine {
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
     const ox = s.x;
-    const oy = s.y + MUZZLE_HEIGHT;
+    const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
     const ends: number[] = [];
     const pellets = !spec.fire || spec.fire === 'hitscan' ? spec.pellets : 0;
@@ -1863,7 +1866,10 @@ export class GameEngine {
       if (r.entity.pose.flags & EntityFlags.Dead || !r.avatar.root.visible) continue;
       if (this.hud.get().team?.members.some((m) => m.entityId === r.entity.id)) continue;
       const q = r.avatar.root.position;
-      if (r.entity.kind === EntityKind.Animal) test(q.x, q.y, q.z, 0.6, 1.0);
+      if (r.entity.pose.flags & EntityFlags.Prone) {
+        const hit = raycastRig(PRONE_RIG, q.x, q.y, q.z, r.avatar.root.rotation.y, ox, oy, oz, dx, dy, dz, best);
+        if (hit && hit.t > .3) best = hit.t;
+      } else if (r.entity.kind === EntityKind.Animal) test(q.x, q.y, q.z, 0.6, 1.0);
       else test(q.x, q.y, q.z, 0.35, 1.85);
     }
     return best;
@@ -2231,7 +2237,7 @@ export class GameEngine {
     const dx = -Math.sin(yaw) * Math.cos(p);
     const dy = Math.sin(p);
     const dz = -Math.cos(yaw) * Math.cos(p);
-    const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + MUZZLE_HEIGHT, pz);
+    const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone), pz);
     let t = range;
     if (this.store?.collision.raycast(o.x, o.y, o.z, dx, dy, dz, range, Mask.LineOfSight, this.shotRay)) t = this.shotRay.t;
     const pos = this.laser.geometry.getAttribute('position') as Float32BufferAttribute;
@@ -2323,7 +2329,7 @@ export class GameEngine {
     let distance = 100;
     if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
     distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
-    this.tmpA.set(px, py + MUZZLE_HEIGHT, pz);
+    this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone), pz);
     this.tmpB.copy(ray.direction).multiplyScalar(distance).add(ray.origin);
     // A camera-side obstruction must never turn a shot backwards through the character.
     if (this.tmpC.subVectors(this.tmpB, this.tmpA).dot(ray.direction) < .2) this.tmpB.copy(this.tmpA).addScaledVector(ray.direction, 2);
@@ -2364,15 +2370,15 @@ export class GameEngine {
         const pose = zb.entity.pose;
         zombieAimPoint((zb.variant << 4) | zb.limbs, pose.flags, p, zb.avatar.root.rotation.y, 'torso', this.tmpB);
         const ty = this.tmpB.y;
-        const dy = ty - (py + MUZZLE_HEIGHT), length = Math.hypot(distance, dy);
-        if (this.store?.collision.raycast(px, py + MUZZLE_HEIGHT, pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
+        const dy = ty - (py + muzzleHeight(this.local?.state.prone)), length = Math.hypot(distance, dy);
+        if (this.store?.collision.raycast(px, py + muzzleHeight(this.local?.state.prone), pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
         bestScore = score; found = true;
         this.hoverPoint.copy(this.tmpB);
       }
       if (found) {
         const dx = this.hoverPoint.x - px, dz = this.hoverPoint.z - pz;
         this.input.yaw = Math.atan2(-dx, -dz);
-        this.input.pitch = Math.atan2(this.hoverPoint.y - (py + MUZZLE_HEIGHT), Math.hypot(dx, dz));
+        this.input.pitch = Math.atan2(this.hoverPoint.y - (py + muzzleHeight(this.local?.state.prone)), Math.hypot(dx, dz));
         this.aimPoint.copy(this.hoverPoint);
       } else {
         this.aimPoint.set(px - Math.sin(heading) * 30, py, pz - Math.cos(heading) * 30);
@@ -2395,13 +2401,13 @@ export class GameEngine {
       const h = Math.hypot(tx, tz);
       if (h > 0.5) {
         this.input.yaw = Math.atan2(-tx, -tz);
-        this.input.pitch = Math.atan2(target.y - (py + MUZZLE_HEIGHT), h);
+        this.input.pitch = Math.atan2(target.y - (py + muzzleHeight(this.local?.state.prone)), h);
         return;
       }
     }
     this.input.yaw = Math.atan2(-dx, -dz);
     // Scoped: a flat shot at torso height so long range shots don't sail over targets.
-    let pitch = this.scoped ? Math.atan2(this.aimPoint.y - (py + MUZZLE_HEIGHT), Math.sqrt(d2)) : aimPitch(Math.sqrt(d2));
+    let pitch = this.scoped || this.local?.state.prone ? Math.atan2(this.aimPoint.y - (py + muzzleHeight(this.local?.state.prone)), Math.sqrt(d2)) : aimPitch(Math.sqrt(d2));
     // Scoped bows/launchers: hold over for the round's drop so it comes down on the cursor.
     const spec = weaponSpec(this.equippedWeapon());
     const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
@@ -2488,7 +2494,7 @@ export class GameEngine {
     const cam = this.camera;
     if (this.mouseLook) {
       // Smooth the eye: prediction corrections and step-ups would otherwise jolt the whole view.
-      const eye = py + DEFAULT_CHARACTER.eyeHeight;
+      const eye = py + (this.local ? characterEyeHeight(this.local.state) : DEFAULT_CHARACTER.eyeHeight);
       const f = this.camFocus;
       if (!this.camFocusInit || (f.x - px) ** 2 + (f.z - pz) ** 2 > 25) {
         f.set(px, eye, pz);

@@ -8,6 +8,7 @@ import type { Lang } from '@/lib/i18n';
 interface Props {
   open: boolean;
   onClose: () => void;
+  onCameraChange?: () => void;
   /** Rendered under the language row (extra sections contributed by the host screen). */
   children?: ReactNode;
 }
@@ -17,7 +18,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 ];
 
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
-export function SettingsModal({ open, onClose, children }: Props) {
+export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const { lang, volume, brightness, touchControls, cameraMode, mouseSens, t } = useSettings();
 
   useEffect(() => {
@@ -96,7 +97,7 @@ export function SettingsModal({ open, onClose, children }: Props) {
                 role="radio"
                 aria-checked={cameraMode === mode}
                 className="set-lang"
-                onClick={() => settingsStore.set({ cameraMode: mode })}
+                onClick={() => { settingsStore.set({ cameraMode: mode }); onClose(); onCameraChange?.(); }}
               >
                 <b>{mode === 'first-person' ? 'FPP' : mode === 'third-person' ? 'TPP' : 'TOP'}</b>
                 <small>{t(mode === 'first-person' ? 'settings.view_first' : mode === 'third-person' ? 'settings.view_shoulder' : 'settings.view_third')}</small>

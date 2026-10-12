@@ -13,6 +13,7 @@ import {
   makeSphere,
   raycastRig,
   HUMANOID_RIG,
+  PRONE_SPEED,
   rayBox,
   rayCapsule,
   type CharacterInput,
@@ -44,6 +45,33 @@ function input(partial: Partial<CharacterInput> = {}): CharacterInput {
 function run(ctrl: CharacterController, s: ReturnType<typeof createCharacterState>, inp: CharacterInput, ticks: number) {
   for (let i = 0; i < ticks; i++) ctrl.step(s, inp, DT);
 }
+
+describe('prone movement', () => {
+  it('crawls without sprinting, jumping or rolling', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0));
+    const s = createCharacterState(16, 0, 16);
+    s.grounded = true;
+    run(ctrl, s, input({ prone: true, mz: 1, sprint: true, jump: true, roll: true }), 30);
+    expect(s.prone).toBe(true);
+    expect(s.grounded).toBe(true);
+    expect(s.rollTicks).toBe(0);
+    expect(Math.hypot(s.vx, s.vz)).toBeCloseTo(PRONE_SPEED);
+    expect(s.y).toBeCloseTo(0, 1);
+  });
+
+  it('fits under a low roof and cannot stand until clear', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0, [{ shape: makeBox(16, 1.5, 16, 2, .5, 2), layer: Layer.Static }]));
+    const s = createCharacterState(16, 0, 16);
+    s.grounded = true;
+    s.prone = true;
+    run(ctrl, s, input(), 3);
+    expect(s.prone).toBe(true);
+    run(ctrl, s, input({ prone: true, mz: 1 }), 90);
+    expect(s.z).toBeLessThan(14);
+    ctrl.step(s, input(), DT);
+    expect(s.prone).toBe(false);
+  });
+});
 
 describe('geometry', () => {
   it('finds closest points between crossing segments', () => {

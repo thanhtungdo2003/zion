@@ -182,6 +182,7 @@ export function MobileControls({ controls, canAim, canReload, reloading, rollCoo
       <TouchKey controls={controls} icon="lucide:heart-pulse" label={t('touch.heal')} press={() => controls.action('heal')} />
       <TouchKey controls={controls} icon="lucide:arrow-up-from-line" label={t('touch.jump')} hold="jump" />
       <TouchKey controls={controls} icon="lucide:rotate-3d" label={t('touch.roll')} hold="roll" disabled={rollCooldown > 0} />
+      <TouchKey controls={controls} icon="lucide:arrow-down-to-line" label={t('keys.prone')} press={() => controls.action('prone')} />
     </div>
   </div>;
 }

@@ -70,6 +70,7 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
 });
 
 export interface CharacterState {
+  prone: boolean;
   /** Feet position. */
   x: number;
   y: number;
@@ -100,6 +101,7 @@ export interface CharacterInput {
   jump: boolean;
   sprint: boolean;
   roll?: boolean;
+  prone?: boolean;
   /** Movement speed multiplier (armour weight); 1 when omitted. */
   speedMul?: number;
 }
@@ -115,7 +117,14 @@ export interface StepInfo {
 }
 
 export function createCharacterState(x: number, y: number, z: number): CharacterState {
-  return { x, y, z, vx: 0, vy: 0, vz: 0, grounded: false, swimming: false, stuckTicks: 0, rollTicks: 0, rollCooldown: 0, rollYaw: 0, climbing: false };
+  return { x, y, z, vx: 0, vy: 0, vz: 0, grounded: false, swimming: false, stuckTicks: 0, rollTicks: 0, rollCooldown: 0, rollYaw: 0, climbing: false, prone: false };
+}
+
+export const PRONE_HEIGHT = 0.7;
+export const PRONE_EYE_HEIGHT = 0.45;
+export const PRONE_SPEED = 1.15;
+export function characterEyeHeight(state: Pick<CharacterState, 'prone'>): number {
+  return state.prone ? PRONE_EYE_HEIGHT : DEFAULT_CHARACTER.eyeHeight;
 }
 
 export function copyCharacterState(src: CharacterState, dst: CharacterState): CharacterState {
@@ -132,6 +141,7 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.rollCooldown = src.rollCooldown;
   dst.rollYaw = src.rollYaw;
   dst.climbing = src.climbing;
+  dst.prone = src.prone;
   return dst;
 }
 
@@ -191,7 +201,12 @@ export class CharacterController {
     s.swimming = submersion > p.swimDepth;
     const wading = !s.swimming && submersion > p.wadeDepth;
 
+    if (s.swimming || s.climbing) s.prone = false;
+    else if (input.prone && s.grounded && s.rollTicks === 0) s.prone = true;
+    else if (!input.prone && s.prone && this.isFree(s.x, s.y, s.z)) s.prone = false;
+
     let speed = (s.swimming ? (input.sprint ? p.swimSprintSpeed : p.swimSpeed) : input.sprint && mz > 0.3 ? p.sprintSpeed : p.walkSpeed) * (input.speedMul ?? 1);
+    if (s.prone) speed = PRONE_SPEED * (input.speedMul ?? 1);
     if (mz < 0) speed *= p.backwardFactor;
     if (wading) speed *= 0.7;
     const targetX = wishX * speed;
@@ -200,7 +215,7 @@ export class CharacterController {
     // --- Dodge roll: commits to one direction at a fixed speed for its duration -------------
     if (s.rollTicks > 0) s.rollTicks--;
     else if (s.rollCooldown > 0) s.rollCooldown--;
-    if (input.roll && s.rollTicks === 0 && s.rollCooldown === 0 && s.grounded && !s.swimming) {
+    if (input.roll && !s.prone && s.rollTicks === 0 && s.rollCooldown === 0 && s.grounded && !s.swimming) {
       s.rollTicks = Math.max(1, Math.round(p.rollDuration / dt));
       s.rollCooldown = Math.round(p.rollCooldown / dt);
       // Roll where the player is steering; standing still rolls toward the facing direction.
@@ -227,7 +242,7 @@ export class CharacterController {
     }
 
     // --- Ladders: push into one to climb, pull away from it (in the air) to climb down --------
-    const ladder = !s.swimming && !rolling ? this.ladderNormal(s) : null;
+    const ladder = !s.swimming && !rolling && !s.prone ? this.ladderNormal(s) : null;
     let climbing = false;
     if (ladder) {
       const into = -(wishX * ladder.nx + wishZ * ladder.nz);
@@ -256,7 +271,7 @@ export class CharacterController {
       const vy = (targetY - s.y) * 3;
       s.vy = vy < -2.5 ? -2.5 : vy > 2 ? 2 : vy;
       s.grounded = false;
-    } else if (s.grounded && input.jump && !rolling) {
+    } else if (s.grounded && input.jump && !rolling && !s.prone) {
       s.vy = p.jumpVelocity;
       s.grounded = false;
       info.jumped = true;
@@ -272,7 +287,7 @@ export class CharacterController {
     this.move(s, moveX, s.vy * dt, moveZ, info);
 
     // --- Step up small obstacles ------------------------------------------------------------
-    if (info.hitWall && wasGrounded && !s.swimming && (moveX !== 0 || moveZ !== 0)) {
+    if (info.hitWall && wasGrounded && !s.swimming && !s.prone && (moveX !== 0 || moveZ !== 0)) {
       if (this.tryStepUp(s, moveX, moveZ)) info.steppedUp = true;
     }
 
@@ -318,7 +333,7 @@ export class CharacterController {
     if (
       w.overlapsCapsule(
         s.x, s.y + p.radius, s.z,
-        s.x, s.y + p.height - p.radius, s.z,
+        s.x, s.y + (s.prone ? Math.max(PRONE_HEIGHT, p.radius * 2) : p.height) - p.radius, s.z,
         p.radius, this.mask & ~Layer.Terrain, STUCK_TOLERANCE, this.contacts,
       )
     ) {
@@ -382,7 +397,7 @@ export class CharacterController {
     for (let iter = 0; iter < RESOLVE_ITERATIONS; iter++) {
       const n = this.world.capsuleContacts(
         s.x, s.y + r, s.z,
-        s.x, s.y + p.height - r, s.z,
+        s.x, s.y + (s.prone ? Math.max(PRONE_HEIGHT, r * 2) : p.height) - r, s.z,
         r, this.mask, this.contacts,
       );
       if (n === 0) return;

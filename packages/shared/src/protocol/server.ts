@@ -308,6 +308,7 @@ export const EntityFlags = {
   Leaping: 1 << 9,
   /** Performing CPR on a downed teammate. */
   Reviving: 1 << 10,
+  Prone: 1 << 11,
 } as const;
 
 export interface SelfState {

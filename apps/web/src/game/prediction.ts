@@ -62,6 +62,7 @@ export class LocalPlayer {
       jump: (buttons & Buttons.Jump) !== 0,
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
+      prone: (buttons & Buttons.Prone) !== 0,
       speedMul: this.speedMul,
     };
     this.seq++;
@@ -92,6 +93,8 @@ export class LocalPlayer {
     s.vz = server.vz;
     s.grounded = (server.flags & EntityFlags.Grounded) !== 0;
     s.swimming = (server.flags & EntityFlags.Swimming) !== 0;
+    s.prone = (server.flags & EntityFlags.Prone) !== 0;
+    s.climbing = (server.flags & EntityFlags.Climbing) !== 0;
     s.stuckTicks = server.stuckTicks;
     s.rollTicks = server.rollTicks;
     s.rollCooldown = server.rollCooldown;
@@ -126,6 +129,7 @@ export class LocalPlayer {
     s.y = y;
     s.z = z;
     s.vx = s.vy = s.vz = 0;
+    s.prone = false;
     copyCharacterState(s, this.prev);
     this.pending.length = 0;
     this.correction.x = this.correction.y = this.correction.z = 0;

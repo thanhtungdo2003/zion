@@ -118,28 +118,24 @@ describe('zombie detection', () => {
     const z = new Zombie(1_000_010, 0, 0, 0), p = player(1, 0);
     for (let i = 0; i < ticks(10_000); i++) harness.detect(z, [p], 22);
     expect(z.target).toBeNull();
-    expect(z.noticing).toBeNull();
   });
 
-  it('only commits to the hunt after 3 seconds in plain sight', () => {
+  it('commits on the very first detection tick when the player is visible', () => {
     const { harness } = detector(() => true);
     const z = new Zombie(1_000_011, 0, 0, 0), p = player(5, 0);
-    for (let i = 0; i < ticks(2900); i++) harness.detect(z, [p], 22);
-    expect(z.target).toBeNull();
-    expect(z.noticing).toBe(p);
-    for (let i = 0; i < ticks(200); i++) harness.detect(z, [p], 22);
+    harness.detect(z, [p], 22);
     expect(z.target).toBe(p);
   });
 
-  it('loses suspicion when the player ducks behind cover before 3 seconds', () => {
-    let visible = true;
-    const { harness } = detector(() => visible);
+  it('reduces detection range to 35% for a prone player, while detecting them close up', () => {
+    const { harness } = detector(() => true);
     const z = new Zombie(1_000_012, 0, 0, 0), p = player(5, 0);
-    for (let i = 0; i < ticks(2000); i++) harness.detect(z, [p], 22);
-    visible = false;
-    for (let i = 0; i < ticks(4100); i++) harness.detect(z, [p], 22);
-    expect(z.noticing).toBeNull();
+    p.state.prone = true; p.state.x = 10;
+    harness.detect(z, [p], 22);
     expect(z.target).toBeNull();
+    p.state.x = 5;
+    harness.detect(z, [p], 22);
+    expect(z.target).toBe(p);
   });
 
   it('getting shot commits immediately', () => {

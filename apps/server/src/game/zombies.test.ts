@@ -52,7 +52,7 @@ describe('zombie damage', () => {
       expect(part.r).toBeCloseTo(ZOMBIE_RIG[i]!.r * 1.5);
       expect(part.a[1]).toBeCloseTo(ZOMBIE_RIG[i]!.a[1] * 1.5);
     }
-    expect(brute.maxHealth).toBe(240);
+    expect(brute.maxHealth).toBe(280);
   });
   it('accepts headshots at the scaled head height through combat broad phase', () => {
     const world = new CollisionWorld({ worldSize: 100, seaLevel: -10 });

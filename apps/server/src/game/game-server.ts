@@ -50,6 +50,7 @@ import {
   type MeleeSpec,
   type ProjectileSpec,
   MUZZLE_HEIGHT,
+  muzzleHeight,
   WEAPON_SPECS,
   WeaponId,
   EntityFlags,
@@ -1375,7 +1376,7 @@ export class GameServer {
         this.resolveQuestLocations(p);
         this.queueQuestEvent(p, { type: 'visit', x: p.state.x, z: p.state.z });
       }
-      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw);
+      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone);
       this.grid.update(p);
       p.streamer.setCenter(p.chunkX, p.chunkZ);
       this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed });
@@ -1475,6 +1476,7 @@ export class GameServer {
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     if (p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
+    if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump);
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Staggered by a hit: no steering until it lands.
@@ -1486,7 +1488,7 @@ export class GameServer {
     const wasRolling = p.state.rollTicks > 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, speedMul: p.speedMul },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, speedMul: p.speedMul },
       TICK_DT,
       this.stepInfo,
     );
@@ -1523,7 +1525,7 @@ export class GameServer {
 
   /** Neutral step when a client's inputs stall (keeps gravity/water physics authoritative). */
   private coast(p: Player): void {
-    this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false }, TICK_DT, this.stepInfo);
+    this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false, prone: p.state.prone }, TICK_DT, this.stepInfo);
   }
 
   private teleport(p: Player, pos: ValidatedPosition): void {
@@ -1537,6 +1539,7 @@ export class GameServer {
     s.grounded = true;
     s.stuckTicks = 0;
     s.rollTicks = 0;
+    s.prone = false;
     p.inputs.length = 0;
     p.history.clear();
     p.history.push(this.serverTime, s.x, s.y, s.z, p.yaw);
@@ -1826,7 +1829,7 @@ export class GameServer {
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
     const ox = s.x;
-    const oy = s.y + MUZZLE_HEIGHT;
+    const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
     const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
     const candidates: Combatant[] = [
@@ -1876,7 +1879,7 @@ export class GameServer {
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
     const ox = s.x + fx * 0.4;
-    const oy = s.y + 1.6;
+    const oy = s.y + (s.prone ? muzzleHeight(true) : 1.6);
     const oz = s.z + fz * 0.4;
     // Aimed throw: speed chosen so the grenade lands at the requested distance.
     let speed = spec.speed;
@@ -1961,7 +1964,7 @@ export class GameServer {
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
     const x = s.x + fx * 0.7;
-    const y = s.y + MUZZLE_HEIGHT;
+    const y = s.y + muzzleHeight(s.prone);
     const z = s.z + fz * 0.7;
     let vx: number;
     let vy: number;
@@ -2040,7 +2043,7 @@ export class GameServer {
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
     const ox = s.x;
-    const oy = s.y + MUZZLE_HEIGHT;
+    const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
@@ -2472,6 +2475,7 @@ export class GameServer {
     if ((p.lastButtons & Buttons.Sprint) !== 0) f |= EntityFlags.Sprinting;
     if (now < p.attackingUntil) f |= EntityFlags.Attacking;
     if (p.state.rollTicks > 0) f |= EntityFlags.Rolling;
+    if (p.state.prone) f |= EntityFlags.Prone;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.downed) f |= EntityFlags.Downed;

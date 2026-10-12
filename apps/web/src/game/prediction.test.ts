@@ -27,6 +27,19 @@ function rendered(player: LocalPlayer, alpha: number) {
 }
 
 describe('movement reconciliation', () => {
+  it('predicts prone movement and restores the authoritative stance before replaying pending inputs', () => {
+    const player = setup();
+    const command = player.step(0, 1, 0, 0, Buttons.Prone, undefined);
+    expect(command.b & Buttons.Prone).toBeTruthy();
+    expect(player.state.prone).toBe(true);
+    const server = { ...snapshot(player), flags: EntityFlags.Grounded | EntityFlags.Prone };
+    player.step(0, 1, 0, 0, Buttons.Prone, undefined);
+    player.reconcile(server, 1);
+    expect(player.state.prone).toBe(true);
+    expect(Math.hypot(player.state.vx, player.state.vz)).toBeLessThan(1.2);
+    player.step(0, 0, 0, 0, 0, undefined);
+    expect(player.state.prone).toBe(false);
+  });
   it.each([0, 0.25, 0.5, 0.9])('preserves the rendered running position at interpolation %s when corrected', (alpha) => {
     const player = setup();
     player.step(0, 1, 0, 0, Buttons.Sprint, undefined);

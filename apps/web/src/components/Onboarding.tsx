@@ -69,7 +69,7 @@ interface Step { title: string; text: string; focus?: string; walk?: Target; wai
 
 const steps: Step[] = [
   { title: 'Chào mừng đến ZION', text: 'Mình là Cattail, người đồng hành của bạn. Bạn có 100 coin, GL18, hai lựu đạn, năm củ khoai chín, một củ khoai sống và một kit cứu thương. Cùng làm quen nơi trú ẩn nhé!' },
-  { title: 'Sức khỏe và thể lực', text: 'Đây là máu và thể lực. Máu về 0 sẽ khiến bạn gục ngã. Shift để chạy, C để lộn; đứng nghỉ hồi thể lực. Ăn khoai chín trong túi để bổ sung năng lượng, H để dùng kit cứu thương.', focus: '.hud-health' },
+  { title: 'Sức khỏe và thể lực', text: 'Đây là máu và thể lực. Máu về 0 sẽ khiến bạn gục ngã. Shift để chạy, Q để lướt, C để nằm hoặc đứng dậy; đứng nghỉ hồi thể lực. Khi nằm, bảng tên được ẩn và zombie khó phát hiện hơn. Ăn khoai chín trong túi để bổ sung năng lượng, H để dùng kit cứu thương.', focus: '.hud-health' },
   { title: 'Vũ khí của bạn', text: 'Đây là vùng vũ khí và số đạn. Dùng các phím số để đổi vũ khí, chuột trái để bắn và R để nạp đạn. Bạn cần mua thêm hộp đạn đúng loại sau khi dùng hết băng GL18.', focus: '.hotbar' },
   { title: 'Giáp bảo vệ', text: 'Mũ, áo giáp, quần và giày nằm ở đây. Trang bị giáp từ túi đồ để giảm sát thương; kiểm tra độ bền thường xuyên.', focus: '.armor-hud' },
   { title: 'Đến gặp người giao nhiệm vụ', text: 'Dùng W A S D di chuyển theo mũi tên chỉ hướng. Đến gần người giao nhiệm vụ rồi nhấn E để nói chuyện.', walk: 'quest' },

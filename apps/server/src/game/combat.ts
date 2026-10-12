@@ -1,6 +1,6 @@
 import { MAX_LAG_COMPENSATION_MS } from '@zion/shared';
 import {
-  DEFAULT_CHARACTER,
+  characterEyeHeight,
   rigBounds,
   Mask,
   ZONE_DAMAGE_MULTIPLIER,
@@ -45,6 +45,7 @@ export interface Combatant {
   readonly dead: boolean;
   readonly active: boolean;
   readonly rig: readonly RigPart[];
+  rigAt?(pose: PoseSample): readonly RigPart[];
 }
 
 export interface RayResult<T extends Combatant = Player> {
@@ -85,7 +86,8 @@ export function castCombatRay<T extends Combatant>(
     if (!target.history.sample(rewindTo, pose)) continue;
     // Broad phase: distance from the ray to the bounding sphere around the rewound pose.
     const cx = pose.x - ox;
-    const bounds = rigBounds(target.rig);
+    const rig = target.rigAt?.(pose) ?? target.rig;
+    const bounds = rigBounds(rig);
     const cy = pose.y + bounds.centerY - oy;
     const cz = pose.z - oz;
     const along = cx * dx + cy * dy + cz * dz;
@@ -93,7 +95,7 @@ export function castCombatRay<T extends Combatant>(
     if (along < -br || along > range + br) continue;
     const perp2 = cx * cx + cy * cy + cz * cz - along * along;
     if (perp2 > br * br) continue;
-    const hit = raycastRig(target.rig, pose.x, pose.y, pose.z, pose.yaw, ox, oy, oz, dx, dy, dz, range);
+    const hit = raycastRig(rig, pose.x, pose.y, pose.z, pose.yaw, ox, oy, oz, dx, dy, dz, range);
     if (hit && (!best || hit.t < best.t)) best = { target, t: hit.t, zone: hit.zone };
   }
   const limit = best ? best.t : range;
@@ -114,7 +116,7 @@ export function resolveMelee(
 ): MeleeResult | null {
   const s = attacker.state;
   const ox = s.x;
-  const oy = s.y + DEFAULT_CHARACTER.eyeHeight;
+  const oy = s.y + characterEyeHeight(s);
   const oz = s.z;
   // Blades sweep: a fan of rays across the swing arc, the closest hit wins.
   const arc = weapon.arc ?? 0;
@@ -173,8 +175,8 @@ export function resolveBladeSweep(
     // Point-blank always counts; otherwise it must be inside the frontal wedge.
     if (dist > 0.6 && (dx * fx + dz * fz) / dist < cosLimit) continue;
     if (best && dist >= best.d) continue;
-    const ty = pose.y + 1;
-    const oy = s.y + 1.1;
+    const ty = pose.y + (pose.prone ? .3 : 1);
+    const oy = s.y + (s.prone ? .4 : 1.1);
     const l = Math.hypot(dx, ty - oy, dz) || 1;
     if (collision.raycast(s.x, oy, s.z, dx / l, (ty - oy) / l, dz / l, Math.max(0, l - 0.4), Mask.LineOfSight, losHit)) continue;
     best = { target, d: dist, x: pose.x - (dx / (dist || 1)) * 0.3, y: ty, z: pose.z - (dz / (dist || 1)) * 0.3 };

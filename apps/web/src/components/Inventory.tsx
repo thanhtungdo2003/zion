@@ -194,7 +194,7 @@ function ItemTile({ def, rotated, count, style, className }: { def: ItemDef; rot
       >
         <ItemArt def={def} />
       </div>
-      <span className="inv-item-name">{item(def.id)}</span>
+      {w * h >= 4 && <span className="inv-item-name">{item(def.id)}</span>}
       {def.armor && (
         <div className="inv-dur">
           <div style={{ width: `${Math.max(0, Math.min(1, (count ?? def.armor.durability) / def.armor.durability)) * 100}%`, background: durabilityColor((count ?? def.armor.durability) / def.armor.durability) }} />
