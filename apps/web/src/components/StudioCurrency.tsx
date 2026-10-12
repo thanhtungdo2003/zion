@@ -63,14 +63,21 @@ export function StudioCurrency() {
         <section className="studio-currency-players" aria-label="Chọn người chơi">
           <input className="studio-search" aria-label="Tìm người chơi" placeholder="Tìm theo tên hoặc ID…" value={search} onChange={(event) => setSearch(event.target.value)} />
           <div className="studio-currency-list" aria-busy={loading}>
-            {loading ? <Spinner /> : players.map((player) => <button key={player.id} className={selected?.id === player.id ? 'selected' : ''} disabled={busy} onClick={() => setSelected(player)}>
+            {loading ? <Spinner /> : players.filter((e) => e.online).map((player) => <button key={player.id} className={selected?.id === player.id ? 'selected' : ''} disabled={busy} onClick={() => setSelected(player)}>
               <span><b>{player.username}</b><small className={player.online ? 'online' : ''}>{player.online ? 'Đang chơi' : 'Ngoại tuyến'}</small></span>
               <small className="studio-currency-id">{player.id}</small>
               <span><strong>{number(player.coins)} ZCoin</strong>{player.pendingCoins > 0 && <small>+{number(player.pendingCoins)} chờ cấp</small>}</span>
             </button>)}
             {!loading && !players.length && <p>Không tìm thấy người chơi.</p>}
           </div>
-          <small>Hiển thị tối đa 100 kết quả. Tìm theo tên để lọc danh sách.</small>
+          <div className="studio-currency-list" aria-busy={loading}>
+            {loading ? <Spinner /> : players.filter((e) => !e.online).map((player) => <button key={player.id} className={selected?.id === player.id ? 'selected' : ''} disabled={busy} onClick={() => setSelected(player)}>
+              <span><b>{player.username}</b><small className={player.online ? 'online' : ''}>{player.online ? 'Đang chơi' : 'Ngoại tuyến'}</small></span>
+              <small className="studio-currency-id">{player.id}</small>
+              <span><strong>{number(player.coins)} ZCoin</strong>{player.pendingCoins > 0 && <small>+{number(player.pendingCoins)} chờ cấp</small>}</span>
+            </button>)}
+            {!loading && !players.length && <p>Không tìm thấy người chơi.</p>}
+          </div>
         </section>
         <form className="studio-currency-form" onSubmit={(event) => void submit(event)}>
           <span className="q-kicker">NGƯỜI NHẬN</span><h3>{selected?.username ?? 'Chọn người chơi bên trái'}</h3>
