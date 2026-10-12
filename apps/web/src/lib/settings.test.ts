@@ -25,6 +25,16 @@ describe('camera settings', () => {
   });
 });
 
+describe('Vietnamese interface', () => {
+  it.each([{}, { lang: 'en' }, { lang: 'vi' }])('uses Vietnamese for new and returning players: %j', saved => {
+    storage({ ...saved, volume: .5, cameraMode: 'third-person' });
+    const settings = new SettingsStore();
+    expect(settings.get().lang).toBe('vi');
+    settings.hydrate();
+    expect(settings.get()).toMatchObject({ lang: 'vi', volume: .5, cameraMode: 'third-person' });
+  });
+});
+
 describe('automatic touch controls', () => {
   function device(coarse: boolean) {
     vi.stubGlobal('window', { matchMedia: () => ({ matches: coarse }) });

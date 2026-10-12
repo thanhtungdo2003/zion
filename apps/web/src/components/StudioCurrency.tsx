@@ -58,7 +58,7 @@ export function StudioCurrency() {
   return <>
     <button className="btn" onClick={() => { setError(''); setMessage(''); setOpen(true); }}><Icon name="lucide:coins" /> Cấp tiền</button>
     <dialog ref={dialog} className="studio-currency" onCancel={(event) => { if (busy) event.preventDefault(); else close(); }} onClick={(event) => { if (event.target === dialog.current) close(); }} aria-labelledby="studio-currency-title">
-      <header><div><span className="q-kicker">STUDIO // KINH TẾ SINH TỒN</span><h2 id="studio-currency-title">Cấp tiền cho người chơi</h2></div><button className="q-close" disabled={busy} onClick={close} aria-label="Đóng"><Icon name="lucide:x" /></button></header>
+      <header><div><span className="q-kicker">XƯỞNG // KINH TẾ SINH TỒN</span><h2 id="studio-currency-title">Cấp tiền cho người chơi</h2></div><button className="q-close" disabled={busy} onClick={close} aria-label="Đóng"><Icon name="lucide:x" /></button></header>
       <div className="studio-currency-body">
         <section className="studio-currency-players" aria-label="Chọn người chơi">
           <input className="studio-search" aria-label="Tìm người chơi" placeholder="Tìm theo tên hoặc ID…" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -84,7 +84,7 @@ export function StudioCurrency() {
           {selected && <small className="studio-currency-id">{selected.id}</small>}
           <label>Số tiền ZCoin<input type="number" inputMode="numeric" required min={1} max={STUDIO_MAX_COIN_GRANT} step={1} placeholder="Nhập số tiền" value={amount} disabled={busy || !selected} onChange={(event) => setAmount(event.target.value)} /></label>
           <label>Ghi chú <small>(không bắt buộc)</small><textarea maxLength={200} rows={3} placeholder="Ví dụ: thưởng sự kiện" value={reason} disabled={busy || !selected} onChange={(event) => setReason(event.target.value)} /></label>
-          <p>Tiền cộng vào ví Sinh tồn. Người ngoại tuyến tự nhận ở lần vào game tiếp theo.</p>
+          <p>Tiền cộng vào ví Sinh tồn. Người ngoại tuyến tự nhận ở lần vào trò chơi tiếp theo.</p>
           <button className="btn btn-primary" disabled={busy || !selected || !amount}>{busy ? <Spinner /> : <><Icon name="lucide:coins" /> Cấp ZCoin</>}</button>
           <button className="btn" type="button" disabled={busy || loading} onClick={() => { setError(''); setRefresh((v) => v + 1); }}><Icon name="lucide:refresh-cw" /> Cập nhật số dư</button>
         </form>

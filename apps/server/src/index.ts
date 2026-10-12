@@ -22,6 +22,7 @@ import { PlayerStateRepository } from './repositories/player-states';
 import { RefreshTokenRepository } from './repositories/refresh-tokens';
 import { WorldRepository } from './repositories/worlds';
 import { CampLayoutRepository } from './repositories/camp-layouts';
+import { NewsRepository } from './repositories/news';
 import { CAMP_HALF_SIZE, NPC_STALLS, type CampNpcLayout } from '@zion/worldgen';
 import { GUARD_POSTS } from './game/camp-guards';
 import { AuthService } from './security/auth-service';
@@ -127,6 +128,7 @@ async function main(): Promise<void> {
   }
 
   const app = await buildHttpApp({
+    news: new NewsRepository(db),
     progression,
     atlas: atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout),
     atlasTile: atlasTileProvider(world.generator, config.WORLD_ID),

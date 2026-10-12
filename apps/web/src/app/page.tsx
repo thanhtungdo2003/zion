@@ -8,17 +8,17 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
-import { ApiError, login, playAsGuest, refreshSession, register } from '@/lib/api';
+import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, type SocialProvider } from '@/lib/api';
+import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
 import { getTeamLobby, teamAction } from '@/lib/api';
 import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
+import { LibraryNav } from '@/components/LibraryNav';
 import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
-
-type AuthMode = 'login' | 'register';
 
 const GAME_MODES = [{ id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub' }] as const;
 
@@ -39,7 +39,12 @@ export default function MainMenu() {
   const [modeOpen, setModeOpen] = useState(false);
   const [gameMode, setGameMode] = useState<(typeof GAME_MODES)[number]['id']>('survival');
   const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [legacyLogin, setLegacyLogin] = useState(false);
+  const [providers, setProviders] = useState<Record<SocialProvider, boolean>>({ google: false, facebook: false });
+  const [guestAllowed, setGuestAllowed] = useState(false);
+  const [linked, setLinked] = useState<SocialProvider[]>([]);
+  const [linkedReady, setLinkedReady] = useState(false);
+  const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -84,14 +89,32 @@ export default function MainMenu() {
 
   useEffect(() => {
     let alive = true;
-    void refreshSession().then((ok) => {
+    const query = new URLSearchParams(window.location.search);
+    const returned = query.get('auth') === 'success';
+    const authError = query.get('auth_error');
+    if (returned || authError) {
+      window.history.replaceState(null, '', window.location.pathname);
+      setAuthOpen(true);
+      if (authError) setError(authError === 'identity_taken' ? 'Tài khoản mạng xã hội này đã liên kết với nhân vật khác hoặc bạn đã liên kết nhà cung cấp này.' : 'Đăng nhập chưa hoàn tất. Vui lòng thử lại.');
+      else setAccountNotice('Đăng nhập thành công. Nhân vật của bạn đã sẵn sàng.');
+    }
+    void authProviders().then(info => { if (alive) { setProviders(info.providers); setGuestAllowed(info.guest); } }).catch(() => { if (alive) setError('Không tải được các phương thức đăng nhập. Vui lòng tải lại trang.'); });
+    void refreshSession(returned).then((ok) => {
       if (!alive) return;
       setSession(ok); setSessionReady(true);
+      if (ok && currentAccount()?.guest) setAuthOpen(true);
     });
     return () => {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!session) { setLinked([]); setLinkedReady(false); return; }
+    let alive = true;
+    void linkedProviders().then(value => { if (alive) { setLinked(value); setLinkedReady(true); } }).catch(() => { if (alive) setError('Không tải được liên kết tài khoản. Vui lòng thử lại.'); });
+    return () => { alive = false; };
+  }, [session]);
 
   useEffect(() => {
     if (!nameOpen) return;
@@ -124,7 +147,7 @@ export default function MainMenu() {
   // Returning players resume; first-time guests choose their name before account creation.
   const play = () => {
     if (session) void run(() => Promise.resolve());
-    else { setEntryIntent('play'); setError(null); setNameError(null); setNameOpen(true); }
+    else { setEntryIntent('play'); setError(null); setAuthOpen(true); }
   };
 
   const submitName = async (e: FormEvent) => {
@@ -150,8 +173,18 @@ export default function MainMenu() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    void run(() => (authMode === 'login' ? login(username, password) : register(username, password)));
+    setBusy(true); setError(null);
+    void login(username, password).then(() => { setSession(true); setLegacyLogin(false); setPassword(''); setAccountNotice('Đã đăng nhập tài khoản cũ. Bạn có thể liên kết Google/Facebook để giữ tiến độ.'); }).catch(err => { setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false));
   };
+
+  const social = async (provider: SocialProvider) => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { await startSocialAuth(provider, session); }
+    catch (err) { setError(err instanceof Error ? err.message : t('menu.server_error')); setBusy(false); }
+  };
+
+  const guest = () => { setPlayerName(randomGuestName()); setNameError(null); setNameOpen(true); setAuthOpen(false); };
 
   return (
     <main className={`menu${team ? ' has-team' : ''}${teamOpen ? ' team-panel-open' : ''}`}>
@@ -166,6 +199,7 @@ export default function MainMenu() {
           ZI<span>O</span>N<small>The Last Light</small>
         </div>
         <div className="menu-top-actions">
+          <LibraryNav />
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden focusable="false">
               <path
@@ -181,20 +215,28 @@ export default function MainMenu() {
       </header>
 
       <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
-        if (!session) { setEntryIntent('team'); setNameError(null); setNameOpen(true); }
+        if (!session) { setEntryIntent('team'); setAuthOpen(true); }
         else setTeamOpen(!teamOpen);
       }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/5 · ${team.name}` : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>
 
       {authOpen && (
-        <form className="menu-auth" onSubmit={onSubmit}>
-          <div className="tabs" role="tablist">
-            <button type="button" className="tab" role="tab" aria-selected={authMode === 'login'} onClick={() => setAuthMode('login')}>
-              {t('menu.signin')}
-            </button>
-            <button type="button" className="tab" role="tab" aria-selected={authMode === 'register'} onClick={() => setAuthMode('register')}>
-              {t('menu.register')}
-            </button>
+        <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
+          <h2>{session ? currentAccount()?.username : 'Đăng nhập / Đăng ký'}</h2>
+          <p>{session ? linked.length ? 'Tiến độ đã gắn với tài khoản của bạn. Bạn có thể liên kết thêm một phương thức đăng nhập.' : 'Liên kết Google hoặc Facebook để giữ nhân vật, đồ đạc và tiến độ khi đổi thiết bị hoặc mất phiên trình duyệt.' : 'Dùng Google hoặc Facebook để tạo tài khoản mới và lưu tiến độ.'}</p>
+          {accountNotice && <p className="menu-auth-notice" role="status">{accountNotice}</p>}
+          <div className="menu-social-buttons">
+            {(['google', 'facebook'] as const).map(provider => <button type="button" className={`btn menu-social ${provider}`} key={provider} disabled={busy || !providers[provider] || (session && (!linkedReady || linked.includes(provider)))} onClick={() => { void social(provider); }}>
+              <span aria-hidden>{provider === 'google' ? 'G' : 'f'}</span>
+              {linked.includes(provider) ? 'Đã liên kết' : session ? 'Liên kết' : 'Tiếp tục với'} {provider === 'google' ? 'Google' : 'Facebook'}
+            </button>)}
           </div>
+          {(!providers.google || !providers.facebook) && <small>Phương thức bị mờ hiện chưa khả dụng.</small>}
+          {!session && <>
+            <button className="btn" type="button" disabled={busy || !guestAllowed} onClick={guest}><Icon name="lucide:user" /> Tham gia bằng tài khoản khách</button>
+            <button className="menu-auth-legacy" type="button" disabled={busy} aria-expanded={legacyLogin} onClick={() => setLegacyLogin(v => !v)}>Đăng nhập tài khoản cũ bằng mật khẩu</button>
+          </>}
+          {session && <button className="menu-auth-legacy" type="button" disabled={busy || !linkedReady} onClick={() => { setBusy(true); void logout().then(() => { setSession(false); setAccountNotice(null); setLobby(null); setTeamOpen(false); }).catch(err => { setSession(false); setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false)); }}>Đăng xuất</button>}
+          {!session && legacyLogin && <form onSubmit={onSubmit}>
           <label className="field">
             <span>{t('menu.username')}</span>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" minLength={3} maxLength={20} pattern="[A-Za-z0-9_]{3,20}" required />
@@ -205,16 +247,18 @@ export default function MainMenu() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+              autoComplete="current-password"
               minLength={10}
               maxLength={128}
               required
             />
           </label>
           <button className="btn" type="submit" disabled={busy}>
-            {busy ? <Spinner /> : authMode === 'login' ? t('menu.signin_play') : t('menu.create_play')}
+            {busy ? <Spinner /> : 'Đăng nhập tài khoản cũ'}
           </button>
-        </form>
+          </form>}
+          {error && <p className="error" role="alert">{error}</p>}
+        </section>
       )}
 
       {session && teamOpen && <TeamLobby lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
@@ -253,13 +297,14 @@ export default function MainMenu() {
 
       {nameOpen && <div className="overlay menu-name-overlay" role="dialog" aria-modal="true" aria-labelledby="player-name-title">
         <form ref={nameDialog} className="overlay-card menu-name-card" onSubmit={(e) => { void submitName(e); }}>
-          <h2 id="player-name-title">{t('menu.choose_name')}</h2>
-          <p>{t('menu.name_intro')}</p>
+          <h2 id="player-name-title">Tham gia bằng tài khoản khách</h2>
+          <p>Chọn tên để vào chơi. Bạn có thể liên kết Google hoặc Facebook sau để giữ tiến độ khi đổi thiết bị.</p>
           <label className="field">
             <span>{t('menu.player_name')}</span>
             <input autoFocus value={playerName} onChange={(e) => { setPlayerName(e.target.value); setNameError(null); }}
               maxLength={20} required disabled={busy} autoComplete="nickname" aria-describedby="player-name-rules" aria-invalid={!!nameError} />
           </label>
+          <button className="btn" type="button" disabled={busy} onClick={() => { setPlayerName(randomGuestName()); setNameError(null); }}><Icon name="lucide:shuffle" /> Chọn tên ngẫu nhiên khác</button>
           <small id="player-name-rules">{t('menu.name_rules')}</small>
           {nameError && <p className="error" role="alert">{nameError}</p>}
           <div className="overlay-row">

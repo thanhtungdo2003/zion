@@ -18,15 +18,14 @@ import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
 import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, RARITY_COLOR, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
-import { isTKey } from '@/lib/i18n';
+import { itemDescription } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
 
 type Tr = ReturnType<typeof useSettings>;
 
-/** Translated item description line (falls back to the catalog's English). */
+/** Item descriptions use the same locale as the rest of the inventory. */
 function itemInfo(tr: Tr, def: ItemDef): string {
-  const key = `item.${def.id}.info`;
-  return isTKey(key) ? tr.t(key) : def.info;
+  return itemDescription(tr.lang, def.id);
 }
 
 /** Grid cell size (px): scaled so the inventory fills ~90% of the screen (set by the panel). */
@@ -717,7 +716,7 @@ const ARMOR_HUD: Array<{ slot: 'head' | 'chest' | 'legs' | 'feet'; container: Co
 
 /** Worn armour beside the health bar: four small slots with each piece's durability. */
 export function ArmorHud({ state }: { state: InventoryState }) {
-  const { item } = useSettings();
+  const { item, t } = useSettings();
   return (
     <div className="armor-hud">
       {ARMOR_HUD.map(({ slot, container }) => {
@@ -726,7 +725,7 @@ export function ArmorHud({ state }: { state: InventoryState }) {
         const max = def?.armor?.durability ?? 1;
         const f = it ? (it.count ?? max) / max : 0;
         return (
-          <div key={slot} className={`armor-hud-slot ${def ? '' : 'empty'} ${def && f <= 0 ? 'broken' : ''}`} title={def ? `${item(def.id)} · ${Math.ceil(it!.count ?? max)}/${max}` : slot}>
+          <div key={slot} className={`armor-hud-slot ${def ? '' : 'empty'} ${def && f <= 0 ? 'broken' : ''}`} title={def ? `${item(def.id)} · ${Math.ceil(it!.count ?? max)}/${max}` : t(`cont.armor_${slot}`)}>
             {def ? <ItemArt def={def} /> : <span className="armor-hud-ph"><Icon name={slot === 'head' ? 'game-icons:helmet' : slot === 'chest' ? 'game-icons:armor-vest' : slot === 'legs' ? 'game-icons:trousers' : 'game-icons:boots'} /></span>}
             {def && (
               <div className="inv-dur">

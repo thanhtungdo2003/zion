@@ -24,3 +24,5 @@ export * from './tutorial';
 export * from './ranks';
 export * from './colonel-search';
 export * from './studio-currency';
+export * from './news';
+export * from './handbook';

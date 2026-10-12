@@ -5,6 +5,18 @@ import { InventoryStore } from './inventory/inventory';
 import { discoveryLesson, lessonContextOpen } from './discovery-tutorial';
 
 describe('discovery guidance', () => {
+  it('points at the PvP control on first appearance and closes when it expires', () => {
+    const hud = initialHud(), inv = new InventoryStore().get();
+    expect(discoveryLesson(hud, inv, new Set())).toBeNull();
+    hud.pvpRemaining = 60;
+    const lesson = discoveryLesson(hud, inv, new Set())!;
+    expect(lesson.id).toBe('pvp');
+    expect(lesson.steps[0]?.focus).toBe('[data-guide="pvp"]');
+    expect(discoveryLesson(hud, inv, new Set(['pvp']))).toBeNull();
+    expect(lessonContextOpen(lesson, hud, inv)).toBe(true);
+    hud.pvpRemaining = 0;
+    expect(lessonContextOpen(lesson, hud, inv)).toBe(false);
+  });
   it('continues with each NPC after the base guide was skipped, including focused quest and trade buttons', () => {
     const hud = initialHud(), inv = new InventoryStore().get();
     hud.life = { t: 'baseLife', config: DEFAULT_BASE_LIFE, objects: [], plots: {}, animalLoot: [], stamina: 100, capacity: 100, action: null };

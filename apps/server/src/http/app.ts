@@ -18,8 +18,11 @@ import type { AtlasTile, WorldAtlas } from '@zion/shared';
 import { registerGameRoutes } from './routes/game';
 import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
+import type { NewsBackend } from '../repositories/news';
+import { registerLibraryRoutes } from './routes/library';
 
 export interface HttpDeps {
+  news?: NewsBackend;
   progression?: ProgressionService;
   config: AppConfig;
   logger: Logger;
@@ -121,6 +124,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerTeamRoutes(app, deps);
   registerCareerRoutes(app, deps);
   registerGameRoutes(app, deps);
+  registerLibraryRoutes(app, deps);
   registerStudioRoutes(app, deps);
   return app;
 }

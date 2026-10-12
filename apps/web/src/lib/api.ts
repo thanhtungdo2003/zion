@@ -1,5 +1,8 @@
 import type { CareerView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
 import type { AtlasTile, GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
+import { serverMessage } from './i18n';
+import { settingsStore } from './settings';
+import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
@@ -42,7 +45,7 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
   ) {
-    super(message);
+    super(serverMessage(settingsStore.get().lang, message, code));
     this.name = 'ApiError';
   }
 }
@@ -78,7 +81,13 @@ async function request<T>(path: string, init: RequestInit & { auth?: boolean; cs
   if (init.body !== undefined) headers.set('content-type', 'application/json');
   if (init.auth && accessToken) headers.set('authorization', `Bearer ${accessToken}`);
   if (init.csrf) headers.set('x-zion-csrf', '1');
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include', cache: 'no-store' });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include', cache: 'no-store' });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
+    throw new ApiError(0, 'network', 'Failed to fetch');
+  }
   if (res.status === 204) return undefined as T;
   let body: unknown = null;
   try {
@@ -114,8 +123,8 @@ export async function playAsGuest(username: string): Promise<AccountInfo> {
 }
 
 /** Restores a session from the refresh cookie. Resolves false when there is none. */
-export function refreshSession(): Promise<boolean> {
-  if (!hasHint()) return Promise.resolve(false);
+export function refreshSession(force = false): Promise<boolean> {
+  if (!force && !hasHint()) return Promise.resolve(false);
   refreshing ??= request<SessionResponse>('/api/auth/refresh', { method: 'POST', csrf: true, body: JSON.stringify({}) })
     .then((s) => {
       adopt(s);
@@ -131,6 +140,20 @@ export function refreshSession(): Promise<boolean> {
       refreshing = null;
     });
   return refreshing;
+}
+
+export type SocialProvider = 'google' | 'facebook';
+export function authProviders(): Promise<{ providers: Record<SocialProvider, boolean>; guest: boolean }> {
+  return request('/api/auth/providers');
+}
+export async function linkedProviders(): Promise<SocialProvider[]> {
+  await ensureAccess();
+  return (await request<{ providers: SocialProvider[] }>('/api/auth/identities', { auth: true })).providers;
+}
+export async function startSocialAuth(provider: SocialProvider, link: boolean): Promise<void> {
+  if (link) await ensureAccess();
+  const result = await request<{ authorizationUrl: string }>(`/api/auth/oauth/${provider}/${link ? 'link' : 'start'}`, { method: 'POST', auth: link, body: '{}' });
+  window.location.assign(result.authorizationUrl);
 }
 
 export async function logout(): Promise<void> {
@@ -283,3 +306,7 @@ export function deployRequisition(key: string): Promise<CareerView> { return req
 export function studioRanks(): Promise<RankConfig> { return studioRequest('/api/studio/ranks'); }
 export function studioSaveRanks(config: RankConfig): Promise<RankConfig> { return studioRequest('/api/studio/ranks', { method: 'POST', body: JSON.stringify(config) }); }
 export function studioResetProgress(accountId?: string): Promise<{ ok: boolean }> { return studioRequest('/api/studio/players/reset', { method: 'POST', body: JSON.stringify(accountId ? { accountId } : { all: true }) }); }
+export function getHandbook(): Promise<HandbookEntry[]> { return request('/api/handbook'); }
+export function getNews(): Promise<NewsPost[]> { return request('/api/news'); }
+export function studioNews(): Promise<NewsDraft[]> { return studioRequest('/api/studio/news'); }
+export function studioNewsAction(action: NewsAction): Promise<NewsDraft | null> { return studioRequest('/api/studio/news', { method: 'POST', body: JSON.stringify(action) }); }

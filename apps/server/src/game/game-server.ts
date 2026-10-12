@@ -1032,6 +1032,12 @@ export class GameServer {
     }
     if (!p || p.questBusy) return;
     switch (msg.t) {
+      case 'pvp':
+        if (p.dead || p.downed || p.pvpUntil <= this.serverTime) return;
+        p.pvpEnabled = msg.enabled;
+        this.sendPvp(p, this.serverTime);
+        this.broadcastPlayerList();
+        return;
       case 'life':
         void this.onLife(p, msg);
         return;
@@ -1319,6 +1325,12 @@ export class GameServer {
     }
     for (const p of this.players.values()) {
       if (!p.active || p.questBusy) continue;
+      if (p.pvpUntil && (now >= p.pvpUntil || p.dead || p.downed)) {
+        p.pvpUntil = 0;
+        p.pvpEnabled = false;
+        this.sendPvp(p, now);
+        this.broadcastPlayerList();
+      } else if (p.pvpUntil && Math.ceil((p.pvpUntil - now) / 1000) !== p.pvpLastSecond) this.sendPvp(p, now);
       const retry = this.requisitionRetries.get(p.accountId);
       if (retry !== undefined && Date.now() >= retry) { void this.receiveStudioCurrency(p.accountId); continue; }
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
@@ -1604,13 +1616,31 @@ export class GameServer {
     }
   }
 
+  private sendPvp(p: Player, now: number): void {
+    const remainingMs = Math.max(0, p.pvpUntil - now);
+    p.pvpLastSecond = Math.ceil(remainingMs / 1000);
+    p.session.sendJson({ t: 'pvp', enabled: p.pvpEnabled, remainingMs });
+  }
+
+  private playerAttackAllowed(attacker: Player, target: Player, now: number): boolean {
+    if (attacker === target || attacker.dead || attacker.downed) return false;
+    // A real player hit reveals the control even when damage is disabled.
+    if (attacker.pvpUntil <= now && attacker.pvpEnabled) {
+      attacker.pvpEnabled = false;
+      this.broadcastPlayerList();
+    }
+    attacker.pvpUntil = now + 60_000;
+    this.sendPvp(attacker, now);
+    return attacker.pvpEnabled && !this.allied(attacker, target);
+  }
+
   /** Routes a hit to a player or a zombie. */
   private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number): void {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else {
       const t = target as Player;
-      if (this.allied(attacker, t) || tutorialProtected(t, this.serverTime)) return;
+      if (!this.playerAttackAllowed(attacker, t, now) || tutorialProtected(t, this.serverTime)) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now);
       if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now);
     }
@@ -1667,7 +1697,9 @@ export class GameServer {
 
   private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void {
     const attacker = attackerId !== null ? this.players.get(attackerId) : undefined;
-    if (attacker && this.allied(attacker, t)) return;
+    if (attackerId !== null && !isZombieId(attackerId) && attackerId < NPC_ID_BASE) {
+      if (!attacker || !this.playerAttackAllowed(attacker, t, now)) return;
+    }
     if (t.dead || amount <= 0 || tutorialProtected(t, this.serverTime)) return;
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now)); return; }
     if (t.downed) {
@@ -1899,7 +1931,7 @@ export class GameServer {
       this.hitZombie(liveOwner, zb, Math.round(damage * k), 'torso', zb.state.x, zb.state.y + 0.8, zb.state.z, tx, tz, 9 * k, now);
     }
     for (const t of this.grid.query(cx, cz, 1, this.scratch)) {
-      if (!t.active || t.dead || (owner && this.allied(owner, t))) continue;
+      if (!t.active || t.dead) continue;
       const tx = t.state.x - x;
       const ty = t.state.y + 0.9 - (y + 0.3);
       const tz = t.state.z - z;
@@ -2459,7 +2491,7 @@ export class GameServer {
   }
 
   private broadcastPlayerList(): void {
-    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank }));
+    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled }));
     this.broadcast({ t: 'players', players });
   }
 

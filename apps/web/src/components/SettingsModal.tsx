@@ -13,7 +13,6 @@ interface Props {
 }
 
 const LANGS: Array<{ id: Lang; label: string; native: string }> = [
-  { id: 'en', label: 'English', native: 'ENG' },
   { id: 'vi', label: 'Tiếng Việt', native: 'VIE' },
 ];
 
@@ -40,7 +39,7 @@ export function SettingsModal({ open, onClose, children }: Props) {
       <div className="set-panel" onClick={(e) => e.stopPropagation()}>
         <header className="set-head">
           <div>
-            <small>ZION // System</small>
+            <small>ZION // {t('settings.system')}</small>
             <h2>{t('settings.title')}</h2>
           </div>
           <span className="set-badge">v1.0</span>

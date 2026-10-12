@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ContentEditor } from './ContentEditor';
 import { StudioPlayerCount } from './StudioPlayerCount';
 import { StudioCurrency } from './StudioCurrency';
+import { NewsEditor } from './NewsEditor';
 import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAMP_ASSETS } from '@zion/assets';
@@ -30,6 +31,30 @@ interface CatalogEntry {
 }
 
 const GROUP_COLORS: Record<string, string> = { dists: '#8a6a3f', materias: '#6f7f86' };
+const GROUP_LABELS: Record<string, string> = { dists: 'Đồ dùng căn cứ', materias: 'Vật liệu xây dựng', misc: 'Khác' };
+const ASSET_LABELS: Record<string, string> = {
+  'barbed-wire-fence': 'Hàng rào dây thép gai', 'military-lamp-post': 'Cột đèn quân dụng',
+  'military-wooden-crate': 'Thùng gỗ quân dụng', 'rusty-oil-barrel': 'Thùng dầu gỉ',
+  'zion-ammo-cache-station': 'Kho đạn ZION', 'branch-stick': 'Cành cây',
+  'car-battery': 'Ắc quy ô tô', 'field-tent': 'Lều dã chiến', 'iron-fence': 'Hàng rào sắt',
+  'large-stone-brick-wall': 'Tường gạch đá lớn', 'lon-cu-nat': 'Lon cũ nát',
+  'old-carton-box': 'Thùng giấy cũ', 'old-dusty-wood-board': 'Ván gỗ cũ phủ bụi',
+  'old-iron-bucket': 'Xô sắt cũ', 'old-solar-panel': 'Tấm pin mặt trời cũ',
+  'old-water-pipe': 'Ống nước cũ', 'old-wooden-beam': 'Dầm gỗ cũ',
+  'old-wooden-crate': 'Thùng gỗ cũ', 'perforated-corrugated-sheet': 'Tấm tôn đục lỗ',
+  'rusted-wire-coil': 'Cuộn dây thép gỉ', 'rusty-corrugated-sheet': 'Tấm tôn gỉ',
+  'rusty-iron-bar': 'Thanh sắt gỉ', 'rusty-iron-wall-ladder': 'Thang sắt gắn tường gỉ',
+  'rusty-metal-plate': 'Tấm kim loại gỉ', 'sandbag-wall': 'Tường bao cát',
+  'small-transformer': 'Máy biến áp nhỏ', 'utility-pole': 'Cột điện',
+  'water-bottle': 'Chai nước', 'wooden-fence': 'Hàng rào gỗ',
+  'medical-table': 'Bàn y tế', 'weapon-table': 'Bàn vũ khí',
+  'broken-concrete-wall': 'Tường bê tông vỡ', 'broken-glass-pane': 'Tấm kính vỡ',
+  'concrete-wall-panel': 'Tấm tường bê tông', 'concrete-wall': 'Tường bê tông',
+  'glass-pane': 'Tấm kính', 'mossy-concrete-wall': 'Tường bê tông phủ rêu',
+  'shattered-glass-pane': 'Tấm kính vỡ vụn', 'old-rusty-tank': 'Xe tăng cũ gỉ',
+  'rusty-old-helicopter': 'Trực thăng cũ gỉ', 'straight-lamp-post': 'Cột đèn thẳng',
+  'l-shaped-kitchen-counter': 'Bàn bếp chữ L',
+};
 
 /** Every camp asset with its 2D footprint (box colliders, or a disc from its bounds). */
 const CATALOG: CatalogEntry[] = CAMP_ASSETS.map((a) => {
@@ -41,7 +66,7 @@ const CATALOG: CatalogEntry[] = CAMP_ASSETS.map((a) => {
   return {
     numericId: a.numericId,
     key,
-    name: a.name,
+    name: ASSET_LABELS[key] ?? a.name,
     group,
     color: GROUP_COLORS[group] ?? '#7d7466',
     height: a.bounds.height,
@@ -76,7 +101,7 @@ interface Snapshot {
   parts: Part[];
   npcs: Npcs;
 }
-const NPC_LABEL: Record<string, string> = { merchant: 'Weapon merchant', nurse: 'Field medic', guard: 'Gate guard' };
+const NPC_LABEL: Record<string, string> = { merchant: 'Thương nhân vũ khí', nurse: 'Quân y', guard: 'Lính gác cổng' };
 
 function npcList(n: Npcs): SceneNpc[] {
   return [
@@ -189,7 +214,7 @@ export default function StudioView() {
       setStatus('loading');
       setAttempt((n) => n + 1);
     } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? 'Wrong studio password' : (err as Error).message);
+      setError(err instanceof ApiError && err.status === 401 ? 'Mật khẩu xưởng không đúng' : (err as Error).message);
     } finally {
       setUnlocking(false);
     }
@@ -253,7 +278,7 @@ export default function StudioView() {
     if (!selParts.length) return;
     const ids = new Set(selParts.map((p) => p.uid));
     commit({ parts: parts.filter((p) => !ids.has(p.uid)) });
-    flash(`Demolished ${ids.size} part(s)`);
+    flash(`Đã tháo dỡ ${ids.size} cấu kiện`);
     setSelection([]);
   }, [commit, parts, selParts, flash]);
 
@@ -340,7 +365,7 @@ export default function StudioView() {
     sceneRef.current = scene;
     void studioTerrain()
       .then((t) => scene.setTerrain(t))
-      .catch(() => flash('Ground could not be loaded (flat preview)'));
+      .catch(() => flash('Không tải được địa hình (đang xem trên mặt phẳng)'));
     return () => {
       scene.dispose();
       sceneRef.current = null;
@@ -377,7 +402,7 @@ export default function StudioView() {
         duplicate(selParts.map(strip), Math.max(snap, 1));
       } else if (ctrl && k === 'c') {
         clipboard.current = selParts.map(strip);
-        if (selParts.length) flash(`Copied ${selParts.length} part(s)`);
+        if (selParts.length) flash(`Đã sao chép ${selParts.length} cấu kiện`);
       } else if (ctrl && k === 'v') {
         duplicate(clipboard.current, Math.max(snap, 1) * 2);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -422,10 +447,10 @@ export default function StudioView() {
         }) });
       }
       adopt(layout, game ?? undefined);
-      flash('Published: the camp is live for every player');
+      flash('Đã áp dụng căn cứ cho tất cả người chơi');
       setModal(null);
     } catch (err) {
-      flash(`Publish failed: ${(err as Error).message}`);
+      flash(`Áp dụng thất bại: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -435,10 +460,10 @@ export default function StudioView() {
     setBusy(true);
     try {
       adopt(await studioReset());
-      flash('Camp restored to the generated default');
+      flash('Đã khôi phục căn cứ mặc định');
       setModal(null);
     } catch (err) {
-      flash(`Reset failed: ${(err as Error).message}`);
+      flash(`Khôi phục thất bại: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -461,21 +486,21 @@ export default function StudioView() {
     return (
       <div className="studio-root studio-gate">
         <div className="overlay-card">
-          <h2>Camp Studio</h2>
-          {status === 'loading' && <p>Loading camp layout…</p>}
+          <h2>Xưởng căn cứ</h2>
+          {status === 'loading' && <p>Đang tải bố trí căn cứ…</p>}
           {status === 'locked' && (
             <form className="studio-unlock" onSubmit={(e) => void unlock(e)}>
-              <p>Enter the studio password to edit the camp.</p>
-              <input type="password" autoFocus placeholder="Studio password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <p>Nhập mật khẩu xưởng để chỉnh sửa căn cứ.</p>
+              <input type="password" autoFocus placeholder="Mật khẩu xưởng" value={password} onChange={(e) => setPassword(e.target.value)} />
               {error && <p className="error">{error}</p>}
               <button className="btn btn-primary" type="submit" disabled={!password || unlocking}>
-                {unlocking ? <Spinner /> : 'Enter studio'}
+                {unlocking ? <Spinner /> : 'Vào xưởng'}
               </button>
             </form>
           )}
-          {status === 'error' && <p>Could not load the camp: {error}</p>}
+          {status === 'error' && <p>Không tải được căn cứ: {error}</p>}
           <Link className="btn" href="/">
-            Back to menu
+            Về menu chính
           </Link>
         </div>
       </div>
@@ -491,34 +516,35 @@ export default function StudioView() {
   return (
     <div className="studio-root">
       <header className="studio-bar">
-        <Link href="/" className="studio-back" title="Back to menu">
+        <Link href="/" className="studio-back" title="Về menu chính">
           <Icon name="lucide:arrow-left" />
         </Link>
-        <h1>Camp Studio</h1>
+        <h1>Xưởng căn cứ</h1>
         <StudioPlayerCount />
         <StudioCurrency />
         <ContentEditor />
-        <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Custom layout' : 'Generated default'}</span>
-        {dirty && <span className="studio-badge unsaved">Unsaved changes</span>}
+        <NewsEditor />
+        <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Bố trí tùy chỉnh' : 'Bố trí mặc định'}</span>
+        {dirty && <span className="studio-badge unsaved">Thay đổi chưa lưu</span>}
         <div className="studio-spacer" />
         <div className="studio-seg">
-          <button className={mode === 'translate' ? 'on' : ''} onClick={() => setMode('translate')} title="Move along X / Y / Z (G)">
-            <Icon name="lucide:move" /> Move
+          <button className={mode === 'translate' ? 'on' : ''} onClick={() => setMode('translate')} title="Di chuyển theo X / Y / Z (G)">
+            <Icon name="lucide:move" /> Di chuyển
           </button>
-          <button className={mode === 'rotate' ? 'on' : ''} onClick={() => setMode('rotate')} title="Rotate (E)">
-            <Icon name="lucide:rotate-cw" /> Rotate
+          <button className={mode === 'rotate' ? 'on' : ''} onClick={() => setMode('rotate')} title="Xoay (E)">
+            <Icon name="lucide:rotate-cw" /> Xoay
           </button>
         </div>
-        <button className="btn" onClick={undo} disabled={!history.current.undo.length} title="Undo (Ctrl+Z)">
-          Undo
+        <button className="btn" onClick={undo} disabled={!history.current.undo.length} title="Hoàn tác (Ctrl+Z)">
+          Hoàn tác
         </button>
-        <button className="btn" onClick={redo} disabled={!history.current.redo.length} title="Redo (Ctrl+Y)">
-          Redo
+        <button className="btn" onClick={redo} disabled={!history.current.redo.length} title="Làm lại (Ctrl+Y)">
+          Làm lại
         </button>
         <label className="studio-field-inline">
-          Snap
+          Bám lưới
           <select value={snap} onChange={(e) => setSnap(Number(e.target.value))}>
-            <option value={0}>off</option>
+            <option value={0}>Tắt</option>
             <option value={0.25}>0.25 m</option>
             <option value={0.5}>0.5 m</option>
             <option value={1}>1 m</option>
@@ -529,22 +555,22 @@ export default function StudioView() {
           <Icon name="lucide:circle-help" />
         </button>
         <button className="btn" onClick={() => setModal('discard')} disabled={!dirty || busy}>
-          Discard
+          Bỏ thay đổi
         </button>
         <button className="btn" onClick={() => setModal('reset')} disabled={busy}>
-          Reset to default
+          Khôi phục mặc định
         </button>
         <button className="btn btn-primary" onClick={() => setModal('publish')} disabled={!dirty || busy}>
-          Publish
+          Áp dụng
         </button>
       </header>
 
       <aside className="studio-palette">
-        <input className="studio-search" placeholder="Search materials…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input className="studio-search" placeholder="Tìm vật liệu…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="studio-palette-list">
           {groups.map((g) => (
             <div key={g}>
-              <div className="studio-group">{g}</div>
+              <div className="studio-group">{GROUP_LABELS[g] ?? g}</div>
               {filtered
                 .filter((c) => c.group === g)
                 .map((c) => (
@@ -555,7 +581,7 @@ export default function StudioView() {
                       setTool(tool === c.numericId ? null : c.numericId);
                       setSelection([]);
                     }}
-                    title={`${c.name} · click on the ground to build`}
+                    title={`${c.name} · nhấp xuống đất để xây dựng`}
                   >
                     <FootprintIcon entry={c} />
                     <span>
@@ -568,7 +594,7 @@ export default function StudioView() {
                 ))}
             </div>
           ))}
-          <div className="studio-group">NPCs</div>
+          <div className="studio-group">Nhân vật</div>
           {npcList(npcs).map((n) => (
             <button
               key={n.key}
@@ -595,26 +621,26 @@ export default function StudioView() {
       <main className={`studio-canvas ${tool !== null ? 'building' : ''}`}>
         <div ref={hostRef} className="studio-3d" />
         <div className="studio-hud">
-          {cursor ? `x ${cursor.x.toFixed(1)}  y ${cursor.y.toFixed(1)}  z ${cursor.z.toFixed(1)}` : '—'} · {parts.length} parts
-          {toolEntry && <b> · Building: {toolEntry.name} (R / Q rotate, Esc to stop)</b>}
+          {cursor ? `x ${cursor.x.toFixed(1)}  y ${cursor.y.toFixed(1)}  z ${cursor.z.toFixed(1)}` : '—'} · {parts.length} cấu kiện
+          {toolEntry && <b> · Đang xây: {toolEntry.name} (R / Q để xoay, Esc để dừng)</b>}
           <br />
-          Left-drag orbit · right-drag pan · wheel zoom · click to select · drag the coloured arrows to move along X (red) / Y (green) / Z (blue)
+          Kéo chuột trái để xoay góc nhìn · kéo chuột phải để dịch góc nhìn · cuộn để thu phóng · nhấp để chọn · kéo mũi tên để di chuyển theo X (đỏ) / Y (xanh lá) / Z (xanh dương)
         </div>
         {toast && <div className="studio-toast">{toast}</div>}
       </main>
 
       <aside className="studio-props">
-        <h3>Properties</h3>
-        {!selection.length && <p className="studio-muted">Click a part or NPC to select it (Shift-click to add), or pick a material on the left and click the ground to build.</p>}
+        <h3>Thuộc tính</h3>
+        {!selection.length && <p className="studio-muted">Nhấp vào cấu kiện hoặc nhân vật để chọn (giữ Shift để chọn thêm), hoặc chọn vật liệu bên trái rồi nhấp xuống đất để xây.</p>}
         {single && <PartForm part={single} onChange={(next) => commit({ parts: parts.map((p) => (p.uid === single.uid ? next : p)) })} />}
         {npcPos && (
           <div className="studio-form">
             <p>
-              <b>{npcPos.label ?? NPC_LABEL[npcPos.role]}</b> — walks on the ground, so only X/Z.{npcPos.role === 'quest' ? ' Saved into the quest content on publish.' : ''}
+              <b>{npcPos.label ?? NPC_LABEL[npcPos.role]}</b> — di chuyển trên mặt đất, chỉ chỉnh X/Z.{npcPos.role === 'quest' ? ' Được lưu vào nội dung nhiệm vụ khi áp dụng.' : ''}
             </p>
             {(['x', 'z'] as const).map((axis) => (
               <label key={axis} className="studio-field">
-                <span>{axis === 'x' ? 'X (east) m' : 'Z (south) m'}</span>
+                <span>{axis === 'x' ? 'X (đông) m' : 'Z (nam) m'}</span>
                 <input
                   type="number"
                   step={0.25}
@@ -629,28 +655,28 @@ export default function StudioView() {
             ))}
           </div>
         )}
-        {selParts.length > 1 && <p>{selParts.length} parts selected</p>}
+        {selParts.length > 1 && <p>{selParts.length} cấu kiện được chọn</p>}
         {selParts.length > 0 && (
           <div className="studio-group-box">
             <span>
-              Group:{' '}
-              <b>{new Set(selParts.map((p) => p.group ?? 0)).size === 1 ? (selParts[0]!.group ? `#${selParts[0]!.group}` : 'none') : 'mixed'}</b>
+              Nhóm:{' '}
+              <b>{new Set(selParts.map((p) => p.group ?? 0)).size === 1 ? (selParts[0]!.group ? `#${selParts[0]!.group}` : 'chưa có') : 'nhiều nhóm'}</b>
             </span>
             <div className="studio-actions">
-              <button className="btn" disabled={selParts.length < 2} title="Pieces of one wall/building fade together in game" onClick={() => {
+              <button className="btn" disabled={selParts.length < 2} title="Các cấu kiện cùng tường hoặc công trình sẽ mờ đi cùng nhau trong trò chơi" onClick={() => {
                 const next = Math.max(0, ...parts.map((p) => p.group ?? 0)) + 1;
                 const ids = new Set(selParts.map((p) => p.uid));
                 commit({ parts: parts.map((p) => (ids.has(p.uid) ? { ...p, group: next } : p)) });
-                flash(`Grouped ${ids.size} parts as #${next}`);
-              }}>Group</button>
+                flash(`Đã gộp ${ids.size} cấu kiện vào nhóm #${next}`);
+              }}>Gộp nhóm</button>
               <button className="btn" disabled={!selParts.some((p) => p.group)} onClick={() => {
                 const ids = new Set(selParts.map((p) => p.uid));
                 commit({ parts: parts.map((p) => (ids.has(p.uid) ? { ...p, group: undefined } : p)) });
-              }}>Ungroup</button>
+              }}>Tách nhóm</button>
               <button className="btn" disabled={!selParts[0]?.group} onClick={() => {
                 const g = selParts[0]!.group;
                 setSelection(parts.filter((p) => p.group === g).map((p) => ({ kind: 'part' as const, uid: p.uid })));
-              }}>Select group</button>
+              }}>Chọn cả nhóm</button>
             </div>
           </div>
         )}
@@ -659,8 +685,8 @@ export default function StudioView() {
             <button className="btn" onClick={() => rotateSelected(-15)}><Icon name="lucide:rotate-ccw" /> 15°</button>
             <button className="btn" onClick={() => rotateSelected(15)}><Icon name="lucide:rotate-cw" /> 15°</button>
             <button className="btn" onClick={() => rotateSelected(90)}><Icon name="lucide:rotate-cw" /> 90°</button>
-            <button className="btn" onClick={() => duplicate(selParts.map(strip), Math.max(snap, 1))}>Duplicate</button>
-            <button className="btn btn-danger" onClick={removeSelected}>Demolish</button>
+            <button className="btn" onClick={() => duplicate(selParts.map(strip), Math.max(snap, 1))}>Nhân bản</button>
+            <button className="btn btn-danger" onClick={removeSelected}>Tháo dỡ</button>
           </div>
         )}
       </aside>
@@ -670,51 +696,51 @@ export default function StudioView() {
           <div className="overlay-card studio-modal" onClick={(e) => e.stopPropagation()}>
             {modal === 'publish' && (
               <>
-                <h2>Publish camp layout?</h2>
+                <h2>Áp dụng bố trí căn cứ?</h2>
                 <p>
-                  The camp ({parts.length} parts, NPC spots) is rebuilt <b>live for every player</b> and kept across server restarts.
-                  Players standing inside a new structure may get pushed out.
+                  Căn cứ ({parts.length} cấu kiện và vị trí nhân vật) được cập nhật <b>ngay cho tất cả người chơi</b> và được giữ lại khi máy chủ khởi động lại.
+                  Người chơi đứng trong công trình mới có thể bị đẩy ra ngoài.
                 </p>
                 <div className="overlay-row">
-                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-primary" onClick={() => void publish()} disabled={busy}>{busy ? <Spinner /> : 'Publish'}</button>
+                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Hủy</button>
+                  <button className="btn btn-primary" onClick={() => void publish()} disabled={busy}>{busy ? <Spinner /> : 'Áp dụng'}</button>
                 </div>
               </>
             )}
             {modal === 'reset' && (
               <>
-                <h2>Reset to the generated camp?</h2>
-                <p>Removes every studio edit on the server (parts and NPC spots) and restores the original camp for all players. This cannot be undone.</p>
+                <h2>Khôi phục căn cứ mặc định?</h2>
+                <p>Xóa mọi chỉnh sửa trên máy chủ (cấu kiện và vị trí nhân vật) rồi khôi phục căn cứ gốc cho tất cả người chơi. Không thể hoàn tác.</p>
                 <div className="overlay-row">
-                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-danger" onClick={() => void resetDefault()} disabled={busy}>{busy ? <Spinner /> : 'Reset'}</button>
+                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Hủy</button>
+                  <button className="btn btn-danger" onClick={() => void resetDefault()} disabled={busy}>{busy ? <Spinner /> : 'Khôi phục'}</button>
                 </div>
               </>
             )}
             {modal === 'discard' && (
               <>
-                <h2>Discard unsaved changes?</h2>
-                <p>Reloads the layout currently live on the server.</p>
+                <h2>Bỏ các thay đổi chưa lưu?</h2>
+                <p>Tải lại bố trí đang áp dụng trên máy chủ.</p>
                 <div className="overlay-row">
-                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
-                  <button className="btn btn-danger" onClick={() => void discard()} disabled={busy}>{busy ? <Spinner /> : 'Discard'}</button>
+                  <button className="btn" onClick={() => setModal(null)} disabled={busy}>Hủy</button>
+                  <button className="btn btn-danger" onClick={() => void discard()} disabled={busy}>{busy ? <Spinner /> : 'Bỏ thay đổi'}</button>
                 </div>
               </>
             )}
             {modal === 'help' && (
               <>
-                <h2>Camp Studio controls</h2>
+                <h2>Điều khiển xưởng căn cứ</h2>
                 <ul className="studio-help">
-                  <li><b>Camera:</b> left-drag orbit · right-drag pan · wheel zoom · <kbd>F</kbd> focus the selection</li>
-                  <li><kbd>Click</kbd> select a part or NPC · <kbd>Shift</kbd>+click add to the selection</li>
-                  <li><b>Move:</b> drag the red / green / blue arrows (X east / Y up / Z south) or the planes between them · <kbd>G</kbd></li>
-                  <li><b>Rotate:</b> <kbd>E</kbd> then drag the ring · <kbd>R</kbd> ±15° · <kbd>Q</kbd> 90°</li>
-                  <li><b>Build:</b> pick a material, click the ground · <kbd>Esc</kbd> stops</li>
-                  <li><kbd>Del</kbd> demolish · <kbd>Ctrl+D</kbd> duplicate · <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> copy/paste · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> undo/redo</li>
-                  <li>NPCs (merchant, medic, gate guards) move along the ground only.</li>
+                  <li><b>Góc nhìn:</b> kéo chuột trái để xoay · kéo chuột phải để dịch · cuộn để thu phóng · <kbd>F</kbd> đưa góc nhìn tới mục đang chọn</li>
+                  <li><kbd>Nhấp</kbd> chọn cấu kiện hoặc nhân vật · <kbd>Shift</kbd>+nhấp để chọn thêm</li>
+                  <li><b>Di chuyển:</b> kéo mũi tên đỏ / xanh lá / xanh dương (X đông / Y lên / Z nam) hoặc mặt phẳng giữa chúng · <kbd>G</kbd></li>
+                  <li><b>Xoay:</b> <kbd>E</kbd> rồi kéo vòng xoay · <kbd>R</kbd> ±15° · <kbd>Q</kbd> 90°</li>
+                  <li><b>Xây dựng:</b> chọn vật liệu rồi nhấp xuống đất · <kbd>Esc</kbd> để dừng</li>
+                  <li><kbd>Del</kbd> tháo dỡ · <kbd>Ctrl+D</kbd> nhân bản · <kbd>Ctrl+C</kbd>/<kbd>Ctrl+V</kbd> sao chép/dán · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Y</kbd> hoàn tác/làm lại</li>
+                  <li>Nhân vật (thương nhân, quân y, lính gác) chỉ di chuyển trên mặt đất.</li>
                 </ul>
                 <div className="overlay-row">
-                  <button className="btn btn-primary" onClick={() => setModal(null)}>Got it</button>
+                  <button className="btn btn-primary" onClick={() => setModal(null)}>Đã rõ</button>
                 </div>
               </>
             )}
@@ -781,7 +807,7 @@ function PartForm({ part, onChange }: { part: Part; onChange: (p: Part) => void 
   return (
     <div className="studio-form">
       <label className="studio-field">
-        <span>Material</span>
+        <span>Vật liệu</span>
         <select value={part.asset} onChange={(e) => onChange({ ...part, asset: Number(e.target.value) })}>
           {CATALOG.map((c) => (
             <option key={c.numericId} value={c.numericId}>
@@ -790,14 +816,14 @@ function PartForm({ part, onChange }: { part: Part; onChange: (p: Part) => void 
           ))}
         </select>
       </label>
-      {num('x', 'X (east) m', 0.25, -70, 70)}
-      {num('z', 'Z (south) m', 0.25, -70, 70)}
-      {num('y', 'Height (Y) m', 0.125, -2, 30)}
+      {num('x', 'X (đông) m', 0.25, -70, 70)}
+      {num('z', 'Z (nam) m', 0.25, -70, 70)}
+      {num('y', 'Độ cao (Y) m', 0.125, -2, 30)}
       <label className="studio-field">
-        <span>Rotation °</span>
+        <span>Góc xoay °</span>
         <input type="number" step={15} value={round(part.yaw / DEG, 1)} onChange={(e) => Number.isFinite(Number(e.target.value)) && onChange({ ...part, yaw: Number(e.target.value) * DEG })} />
       </label>
-      {num('scale', 'Scale', 0.05, 0.5, 2)}
+      {num('scale', 'Tỷ lệ', 0.05, 0.5, 2)}
     </div>
   );
 }

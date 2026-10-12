@@ -147,6 +147,8 @@ export class GameConnection {
     this.send({ t: 'chat', text: text.slice(0, 200), channel });
   }
 
+  sendPvp(enabled: boolean): void { this.send({ t: 'pvp', enabled }); }
+
   sendTutorial(message: Extract<ClientMessage, { t: 'tutorial' }>): void { this.send(message); }
 
   /** Shop trade request (buy / sell one item); the answer is a 'wallet' message. */

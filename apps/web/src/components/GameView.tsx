@@ -124,7 +124,7 @@ export default function GameView() {
         onResume={() => engineRef.current?.lockPointer()}
         onLeave={() => router.push('/')}
         inventoryOpen={inv.open || !!hud.dialogue || hud.mapOpen}
-        onSetTime={(tod) => engineRef.current?.setTimeOfDay(tod)}
+        onPvp={(enabled) => engineRef.current?.setPvp(enabled)} onSetTime={(tod) => engineRef.current?.setTimeOfDay(tod)}
       />
       {inWorld && <QuestTracker quests={hud.quests} position={hud.position} onCancel={(q) => engineRef.current?.quest('cancel', q.npc, q.id)} />}
       {inWorld && hud.dialogue && !inv.open && <NpcDialogue side={rail('quests')} npc={hud.dialogue.npc} name={hud.dialogue.name} quests={hud.quests} onOp={(op, q) => engineRef.current?.quest(op, hud.dialogue!.npc, q)} trades={hud.life?.config.trades.filter((t) => t.npc === hud.dialogue!.npc) ?? []} owned={(item) => inv.items.filter((i) => i.itemId === item).reduce((n, i) => n + (i.count ?? 1), 0)} coins={hud.coins} onTrade={(side, id) => engineRef.current?.lifeAction(side, id)} onClose={() => engineRef.current?.closeDialogue()} />}

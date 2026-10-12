@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { KeyValueStore } from '../infra/kv';
-import type { Account, AccountRepository } from '../repositories/accounts';
+import type { Account, AccountRepository, SocialProvider } from '../repositories/accounts';
 import type { AuditLog } from '../repositories/audit';
 import type { RefreshTokenRepository } from '../repositories/refresh-tokens';
-import { getDummyHash, hashPassword, verifyPassword } from './password';
+import { getDummyHash, verifyPassword } from './password';
 import { randomToken, sha256, type AccessClaims, type TokenService } from './tokens';
 
 export interface RequestContext {
@@ -18,7 +18,7 @@ export interface Session {
   account: { id: string; username: string; guest: boolean; role: Account['role'] };
 }
 
-export type AuthErrorCode = 'invalid_credentials' | 'username_taken' | 'locked' | 'banned' | 'invalid_token' | 'guest_disabled';
+export type AuthErrorCode = 'invalid_credentials' | 'username_taken' | 'locked' | 'banned' | 'invalid_token' | 'guest_disabled' | 'social_required' | 'provider_disabled' | 'oauth_failed' | 'identity_taken';
 
 export class AuthError extends Error {
   constructor(
@@ -85,11 +85,27 @@ export class AuthService {
     return { sub: acc.id, name: acc.username, role: acc.role, guest: acc.isGuest };
   }
 
-  async register(username: string, password: string, ctx: RequestContext): Promise<Session> {
-    const hash = await hashPassword(password);
-    const acc = await this.accounts.create(username, hash, false);
-    if (!acc) throw new AuthError('username_taken', 409, 'username is already taken');
-    this.audit.record({ event: 'account.register', accountId: acc.id, ip: ctx.ip });
+  async register(_username: string, _password: string, _ctx: RequestContext): Promise<Session> {
+    throw new AuthError('social_required', 403, 'Tài khoản mới cần đăng nhập bằng Google hoặc Facebook.');
+  }
+
+  async linkedProviders(id: string): Promise<SocialProvider[]> {
+    return this.accounts.identities(id);
+  }
+
+  async checkAccount(id: string, ctx: RequestContext): Promise<void> {
+    const acc = await this.accounts.findById(id);
+    if (!acc) throw new AuthError('invalid_token', 401, 'account no longer exists');
+    this.assertNotBanned(acc, ctx);
+  }
+
+  async social(provider: SocialProvider, subject: string, name: string, ctx: RequestContext, accountId?: string): Promise<Session> {
+    if (accountId) await this.checkAccount(accountId, ctx);
+    const prefix = name.normalize('NFC').replace(/[^\p{L}\p{N}_ -]/gu, '').trim().slice(0, 10) || 'Survivor';
+    const acc = await this.accounts.social(provider, subject, `${prefix}_${randomToken().slice(0, 8)}`, accountId);
+    if (!acc) throw new AuthError('identity_taken', 409, 'Tài khoản mạng xã hội này đã được liên kết hoặc nhà cung cấp đã có liên kết khác.');
+    this.assertNotBanned(acc, ctx);
+    this.audit.record({ event: accountId ? 'account.social_link' : 'auth.social_login', accountId: acc.id, ip: ctx.ip, details: { provider } });
     return this.issueSession(acc, ctx);
   }
 

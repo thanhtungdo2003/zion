@@ -1,4 +1,5 @@
 import type { RankTitle } from '@zion/shared';
+import { ZombieOutline } from './render/zombie-outline';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
@@ -83,7 +84,7 @@ import {
 import { DEFAULT_CHARACTER, Mask, makeRayHit, raycastRig, zombieHitRig } from '@zion/physics';
 import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
-import type { Msg } from '@/lib/i18n';
+import { itemName, type Msg } from '@/lib/i18n';
 import type { InventoryStore } from './inventory/inventory';
 import { InputController, type TouchAction, type TouchButton } from './input';
 import { RemoteEntity } from './interpolation';
@@ -225,6 +226,7 @@ export class GameEngine {
   private readonly shotRay = makeRayHit();
   private effects: CombatEffects | null = null;
   private lastAmmoKey = '';
+  private readonly pvpNames = new Set<number>();
   private readonly names = new Map<number, string>();
   private readonly ranks = new Map<number, RankTitle>();
   private readonly focus = new Vector3();
@@ -307,6 +309,8 @@ export class GameEngine {
   private tutorialBlocked = false;
   /** Persisted view mode; the two close cameras share mouse-look controls. */
   private cameraMode: CameraMode = 'top-down';
+  private zombieOutline: ZombieOutline | null = null;
+  private readonly outlinedZombies: Object3D[] = [];
   private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
@@ -434,6 +438,9 @@ export class GameEngine {
   }
 
   async start(): Promise<void> {
+    // Canvas nameplates must wait for the same Vietnamese font as the HTML HUD.
+    // A failed font request can still use the system fallback without blocking the game.
+    await document.fonts.load('600 26px "Noto Sans"', 'Tiếng Việt: ô â ă ê ơ ư đ ấ ộ ắ ễ ự').catch(() => undefined);
     // The character must be fully downloaded and built before the world is entered, so nothing
     // heavy is parsed or uploaded while playing.
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.loading_character' }, loadProgress: 0 });
@@ -518,6 +525,7 @@ export class GameEngine {
   }
 
   dispose(): void {
+    this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
     for (const b of this.bubbles) b.el.remove();
@@ -955,7 +963,7 @@ export class GameEngine {
         // Four-legged: the whole body faces where it goes (no separate head turn).
         if (e.kind === EntityKind.Animal) r.avatar.rigid = true;
         r.avatar.addTo(this.scene);
-        r.avatar.setName(this.remoteName(e.id, e.kind), this.ranks.get(e.id));
+        r.avatar.setName(this.remoteName(e.id, e.kind), this.ranks.get(e.id), this.pvpNames.has(e.id));
         this.remotes.set(e.id, r);
       }
       r.entity.push(s.serverTime, e);
@@ -1075,6 +1083,8 @@ export class GameEngine {
   }
 
   /** Testing aid: jump the world clock (0…1, 0.5 = noon). */
+  setPvp(enabled: boolean): void { this.conn.sendPvp(enabled); }
+
   setTimeOfDay(tod: number): void {
     this.conn.sendSetTime(tod);
   }
@@ -1105,6 +1115,9 @@ export class GameEngine {
       case 'reviving':
         this.hud.set({ reviving: m.target ? { start: performance.now(), end: performance.now() + m.durationMs } : null });
         break;
+      case 'pvp':
+        this.hud.set({ pvpEnabled: m.enabled, pvpRemaining: Math.ceil(m.remainingMs / 1000) });
+        break;
       case 'tutorialState':
         this.hud.set({ tutorial: m });
         break;
@@ -1127,10 +1140,12 @@ export class GameEngine {
         this.clock.onPong(m.ct, m.st);
         break;
       case 'players':
+        this.pvpNames.clear();
+        for (const p of m.players) if (p.pvp) this.pvpNames.add(p.id);
         this.names.clear();
         this.ranks.clear();
         for (const p of m.players) { this.names.set(p.id, p.name); if (p.rank) this.ranks.set(p.id, p.rank); }
-        for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id));
+        for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id), this.pvpNames.has(id));
         this.hud.set({ playersOnline: m.players.length });
         break;
       case 'teamState': {
@@ -1416,6 +1431,7 @@ export class GameEngine {
       (local.state.climbing ? EntityFlags.Climbing : 0);
     this.updateAim(px, py, pz);
     this.scanStations(px, pz, now);
+    this.outlinedZombies.length = 0;
     // Zombies: interpolated like players, but only visible inside the vision cone (or very close).
     for (const zb of this.zombies.values()) {
       const pose = zb.entity.sample(renderTime);
@@ -1425,6 +1441,7 @@ export class GameEngine {
       // Once spotted, a zombie stays visible even after the player looks away.
       zb.avatar.seen = zb.avatar.seen || close || (this.vision?.canSee(pose.x, pose.y + 0.9, pose.z, this.store?.collision) ?? true);
       zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt, pose.health);
+      if (this.cameraMode === 'top-down' && zb.avatar.seen && zb.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) this.outlinedZombies.push(zb.avatar.root);
       if (zb.burnUntil && zb.burnUntil > now && zb.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       this.zombieVoice(zb, pose, dx * dx + dz * dz);
     }
@@ -1508,7 +1525,10 @@ export class GameEngine {
     }
     this.updateAmmoHud(now);
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.outlinedZombies.length) {
+      this.zombieOutline ??= new ZombieOutline();
+      this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies);
+    } else this.renderer.render(this.scene, this.camera);
 
     if (now - this.lastPing > PING_INTERVAL_MS) {
       this.lastPing = now;
@@ -2117,7 +2137,7 @@ export class GameEngine {
 
   /** Farming, cooking, livestock loot and private quest pick-ups within reach (in that order). */
   private lifeTarget(x: number, z: number): { label: Msg; run?: () => void } | null {
-    const name = (id: string) => ITEMS[id]?.name ?? id;
+    const name = (id: string) => itemName(settingsStore.get().lang, id);
     for (const q of this.hud.get().quests) {
       if (q.status !== 'active' || !q.retrievalItem || !q.drops) continue;
       const i = q.drops.findIndex((d) => Math.hypot(d.x - x, d.z - z) <= 2.5);

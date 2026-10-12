@@ -5,7 +5,7 @@ import { BrowserControls } from '@/components/BrowserControls';
 
 export const metadata: Metadata = {
   title: 'ZION — The Last Light',
-  description: 'Multiplayer post-apocalyptic survival in a procedurally generated world.',
+  description: 'Sinh tồn nhiều người chơi trong thế giới hậu tận thế được tạo ngẫu nhiên.',
 };
 
 export const viewport: Viewport = {
@@ -17,7 +17,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="vi">
+      <head><link rel="preload" href="/fonts/NotoSans-VF.ttf" as="font" type="font/ttf" crossOrigin="anonymous" /></head>
       <body><BrowserControls />{children}</body>
     </html>
   );

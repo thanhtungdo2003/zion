@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import type { HudState } from '@/game/hud-store';
 import { itemIcons } from '@/game/inventory/icons';
 import { Coins } from './Inventory';
+import { settingsStore } from '@/lib/settings';
+import { itemName as localizedItemName } from '@/lib/i18n';
 import { Spinner } from './Spinner';
 import { usePending } from '@/game/pending';
 
@@ -14,7 +16,7 @@ type Op = 'accept' | 'cancel' | 'turnin';
 type Trade = NonNullable<HudState['life']>['config']['trades'][number];
 
 function itemName(id: string): string {
-  return ITEMS[id]?.name ?? id;
+  return localizedItemName(settingsStore.get().lang, id);
 }
 
 function ItemIcon({ id }: { id: string }) {

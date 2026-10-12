@@ -220,7 +220,7 @@ export interface RespawnEvent {
 
 export interface PlayerInfoEvent {
   t: 'players';
-  players: Array<{ id: number; name: string; rank?: RankTitle }>;
+  players: Array<{ id: number; name: string; rank?: RankTitle; pvp?: boolean }>;
 }
 
 export interface QuestStateMessage {
@@ -237,6 +237,7 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | { t: 'pvp'; enabled: boolean; remainingMs: number }
   | RankUpdate
   | TutorialStateMessage
   | TeamStateMessage

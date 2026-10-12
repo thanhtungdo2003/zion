@@ -29,6 +29,12 @@ const envSchema = z
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
     COOKIE_SECURE: bool.optional(),
     ALLOW_GUEST: bool.default('true'),
+    PUBLIC_API_URL: z.string().url().default('http://localhost:4000'),
+    PUBLIC_WEB_URL: z.string().url().default('http://localhost:3000'),
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    FACEBOOK_APP_ID: z.string().min(1).optional(),
+    FACEBOOK_APP_SECRET: z.string().min(1).optional(),
 
     CORS_ORIGINS: csv.default('http://localhost:3000'),
     PUBLIC_WS_URL: z.string().url().default('ws://localhost:4000/ws'),

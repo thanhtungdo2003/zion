@@ -3,7 +3,7 @@ import type { HudState } from './hud-store';
 import type { InventoryState } from './inventory/inventory';
 
 export interface GuideStep { title: string; text: string; focus?: string }
-export interface DiscoveryLesson { id: TutorialId; steps: GuideStep[]; context: 'npc' | 'inventory' | 'map' | 'plot' | 'world' }
+export interface DiscoveryLesson { id: TutorialId; steps: GuideStep[]; context: 'pvp' | 'npc' | 'inventory' | 'map' | 'plot' | 'world' }
 
 /** Ordered by currently open UI, so a combat tip never interrupts a panel's own explanation. */
 export function discoveryLesson(hud: HudState, inv: InventoryState, seen: ReadonlySet<TutorialId>): DiscoveryLesson | null {
@@ -47,6 +47,9 @@ export function discoveryLesson(hud: HudState, inv: InventoryState, seen: Readon
   if (hud.life?.action?.kind === 'cook') candidates.push({ id: 'cooking', context: 'world', steps: [
     { title: 'Nấu thức ăn', text: 'Đứng cạnh bếp và nhấn E để nấu nguyên liệu đang mang theo. Chờ thanh tiến trình hoàn tất; di chuyển sẽ hủy. Đồ chín bổ sung năng lượng tốt hơn đồ sống.', focus: '.q-action' },
   ] });
+  if (hud.pvpRemaining > 0 && !inv.open && !hud.dialogue && !hud.mapOpen) candidates.push({ id: 'pvp', context: 'pvp', steps: [
+    { title: 'Đồ sát — hãy cân nhắc!', text: 'Tân binh, nút cạnh bản đồ nhỏ vừa xuất hiện vì cậu đã tấn công người chơi khác. Mặc định đòn đánh không gây sát thương. Bật đồ sát để gây sát thương cho người chơi khác đội; đồng đội luôn được bảo vệ. Tên cậu sẽ chuyển đỏ khi bật. Nút tồn tại 60 giây kể từ đòn đánh gần nhất, hết giờ sẽ tự tắt đồ sát.', focus: '[data-guide="pvp"]' },
+  ] });
   if (hud.tutorial?.firstZombie) candidates.push({ id: 'zombie', context: 'world', steps: [
     { title: 'Zombie đầu tiên!', text: `Zombie đầu tiên bạn hạ được bảo đảm rơi Coin. Những zombie tiếp theo có ${Math.round(ZOMBIE_COIN_DROP_CHANCE * 100)}% cơ hội rơi, mỗi lần ${ZOMBIE_COIN_DROP_MIN}–${ZOMBIE_COIN_DROP_MAX} Coin. Lại gần đồng Coin trên đất để nhặt. Đây là thu nhập phụ; lục hòm và bán vật phẩm vẫn là nguồn kiếm tiền chính.`, focus: '.hud-coins' },
   ] });
@@ -54,7 +57,7 @@ export function discoveryLesson(hud: HudState, inv: InventoryState, seen: Readon
 }
 
 export function lessonContextOpen(lesson: DiscoveryLesson, hud: HudState, inv: InventoryState): boolean {
-  return lesson.context === 'world' || (lesson.context === 'npc' && !!hud.dialogue && !inv.open)
+  return (lesson.context === 'pvp' && hud.pvpRemaining > 0) || lesson.context === 'world' || (lesson.context === 'npc' && !!hud.dialogue && !inv.open)
     || (lesson.context === 'inventory' && inv.open) || (lesson.context === 'map' && hud.mapOpen)
     || (lesson.context === 'plot' && !!hud.plot);
 }

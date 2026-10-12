@@ -169,6 +169,7 @@ export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState
   return <div className={`tutorial ${passive ? 'tutorial-walk' : ''}`}>
     {!passive && !rect && <div className="tutorial-shade" />}
     {rect && <div className={`tutorial-focus ${passive ? 'soft' : ''}`} style={{ left: rect.left - pad, top: rect.top - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 }}><i /><i /><i /><i /></div>}
+    {rect && lesson?.id === 'pvp' && <div className="tutorial-direction" style={{ left: rect.left + rect.width / 2, top: rect.bottom + 58, transform: 'translate(-50%, -50%) rotate(180deg)' }}><DirectionArrow /></div>}
     {walking && target && <div className="tutorial-direction" style={{ left: hud.tutorialAnchor.x, top: hud.tutorialAnchor.y, transform: `translate(-50%, -50%) rotate(${target.angle}rad) translateY(96px)` }}>
       <DirectionArrow />
       <span style={{ transform: `rotate(${-target.angle}rad)` }}><b>{Math.ceil(target.distance)}</b>M</span>

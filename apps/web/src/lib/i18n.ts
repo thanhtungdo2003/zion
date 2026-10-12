@@ -1,8 +1,37 @@
+import { ARMOR_BY_ITEM, ITEMS } from '@zion/shared';
+
 /** UI dictionary. English is the source of truth for keys; every other language must cover them all. */
 
 export type Lang = 'en' | 'vi';
 
 const en = {
+  'settings.system': 'System',
+  'hud.stamina': 'Stamina',
+  'hud.roll': 'Roll (C)',
+  'hud.offline': 'Offline',
+  'tip.armor_info': '{rarity} · −{protection}% damage · {weight} kg',
+  'item.potato': 'Potato',
+  'item.potato.info': 'Raw potato · plant it, cook it, or right-click to eat raw (little filling)',
+  'item.potato_cooked': 'Baked Potato',
+  'item.potato_cooked.info': 'Cooked potato · right-click to eat',
+  'item.raw_mutton': 'Raw Mutton',
+  'item.raw_mutton.info': 'Raw meat from a sheep · cook it on a campfire (raw: little filling)',
+  'item.raw_porkchop': 'Raw Porkchop',
+  'item.raw_porkchop.info': 'Raw meat from a boar · cook it on a campfire (raw: little filling)',
+  'item.cooked_mutton': 'Cooked Mutton',
+  'item.cooked_mutton.info': 'Hearty cooked meat · right-click to eat',
+  'item.cooked_porkchop': 'Cooked Porkchop',
+  'item.cooked_porkchop.info': 'Cooked meat · right-click to eat',
+  'item.nuclear_cell': 'Nuclear Power Cell',
+  'item.nuclear_cell.info': 'Energy cell salvaged from industrial ruins',
+  'item.coal_carton': 'Coal Carton',
+  'item.coal_carton.info': 'An old carton of coal',
+  'item.badge_recruit': 'Recruit Badge',
+  'item.badge_private': 'Private Badge',
+  'item.badge_corporal': 'Corporal Badge',
+  'item.badge_sergeant': 'Sergeant Badge',
+  'item.badge_elite': 'Elite Badge',
+  'item.badge.info': 'Military keepsake · can be sold for ZCoin',
   // main menu
   'menu.signin': 'Sign in',
   'menu.account_in': 'Account · Signed in',
@@ -352,9 +381,36 @@ const en = {
 export type TKey = keyof typeof en;
 
 const vi: Record<TKey, string> = {
-  'cat.food': 'Food',
+  'settings.system': 'Hệ thống',
+  'hud.stamina': 'Thể lực',
+  'hud.roll': 'Lộn tránh đòn (C)',
+  'hud.offline': 'Ngoại tuyến',
+  'tip.armor_info': '{rarity} · giảm {protection}% sát thương · {weight} kg',
+  'item.potato': 'Khoai tây',
+  'item.potato.info': 'Khoai tây sống · có thể trồng, nấu hoặc nhấn chuột phải để ăn sống (ít no)',
+  'item.potato_cooked': 'Khoai tây nướng',
+  'item.potato_cooked.info': 'Khoai tây chín · nhấn chuột phải để ăn',
+  'item.raw_mutton': 'Thịt cừu sống',
+  'item.raw_mutton.info': 'Thịt cừu sống · nấu ở lửa trại (ăn sống ít no)',
+  'item.raw_porkchop': 'Thịt lợn rừng sống',
+  'item.raw_porkchop.info': 'Thịt lợn rừng sống · nấu ở lửa trại (ăn sống ít no)',
+  'item.cooked_mutton': 'Thịt cừu chín',
+  'item.cooked_mutton.info': 'Thịt cừu chín, bổ sung nhiều năng lượng · nhấn chuột phải để ăn',
+  'item.cooked_porkchop': 'Thịt lợn rừng chín',
+  'item.cooked_porkchop.info': 'Thịt lợn rừng chín · nhấn chuột phải để ăn',
+  'item.nuclear_cell': 'Pin năng lượng hạt nhân',
+  'item.nuclear_cell.info': 'Pin năng lượng thu hồi từ phế tích công nghiệp',
+  'item.coal_carton': 'Thùng than',
+  'item.coal_carton.info': 'Một thùng than cũ',
+  'item.badge_recruit': 'Huy hiệu Tân Binh',
+  'item.badge_private': 'Huy hiệu Binh Nhì',
+  'item.badge_corporal': 'Huy hiệu Hạ Sĩ',
+  'item.badge_sergeant': 'Huy hiệu Trung Sĩ',
+  'item.badge_elite': 'Huy hiệu Tinh Nhuệ',
+  'item.badge.info': 'Kỷ vật quân vụ · có thể bán lấy ZCoin',
+  'cat.food': 'Thức ăn',
   'cat.tool': 'Công cụ',
-  'cat.resource': 'Resources',
+  'cat.resource': 'Tài nguyên',
   // main menu
   'menu.signin': 'Đăng nhập',
   'menu.account_in': 'Tài khoản · Đã đăng nhập',
@@ -374,7 +430,7 @@ const vi: Record<TKey, string> = {
   'menu.deploying': 'Đang triển khai…',
   'menu.server_error': 'Không thể kết nối máy chủ. Máy chủ đã chạy chưa?',
   'menu.settings': 'Cài đặt',
-  'menu.studio': 'Camp Studio · chỉnh sửa căn cứ',
+  'menu.studio': 'Xưởng căn cứ · chỉnh sửa căn cứ',
   'mode.survival': 'Sinh tồn',
   'mode.survival_sub': 'Nhiều người chơi · Điểm xuất phát ngẫu nhiên',
 
@@ -505,8 +561,8 @@ const vi: Record<TKey, string> = {
   'inv.rds': '{n} viên',
   'inv.reloading': 'đang nạp',
   'cont.heavy': 'Hạng nặng',
-  'cont.primary': 'Chính · Súng trường / Shotgun',
-  'cont.secondary': 'Phụ · Súng lục / SMG',
+  'cont.primary': 'Chính · Súng trường / Súng săn',
+  'cont.secondary': 'Phụ · Súng lục / Tiểu liên',
   'cont.grenades': 'Lựu đạn',
   'cont.backpack': 'Ba lô',
   'cont.offhand': 'Tay phụ · Công cụ',
@@ -518,9 +574,9 @@ const vi: Record<TKey, string> = {
   'cont.stash_3': 'Kho cá nhân · trang 3',
   'interact.storage': 'Mở kho cá nhân',
   'cat.rifle': 'Súng trường',
-  'cat.shotgun': 'Shotgun',
+  'cat.shotgun': 'Súng săn',
   'cat.pistol': 'Súng lục',
-  'cat.smg': 'SMG',
+  'cat.smg': 'Súng tiểu liên',
   'cat.heavy': 'Hạng nặng',
   'cat.grenade': 'Lựu đạn',
   'cat.ammo': 'Đạn',
@@ -546,13 +602,13 @@ const vi: Record<TKey, string> = {
   'tip.in_hand': 'Đang cầm',
   'item.ak47': 'AK-47',
   'item.ak47.info': 'Súng trường tấn công · 7.62×39',
-  'item.shotgun': 'Shotgun',
+  'item.shotgun': 'Súng săn',
   'item.shotgun.info': 'Bơm tay · cỡ 12',
   'item.gl18': 'GL18',
   'item.gl18.info': 'Súng lục · 9×19',
-  'item.smg': 'SMG',
+  'item.smg': 'Súng tiểu liên',
   'item.smg.info': 'Súng tiểu liên · 9×19',
-  'item.lmg': 'LMG',
+  'item.lmg': 'Súng máy hạng nhẹ',
   'item.lmg.info': 'Súng máy hạng nhẹ · tiếp đạn bằng dây',
   'item.grenade': 'Lựu đạn',
   'item.grenade.info': 'Lựu đạn mảnh',
@@ -563,7 +619,7 @@ const vi: Record<TKey, string> = {
   'item.ammo_9mm': '9×19',
   'item.ammo_9mm.info': 'Hộp đạn GL18 / MP5 · 30 viên',
   'item.ammo_12g': '12 ga',
-  'item.ammo_12g.info': 'Đạn shotgun · 6 viên',
+  'item.ammo_12g.info': 'Đạn súng săn · 6 viên',
   'item.ammo_300wm': '.300 WM',
   'item.ammo_300wm.info': 'Hộp đạn AWM · 15 viên',
 
@@ -625,7 +681,7 @@ const vi: Record<TKey, string> = {
   'tip.uses': 'Lượt dùng',
   'hud.healing': 'Đang băng bó…',
   'inv.use': 'chuột phải vào hộp cứu thương để dùng',
-  'inv.dev_coins': '+1000 ZCoin (test)',
+  'inv.dev_coins': '+1000 ZCoin (thử nghiệm)',
   'keys.heal': 'cứu thương',
   'interact.shop': 'Giao dịch với thương nhân vũ khí',
   'interact.nurse': 'Nói chuyện với y tá quân y',
@@ -655,13 +711,13 @@ const vi: Record<TKey, string> = {
   'tip.sell': 'Giá bán',
   'tip.issued': 'Đồ cấp phát (không bán được)',
   'item.m4a1': 'M4A1',
-  'item.m4a1.info': 'Súng carbine · 5.56 NATO',
+  'item.m4a1.info': 'Súng trường gọn · 5.56 NATO',
   'item.aug': 'Steyr AUG',
-  'item.aug.info': 'Súng trường bullpup · 5.56 NATO · chuột phải để ngắm 2×',
+  'item.aug.info': 'Súng trường băng đạn phía sau · 5.56 NATO · chuột phải để ngắm 2×',
   'item.svd': 'SVD Dragunov',
   'item.svd.info': 'Súng bắn tỉa bán tự động · 7.62×54R · chuột phải để ngắm',
   'item.saiga12': 'Saiga-12',
-  'item.saiga12.info': 'Shotgun bán tự động · cỡ 12',
+  'item.saiga12.info': 'Súng săn bán tự động · cỡ 12',
   'item.double_barrel': 'Súng hai nòng',
   'item.double_barrel.info': 'Bẻ nòng · cỡ 12 · 2 viên',
   'item.revolver': 'Súng ổ xoay',
@@ -672,7 +728,7 @@ const vi: Record<TKey, string> = {
   'item.grenade_launcher.info': '40 mm · bắn vòng cầu, chạm đất là nổ',
   'item.crossbow': 'Nỏ',
   'item.crossbow.info': 'Không tiếng động · nạp từng mũi tên · chuột phải để ngắm 4×',
-  'item.rocket_launcher': 'Súng phóng rocket',
+  'item.rocket_launcher': 'Súng phóng tên lửa',
   'item.rocket_launcher.info': 'Phóng từng quả · nạp lại sau mỗi lần bắn',
   'item.flamethrower': 'Súng phun lửa',
   'item.flamethrower.info': 'Phun lửa tầm gần · thiêu cháy mục tiêu',
@@ -692,8 +748,8 @@ const vi: Record<TKey, string> = {
   'item.ammo_357.info': 'Hộp đạn súng ổ xoay · 18 viên',
   'item.ammo_40mm': 'Đạn 40 mm',
   'item.ammo_40mm.info': 'Hộp đạn phóng lựu · 6 quả',
-  'item.rocket': 'Đạn rocket',
-  'item.rocket.info': 'Một quả rocket cho súng phóng',
+  'item.rocket': 'Đạn tên lửa',
+  'item.rocket.info': 'Một quả tên lửa cho súng phóng',
   'item.bolts': 'Ống tên nỏ',
   'item.bolts.info': 'Tên nỏ · 10 mũi',
   'item.fuel_tank': 'Bình nhiên liệu',
@@ -701,6 +757,50 @@ const vi: Record<TKey, string> = {
 };
 
 const DICT: Record<Lang, Record<TKey, string>> = { en, vi };
+
+const ERROR_VI: Record<string, string> = {
+  username_taken: 'Tên này đã được sử dụng. Hãy chọn tên khác.',
+  invalid_credentials: 'Tên đăng nhập hoặc mật khẩu không đúng.',
+  banned: 'Tài khoản đã bị khóa.',
+  locked: 'Đăng nhập sai quá nhiều lần. Hãy thử lại sau.',
+  guest_disabled: 'Máy chủ hiện không cho phép chơi bằng tài khoản khách.',
+  unauthorized: 'Vui lòng đăng nhập lại.',
+  invalid_token: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+  rate_limited: 'Thao tác quá nhanh. Hãy đợi một chút rồi thử lại.',
+  invalid_request: 'Thông tin chưa hợp lệ. Hãy kiểm tra các trường đã nhập.',
+  bad_request: 'Yêu cầu chưa hợp lệ. Hãy kiểm tra lại thông tin.',
+  internal: 'Máy chủ gặp lỗi. Hãy thử lại sau.',
+  not_found: 'Không tìm thấy nội dung yêu cầu.',
+  forbidden: 'Bạn chưa có quyền thực hiện thao tác này.',
+  csrf: 'Phiên làm việc chưa hợp lệ. Hãy tải lại trang.',
+  invalid_password: 'Mật khẩu xưởng không đúng.',
+  invalid_scope: 'Hãy chọn một người chơi hoặc tất cả người chơi.',
+};
+
+const SERVER_TEXT_VI: Record<string, string> = {
+  'Inventory full': 'Túi đồ đã đầy',
+  'server is shutting down': 'Máy chủ đang tắt.',
+  'account is already joining': 'Tài khoản đang tham gia trò chơi ở phiên khác.',
+  'server is full': 'Máy chủ đã đầy.',
+  'you logged in from another location': 'Tài khoản đã đăng nhập ở nơi khác.',
+  'already connected': 'Tài khoản đã kết nối ở phiên khác.',
+  'you are sending messages too quickly': 'Bạn gửi tin nhắn quá nhanh. Hãy chờ một chút.',
+  'disconnected by anti-cheat': 'Kết nối bị ngắt bởi hệ thống chống gian lận.',
+  'too many invalid messages': 'Kết nối bị ngắt do gửi quá nhiều dữ liệu không hợp lệ.',
+  'Failed to fetch': 'Không kết nối được máy chủ. Hãy kiểm tra mạng và thử lại.',
+  'fetch failed': 'Không kết nối được máy chủ. Hãy kiểm tra mạng và thử lại.',
+  'Load failed': 'Không kết nối được máy chủ. Hãy kiểm tra mạng và thử lại.',
+  'NetworkError when attempting to fetch resource.': 'Không kết nối được máy chủ. Hãy kiểm tra mạng và thử lại.',
+};
+
+/** Localize protocol errors at the presentation boundary; keep authored server details. */
+export function serverMessage(lang: Lang, text: string, code?: string): string {
+  if (lang !== 'vi') return text;
+  if (SERVER_TEXT_VI[text]) return SERVER_TEXT_VI[text];
+  // Team and content errors can already contain specific Vietnamese instructions.
+  if (/[^\p{ASCII}]/u.test(text)) return text;
+  return (code && ERROR_VI[code]) || text;
+}
 
 /** A message the engine emits for the UI to translate: a key plus placeholder values. */
 export interface Msg {
@@ -716,11 +816,26 @@ export function isTKey(key: string): key is TKey {
 /** Translated item name (falls back to the id). */
 export function itemName(lang: Lang, id: string, fallback?: string): string {
   const key = `item.${id}`;
-  return isTKey(key) ? translate(lang, key) : (fallback ?? id);
+  return isTKey(key) ? translate(lang, key) : (fallback ?? ITEMS[id]?.name ?? id);
+}
+
+/** Item descriptions share the same language as names, including generated armour stats. */
+export function itemDescription(lang: Lang, id: string): string {
+  const key = `item.${id}.info`;
+  if (isTKey(key)) return translate(lang, key);
+  const armor = ARMOR_BY_ITEM.get(id);
+  if (armor) return translate(lang, 'tip.armor_info', {
+    rarity: translate(lang, `rarity.${armor.rarity}`),
+    protection: Math.round(armor.protection * 100),
+    weight: armor.weight,
+  });
+  if (id.startsWith('badge_') && ITEMS[id]) return translate(lang, 'item.badge.info');
+  return ITEMS[id]?.info ?? '';
 }
 
 /** Translates an engine message, resolving `item` ids to names. */
 export function translateMsg(lang: Lang, msg: Msg): string {
+  if (msg.key === 'raw' && msg.vars?.text !== undefined) return serverMessage(lang, String(msg.vars.text));
   const vars = msg.vars && 'item' in msg.vars ? { ...msg.vars, item: itemName(lang, String(msg.vars.item)) } : msg.vars;
   return translate(lang, msg.key, vars);
 }

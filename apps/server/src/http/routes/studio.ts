@@ -9,6 +9,7 @@ import { CAMP_ASSET } from '@zion/assets';
 import type { CampNpcLayout, CampPart } from '@zion/worldgen';
 import type { HttpDeps } from '../app';
 import { studioCurrencyGrantSchema, type StudioCurrencyGrant, type StudioCurrencyPlayer, type StudioCurrencyResult } from '@zion/shared';
+import { newsActionSchema } from '@zion/shared';
 
 /** What the Camp Studio needs from the game: the live layout and a way to change it. */
 export interface StudioBackend {
@@ -98,6 +99,27 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     if (reply.sent) return;
     if (!canEdit(req, production)) return reply.code(403).send({ error: 'forbidden', message: 'Camp Studio requires the studio password' });
   };
+
+  if (deps.news) {
+    // Publishing is an admin capability. The shared Studio password also grants it.
+    const newsGuard = async (req: FastifyRequest, reply: FastifyReply) => {
+      const token = req.headers['x-studio-token'];
+      if (password && validToken(secret, typeof token === 'string' ? token : undefined)) return;
+      await app.requireAuth(req, reply);
+      if (!reply.sent && req.claims?.role !== 'admin') return reply.code(403).send({ error: 'forbidden', message: 'Chỉ quản trị viên được quản lý bản cập nhật.' });
+    };
+    app.get('/api/studio/news', { preHandler: newsGuard }, async (_req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return deps.news!.drafts();
+    });
+    app.post('/api/studio/news', { preHandler: newsGuard, bodyLimit: 256 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const action = newsActionSchema.parse(req.body);
+      const result = await deps.news!.act(action, req.claims?.sub ?? null);
+      req.log.info({ postId: action.id, op: action.op, actorId: req.claims?.sub ?? 'studio-password' }, 'news publication changed');
+      reply.header('cache-control', 'no-store');
+      return result;
+    });
+  }
 
   if (deps.progression) {
     app.get('/api/studio/ranks', { preHandler: guard }, async (_req, reply) => {

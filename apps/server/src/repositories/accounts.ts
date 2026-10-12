@@ -1,4 +1,6 @@
-import type { Db } from '../db/pool';
+import { withTransaction, type Db } from '../db/pool';
+
+export type SocialProvider = 'google' | 'facebook';
 
 export interface Account {
   id: string;
@@ -43,6 +45,35 @@ function map(r: AccountRow): Account {
 /** All queries are parameterised; no SQL is ever built from user input. */
 export class AccountRepository {
   constructor(private readonly db: Db) {}
+
+  async identities(id: string): Promise<SocialProvider[]> {
+    const { rows } = await this.db.query<{ provider: SocialProvider }>('SELECT provider FROM account_identities WHERE account_id = $1 ORDER BY provider', [id]);
+    return rows.map(r => r.provider);
+  }
+
+  /** Never match by name/email: linking requires an already authenticated account UUID. */
+  async social(provider: SocialProvider, subject: string, username: string, accountId?: string): Promise<Account | null> {
+    try {
+      return await withTransaction(this.db, async client => {
+        // Serialize first sign-ins of the same identity to avoid orphaned accounts.
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`${provider}:${subject}`]);
+        const existing = await client.query<{ account_id: string }>('SELECT account_id FROM account_identities WHERE provider = $1 AND subject = $2', [provider, subject]);
+        const owner = existing.rows[0]?.account_id;
+        if (owner && accountId && owner !== accountId) return null;
+        let id = owner ?? accountId;
+        if (!id) {
+          const created = await client.query<{ id: string }>('INSERT INTO accounts (username, is_guest) VALUES ($1, false) RETURNING id', [username]);
+          id = created.rows[0]!.id;
+        }
+        if (!owner) await client.query('INSERT INTO account_identities (provider, subject, account_id) VALUES ($1, $2, $3)', [provider, subject, id]);
+        const { rows } = await client.query<AccountRow>(`UPDATE accounts SET is_guest = false, last_login_at = now() WHERE id = $1 RETURNING ${COLUMNS}`, [id]);
+        return rows[0] ? map(rows[0]) : null;
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code === '23505') return null;
+      throw err;
+    }
+  }
 
   async findByUsername(username: string): Promise<Account | null> {
     const { rows } = await this.db.query<AccountRow>(

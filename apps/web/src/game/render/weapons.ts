@@ -121,6 +121,14 @@ export interface WeaponVisual {
 
 export type WeaponLibrary = Map<string, WeaponVisual>;
 
+/** A single, owned display model for the handbook; uses the in-game orientation table. */
+export async function loadItemDisplayModel(itemId: string): Promise<Group> {
+  const spec = WEAPON_SPECS[itemId];
+  if (!spec) throw new Error(`No display model for ${itemId}`);
+  const built = await buildBBModel(JSON.parse(await fetchWithProgress(spec.url)) as RawModel);
+  return displayModel(spec, built.root);
+}
+
 function frame(forward: Vector3, up: Vector3): Matrix4 {
   const f = forward.clone().normalize();
   const side = new Vector3().crossVectors(f, up).normalize();

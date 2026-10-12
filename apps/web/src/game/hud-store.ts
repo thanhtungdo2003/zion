@@ -19,6 +19,8 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  pvpEnabled: boolean;
+  pvpRemaining: number;
   rank: RankTitle | null;
   promotion: { rank: RankTitle; introduction: string; at: number } | null;
   tutorial: TutorialProgress | null;
@@ -83,6 +85,8 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    pvpEnabled: false,
+    pvpRemaining: 0,
     rank: null,
     promotion: null,
     tutorial: null,

@@ -8,6 +8,8 @@ coverage/
 .env.*
 !.env.example
 *.log
+.tmp-*/
+.tmp-*.mjs
 .DS_Store
 /packages/worldgen/preview/
 /apps/web/public/assets/models/

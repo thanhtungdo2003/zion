@@ -30,24 +30,24 @@ function wrapAngle(a: number): number {
   return a - Math.PI;
 }
 
-export function labelSprite(text: string, rank?: RankTitle): Sprite {
+export function labelSprite(text: string, rank?: RankTitle, pvp = false): Sprite {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = rank ? 76 : 48;
   const ctx = canvas.getContext('2d')!;
-  ctx.font = '600 26px system-ui, sans-serif';
+  ctx.font = '600 26px "Noto Sans", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   const w = Math.min(250, ctx.measureText(text).width + 20);
   ctx.fillRect(128 - w / 2, 6, w, 36);
-  ctx.fillStyle = '#f0e9d8';
+  ctx.fillStyle = pvp ? '#ff4949' : '#f0e9d8';
   ctx.fillText(text, rank ? 140 : 128, 25, rank ? 208 : 246);
   if (rank) {
     ctx.fillStyle = RANKS[rank.tier]!.color;
     ctx.beginPath(); ctx.moveTo(8, 8); ctx.lineTo(30, 8); ctx.lineTo(28, 28); ctx.lineTo(19, 36); ctx.lineTo(10, 28); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#141617'; ctx.font = 'bold 17px system-ui'; ctx.fillText(RANKS[rank.tier]!.icon, 19, 20);
-    ctx.fillStyle = RANKS[rank.tier]!.color; ctx.font = '600 17px system-ui'; ctx.fillText(rank.title, 128, 57);
+    ctx.fillStyle = '#141617'; ctx.font = 'bold 17px "Noto Sans", sans-serif'; ctx.fillText(RANKS[rank.tier]!.icon, 19, 20);
+    ctx.fillStyle = RANKS[rank.tier]!.color; ctx.font = '600 17px "Noto Sans", sans-serif'; ctx.fillText(rank.title, 128, 57);
   }
   const tex = new CanvasTexture(canvas);
   tex.minFilter = LinearFilter;
@@ -157,8 +157,8 @@ export class Avatar {
     this.armor.set(slot, objs);
   }
 
-  setName(name: string, rank?: RankTitle): void {
-    const key = `${name}:${rank?.step ?? ''}`;
+  setName(name: string, rank?: RankTitle, pvp = false): void {
+    const key = `${name}:${rank?.step ?? ''}:${pvp}`;
     if (key === this.labelText) return;
     this.labelText = key;
     if (this.label) {
@@ -166,7 +166,7 @@ export class Avatar {
       this.label.material.map?.dispose();
       this.label.material.dispose();
     }
-    this.label = labelSprite(name, rank);
+    this.label = labelSprite(name, rank, pvp);
     this.root.add(this.label);
   }
 

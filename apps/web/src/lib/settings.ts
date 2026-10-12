@@ -18,7 +18,7 @@ export interface SettingsState {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'en', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30 };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30 };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
@@ -27,7 +27,9 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     if (!raw) return { state: defaults, manualTouch: false };
     const saved = JSON.parse(raw) as Partial<SettingsState> & { firstPerson?: boolean; manualTouch?: boolean };
     const state: SettingsState = { ...defaults };
-    if (saved.lang === 'en' || saved.lang === 'vi') state.lang = saved.lang;
+    // The playable UI and server-authored content currently ship in Vietnamese.
+    // Migrate the old English default so returning players also see one language.
+    state.lang = 'vi';
     if (typeof saved.volume === 'number' && Number.isFinite(saved.volume)) state.volume = Math.min(1, Math.max(0, saved.volume));
     if (typeof saved.brightness === 'number' && Number.isFinite(saved.brightness)) state.brightness = Math.min(2, Math.max(0.6, saved.brightness));
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));

@@ -23,6 +23,7 @@ interface Props {
   onResume: () => void;
   onLeave: () => void;
   inventoryOpen: boolean;
+  onPvp: (enabled: boolean) => void;
   onSetTime: (tod: number) => void;
   chatRequest?: number;
 }
@@ -47,7 +48,7 @@ function phase(tod: number): TKey {
   return 'time.dusk';
 }
 
-export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onSetTime, chatRequest = 0 }: Props) {
+export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode } = useSettings();
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
@@ -127,6 +128,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         <>
           <div className="hud-panel hud-minimap">
             <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><span><Icon name="lucide:expand" /> M</span></button>
+            {state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
+              <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
+            </button>}
             <div className="hud-clock">
               <b>{clock(state.timeOfDay)}</b>
               <span>{t(phase(state.timeOfDay))}</span>
@@ -142,7 +146,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
           <div className="hud-left-stack">
             <div className={`hud-health ${state.downed !== null ? 'dying' : state.health <= 30 ? 'low' : ''}`}>
               <div className="hud-health-head">
-                <span className="hud-health-name">{state.username}</span>
+                <span className="hud-health-name" style={state.pvpEnabled ? { color: '#ff4949' } : undefined}>{state.username}</span>
                 {state.swimming && <span className="hud-health-tag">{t('hud.swimming')}</span>}
               </div>
               <div className="hud-health-row">
@@ -152,7 +156,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
                 </div>
               </div>
               {state.life && (
-                <div className="hud-stamina-row" title="Stamina">
+                <div className="hud-stamina-row" title={t('hud.stamina')}>
                   {itemIcons.get('cooked_mutton') ? <img className="hud-stamina-icon" src={itemIcons.get('cooked_mutton')} alt="" /> : <span className="hud-stamina-icon" />}
                   <div className="stamina-bar">
                     <div className="stamina-cap" style={{ left: `${(state.life.capacity / state.life.config.stamina.maximum) * 100}%` }} />
@@ -161,7 +165,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
                   <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
                 </div>
               )}
-              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title="Roll (C)">
+              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title={t('hud.roll')}>
                 <kbd>C</kbd>
                 <div className="hud-roll-bar">
                   <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
@@ -204,7 +208,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               )}
             </div>
           </div>
-          {state.team && <div className="team-hud"><span className="q-label"><Icon name="lucide:users" /> {state.team.name}</span>{state.team.members.filter((m) => m.name !== state.username).map((m) => <div key={m.accountId}><i /><span>{m.name}</span><small>{m.downed ? 'Cần cứu!' : m.health !== undefined && m.inGame ? `${m.health} HP` : m.online ? 'Ở sảnh' : 'Offline'}</small></div>)}</div>}
+          {state.team && <div className="team-hud"><span className="q-label"><Icon name="lucide:users" /> {state.team.name}</span>{state.team.members.filter((m) => m.name !== state.username).map((m) => <div key={m.accountId}><i /><span>{m.name}</span><small>{m.downed ? 'Cần cứu!' : m.health !== undefined && m.inGame ? `${m.health} HP` : m.online ? 'Ở sảnh' : t('hud.offline')}</small></div>)}</div>}
           {state.toast && <div className="toast">{tm(state.toast)}</div>}
           {state.interact && !inventoryOpen && (
             <div className="hud-interact">
@@ -214,21 +218,21 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
           {state.scoped && !mouseLook && <div className="hud-scope" />}
           {debugOpen && (
             <div className="hud-debug">
-              <b>F3 · Debug</b>
+              <b>F3 · Thông số kỹ thuật</b>
               <span>FPS</span><em className={state.fps < 30 ? 'bad' : ''}>{state.fps}</em>
               <span>Ping</span><em className={state.pingMs > 150 ? 'bad' : ''}>{state.pingMs} ms</em>
               <span>TPS</span><em className={(state.debug?.tps ?? 30) < 25 ? 'bad' : ''}>{state.debug?.tps ?? '—'}</em>
-              <span>Players</span><em>{state.playersNearby} near · {state.playersOnline} online</em>
-              <span>Entities</span><em>{state.debug?.entities ?? 0} ({state.debug?.zombies ?? 0} zombies)</em>
-              <span>Draw calls</span><em>{state.debug?.drawCalls ?? 0}</em>
-              <span>Triangles</span><em>{state.trianglesK}k</em>
-              <span>GPU mem</span><em>{state.debug?.geometries ?? 0} geo · {state.debug?.textures ?? 0} tex</em>
-              {state.debug?.heapMB != null && <><span>JS heap</span><em>{state.debug.heapMB} MB</em></>}
-              <span>Net in</span><em>{state.debug?.snapshotKB ?? 0} KB</em>
-              <span>Chunks</span><em>{state.chunksLoaded}</em>
-              <span>Position</span><em>{state.position.map((v) => v.toFixed(1)).join(', ')}</em>
-              <span>Chunk</span><em>{state.chunk.join(', ')}</em>
-              <span>Biome</span><em>{state.biome} · {state.surface}</em>
+              <span>Người chơi</span><em>{state.playersNearby} ở gần · {state.playersOnline} trực tuyến</em>
+              <span>Thực thể</span><em>{state.debug?.entities ?? 0} ({state.debug?.zombies ?? 0} thây ma)</em>
+              <span>Lượt vẽ</span><em>{state.debug?.drawCalls ?? 0}</em>
+              <span>Tam giác</span><em>{state.trianglesK}k</em>
+              <span>Bộ nhớ GPU</span><em>{state.debug?.geometries ?? 0} khối · {state.debug?.textures ?? 0} ảnh</em>
+              {state.debug?.heapMB != null && <><span>Bộ nhớ JS</span><em>{state.debug.heapMB} MB</em></>}
+              <span>Dữ liệu nhận</span><em>{state.debug?.snapshotKB ?? 0} KB</em>
+              <span>Vùng đã tải</span><em>{state.chunksLoaded}</em>
+              <span>Tọa độ</span><em>{state.position.map((v) => v.toFixed(1)).join(', ')}</em>
+              <span>Ô địa hình</span><em>{state.chunk.join(', ')}</em>
+              <span>Sinh cảnh</span><em>{state.biome} · {state.surface}</em>
             </div>
           )}
           <Coins n={state.coins} className="hud-coins" />

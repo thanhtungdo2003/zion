@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { HttpDeps } from '../app';
 import type { RequestContext, Session } from '../../security/auth-service';
+import { registerSocialAuthRoutes } from './social-auth';
 
 const REFRESH_COOKIE = 'zion_rt';
 
@@ -47,6 +48,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
   };
 
   const strict = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
+  registerSocialAuthRoutes(app, deps);
 
   app.post('/api/auth/register', strict, async (req, reply) => {
     const body = credentialsSchema.parse(req.body);

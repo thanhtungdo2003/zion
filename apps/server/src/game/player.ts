@@ -70,6 +70,9 @@ export class PoseHistory {
 }
 
 export class Player {
+  pvpEnabled = false;
+  pvpUntil = 0;
+  pvpLastSecond = 0;
   rank = { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' };
   suspendedZombies: SuspendedZombie[] = [];
   nextEncounterRestoreAt = 0;

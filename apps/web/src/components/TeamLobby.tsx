@@ -16,7 +16,7 @@ export function TeamLobby({ lobby, busy, error, onAction }: { lobby: Lobby | nul
   const team = lobby?.team, me = currentAccount()?.id;
   const leader = team?.leaderId === me;
   return <section className="team-lobby" id="team-lobby-panel">
-    <header className="team-lobby-head"><span className="q-kicker">ZION // SQUAD LINK</span><h2><Icon name="lucide:users" /> {team?.name ?? 'Đội sinh tồn'}</h2><small>{team ? `${team.members.length}/5 thành viên · ${team.public ? 'Công khai' : 'Theo mã mời'}` : 'Đi cùng nhau. Trở về cùng nhau.'}</small></header>
+    <header className="team-lobby-head"><span className="q-kicker">ZION // KẾT NỐI ĐỘI</span><h2><Icon name="lucide:users" /> {team?.name ?? 'Đội sinh tồn'}</h2><small>{team ? `${team.members.length}/5 thành viên · ${team.public ? 'Công khai' : 'Theo mã mời'}` : 'Đi cùng nhau. Trở về cùng nhau.'}</small></header>
     {error && <p className="error" role="alert">{error}</p>}
     {!lobby ? <Spinner /> : !team ? <>
       <form className="team-form" onSubmit={(e) => { e.preventDefault(); onAction({ op: 'create', name: name.trim(), public: publicTeam }); }}>
