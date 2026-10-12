@@ -4,7 +4,7 @@ import { Box3, PerspectiveCamera, Vector3 } from 'three';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
 import { ViewModel } from './viewmodel';
-import { buildBBModel, type RawModel } from './character-model';
+import { BB_UNITS_PER_METER, buildBBModel, type RawModel } from './character-model';
 import type * as CharacterModel from './character-model';
 import { loadWeapons, type WeaponLibrary } from './weapons';
 
@@ -30,6 +30,10 @@ describe('C4 supplied models', () => {
   it('leads every slash with the actual sharp edge or hammer face in both camera rigs', () => {
     for (const id of ['katana', 'quam', 'fire_axe', 'long_sledgehammer']) {
       const visual = weapons.get(id)!;
+      // Independent authored head/blade coordinates: measuring a point on the lower
+      // handle can reverse the apparent swing direction of the actual axe head.
+      const headY = { katana: 32, quam: 56, fire_axe: 27, long_sledgehammer: 43 }[id]!;
+      expect(visual.melee!.held.tip.y).toBeCloseTo(headY / BB_UNITS_PER_METER);
       const avatar = new Avatar(character, true);
       avatar.setStance('melee'); avatar.setWeapon(id, weapons);
       const gun = avatar.root.getObjectByName('hand_right')!.children.find(child => !child.matrixAutoUpdate)!;

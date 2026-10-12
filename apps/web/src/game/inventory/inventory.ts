@@ -210,6 +210,18 @@ export class InventoryStore {
     if (h) this.set({ held: { ...h, rotated: !h.rotated } });
   }
 
+  /** Rotate a melee weapon in place only when the new footprint fits. */
+  rotateItem(uid: number): boolean {
+    if (this.state.held) return false;
+    const it = this.state.items.find(item => item.uid === uid);
+    if (!it || ITEMS[it.itemId]?.category !== 'melee') return false;
+    const rotated = !it.rotated;
+    if (!canPlace(this.state.items, it.container, it.itemId, it.x, it.y, rotated, uid)) return false;
+    this.set({ items: this.state.items.map(item => item.uid === uid ? { ...item, rotated } : item) });
+    this.send?.({ t: 'inv', op: 'move', uid, c: it.container, x: it.x, y: it.y, r: rotated });
+    return true;
+  }
+
   /** Shift-click: send an item to the first container (other than its own) that takes it. */
   quickMove(uid: number): void {
     const it = this.state.items.find((i) => i.uid === uid);

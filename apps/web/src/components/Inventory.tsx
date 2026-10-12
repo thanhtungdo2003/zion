@@ -193,7 +193,7 @@ function ItemTile({ def, rotated, count, style, className }: { def: ItemDef; rot
     <div className={`inv-item ${className ?? ''}`} style={{ width: w * CELL - 4, height: h * CELL - 4, background: def.color, ...style }}>
       <div
         className="inv-item-art"
-        style={rotated ? { width: h * CELL - 4, height: w * CELL - 4, transform: 'rotate(90deg)' } : { width: '100%', height: '100%' }}
+        style={{ position: 'absolute', left: '50%', top: '50%', width: def.w * CELL - 4, height: def.h * CELL - 4, transform: `translate(-50%, -50%) rotate(${rotated ? 90 : 0}deg)` }}
       >
         <ItemArt def={def} />
       </div>
@@ -320,9 +320,13 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
           else onMouseDown(e);
         }}
         onContextMenu={(e) => {
-          // Right-click a first aid kit to use it, or food to eat it.
+          // Right-click rotates melee weapons, uses first aid, or eats food.
           e.preventDefault();
-          if (held) return;
+          e.stopPropagation();
+          if (held) {
+            if (ITEMS[held.itemId]?.category === 'melee') store.rotateHeld();
+            return;
+          }
           const r = e.currentTarget.getBoundingClientRect();
           const cx = Math.floor((e.clientX - r.left) / CELL);
           const cy = Math.floor((e.clientY - r.top) / CELL);
@@ -331,7 +335,8 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
           });
           // Started first aid: close the inventory so the bandaging can be seen.
-          if (under?.itemId === 'medkit' && store.onUseMedkit?.(under.uid)) store.setOpen(false);
+          if (under && ITEMS[under.itemId]?.category === 'melee') store.rotateItem(under.uid);
+          else if (under?.itemId === 'medkit' && store.onUseMedkit?.(under.uid)) store.setOpen(false);
           else if (under) store.onEat?.(under.uid);
         }}
       >
@@ -412,7 +417,10 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
   const fp = heldDef ? footprint(heldDef, state.held!.rotated) : null;
 
   return (
-    <div className="inv-overlay" onContextMenu={(e) => e.preventDefault()}>
+    <div className="inv-overlay" onContextMenu={(e) => {
+      e.preventDefault();
+      if (state.held && ITEMS[state.held.itemId]?.category === 'melee') store.rotateHeld();
+    }}>
       <div className={`inv-wrap${state.station === 'shop' ? ' merchant-wrap' : ''}`}>
       {state.station !== 'shop' && side}
       <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
@@ -433,7 +441,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
           )}
           <div className="keys" hidden={state.station === 'shop' && merchantTab === 'shop'}>
             <kbd>{t('inv.drag')}</kbd> {t('inv.move')} · <kbd>R</kbd> {t('inv.rotate')} · <kbd>{t('inv.dblclick')}</kbd> {t('inv.swap')} · {t('inv.drop_hint')} · {t('inv.use')} ·{' '}
-            <kbd>E</kbd> {t('inv.close')}
+            {t('inv.rotate_melee')} · <kbd>E</kbd> {t('inv.close')}
           </div>
         </div>
         {state.station === 'shop' && <nav className="merchant-tabs" aria-label="Cửa hàng và túi đồ">

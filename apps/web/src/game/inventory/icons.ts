@@ -12,6 +12,7 @@ export const subscribeItemIcons = (listener: () => void) => { listeners.add(list
 const PX_PER_CELL = 96;
 /** Camera offset for the diagonal view: above, from the side the models face (their front). */
 const ISO_DIR = new Vector3(-0.75, 0.9, -1).normalize().multiplyScalar(10);
+const WEAPON_VIEW_DIR = new Vector3(.38, .28, 1).normalize().multiplyScalar(10);
 const corner = new Vector3();
 const inv = new Quaternion();
 
@@ -48,7 +49,7 @@ export function renderItemIcons(weapons: WeaponLibrary): void {
       const isometric = !('category' in def) || def.category === 'ammo' || def.category === 'grenade' || def.category === 'medical' || def.category === 'food' || def.category === 'resource' || def.category === 'tool' || def.category.startsWith('armor');
       const cam = new OrthographicCamera(-1, 1, 1, -1, 0.01, 50);
       if (isometric) cam.position.copy(center).add(ISO_DIR);
-      else cam.position.set(center.x, center.y, center.z + 10);
+      else cam.position.copy(center).add(WEAPON_VIEW_DIR);
       cam.lookAt(center);
       cam.updateMatrixWorld(true);
       // Fit the projected bounding box into the tile.

@@ -21,6 +21,8 @@ interface WeaponSpec {
   grip: Vec3;
   /** Direction from the handle towards the sharp edge or striking face. */
   edge?: Vec3;
+  /** Centre of the blade/head in authored pixels, used to measure the swing. */
+  strikePoint?: Vec3;
   /** Left palm under the handguard, for the two-handed lobby pose. */
   support?: Vec3;
   /** Trigger hand for the authored patrol pose (the lobby rig carries the stock on its left locator). */
@@ -54,7 +56,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_pkm: { url: '/models/weapons/pkm-ammo-box.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   barrett: { url: '/models/weapons/barrett-m82.bbmodel', length: 1.45, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 15, -6], support: [0, 31, -2], muzzle: [0, 68, 1], eject: [2, 27, 1] },
   ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
-  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], edge: [1, 0, 0] },
+  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], edge: [1, 0, 0], strikePoint: [0, 27, 0] },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0, 10.5, -8], eject: [1, 11.5, 0.5], reloadClip: 'reload' },
   awm: { url: '/models/weapons/awm-sniper-4x.bbmodel', length: 1.15, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -4.5], muzzle: [0, 56, 0.5], eject: [2, 20, 1.5] },
@@ -70,10 +72,10 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   rocket_launcher: { url: '/models/weapons/rocket-launcher.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 11.5, -7], muzzle: [0, 34, 0] },
   flamethrower: { url: '/models/weapons/flamethrower.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 8.5, -4.5], muzzle: [0, 34, 0] },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
-  katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0] },
-  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], edge: [1, 0, 0] },
+  katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0], strikePoint: [0, 32, 0] },
+  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], edge: [1, 0, 0], strikePoint: [0, 56, 0] },
   shovel: { url: '/models/tools/shovel.bbmodel', length: 1.15, barrel: [0, -1, 0], up: [0, 0, 1], grip: [8, 13, 8] },
-  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], edge: [1, 0, 0] },
+  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], edge: [1, 0, 0], strikePoint: [0, 43, 0] },
   // Ammo boxes are never held; they are loaded for their inventory icons (muzzle-less = no gun scaling).
   ammo_762: { url: '/models/ammos/ak-box-762x39.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_9mm: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
@@ -244,7 +246,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
       const display = displayModel(spec, built.root);
       const heldAxes = spec.edge ? {
         axis: new Vector3(...spec.barrel).normalize(), edge: new Vector3(...spec.edge),
-        grip: local(spec.grip)!, tip: local(spec.grip)!.addScaledVector(new Vector3(...spec.barrel), spec.length),
+        grip: local(spec.grip)!, tip: local(spec.strikePoint ?? spec.grip)!,
       } : null;
       const displayTransform = display.children[0]!.matrix;
       lib.set(itemId, {
