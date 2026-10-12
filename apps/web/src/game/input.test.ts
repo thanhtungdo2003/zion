@@ -4,7 +4,7 @@ import { InputController } from './input';
 import { settingsStore } from '@/lib/settings';
 
 const controllers: InputController[] = [];
-afterEach(() => { for (const input of controllers.splice(0)) input.dispose(); settingsStore.set({ rollKey: 'KeyQ', cameraMode: 'top-down' }); vi.unstubAllGlobals(); });
+afterEach(() => { for (const input of controllers.splice(0)) input.dispose(); settingsStore.set({ rollKey: 'KeyQ', proneKey: 'KeyC', cameraMode: 'top-down' }); vi.unstubAllGlobals(); });
 function setup() {
   const win = new EventTarget();
   const doc = Object.assign(new EventTarget(), { documentElement: { lang: 'vi' }, hidden: false, pointerLockElement: null, exitPointerLock: vi.fn() });
@@ -21,6 +21,20 @@ function setup() {
   return { input, win, doc, element };
 }
 describe('mobile input', () => {
+  it('changes the prone binding immediately, ignores repeats and suspension, and keeps jump cancellation', () => {
+    const { input, win } = setup();
+    const key = (code: string, repeat = false) => win.dispatchEvent(Object.assign(new Event('keydown'), { code, repeat }));
+    settingsStore.set({ proneKey: 'KeyV' });
+    key('KeyC'); expect(input.buttons() & Buttons.Prone).toBeFalsy();
+    key('KeyV'); expect(input.buttons() & Buttons.Prone).toBeTruthy();
+    expect(input.buttons() & Buttons.Roll).toBeFalsy();
+    key('KeyV', true); expect(input.buttons() & Buttons.Prone).toBeTruthy();
+    key('Space'); expect(input.buttons() & Buttons.Prone).toBeFalsy();
+    input.suspended = true; key('KeyV');
+    expect(input.buttons() & Buttons.Prone).toBeFalsy();
+    input.suspended = false; key('KeyV');
+    expect(input.buttons() & Buttons.Prone).toBeTruthy();
+  });
   it('retains a quick C4 throw tap for one simulation input without setting scope or primary fire', () => {
     const { input } = setup();
     input.touchButton('throwC4', true); input.touchButton('throwC4', false);

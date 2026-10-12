@@ -26,6 +26,25 @@ describe('camera settings', () => {
 });
 
 describe('dodge key settings', () => {
+  it('saves a custom prone key and restores it with the dodge key', () => {
+    storage({ rollKey: 'KeyV' });
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().proneKey).toBe('KeyC');
+    settings.set({ proneKey: 'KeyG' });
+    const restored = new SettingsStore(); restored.hydrate();
+    expect(restored.get().proneKey).toBe('KeyG');
+    expect(restored.get().rollKey).toBe('KeyV');
+    restored.set({ rollKey: 'KeyG' });
+    expect(restored.get().rollKey).toBe('KeyV');
+    restored.set({ proneKey: 'KeyV' });
+    expect(restored.get().proneKey).toBe('KeyG');
+  });
+  it.each(['KeyW', 'KeyM', 'KeyP', 'invalid', 'KeyV'])('repairs an invalid or conflicting saved prone key %s', proneKey => {
+    storage({ proneKey, rollKey: 'KeyV' });
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().proneKey).toBe('KeyC');
+    expect(settings.get().rollKey).toBe('KeyV');
+  });
   it('persists a custom dodge key across sessions', () => {
     storage({});
     const settings = new SettingsStore(); settings.hydrate();

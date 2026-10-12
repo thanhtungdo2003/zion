@@ -1,6 +1,8 @@
 import type { Vector3 } from 'three';
 import { bindVolume } from '@/lib/settings';
 import { cachedFetch } from '@/lib/preload';
+import { singleShotSample } from './shot-sample';
+import { WeaponId, weaponSpec } from '@zion/shared';
 
 export const SOUND_FILES = {
   akShot: '/sounds/ak47-shot.mp3',
@@ -90,7 +92,12 @@ export class SoundBank {
         if (this.disposed) return;
         const buffer = await this.ctx.decodeAudioData(await res.arrayBuffer());
         if (this.disposed) return;
-        this.buffers.set(name, buffer);
+        // The supplied PKM file contains a burst: emit one report per actual round,
+        // never loop its silence/tail or let the recording control the firing cadence.
+        const pkm = weaponSpec(WeaponId.PKM);
+        this.buffers.set(name, name === 'pkmShot' && pkm?.kind === 'gun'
+          ? singleShotSample(buffer, this.ctx, pkm.fireMs / 1000)
+          : buffer);
         onProgress?.(++done / names.length);
       }),
     );

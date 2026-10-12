@@ -3,6 +3,7 @@ import { ResourceDisposer } from './resources';
 import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
 import { Avatar } from './avatars';
+import type { StrikeAxes } from './melee-edge';
 import { BB_UNITS_PER_METER, buildBBModel, fetchWithProgress, type CharacterTemplate, type RawModel } from './character-model';
 
 type Vec3 = [number, number, number];
@@ -18,6 +19,8 @@ interface WeaponSpec {
   barrel: Vec3;
   up: Vec3;
   grip: Vec3;
+  /** Direction from the handle towards the sharp edge or striking face. */
+  edge?: Vec3;
   /** Left palm under the handguard, for the two-handed lobby pose. */
   support?: Vec3;
   /** Trigger hand for the authored patrol pose (the lobby rig carries the stock on its left locator). */
@@ -51,7 +54,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_pkm: { url: '/models/weapons/pkm-ammo-box.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   barrett: { url: '/models/weapons/barrett-m82.bbmodel', length: 1.45, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 15, -6], support: [0, 31, -2], muzzle: [0, 68, 1], eject: [2, 27, 1] },
   ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
-  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0] },
+  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], edge: [1, 0, 0] },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0, 10.5, -8], eject: [1, 11.5, 0.5], reloadClip: 'reload' },
   awm: { url: '/models/weapons/awm-sniper-4x.bbmodel', length: 1.15, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -4.5], muzzle: [0, 56, 0.5], eject: [2, 20, 1.5] },
@@ -67,10 +70,10 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   rocket_launcher: { url: '/models/weapons/rocket-launcher.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 11.5, -7], muzzle: [0, 34, 0] },
   flamethrower: { url: '/models/weapons/flamethrower.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 8.5, -4.5], muzzle: [0, 34, 0] },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
-  katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0] },
-  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0] },
+  katana: { url: '/models/weapons/katana.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0] },
+  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], edge: [1, 0, 0] },
   shovel: { url: '/models/tools/shovel.bbmodel', length: 1.15, barrel: [0, -1, 0], up: [0, 0, 1], grip: [8, 13, 8] },
-  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0] },
+  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], edge: [1, 0, 0] },
   // Ammo boxes are never held; they are loaded for their inventory icons (muzzle-less = no gun scaling).
   ammo_762: { url: '/models/ammos/ak-box-762x39.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_9mm: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
@@ -115,6 +118,9 @@ export interface WeaponVisual {
   object: Group;
   /** Transform relative to the right-hand bone. */
   attach: Matrix4;
+  /** Authored bore axes and grip, independent of the animated wrist orientation. */
+  aim?: { barrel: Vector3; up: Vector3; grip: Vector3 };
+  melee?: { held: StrikeAxes; display: StrikeAxes };
   /** Contact points in the weapon's model space; used by the patrol idle pose. */
   twoHandGrip?: { grip: Vector3; support: Vector3; up: Vector3; triggerHand?: 'left' | 'right' };
   /** Real-size model, muzzle → +X and top → +Y, centred on the grip (icons, thrown grenades). */
@@ -235,12 +241,25 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
       ownedRoots.push(built.root);
       const stance = ITEMS[itemId]?.stance ?? 'rifle';
       const local = (p?: Vec3) => (p ? new Vector3(...p).multiplyScalar(1 / BB_UNITS_PER_METER) : null);
+      const display = displayModel(spec, built.root);
+      const heldAxes = spec.edge ? {
+        axis: new Vector3(...spec.barrel).normalize(), edge: new Vector3(...spec.edge),
+        grip: local(spec.grip)!, tip: local(spec.grip)!.addScaledVector(new Vector3(...spec.barrel), spec.length),
+      } : null;
+      const displayTransform = display.children[0]!.matrix;
       lib.set(itemId, {
         itemId,
         object: built.root,
         attach: fitToHand(character, spec, stance, built.root),
+        ...(spec.muzzle ? { aim: { barrel: new Vector3(...spec.barrel), up: new Vector3(...spec.up), grip: local(spec.grip)! } } : {}),
         ...(spec.support ? { twoHandGrip: { grip: local(spec.grip)!, support: local(spec.support)!, up: new Vector3(...spec.up), triggerHand: spec.patrolTriggerHand ?? 'right' } } : {}),
-        display: displayModel(spec, built.root),
+        ...(heldAxes ? { melee: { held: heldAxes, display: {
+          axis: heldAxes.axis.clone().transformDirection(displayTransform),
+          edge: heldAxes.edge.clone().transformDirection(displayTransform),
+          grip: heldAxes.grip.clone().applyMatrix4(displayTransform),
+          tip: heldAxes.tip.clone().applyMatrix4(displayTransform),
+        } } } : {}),
+        display,
         clips: built.clips,
         reloadClip: spec.reloadClip && built.clips.has(spec.reloadClip) ? spec.reloadClip : null,
         muzzle: local(spec.muzzle),

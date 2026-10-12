@@ -1,6 +1,7 @@
 import { Group, Mesh, Quaternion, Vector3, type Camera } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { RecoilSpring } from '../first-person-recoil';
+import { MeleeEdge, type StrikeAxes } from './melee-edge';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -33,6 +34,8 @@ export class ViewModel {
   private swingDir = 1;
   private swingRate = 1;
   private throwT = -1;
+  private readonly meleeEdge = new MeleeEdge();
+  private strikeAxes: StrikeAxes | null = null;
 
   constructor(camera: Camera) {
     this.root.add(this.pivot);
@@ -45,6 +48,8 @@ export class ViewModel {
     if (itemId === this.current) return;
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
+    this.strikeAxes = null;
+    this.meleeEdge.reset();
     this.firing = this.fireHold = 0;
     this.recoil.reset();
     const display = itemId ? weapons?.get(itemId)?.display : undefined;
@@ -62,6 +67,7 @@ export class ViewModel {
     }
     model.visible = true;
     this.current = itemId;
+    this.strikeAxes = weapons?.get(itemId)?.melee?.display ?? null;
   }
 
   /** A shot: kicks the gun back and up. */
@@ -101,6 +107,7 @@ export class ViewModel {
 
   /** Melee: wind up over the shoulder, then a fast diagonal cut; variants alternate sides. */
   swing(variant: number, durationMs?: number): void {
+    this.meleeEdge.reset();
     this.swingRate = durationMs ? 460 / durationMs : 1;
     this.swingT = 0;
     this.swingDir = variant % 2 === 0 ? -1 : 1;
@@ -179,6 +186,12 @@ export class ViewModel {
     const relaxed = 1 - this.firing;
     this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.19 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.33 + this.recoil.offset * .6 + az);
     this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
+    const model = this.current ? this.models.get(this.current) : null;
+    if (model && this.strikeAxes) {
+      model.rotation.set(0, Math.PI / 2, 0);
+      if (this.swingT >= 0) this.meleeEdge.pose(model, this.strikeAxes, this.root.parent!);
+      else this.meleeEdge.reset();
+    }
   }
 
   dispose(): void {

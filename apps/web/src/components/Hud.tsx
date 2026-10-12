@@ -49,7 +49,7 @@ function phase(tod: number): TKey {
 }
 
 export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
-  const { t, tm, cameraMode, rollKey } = useSettings();
+  const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -275,7 +275,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
             <h2>{t('pause.title')}</h2>
             <div className="keys">
               <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> {t('keys.move')} · <kbd>Shift</kbd> {t('keys.sprint')} · <kbd>Space</kbd>{' '}
-              {t('keys.jump')} · <kbd>{rollKeyLabel(rollKey)}</kbd> {t('keys.roll')} · <kbd>C</kbd> {t('keys.prone')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
+              {t('keys.jump')} · <kbd>{rollKeyLabel(rollKey)}</kbd> {t('keys.roll')} · <kbd>{rollKeyLabel(proneKey)}</kbd> {t('keys.prone')} · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
               {t('keys.weapon')}
               <br />
               <kbd>Mouse</kbd> {t('keys.aim')} · <kbd>LMB</kbd> {t('keys.shoot')} · <kbd>RMB</kbd> {t('keys.scope')} · <kbd>R</kbd>{' '}

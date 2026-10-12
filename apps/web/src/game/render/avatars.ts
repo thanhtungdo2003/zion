@@ -7,6 +7,8 @@ import type { WeaponLibrary, WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { armorPieces } from './armor-models';
 import { RifleGrip } from './rifle-grip';
+import { WeaponAim } from './weapon-aim';
+import { MeleeEdge } from './melee-edge';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -82,6 +84,8 @@ const BACK_SCALE = 1.3;
 
 /** Player character built from the preloaded Blockbench model, driven by its own animation clips. */
 export class Avatar {
+  private weaponAim: WeaponAim | null = null;
+  private readonly meleeEdge = new MeleeEdge();
   /** Animals: the body always faces the yaw (no head-then-body turning). */
   rigid = false;
   readonly root = new Group();
@@ -182,6 +186,7 @@ export class Avatar {
 
   /** Blade swing: cycles through the three sword-slash poses; returns the variant played. */
   slash(): number {
+    this.meleeEdge.reset();
     const v = this.slashCount++ % SLASH_CLIPS.length;
     this.slashVariant = v;
     const spec = weaponSpec(WEAPON_BY_ITEM[this.weaponId ?? ''] ?? 0);
@@ -434,6 +439,13 @@ export class Avatar {
         this.rifleGrip ??= new RifleGrip();
         this.rifleGrip.pose(held.obj, held.visual, trigger, support, supportArm, body.node);
       }
+      if (!dead && !treating && !rolling && this.oneShot === null && !this.weaponAnim && !this.idleClip && held.visual.aim) {
+        this.weaponAim ??= new WeaponAim();
+        this.weaponAim.pose(held.obj, held.visual.aim, yaw, this.aimPitch);
+      }
+      if (!dead && !treating && held.visual.melee && this.oneShot && (this.oneShot.startsWith('sword_slash_') || this.oneShot === 'melee_attack')) {
+        this.meleeEdge.pose(held.obj, held.visual.melee.held, this.root);
+      } else this.meleeEdge.reset();
     }
     // Idle breathing so a standing character never looks frozen.
     this.breath += dt;

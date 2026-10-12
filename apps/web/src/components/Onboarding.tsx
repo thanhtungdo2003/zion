@@ -97,7 +97,7 @@ function DirectionArrow() {
 }
 
 export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState; inventory: InventoryState; onBlock: (block: boolean) => void; onGuide: (message: Extract<ClientMessage, { t: 'tutorial' }>) => void }) {
-  const { rollKey } = useSettings();
+  const { rollKey, proneKey } = useSettings();
   const key = `zion:onboarding:v1:${hud.username}`;
   const [step, setStep] = useState(0); const [done, setDone] = useState(true);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -186,7 +186,7 @@ export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState
       <div className="tutorial-body">
         <header><small>CATTAIL // NGƯỜI ĐỒNG HÀNH</small><span>{String(currentIndex + 1).padStart(2, '0')}/{String(currentSteps.length).padStart(2, '0')}</span></header>
         <div className="tutorial-progress">{currentSteps.map((_, i) => <i key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'on' : ''} />)}</div>
-        <h2>{cur.title}</h2><p>{cur.text.replace('Q để lướt', `${rollKeyLabel(rollKey)} để lướt`)}</p>
+        <h2>{cur.title}</h2><p>{cur.text.replace('Q để lướt', `${rollKeyLabel(rollKey)} để lướt`).replace('C để nằm', `${rollKeyLabel(proneKey)} để nằm`)}</p>
         <footer>
           {passive
             ? <strong><Icon name="game-icons:compass" /> {cur.wait ? 'Đang chờ bạn nhận nhiệm vụ' : 'Di chuyển đến vị trí được chỉ dẫn'}</strong>

@@ -100,7 +100,6 @@ export class CombatEffects {
   private projectileModels = new Map<string, Object3D>();
   /** Flamethrower loop per shooter: when its sound runs out, and its stop timer. */
   private readonly flameSound = new Map<number, { until: number; last: number; channel: object }>();
-  private readonly pkmSound = new Map<number, { last: number; channel: object }>();
   private readonly tmpDir = new Vector3();
   private readonly xAxis = new Vector3(1, 0, 0);
   private readonly fallbackRound = new Mesh(new IcosahedronGeometry(0.08), new MeshBasicMaterial({ color: 0x777755 }));
@@ -156,12 +155,7 @@ export class CombatEffects {
     h.h = Math.min(1, h.h + (heavy ? 0.35 : 0.09));
     h.at.copy(m);
     this.heat.set(shooterId, h);
-    if (info.weapon === WeaponId.PKM) {
-      let voice = this.pkmSound.get(shooterId);
-      if (!voice) this.pkmSound.set(shooterId, (voice = { last: 0, channel: {} }));
-      voice.last = performance.now();
-      this.sounds?.loopAt(voice.channel, 'pkmShot', { at: m, volume: 1, maxDistance: 130, loopOffset: 0 });
-    } else this.gunSound(info.weapon, m);
+    this.gunSound(info.weapon, m);
   }
 
   /** Per-gun voice: shared recordings pitched and levelled to the calibre. */
@@ -169,6 +163,7 @@ export class CombatEffects {
     const s = this.sounds;
     if (!s) return;
     switch (weapon) {
+      case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
       case WeaponId.Shotgun: s.play('shotgunShot', { at, maxDistance: 90 }); break;
       case WeaponId.Saiga12: s.play('shotgunShot', { at, rate: 1.12, volume: 0.95, maxDistance: 90 }); break;
       case WeaponId.DoubleBarrel: s.play('shotgunShot', { at, rate: 0.88, volume: 1.15, maxDistance: 100 }); break;
@@ -373,12 +368,6 @@ export class CombatEffects {
       }
     }
     const nowMs = performance.now();
-    for (const [id, voice] of this.pkmSound) {
-      if (nowMs - voice.last > 160) {
-        this.sounds?.stopLoop(voice.channel);
-        this.pkmSound.delete(id);
-      }
-    }
     for (const [id, f] of this.flameSound) {
       if (nowMs - f.last > 220) {
         this.sounds?.stop(f.channel);
@@ -416,8 +405,6 @@ export class CombatEffects {
     for (const r of this.rounds.values()) this.scene.remove(r.mesh);
     for (const f of this.flameSound.values()) this.sounds?.stop(f.channel);
     this.flameSound.clear();
-    for (const voice of this.pkmSound.values()) this.sounds?.stopLoop(voice.channel);
-    this.pkmSound.clear();
     this.grenades.clear();
     this.rounds.clear();
     this.heat.clear();

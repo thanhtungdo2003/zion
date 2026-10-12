@@ -5,24 +5,20 @@ import { WeaponId } from '@zion/shared';
 import type { SoundBank } from '../audio';
 
 describe('combat visual resources', () => {
-  it('keeps one PKM audio channel per shooter and stops when firing ends or the scene closes', () => {
-    let now = 1000;
-    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  it('plays one PKM report per round across the full magazine without an audio loop', () => {
     const sounds = { loopAt: vi.fn(), stopLoop: vi.fn(), play: vi.fn(), stop: vi.fn() };
     const effects = new CombatEffects(new Scene(), null, sounds as unknown as SoundBank, () => new Vector3());
     const shot = { weapon: WeaponId.PKM, muzzle: new Vector3(), dir: new Vector3(1, 0, 0), eject: null, right: null, ends: [] };
-    try {
-      effects.shot(1, shot); now += 100; effects.shot(1, shot); effects.shot(2, shot);
-      const channel = sounds.loopAt.mock.calls[0]![0];
-      expect(sounds.loopAt.mock.calls[1]![0]).toBe(channel);
-      expect(sounds.loopAt.mock.calls[2]![0]).not.toBe(channel);
-      expect(sounds.loopAt.mock.calls[0]![1]).toBe('pkmShot');
-      expect(sounds.play).not.toHaveBeenCalled();
-      now += 161; effects.update(.161, null);
-      expect(sounds.stopLoop).toHaveBeenCalledTimes(2);
-      effects.shot(1, shot); effects.dispose();
-      expect(sounds.stopLoop).toHaveBeenCalledTimes(3);
-    } finally { effects.dispose(); clock.mockRestore(); }
+    for (let i = 0; i < 100; i++) {
+      effects.shot(1, shot);
+      effects.update(.1, null);
+      expect(sounds.play).toHaveBeenCalledTimes(i + 1);
+    }
+    effects.update(2, null);
+    expect(sounds.play).toHaveBeenCalledTimes(100);
+    expect(sounds.play).toHaveBeenLastCalledWith('pkmShot', expect.objectContaining({ at: shot.muzzle }));
+    expect(sounds.loopAt).not.toHaveBeenCalled();
+    effects.dispose();
   });
   it('keeps planted C4 until removed by authoritative state and cleans up on detonation', () => {
     const scene = new Scene();

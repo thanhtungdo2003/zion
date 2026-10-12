@@ -2,7 +2,7 @@
 import { Icon } from './Icon';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { isRollKey, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
+import { isRollKey, isProneKey, PRONE_KEYS, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
 
 interface Props {
@@ -20,7 +20,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, t } = useSettings();
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, t } = useSettings();
 
   useEffect(() => {
     if (!open) setTab('general');
@@ -153,7 +153,13 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
           <label className="set-keybind">
             <span>{t('settings.roll_key')}</span>
             <select value={rollKey} onChange={(e) => { if (isRollKey(e.target.value)) settingsStore.set({ rollKey: e.target.value }); }}>
-              {ROLL_KEYS.map(code => <option key={code} value={code}>{rollKeyLabel(code)}</option>)}
+              {ROLL_KEYS.map(code => <option key={code} value={code} disabled={code === proneKey}>{rollKeyLabel(code)}</option>)}
+            </select>
+          </label>
+          <label className="set-keybind">
+            <span>{t('settings.prone_key')}</span>
+            <select value={proneKey} onChange={e => { if (isProneKey(e.target.value)) settingsStore.set({ proneKey: e.target.value }); }}>
+              {PRONE_KEYS.map(code => <option key={code} value={code} disabled={code === rollKey}>{rollKeyLabel(code)}</option>)}
             </select>
           </label>
           <label className="set-slider" style={{ marginBottom: 12 }}>

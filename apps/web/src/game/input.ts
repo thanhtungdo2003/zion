@@ -113,7 +113,7 @@ export class InputController {
         this.handlers.openInventory();
         return;
       }
-      if (e.code === 'KeyC' && !e.repeat) this.toggleProne();
+      if (e.code === settingsStore.get().proneKey && !e.repeat) this.toggleProne();
       if (e.code === 'KeyR' && !e.repeat) this.handlers.reload();
       if (e.code === 'KeyH' && !e.repeat) this.handlers.heal();
       const digit = /^Digit([1-9])$/.exec(e.code);
