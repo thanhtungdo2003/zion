@@ -27,6 +27,32 @@ beforeAll(async () => {
 });
 
 describe('C4 supplied models', () => {
+  it('holds the rifle handguard or pistol grip with the character left arm through sway and recoil', () => {
+    const camera = new PerspectiveCamera(), view = new ViewModel(camera);
+    for (const id of ['ak47', 'pkm', 'barrett', 'gl18', 'revolver']) {
+      const visual = weapons.get(id)!;
+      const contact = visual.firstPersonSupport!.contact;
+      expect(id === 'gl18' || id === 'revolver' ? contact.length() < .06 : contact.x > .08).toBe(true);
+      view.set(id, weapons);
+      const holder = camera.getObjectByName('first-person-support')!;
+      const hand = holder.getObjectByName('hand_left')!;
+      const model = holder.parent!;
+      for (let frame = 0; frame < 30; frame++) {
+        if (frame === 4) view.kick();
+        view.update(1 / 60, { visible: true, moving: true, sprint: false, reloading: false, yaw: frame * .01, pitch: .2 });
+        model.updateWorldMatrix(true, true);
+        expect(hand.getWorldPosition(new Vector3()).distanceTo(contact.clone().applyMatrix4(model.matrixWorld))).toBeLessThan(1e-6);
+      }
+      expect(camera.children[0]!.position.y).toBeLessThan(-.24);
+      expect(camera.children[0]!.position.z).toBeGreaterThan(-.33);
+      view.update(.1, { visible: true, moving: false, sprint: false, reloading: true, yaw: 0, pitch: 0 });
+      expect(holder.visible).toBe(false);
+      view.set(null, weapons);
+      // Keep each iteration independent of cached, invisible models.
+      holder.removeFromParent();
+    }
+    view.dispose();
+  });
   it('leads every slash with the actual sharp edge or hammer face in both camera rigs', () => {
     for (const id of ['katana', 'quam', 'fire_axe', 'long_sledgehammer']) {
       const visual = weapons.get(id)!;
@@ -56,11 +82,22 @@ describe('C4 supplied models', () => {
             velocity.addScaledVector(axis, -velocity.dot(axis));
             if (frame === 0 || velocity.lengthSq() < 1e-8) continue;
             const edge = axes.edge.clone().transformDirection(model.matrixWorld);
-            expect(edge.dot(velocity.normalize()), `${id}/${variant}/${index}/${frame}`).toBeGreaterThan(.999);
+            const facing = edge.dot(velocity.normalize());
+            expect(id === 'fire_axe' ? -facing : facing, `${id}/${variant}/${index}/${frame}`).toBeGreaterThan(.999);
             aligned++;
           }
         }
         expect(aligned).toBeGreaterThan(10);
+      }
+      if (id === 'fire_axe' || id === 'long_sledgehammer') {
+        for (let frame = 0; frame < 180; frame++) {
+          avatar.update(0, 0, 0, 0, EntityFlags.Grounded, 1 / 60, 0);
+          view.update(1 / 60, { visible: true, moving: false, sprint: false, reloading: false, yaw: 0, pitch: 0 });
+        }
+        for (const [model, axes] of [[gun, visual.melee!.held], [display, visual.melee!.display]] as const) {
+          model.updateWorldMatrix(true, false);
+          expect(axes.edge.clone().transformDirection(model.matrixWorld).y, `${id} resting face`).toBeLessThan(-.9);
+        }
       }
       view.dispose();
     }

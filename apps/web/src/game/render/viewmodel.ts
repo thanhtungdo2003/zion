@@ -36,6 +36,7 @@ export class ViewModel {
   private throwT = -1;
   private readonly meleeEdge = new MeleeEdge();
   private strikeAxes: StrikeAxes | null = null;
+  private readonly supportArms = new Map<string, Group>();
 
   constructor(camera: Camera) {
     this.root.add(this.pivot);
@@ -64,6 +65,26 @@ export class ViewModel {
       });
       this.pivot.add(model);
       this.models.set(itemId, model);
+      const support = weapons?.get(itemId)?.firstPersonSupport;
+      if (support) {
+        const arm = support.arm.clone(true);
+        arm.name = 'first-person-arm-left';
+        arm.position.set(0, 0, 0); arm.rotation.set(0, 0, 0); arm.scale.setScalar(1);
+        const hand = arm.getObjectByName('hand_left');
+        if (hand) {
+          const handLocal = hand.position.clone();
+          // Display-model -Z points left once the weapon faces camera-forward.
+          const shoulder = new Vector3(-.13, -.18, -.4);
+          const direction = shoulder.sub(support.contact);
+          arm.quaternion.setFromUnitVectors(handLocal.clone().negate().normalize(), direction.clone().normalize());
+          arm.scale.setScalar(direction.length() / handLocal.length());
+          arm.position.copy(support.contact).sub(handLocal.multiplyScalar(arm.scale.x).applyQuaternion(arm.quaternion));
+          const holder = new Group();
+          holder.name = 'first-person-support'; holder.add(arm); model.add(holder);
+          holder.traverse(o => { if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
+          this.supportArms.set(itemId, holder);
+        }
+      }
     }
     model.visible = true;
     this.current = itemId;
@@ -184,13 +205,15 @@ export class ViewModel {
     if (hidden) this.root.visible = false;
 
     const relaxed = 1 - this.firing;
-    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.19 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.33 + this.recoil.offset * .6 + az);
+    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 - this.firing * 0.08 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.25 + this.recoil.offset * .6 + az);
+    const supportArm = this.current ? this.supportArms.get(this.current) : null;
+    if (supportArm) supportArm.visible = !s.reloading;
     this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
     const model = this.current ? this.models.get(this.current) : null;
     if (model && this.strikeAxes) {
       model.rotation.set(0, Math.PI / 2, 0);
       if (this.swingT >= 0) this.meleeEdge.pose(model, this.strikeAxes, this.root.parent!);
-      else this.meleeEdge.reset();
+      else this.meleeEdge.rest(model, this.strikeAxes);
     }
   }
 

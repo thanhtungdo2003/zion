@@ -232,6 +232,13 @@ export function weaponStaminaFactor(weapon: number): number {
   return 1 + (weaponSpec(weapon)?.weight ?? 0) * .055;
 }
 
+/** Guns spend effort per second of fire; melee and throws spend it per action. */
+export function weaponAttackStaminaCost(weapon: number, baseCost: number, armorFactor = 1): number {
+  const spec = weaponSpec(weapon);
+  const interval = spec?.kind === 'gun' ? Math.min(1, spec.fireMs / 1000) : 1;
+  return baseCost * armorFactor * weaponStaminaFactor(weapon) * interval;
+}
+
 export function rollsDecapitation(blade: MeleeSpec | undefined, random = Math.random): boolean {
   return !!blade?.decapitationChance && random() < blade.decapitationChance;
 }

@@ -7,7 +7,7 @@ import { CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import { Livestock } from './livestock';
 import { C4Charge } from './c4';
 import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
-import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, type CookingBatch } from '@zion/shared';
+import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCost, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
 import { type TeamService, TeamError } from './teams';
@@ -2195,7 +2195,7 @@ export class GameServer {
     return armorStaminaFactor(p.armor) * weaponStaminaFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
   }
 
-  private attackStaminaCost(p: Player): number { return this.life.config.stamina.attack * this.effort(p); }
+  private attackStaminaCost(p: Player): number { return weaponAttackStaminaCost(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0, this.life.config.stamina.attack, armorStaminaFactor(p.armor)); }
 
   /** Reload: after (most of) the gun's reload time, rounds move from boxes into the magazine. */
   private onReload(p: Player): void {

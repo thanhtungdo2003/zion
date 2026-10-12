@@ -1,4 +1,4 @@
-import type { RankTitle } from '@zion/shared';
+import { weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
 import { ZombieOutline } from './render/zombie-outline';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
@@ -1719,7 +1719,7 @@ export class GameEngine {
     const effort = armorStaminaFactor(this.inventory.wornArmor()) * weaponStaminaFactor(weapon);
     if (life && life.stamina < life.config.stamina.roll * effort) buttons &= ~Buttons.Roll;
     if (life && life.stamina < life.config.stamina.sprintPerSecond * TICK_DT * effort) buttons &= ~Buttons.Sprint;
-    const canAffordAttack = !life || life.stamina >= life.config.stamina.attack * effort || (weapon === WeaponId.C4 && !c4Throw);
+    const canAffordAttack = !life || life.stamina >= weaponAttackStaminaCost(weapon, life.config.stamina.attack, armorStaminaFactor(this.inventory.wornArmor())) || (weapon === WeaponId.C4 && !c4Throw);
     let yaw = this.shotYaw;
     let throwDist: number | undefined;
     // Swimming blocks every attack; guns also cannot fire mid-jump.

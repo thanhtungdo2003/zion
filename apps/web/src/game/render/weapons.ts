@@ -1,4 +1,4 @@
-import { Group, Matrix4, Vector3 } from 'three';
+import { Group, Matrix4, Vector3, type Object3D } from 'three';
 import { ResourceDisposer } from './resources';
 import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
@@ -123,6 +123,7 @@ export interface WeaponVisual {
   /** Authored bore axes and grip, independent of the animated wrist orientation. */
   aim?: { barrel: Vector3; up: Vector3; grip: Vector3 };
   melee?: { held: StrikeAxes; display: StrikeAxes };
+  firstPersonSupport?: { arm: Object3D; contact: Vector3 };
   /** Contact points in the weapon's model space; used by the patrol idle pose. */
   twoHandGrip?: { grip: Vector3; support: Vector3; up: Vector3; triggerHand?: 'left' | 'right' };
   /** Real-size model, muzzle → +X and top → +Y, centred on the grip (icons, thrown grenades). */
@@ -247,6 +248,8 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
       const heldAxes = spec.edge ? {
         axis: new Vector3(...spec.barrel).normalize(), edge: new Vector3(...spec.edge),
         grip: local(spec.grip)!, tip: local(spec.strikePoint ?? spec.grip)!,
+        ...(itemId === 'fire_axe' ? { swingOffset: Math.PI } : {}),
+        idleDown: itemId === 'fire_axe' || itemId === 'long_sledgehammer',
       } : null;
       const displayTransform = display.children[0]!.matrix;
       lib.set(itemId, {
@@ -260,8 +263,17 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
           edge: heldAxes.edge.clone().transformDirection(displayTransform),
           grip: heldAxes.grip.clone().applyMatrix4(displayTransform),
           tip: heldAxes.tip.clone().applyMatrix4(displayTransform),
+          swingOffset: heldAxes.swingOffset,
+          idleDown: heldAxes.idleDown,
         } } } : {}),
         display,
+        ...(spec.muzzle && character.root.getObjectByName('arm_left') ? { firstPersonSupport: {
+          arm: character.root.getObjectByName('arm_left')!,
+          contact: ITEMS[itemId]?.stance === 'pistol'
+            ? new Vector3(-.015, -.025, -.025)
+            : spec.support ? local(spec.support)!.applyMatrix4(displayTransform)
+              : new Vector3(Math.max(.08, local(spec.muzzle)!.applyMatrix4(displayTransform).x * .38), -.025, 0),
+        } } : {}),
         clips: built.clips,
         reloadClip: spec.reloadClip && built.clips.has(spec.reloadClip) ? spec.reloadClip : null,
         muzzle: local(spec.muzzle),

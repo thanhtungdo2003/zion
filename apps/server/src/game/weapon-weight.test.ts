@@ -22,6 +22,27 @@ function fixture() {
 }
 
 describe('held weapon burden', () => {
+  it('fires an entire PKM belt at the minimum stamina capacity with armour, then stops on empty', () => {
+    const { server, player, world } = fixture();
+    const target = new Zombie(1_000_022, 16, 0, 10);
+    Object.assign(server, { collision: world, grid: { query: () => [] }, zombies: { near: () => [target], alert: vi.fn() }, animals: new Map(), scratch: [], npcOnRay: () => null, broadcastNear: vi.fn(), hitTarget: vi.fn() });
+    const gun = player.inv.add('pkm')!;
+    player.inv.equip(gun.uid); player.weapon = WeaponId.PKM;
+    const armor = player.inv.add('riot_protection_jacket')!;
+    expect(player.inv.move(armor.uid, 'armor_chest', 0, 0, false)).toBe(true);
+    server.syncLoadout(player);
+    player.life.capacity = player.life.stamina = DEFAULT_BASE_LIFE.stamina.minimumCapacity;
+    const fire = server as unknown as { tryShoot(p: Player, now: number, rt?: number): void; life: BaseLife };
+    for (let round = 0; round < 100; round++) {
+      fire.life.rest(player.life, .1);
+      fire.tryShoot(player, 1000 + round * 100);
+      expect(gun.mag, `round ${round + 1}`).toBe(99 - round);
+    }
+    const stamina = player.life.stamina;
+    fire.tryShoot(player, 11000);
+    expect(gun.mag).toBe(0);
+    expect(player.life.stamina).toBe(stamina);
+  });
   it('slows client and server equally, increases sprint effort and stops counting a weapon after putting it away', () => {
     const { server, player, local } = fixture();
     const pkm = player.inv.add('pkm')!;

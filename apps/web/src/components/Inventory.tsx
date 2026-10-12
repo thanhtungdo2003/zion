@@ -244,8 +244,9 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
   // Anchor the held item on the cell it was grabbed by (clamped after a rotation).
   const anchorOf = (e: ReactMouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const cx = Math.floor((e.clientX - r.left) / CELL);
-    const cy = Math.floor((e.clientY - r.top) / CELL);
+    const cell = r.width / c.cols;
+    const cx = Math.floor((e.clientX - r.left) / cell);
+    const cy = Math.floor((e.clientY - r.top) / cell);
     return { cx, cy, x: cx - Math.min(grab.dx, fp.w - 1), y: cy - Math.min(grab.dy, fp.h - 1) };
   };
 
@@ -298,8 +299,9 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
           if (hover?.container !== id || hover.x !== x || hover.y !== y) onHover({ container: id, x, y });
           if (held) return onTip(null);
           const r = e.currentTarget.getBoundingClientRect();
-          const cx = Math.floor((e.clientX - r.left) / CELL);
-          const cy = Math.floor((e.clientY - r.top) / CELL);
+          const cell = r.width / c.cols;
+          const cx = Math.floor((e.clientX - r.left) / cell);
+          const cy = Math.floor((e.clientY - r.top) / cell);
           const under = items.find((i) => {
             const f = footprint(ITEMS[i.itemId]!, i.rotated);
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
@@ -328,8 +330,9 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             return;
           }
           const r = e.currentTarget.getBoundingClientRect();
-          const cx = Math.floor((e.clientX - r.left) / CELL);
-          const cy = Math.floor((e.clientY - r.top) / CELL);
+          const cell = r.width / c.cols;
+          const cx = Math.floor((e.clientX - r.left) / cell);
+          const cy = Math.floor((e.clientY - r.top) / cell);
           const under = items.find((i) => {
             const f = footprint(ITEMS[i.itemId]!, i.rotated);
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
@@ -363,6 +366,21 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
 export function InventoryPanel({ state, store, coins, side }: { state: InventoryState; store: InventoryStore; coins: number; side?: React.ReactNode }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const [panelScale, setPanelScale] = useState(1);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const resize = () => {
+      const viewport = el.closest('.inv-overlay')!;
+      setPanelScale(Math.min(1, viewport.clientWidth * .96 / Math.max(1, el.scrollWidth), viewport.clientHeight * .94 / Math.max(1, el.scrollHeight)));
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(el);
+    observer.observe(el.closest('.inv-overlay')!);
+    resize();
+    return () => observer.disconnect();
+  }, []);
   const [merchantTab, setMerchantTab] = useState<'shop' | 'bag'>('shop');
   useEffect(() => { if (!state.open || state.station !== 'shop') setMerchantTab('shop'); }, [state.open, state.station]);
   const busy = usePending();
@@ -421,7 +439,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
       e.preventDefault();
       if (state.held && ITEMS[state.held.itemId]?.category === 'melee') store.rotateHeld();
     }}>
-      <div className={`inv-wrap${state.station === 'shop' ? ' merchant-wrap' : ''}`}>
+      <div ref={wrap} className={`inv-wrap${state.station === 'shop' && merchantTab === 'shop' ? ' merchant-wrap' : ''}`} style={{ transform: `translate(-50%, -50%) scale(${panelScale})` }}>
       {state.station !== 'shop' && side}
       <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
         <div className="inv-title">
@@ -513,8 +531,9 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
           className="inv-held"
           style={{
             position: 'fixed',
-            left: mouse.x - (Math.min(grab.dx, fp.w - 1) + 0.5) * CELL,
-            top: mouse.y - (Math.min(grab.dy, fp.h - 1) + 0.5) * CELL,
+            left: mouse.x - (Math.min(grab.dx, fp.w - 1) + 0.5) * CELL * panelScale,
+            top: mouse.y - (Math.min(grab.dy, fp.h - 1) + 0.5) * CELL * panelScale,
+            transform: `scale(${panelScale})`, transformOrigin: 'top left',
           }}
         />
       )}

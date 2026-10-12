@@ -445,7 +445,8 @@ export class Avatar {
       }
       if (!dead && !treating && held.visual.melee && this.oneShot && (this.oneShot.startsWith('sword_slash_') || this.oneShot === 'melee_attack')) {
         this.meleeEdge.pose(held.obj, held.visual.melee.held, this.root);
-      } else this.meleeEdge.reset();
+      } else if (held.visual.melee) this.meleeEdge.rest(held.obj, held.visual.melee.held);
+      else this.meleeEdge.reset();
     }
     // Idle breathing so a standing character never looks frozen.
     this.breath += dt;

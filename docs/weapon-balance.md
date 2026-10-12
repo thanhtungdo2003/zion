@@ -5,6 +5,7 @@ Thông số gameplay nằm trong `packages/shared/src/weapons.ts`, dùng chung c
 - Chỉ vũ khí đang cầm ảnh hưởng di chuyển và thể lực. Vũ khí trên lưng hoặc trong túi không tính.
 - Tốc độ vũ khí: giảm 1,8% mỗi kg, tối đa 40%. Nhân với hệ số tốc độ của giáp.
 - Hao thể lực vũ khí: tăng 5,5% mỗi kg khi chạy, lướt và tấn công.
+- Súng tính hao thể lực theo nhịp bắn: `attack × min(1, fireMs / 1000) × hệ số giáp × hệ số trọng lượng`. PKM không giáp tốn 0,9125 thể lực/viên (9,125/giây), tránh ngắt băng vì tính mỗi viên như một đòn cận chiến. Cận chiến và ném vẫn tính theo từng lần thực hiện.
 - Giáp tăng hao thể lực 1,5% mỗi kg; nhân với hệ số vũ khí.
 - Không thay đổi trọng lượng làm tròn trên giao diện; tính toán dùng số thực.
 

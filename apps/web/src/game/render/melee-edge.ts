@@ -1,6 +1,6 @@
 import { Matrix4, Quaternion, Vector3, type Object3D } from 'three';
 
-export interface StrikeAxes { axis: Vector3; edge: Vector3; grip: Vector3; tip: Vector3 }
+export interface StrikeAxes { axis: Vector3; edge: Vector3; grip: Vector3; tip: Vector3; swingOffset?: number; idleDown?: boolean }
 
 /** Rolls the blade about its handle so its cutting/striking face leads the swing. */
 export class MeleeEdge {
@@ -25,9 +25,27 @@ export class MeleeEdge {
     reference.worldToLocal(this.point);
     this.velocity.subVectors(this.point, this.previous);
     this.previous.copy(this.point);
-    if (!this.ready) { this.ready = true; return; }
+    if (!this.ready) {
+      this.ready = true;
+      this.velocity.copy(axes.edge).transformDirection(gun.matrixWorld);
+      this.align(gun, axes, axes.swingOffset ?? 0);
+      return;
+    }
     // Measure only animation motion, excluding character/camera translation and yaw.
     this.velocity.transformDirection(reference.matrixWorld);
+    this.align(gun, axes, axes.swingOffset ?? 0);
+  }
+
+  rest(gun: Object3D, axes: StrikeAxes): void {
+    this.reset();
+    if (!gun.parent || !axes.idleDown) return;
+    gun.updateWorldMatrix(true, false);
+    this.velocity.set(0, -1, 0);
+    this.align(gun, axes, 0);
+  }
+
+  private align(gun: Object3D, axes: StrikeAxes, offset: number): void {
+    if (!gun.parent) return;
     this.axis.copy(axes.axis).transformDirection(gun.matrixWorld);
     this.velocity.addScaledVector(this.axis, -this.velocity.dot(this.axis));
     if (this.velocity.lengthSq() < 1e-6) return;
@@ -35,7 +53,7 @@ export class MeleeEdge {
     this.edge.copy(axes.edge).transformDirection(gun.matrixWorld);
     this.edge.addScaledVector(this.axis, -this.edge.dot(this.axis)).normalize();
     const angle = Math.atan2(this.axis.dot(this.cross.crossVectors(this.edge, this.velocity)), this.edge.dot(this.velocity));
-    this.rotation.setFromAxisAngle(this.axis, angle);
+    this.rotation.setFromAxisAngle(this.axis, angle + offset);
     this.grip.copy(axes.grip).applyMatrix4(gun.matrixWorld);
     this.world.makeTranslation(this.grip.x, this.grip.y, this.grip.z)
       .multiply(this.inverse.makeRotationFromQuaternion(this.rotation))
