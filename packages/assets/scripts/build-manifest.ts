@@ -62,6 +62,8 @@ async function main(): Promise<void> {
   for (const file of files.sort()) {
     const isGameModel = file.startsWith(gameModelsDir + path.sep);
     const rel = path.relative(isGameModel ? gameModelsDir : sourceDir, file).split(path.sep).join('/');
+    // Keep authored packs in /models. Deploy only the prepared, individually placeable GLBs.
+    if (isGameModel && /^(buildings|vehicles)\//.test(rel) && !BUILTIN_ASSETS.some(a => a.model.kind === 'glb' && a.model.path === rel)) continue;
     if (manifest.files[rel]) throw new Error(`duplicate model path: ${rel}`);
     if (!/^[a-z0-9_\-/]+\.(glb|bbmodel)$/.test(rel)) throw new Error(`${rel}: use lowercase a-z0-9_- path names`);
     const info = await stat(file);
@@ -91,6 +93,15 @@ async function main(): Promise<void> {
 
   assetManifestSchema.parse(manifest);
   await writeFile(path.join(publicDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  const soundsOut = path.join(repoRoot, 'apps/web/public/sounds');
+  for (const file of await walk(path.join(repoRoot, 'sounds'))) {
+    const rel = path.relative(path.join(repoRoot, 'sounds'), file);
+    if (!rel.startsWith('musics' + path.sep) && !/^(car|motorcycle)-engine-(active|noise)\.mp3$/.test(rel)
+      && !['braking-on-gravel.mp3','car-crash-sound-effect.mp3','sound-effect-car-crash.mp3'].includes(rel)) continue;
+    const dest = path.join(soundsOut, rel);
+    await mkdir(path.dirname(dest), { recursive: true });
+    await writeFile(dest, await readFile(file));
+  }
   console.log(`asset manifest: ${Object.keys(manifest.files).length} file(s) → ${path.relative(repoRoot, publicDir)}`);
 }
 

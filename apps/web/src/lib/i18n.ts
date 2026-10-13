@@ -61,6 +61,8 @@ const en = {
   'menu.settings': 'Settings',
   'menu.studio': 'Camp Studio · edit the base',
   'mode.survival': 'Survival',
+  'mode.battle': 'Battle Royale',
+  'mode.battle_sub': 'Solo · Red zone · Last survivor wins',
   'mode.survival_sub': 'Multiplayer · Random spawn',
 
   // settings modal
@@ -473,6 +475,8 @@ const vi: Record<TKey, string> = {
   'menu.settings': 'Cài đặt',
   'menu.studio': 'Xưởng căn cứ · chỉnh sửa căn cứ',
   'mode.survival': 'Sinh tồn',
+  'mode.battle': 'Battle Royale',
+  'mode.battle_sub': 'Solo · Bo đỏ · Sống sót cuối cùng',
   'mode.survival_sub': 'Nhiều người chơi · Điểm xuất phát ngẫu nhiên',
 
   // settings modal

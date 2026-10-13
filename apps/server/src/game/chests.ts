@@ -10,6 +10,8 @@ export interface ChestHooks {
   sync(player: Player): void;
   finish(player: Player): void;
   error(error: unknown): void;
+  loot?: typeof generateChestLoot;
+  searchMs?: number;
 }
 
 /** One authoritative inventory and one search for every world prop, shared by all its viewers. */
@@ -18,6 +20,8 @@ export class SharedChests {
   private readonly loading = new Map<string, Promise<LiveChest>>();
   private readonly viewers = new Map<Player, string>();
   constructor(private readonly hooks: ChestHooks, private readonly clock: () => number, private readonly day: () => number = () => 0) {}
+
+  reset(): void { this.chests.clear(); this.loading.clear(); this.viewers.clear(); }
 
   /** Field crates are emptied and become searchable again at the start of every world day. */
   private refresh(c: LiveChest): boolean {
@@ -39,7 +43,7 @@ export class SharedChests {
   }
 
   private send(p: Player, c: LiveChest, error?: string, closed = false): void {
-    const message: ChestStateMessage = { t: 'chest', id: c.id, field: c.field, ...c.data, capacity: CHEST_CAPACITY, searchRemainingMs: c.search ? Math.max(0, c.search.until - this.clock()) : 0, busy: c.busy, error, closed };
+    const message: ChestStateMessage = { t: 'chest', id: c.id, field: c.field, ...c.data, capacity: c.data.capacity ?? CHEST_CAPACITY, searchRemainingMs: c.search ? Math.max(0, c.search.until - this.clock()) : 0, busy: c.busy, error, closed };
     p.session.sendJson(message);
   }
   private notify(c: LiveChest): void { for (const [p, id] of this.viewers) if (id === c.id) this.send(p, c); }
@@ -69,14 +73,14 @@ export class SharedChests {
       if (msg.op === 'chestSearch') {
         if (!c.field || c.data.searched) { this.send(p, c); return; }
         if (c.data.items.length === CHEST_CAPACITY) { this.send(p, c, 'Hòm đầy: hãy lấy bớt đồ trước khi Search.'); return; }
-        c.search = { player: p, until: this.clock() + CHEST_SEARCH_MS }; this.notify(c); return;
+        c.search = { player: p, until: this.clock() + (this.hooks.searchMs ?? CHEST_SEARCH_MS) }; this.notify(c); return;
       }
       if (msg.revision !== c.data.revision) { this.send(p, c, 'Nội dung vừa thay đổi; hãy thử lại.'); return; }
       const inv = new InventoryModel(p.inv.toJSON());
       const next = structuredClone(c.data);
       if (msg.op === 'chestPut') {
         const item = inv.get(msg.uid);
-        if (!item || isStash(item.container) || next.items.length >= CHEST_CAPACITY) { this.send(p, c, 'Không thể cất vật phẩm hoặc hòm đã đầy.'); return; }
+        if (!item || isStash(item.container) || next.items.length >= (next.capacity ?? CHEST_CAPACITY)) { this.send(p, c, 'Không thể cất vật phẩm hoặc hòm đã đầy.'); return; }
         inv.remove(item.uid);
         next.items.push({ ...item, uid: Math.max(0, ...next.items.map((i) => i.uid)) + 1, container: 'backpack', x: 0, y: 0 });
       } else {
@@ -86,6 +90,7 @@ export class SharedChests {
         if (!added) { this.send(p, c, 'Túi đồ không đủ chỗ.'); return; }
         if (item.mag !== undefined) added.mag = item.mag;
         if (item.quest) added.quest = item.quest;
+        if (item.chargeId !== undefined) added.chargeId = item.chargeId;
         next.items = next.items.filter((i) => i.uid !== msg.uid);
       }
       next.revision++;
@@ -114,7 +119,7 @@ export class SharedChests {
   private async completeSearch(c: LiveChest): Promise<void> {
     let failed = false;
     try {
-      const next: ChestData = { items: generateChestLoot(c.data.items), searched: true, revision: c.data.revision + 1, day: c.data.day ?? this.day() };
+      const next: ChestData = { items: (this.hooks.loot ?? generateChestLoot)(c.data.items), searched: true, revision: c.data.revision + 1, day: c.data.day ?? this.day() };
       await this.hooks.commit(c.id, next); c.data = next;
     } catch (err) {
       failed = true;

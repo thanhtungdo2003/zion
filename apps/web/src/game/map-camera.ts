@@ -1,4 +1,6 @@
 export interface MapCamera { x: number; z: number; scale: number }
+/** Up-pointing map arrows: world yaw turns toward -X, while screen angles turn toward +X. */
+export function mapHeading(yaw: number): number { return -yaw; }
 export function screenToMap(x: number, y: number, width: number, height: number, camera: MapCamera): { x: number; z: number } {
   return { x: camera.x + (x - width / 2) / camera.scale, z: camera.z + (y - height / 2) / camera.scale };
 }

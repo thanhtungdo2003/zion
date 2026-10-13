@@ -1,5 +1,5 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -85,6 +85,26 @@ const BACK_SCALE = 1.3;
 
 /** Player character built from the preloaded Blockbench model, driven by its own animation clips. */
 export class Avatar {
+  private drivingActive = false;
+  drivingPose(quad: boolean | null, yaw: number, pitch=0, roll=0): void {
+    if (quad === null) {
+      if (this.drivingActive) { this.model.position.set(0,0,0); this.model.rotation.set(0,0,0); this.root.rotation.set(0,yaw,0,'YXZ'); }
+      this.drivingActive = false; return;
+    }
+    this.drivingActive = true; this.root.rotation.set(pitch,yaw,roll,'YXZ'); this.bodyYaw = yaw;
+    // Clear locomotion/root animation before applying the seat pose: seat offsets refer to
+    // the unshifted skeleton's feet, whose hip pivot is 0.675 m above its origin.
+    for(const bone of this.bones.values()){bone.node.position.copy(bone.restPos);bone.node.rotation.copy(bone.restRot);}
+    this.model.position.set(0,0,0);this.model.rotation.set(0,0,0);
+    const body=this.bones.get('body');
+    if(body){body.node.position.y-=quad?.04:.16;body.node.rotation.x+=quad?.14:-.04;}
+    for (const side of ['left', 'right']) {
+      const leg = this.bones.get(`leg_${side}`), arm = this.bones.get(`arm_${side}`), hand = this.bones.get(`hand_${side}`);
+      if (leg) { leg.node.rotation.copy(leg.restRot); leg.node.rotation.x += quad ? .85 : 1.3; leg.node.rotation.z += (side === 'left' ? 1 : -1) * (quad ? .28 : .06); }
+      if (arm) { arm.node.rotation.copy(arm.restRot); arm.node.rotation.x += quad ? 1.05 : 1.2; arm.node.rotation.z += (side === 'left' ? 1 : -1) * .12; }
+      if (hand) { hand.node.rotation.copy(hand.restRot); hand.node.rotation.x += .2; }
+    }
+  }
   private offhandId: string | null = null;
   private offhandObject: Object3D | null = null;
   private offhandBase: Matrix4 | null = null;
@@ -94,6 +114,10 @@ export class Avatar {
   rigid = false;
   readonly root = new Group();
   private readonly model: Group;
+  private readonly restHeadInverse = new Quaternion();
+  private readonly rollEyeOffset = new Vector3();
+  private readonly rollCameraRotation = new Quaternion();
+  private readonly rollBaseInverse = new Quaternion();
   private readonly bones = new Map<string, Bone>();
   private cur: Layer = { clip: null, time: 0, rate: 1 };
   private prev: Layer = { clip: null, time: 0, rate: 1 };
@@ -152,6 +176,24 @@ export class Avatar {
     // Rest positions of the bones in model space: armour pieces are placed relative to them.
     this.model.updateMatrixWorld(true);
     for (const [name, b] of this.bones) this.restWorld.set(name, b.node.getWorldPosition(new Vector3()));
+    const head=this.bones.get('head')?.node;
+    if(head){
+      head.getWorldQuaternion(this.restHeadInverse).invert();
+      this.rollEyeOffset.set(0,DEFAULT_CHARACTER.eyeHeight,-.12).sub(head.getWorldPosition(new Vector3())).applyQuaternion(this.restHeadInverse);
+    }
+  }
+
+  /** Follow the actual authored root/head animation, including the forward/back eye orbit. */
+  rollCamera(camera: Camera): boolean {
+    const head=this.bones.get('head')?.node;
+    if(!head || this.cur.clip?.name!=='roll')return false;
+    this.root.updateMatrixWorld(true);
+    head.getWorldQuaternion(this.rollCameraRotation).multiply(this.restHeadInverse);
+    this.rollBaseInverse.setFromAxisAngle(new Vector3(0,1,0),-this.root.rotation.y);
+    this.rollCameraRotation.multiply(this.rollBaseInverse);
+    camera.quaternion.premultiply(this.rollCameraRotation);
+    camera.position.copy(this.rollEyeOffset);head.localToWorld(camera.position);
+    return true;
   }
 
   /** Puts on (or takes off, null) the armour piece for a slot; its parts ride on the body bones. */
@@ -225,6 +267,7 @@ export class Avatar {
   }
 
   private choose(speed: number, vy: number, flags: number, dt: number): void {
+    if (flags & (EntityFlags.InPlane | EntityFlags.Freefall | EntityFlags.Parachute)) { this.play(null); return; }
     const dead = (flags & EntityFlags.Dead) !== 0;
     const swimming = (flags & EntityFlags.Swimming) !== 0;
     const grounded = (flags & EntityFlags.Grounded) !== 0;
@@ -300,6 +343,23 @@ export class Avatar {
   private ragdollTemp = false;
   /** Ground height lookup for ragdolls (set by the engine). */
   ground: ((x: number, z: number) => number) | null = null;
+  private flightTilt = 0;
+  private flightActive = false;
+  flightPose(flags: number, dive: boolean, moving: boolean, dt: number): void {
+    const falling = !!(flags & EntityFlags.Freefall), chute = !!(flags & EntityFlags.Parachute);
+    const active = falling || chute || !!(flags & EntityFlags.InPlane);
+    if (!active && !this.flightActive) return;
+    this.flightActive = active;
+    const target = falling ? (dive ? -2.55 : moving ? -1.95 : -Math.PI / 2) : chute ? -.12 : 0;
+    this.flightTilt += (target - this.flightTilt) * (1 - Math.exp(-dt * 7));
+    this.model.rotation.x = this.flightTilt;
+    this.model.position.y = falling ? 1 : 0;
+    if (falling || chute) for (const name of ['arm_left', 'arm_right']) {
+      const arm = this.bones.get(name)?.node;
+      if (arm) { arm.rotation.x = chute ? -2.2 : -.35; arm.rotation.z = name === 'arm_left' ? -.9 : .9; }
+    }
+    this.root.visible = !(flags & EntityFlags.InPlane);
+  }
 
   startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): void {
     if (this.ragdoll) return;

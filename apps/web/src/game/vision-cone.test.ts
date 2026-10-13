@@ -5,6 +5,16 @@ import { VisionCone } from './vision-cone';
 
 afterEach(() => vi.restoreAllMocks());
 describe('vision overlay frame cost', () => {
+  it('requires unobstructed sight even for nearby enemies and rejects targets behind the player', () => {
+    const vision = new VisionCone(new Scene());
+    const world = { raycast: vi.fn(() => true) } as unknown as CollisionWorld;
+    vision.update(0, 1.6, 0, 0, 0, 0, new PerspectiveCamera(), 0);
+    expect(vision.canSee(0, 1.6, -1, world)).toBe(false);
+    expect(vision.canSee(0, 1.6, 1, undefined)).toBe(false);
+    expect(vision.canSee(0, 1.6, -41, undefined)).toBe(false);
+    expect(vision.canSee(0, 1.6, -1, undefined)).toBe(true);
+    vision.dispose();
+  });
   it('casts the visual ray fan at 20 Hz and skips it completely in first person', () => {
     let time = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => time);

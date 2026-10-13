@@ -23,7 +23,7 @@ import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
 
-const GAME_MODES = [{ id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub' }] as const;
+const GAME_MODES = [{ id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub' }, { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub' }] as const;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -141,7 +141,7 @@ export default function MainMenu() {
     setError(null);
     try {
       await fn();
-      router.push('/play');
+      router.push(gameMode === 'battle-royale' ? '/play?mode=battle-royale' : '/play');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('menu.server_error'));
       setBusy(false);
@@ -166,7 +166,7 @@ export default function MainMenu() {
       await playAsGuest(name);
       setSession(true);
       if (entryIntent === 'team') { setNameOpen(false); setTeamOpen(true); setBusy(false); }
-      else router.push('/play');
+      else router.push(gameMode === 'battle-royale' ? '/play?mode=battle-royale' : '/play');
     } catch (err) {
       if (err instanceof ApiError && err.code === 'username_taken') setNameError(t('menu.name_taken'));
       else if (err instanceof ApiError && err.code === 'invalid_request') setNameError(t('menu.name_rules'));
@@ -272,10 +272,10 @@ export default function MainMenu() {
       <div className="menu-launch">
         <a
           className="menu-zalo"
-          href="/zalo-group-qr.jpg"
+          href="https://zalo.me/g/csvws2f2cekoikrjadir"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="Mở ảnh mã QR tham gia nhóm Zalo Zion ở kích thước đầy đủ"
+          aria-label="Tham gia nhóm Zalo Zion"
         >
           <Image
             src="/zalo-group-qr.jpg"

@@ -12,6 +12,7 @@ import {
   type ServerJsonMessage,
   type Snapshot,
   type WelcomeMessage,
+  type GameMode,
 } from '@zion/shared';
 import { getGameTicket } from '@/lib/api';
 
@@ -45,7 +46,7 @@ export class GameConnection {
   private pingId = 0;
   bytesIn = 0;
 
-  constructor(private readonly handlers: ConnectionHandlers) {}
+  constructor(private readonly handlers: ConnectionHandlers, private readonly mode: GameMode = 'survival') {}
 
   async connect(): Promise<void> {
     const t = await getGameTicket();
@@ -53,7 +54,9 @@ export class GameConnection {
       throw new Error(`client protocol ${PROTOCOL_VERSION} does not match server ${t.protocolVersion}; reload the page`);
     }
     if (this.closedByUser) return;
-    const ws = new WebSocket(t.wsUrl);
+    const url = new URL(t.wsUrl);
+    if (this.mode === 'battle-royale') url.searchParams.set('mode', this.mode);
+    const ws = new WebSocket(url.toString());
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify({ t: 'auth', v: PROTOCOL_VERSION, ticket: t.ticket }));
@@ -196,6 +199,8 @@ export class GameConnection {
   sendRespawn(): void {
     this.send({ t: 'respawn' });
   }
+  sendVehicle(id?: number): void { this.send({ t: 'vehicle', id }); }
+  sendDoor(id: number): void { this.send({ t: 'door', id }); }
 
   sendSetTime(tod: number): void {
     this.send({ t: 'settime', tod: Math.min(1, Math.max(0, tod)) });

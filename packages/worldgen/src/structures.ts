@@ -2,6 +2,8 @@ import { CHUNK_SIZE, Rng, hash3, quantizeHeight, quantizeLocal, quantizeRotation
 import { CAMP_ASSET } from '@zion/assets';
 import { makeColumnSample, type ColumnSample, type WorldGenerator } from './generator';
 import type { CampPart } from './camp';
+import { battleStructures } from './battle-map';
+import { importedRoofAccess, importedSettlement } from './imported-buildings';
 
 /**
  * Abandoned structures scattered over the map (Minecraft-style): ruined camps, lone houses,
@@ -12,7 +14,7 @@ import type { CampPart } from './camp';
 export type StructureKind = 'house_small' | 'house_large' | 'ruined_camp' | 'factory' | 'power_plant' | 'town';
 
 export interface Structure {
-  kind: StructureKind;
+  kind: StructureKind | 'farm' | 'hamlet' | 'watchtower' | 'water_tower';
   /** Centre (world metres) and the base height of the site. */
   x: number;
   z: number;
@@ -470,7 +472,8 @@ function chooseSite(gen: WorldGenerator, gx: number, gz: number, salt = SALT): S
     if (base === null) continue;
     const b = new Builder(new Rng(hash3(gen.seed, gx, gz, salt + 1)));
     const radius = Math.min(MAX_RADIUS, BUILD[kind](b));
-    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius, parts: b.parts, gid: hash3(gen.seed, gx, gz, salt + 3) };
+    const gid = hash3(gen.seed, gx, gz, salt + 3);
+    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius, parts: importedRoofAccess(importedSettlement(kind, radius, gid) ?? b.parts), gid };
   }
   return null;
 }
@@ -495,6 +498,7 @@ function flatBase(gen: WorldGenerator, x: number, z: number, r: number, toleranc
 
 /** Structures whose footprint may reach a point or area. */
 export function structuresNear(gen: WorldGenerator, x: number, z: number, extra = 0): Structure[] {
+  if (gen.config.mode === 'battle-royale') return battleStructures(gen).filter(s => Math.hypot(s.x - x, s.z - z) <= s.radius + extra);
   allStructures(gen);
   const extraCells = extraCache.get(gen);
   const out: Structure[] = [];
@@ -515,6 +519,7 @@ export function structuresNear(gen: WorldGenerator, x: number, z: number, extra 
 const allCache = new WeakMap<WorldGenerator, Structure[]>();
 const extraCache = new WeakMap<WorldGenerator, Map<string, Structure[]>>();
 export function allStructures(gen: WorldGenerator): Structure[] {
+  if (gen.config.mode === 'battle-royale') return battleStructures(gen);
   let list = allCache.get(gen);
   if (list) return list;
   list = [];

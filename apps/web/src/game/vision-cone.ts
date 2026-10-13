@@ -44,10 +44,9 @@ void main() {
   vec2 dn = dist > 1e-3 ? d / dist : uDir;
   float ang = atan(uDir.x * dn.y - uDir.y * dn.x, dot(uDir, dn));
   float reach = texture2D(uVis, vec2(clamp((ang + uHalf) / (2.0 * uHalf), 0.0, 1.0), 0.5)).r * uRange;
-  float seen = 1.0 - smoothstep(reach + 1.6, reach + 3.2, dist);
+  float seen = 1.0 - smoothstep(reach + 0.1, reach + 0.4, dist);
   inRange *= seen;
-  float near = 1.0 - smoothstep(1.6, 2.6, dist);
-  float lit = max(inAngle * inRange, near);
+  float lit = inAngle * inRange;
   gl_FragColor = vec4(0.0, 0.0, 0.02, uDarkness * (1.0 - lit));
 }`;
 
@@ -170,6 +169,7 @@ export class VisionCone {
 
   dispose(): void {
     this.scene.remove(this.overlay);
+    this.overlay.geometry.dispose();
     this.material.dispose();
     this.visTex.dispose();
   }

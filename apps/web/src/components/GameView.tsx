@@ -14,6 +14,7 @@ import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs
 import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
 import { WorldMap } from './WorldMap';
 import { WorldMapStore } from '@/game/world-map';
+import { BattleHud } from './BattleHud';
 
 export default function GameView() {
   const router = useRouter();
@@ -44,7 +45,8 @@ export default function GameView() {
   useEffect(() => {
     const el = container.current;
     if (!el) return;
-    const engine = new GameEngine(el, store, inventory, worldMap);
+    const mode = new URLSearchParams(window.location.search).get('mode') === 'battle-royale' ? 'battle-royale' : 'survival';
+    const engine = new GameEngine(el, store, inventory, worldMap, mode);
     engineRef.current = engine;
     void engine.start();
     return () => {
@@ -132,7 +134,8 @@ export default function GameView() {
       {inWorld && hud.downed !== null && <DownedPanel bleed={hud.downed} onHelp={() => engineRef.current?.callForHelp()} onGiveUp={() => engineRef.current?.giveUp()} />}
       {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
-      {inWorld && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
+      {inWorld && hud.mode !== 'battle-royale' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
+      {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => router.push('/')} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}

@@ -7,6 +7,16 @@ function fixture() {
   return { camera: new PerspectiveCamera(75, 16 / 9, .05, 1000), boom: new ThirdPersonCamera(), focus: new Vector3(16, 1.62, 16), world: new CollisionWorld({ worldSize: 64, seaLevel: -50 }) };
 }
 describe('third-person shoulder camera', () => {
+  it('centres the vehicle chase camera behind the vehicle and avoids walls', () => {
+    const { camera, boom, world } = fixture(), focus = new Vector3(16, 2.8, 16);
+    boom.update(camera, focus, 0, -.16, 1/60, world, false, { distance: 7, height: 1 });
+    expect(camera.position.x).toBeCloseTo(16);
+    expect(camera.position.z).toBeGreaterThan(22);
+    expect(camera.position.y).toBeGreaterThan(4);
+    world.setOwnerColliders(1, [{ shape: makeBox(16, 4, 20, 3, 4, .1), layer: Layer.Static }]);
+    boom.update(camera, focus, 0, -.16, 1/60, world, false, { distance: 7, height: 1 });
+    expect(camera.position.z).toBeLessThan(19.9);
+  });
   it.each([false, true])('converges first-person shots on nearby reticle targets with prone=%s', prone => {
     const camera = new PerspectiveCamera(75, 16 / 9, .05, 1000);
     const muzzle = new Vector3(16, prone ? .4 : 1.35, 16);

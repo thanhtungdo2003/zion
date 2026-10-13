@@ -46,7 +46,7 @@ export class SpawnService {
     private readonly controller: CharacterController,
     private readonly physics: PhysicsChunkManager,
   ) {
-    this.candidates = gen.findSpawnPoints(64);
+    this.candidates = gen.findSpawnPoints(gen.config.mode === 'battle-royale' ? 96 : 64, gen.config.mode === 'battle-royale' ? 65 : 180);
     if (this.candidates.length === 0) throw new Error('world has no valid spawn candidates');
   }
 

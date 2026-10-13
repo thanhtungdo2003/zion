@@ -16,6 +16,8 @@ import { bbCubeFaces, isCubeElement, parseBBModel, type BBElement, type BBFace, 
 export interface ModelPart {
   geometry: BufferGeometry;
   material: Material;
+  wheel?: number;
+  wheelCenter?: readonly [number,number,number];
 }
 
 export type FaceName = 'north' | 'south' | 'east' | 'west' | 'up' | 'down';

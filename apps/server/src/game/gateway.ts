@@ -22,6 +22,7 @@ const HEARTBEAT_MS = 10_000;
 export class GameGateway {
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
+  private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
   private readonly perIp = new ConcurrencyCounter();
   private readonly upgradeLimiter: KeyedWindowLimiter;
   private readonly allowedOrigins: Set<string>;
@@ -37,6 +38,7 @@ export class GameGateway {
     private readonly auth: AuthService,
     private readonly game: GameServer,
     private readonly audit: AuditLog,
+    private readonly battleGame?: GameServer,
   ) {
     this.log = logger.child({ module: 'gateway' });
     this.allowedOrigins = new Set(config.CORS_ORIGINS);
@@ -86,11 +88,16 @@ export class GameGateway {
     if (!this.upgradeLimiter.hit(ip)) return this.reject(socket, 429, 'upgrade_rate');
     if (this.sessions.size >= this.config.MAX_CONNECTIONS) return this.reject(socket, 503, 'capacity');
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip));
+    const mode = new URL(url, 'http://localhost').searchParams.get('mode');
+    if (mode && mode !== 'survival' && mode !== 'battle-royale') return this.reject(socket, 400, 'mode');
+    if (mode === 'battle-royale' && !this.battleGame) return this.reject(socket, 503, 'mode_unavailable');
+    const game = mode === 'battle-royale' ? this.battleGame! : this.game;
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, game));
   }
 
-  private onConnection(ws: WebSocket, ip: string): void {
+  private onConnection(ws: WebSocket, ip: string, game = this.game): void {
     const session = new ClientSession(this.nextSessionId++, ws, ip, this.metrics);
+    this.sessionGames.set(session, game);
     this.sessions.add(session);
     this.perIp.inc(ip);
     this.metrics.connections = this.sessions.size;
@@ -109,7 +116,7 @@ export class GameGateway {
     ws.on('error', (err) => this.log.debug({ err: err.message, sid: session.id }, 'socket error'));
     ws.on('close', () => {
       clearTimeout(authTimer);
-      this.game.leave(session, 'disconnect');
+      this.sessionGames.get(session)?.leave(session, 'disconnect');
       session.state = 'closed';
       if (this.sessions.delete(session)) {
         this.perIp.dec(ip);
@@ -157,7 +164,7 @@ export class GameGateway {
       void this.authenticate(session, msg.v, msg.ticket);
       return;
     }
-    if (session.state === 'playing') this.game.handleMessage(session, msg);
+    if (session.state === 'playing') (this.sessionGames.get(session) ?? this.game).handleMessage(session, msg);
     // Messages while joining are dropped (client waits for welcome).
   }
 
@@ -177,7 +184,7 @@ export class GameGateway {
       }
       if (!session.open) return;
       session.account = account;
-      await this.game.join(session);
+      await (this.sessionGames.get(session) ?? this.game).join(session);
     } catch (err) {
       this.log.error({ err, sid: session.id }, 'join failed');
       session.sendError('internal', 'could not join the world', true);

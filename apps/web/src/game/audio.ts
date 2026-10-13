@@ -5,6 +5,9 @@ import { singleShotSample } from './shot-sample';
 import { WeaponId, weaponSpec } from '@zion/shared';
 
 export const SOUND_FILES = {
+  doorOpen: '/sounds/opending-door.mp3',
+  doorClose: '/sounds/close-door.mp3',
+  transportPlane: '/sounds/prop-plane.mp3',
   akShot: '/sounds/ak47-shot.mp3',
   pkmShot: '/sounds/machine-gun.mp3',
   barrettShot: '/sounds/barrett.mp3',

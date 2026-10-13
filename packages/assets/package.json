@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "build:manifest": "tsx scripts/build-manifest.ts"
+    "build:manifest": "node ../../apps/web/scripts/prepare-world-assets.mjs && tsx scripts/build-manifest.ts"
   },
   "dependencies": {
     "@zion/physics": "workspace:*",

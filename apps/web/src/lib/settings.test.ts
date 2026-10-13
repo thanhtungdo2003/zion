@@ -8,6 +8,20 @@ function storage(saved: object) {
   return map;
 }
 describe('camera settings', () => {
+  it('defaults BR to first person and remembers its camera without changing survival', () => {
+    storage({ cameraMode: 'top-down' });
+    const settings = new SettingsStore();
+    settings.setGameMode('battle-royale');
+    expect(settings.get().cameraMode).toBe('first-person');
+    settings.set({ cameraMode: 'third-person' });
+    settings.setGameMode('survival');
+    expect(settings.get().cameraMode).toBe('top-down');
+    const restored = new SettingsStore();
+    restored.setGameMode('battle-royale');
+    expect(restored.get().cameraMode).toBe('third-person');
+    restored.setGameMode('survival');
+    expect(restored.get().cameraMode).toBe('top-down');
+  });
   it.each([true, false])('migrates saved first-person preference %s', firstPerson => {
     storage({ firstPerson });
     const settings = new SettingsStore(); settings.hydrate();

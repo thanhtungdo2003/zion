@@ -1,5 +1,5 @@
 import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
-import type { AtlasTile, GameContent, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
+import type { AtlasTile, GameContent, GameMode, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
 import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
@@ -13,14 +13,14 @@ export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
   return request('/api/leaderboard', { signal });
 }
 
-export async function getWorldAtlas(): Promise<WorldAtlas> {
+export async function getWorldAtlas(mode?: GameMode): Promise<WorldAtlas> {
   await ensureAccess();
-  return request<WorldAtlas>('/api/game/atlas', { auth: true });
+  return request<WorldAtlas>(`/api/game/atlas${mode === 'battle-royale' ? '?mode=battle-royale' : ''}`, { auth: true });
 }
 
-export async function getAtlasTile(x: number, z: number): Promise<AtlasTile> {
+export async function getAtlasTile(x: number, z: number, mode?: GameMode): Promise<AtlasTile> {
   await ensureAccess();
-  return request<AtlasTile>(`/api/game/atlas/${x}/${z}`, { auth: true });
+  return request<AtlasTile>(`/api/game/atlas/${x}/${z}${mode === 'battle-royale' ? '?mode=battle-royale' : ''}`, { auth: true });
 }
 
 export interface AccountInfo {

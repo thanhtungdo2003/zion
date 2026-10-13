@@ -2,7 +2,7 @@ import { Color, DepthTexture, HalfFloatType, Mesh, MeshBasicMaterial, NearestFil
 
 const MASK_LAYER = 30;
 
-/** Screen-space silhouette from the animated meshes; only hidden edges receive a glow. */
+/** Outlines detected targets; remembered silhouettes remain readable through occluders. */
 export class ZombieOutline {
   // Keep lighting above 1.0 until the final tone mapping pass, just like direct rendering.
   private readonly world = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
@@ -30,7 +30,7 @@ export class ZombieOutline {
         float edge=0.; float glow=0.;
         for(int i=0;i<12;i++) {
           float a=float(i)*6.2831853/12.; vec2 dir=vec2(cos(a),sin(a))*pixel;
-          edge=max(edge,hidden(uvScreen+dir*1.6));
+          edge=max(edge,texture2D(maskMap,uvScreen+dir*1.6).r);
           glow+=hidden(uvScreen+dir*4.5)/12.;
         }
         float alpha=(1.-body)*min(0.9,edge*0.85+glow*0.23);

@@ -10,6 +10,7 @@ import { aimOffhandLight, offhandLightPose } from './offhand-light';
  * and a reload dip so the view feels weighty without the third-person rig.
  */
 export class ViewModel {
+  setVisible(visible: boolean): void { this.root.visible = visible; }
   private readonly root = new Group();
   private readonly pivot = new Group();
   private readonly models = new Map<string, Group>();

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-12T13:50:44.452Z",
+  "generatedAt": "2026-10-13T16:31:49.048Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -206,6 +206,12 @@
       "bytes": 8156,
       "kind": "bbmodel"
     },
+    "dists/heavy-transport-plane.bbmodel": {
+      "url": "/assets/models/dists_heavy-transport-plane.a8d0b19fad65.bbmodel",
+      "sha256": "a8d0b19fad658583231e845a73f418943377695bda6fab74f22829a09adb5a01",
+      "bytes": 43841,
+      "kind": "bbmodel"
+    },
     "dists/military-lamp-post.bbmodel": {
       "url": "/assets/models/dists_military-lamp-post.7b68b6c97d53.bbmodel",
       "sha256": "7b68b6c97d535b56f4b5c6b58d41b460a5ed41cc53ffc05bd4cfb830f37c5a7a",
@@ -258,6 +264,12 @@
       "url": "/assets/models/dists_wet-farmland-plot.43e64cfb71ad.bbmodel",
       "sha256": "43e64cfb71ad4885467546c0db91e94cfe4a1cc6e1decd05af113b947b7670f9",
       "bytes": 16802,
+      "kind": "bbmodel"
+    },
+    "dists/wooden-door.bbmodel": {
+      "url": "/assets/models/dists_wooden-door.2aa00eb38608.bbmodel",
+      "sha256": "2aa00eb386089c9704a93e0a2a100c3c0416bf9c26a34e263d8e429a2b62f5ae",
+      "bytes": 13019,
       "kind": "bbmodel"
     },
     "dists/zion-ammo-cache-station.bbmodel": {
@@ -444,6 +456,18 @@
       "url": "/assets/models/materias_mossy-concrete-wall.3ea330149bb8.bbmodel",
       "sha256": "3ea330149bb8499e8aea06bdca570e52a5ced7ee94cabc0bf30190a32f807528",
       "bytes": 23581,
+      "kind": "bbmodel"
+    },
+    "materias/nha-cu-1-tang.bbmodel": {
+      "url": "/assets/models/materias_nha-cu-1-tang.ae8c6d84c219.bbmodel",
+      "sha256": "ae8c6d84c219954d5bd565992c91871aa0be544360fbdf4e52029238bc19c0c6",
+      "bytes": 35591,
+      "kind": "bbmodel"
+    },
+    "materias/nha-cu-hai-tang.bbmodel": {
+      "url": "/assets/models/materias_nha-cu-hai-tang.23d4bf4093cf.bbmodel",
+      "sha256": "23d4bf4093cf6971fae2435a3577b7980d87a90899680c1bcab98c674af61e63",
+      "bytes": 44934,
       "kind": "bbmodel"
     },
     "materias/nuclear-power-cell.bbmodel": {
@@ -727,6 +751,138 @@
       "sha256": "e8b70b3f1cd643e67deb319268a8b4e37ea375c06dded07bed0ffc27e385566f",
       "bytes": 18475,
       "kind": "bbmodel"
+    },
+    "prepared/apartment.glb": {
+      "url": "/assets/models/prepared_apartment.c9fe655f49c4.glb",
+      "sha256": "c9fe655f49c460c38c7e222be28548f780794bb1b9e076f0444769df2e19de0a",
+      "bytes": 3952132,
+      "kind": "glb"
+    },
+    "prepared/barn01.glb": {
+      "url": "/assets/models/prepared_barn01.11979a357daa.glb",
+      "sha256": "11979a357daa310a8c4a89e5c4c719590d80e543300d60c215aa84d75b98fc01",
+      "bytes": 169252,
+      "kind": "glb"
+    },
+    "prepared/barn03.glb": {
+      "url": "/assets/models/prepared_barn03.48a87433aa13.glb",
+      "sha256": "48a87433aa13cc010d96c01b33caa1c97a44348f241d56c332131205860e4f01",
+      "bytes": 160740,
+      "kind": "glb"
+    },
+    "prepared/barrack01.glb": {
+      "url": "/assets/models/prepared_barrack01.88907bb4af34.glb",
+      "sha256": "88907bb4af342faa0c588fd777c233d0c948d57904e840decbdf7bd3dca7a042",
+      "bytes": 159048,
+      "kind": "glb"
+    },
+    "prepared/barrack02.glb": {
+      "url": "/assets/models/prepared_barrack02.b39da9940f3c.glb",
+      "sha256": "b39da9940f3c66974341ccba46336b97640ca8f2eed77563499401b8227090e4",
+      "bytes": 158596,
+      "kind": "glb"
+    },
+    "prepared/barrack04.glb": {
+      "url": "/assets/models/prepared_barrack04.efed7a082dd6.glb",
+      "sha256": "efed7a082dd6c54c9175568d641ebfca111b884df48761c3a5bccac9ba39649b",
+      "bytes": 162504,
+      "kind": "glb"
+    },
+    "prepared/bench01.glb": {
+      "url": "/assets/models/prepared_bench01.0c978a744b0b.glb",
+      "sha256": "0c978a744b0bf0702493680a4bb5eb8a316afe6957e874cb39ba0797f27d79a7",
+      "bytes": 162260,
+      "kind": "glb"
+    },
+    "prepared/container02.glb": {
+      "url": "/assets/models/prepared_container02.80a50ef2eeea.glb",
+      "sha256": "80a50ef2eeea948b1469baf714fe3d615833781fbb34ada7979938e38c7bf390",
+      "bytes": 158956,
+      "kind": "glb"
+    },
+    "prepared/drive_car.glb": {
+      "url": "/assets/models/prepared_drive_car.2858675c092a.glb",
+      "sha256": "2858675c092a44b6abc3fab7d3e21200e0c3c9a19acf1df2877bb5f587585b34",
+      "bytes": 1666412,
+      "kind": "glb"
+    },
+    "prepared/drive_grizzly.glb": {
+      "url": "/assets/models/prepared_drive_grizzly.287cf5c39d69.glb",
+      "sha256": "287cf5c39d692950c3bd01e5fdc376cbcd71af82ce0548465b511152304482d2",
+      "bytes": 103768,
+      "kind": "glb"
+    },
+    "prepared/drive_jeep.glb": {
+      "url": "/assets/models/prepared_drive_jeep.e332a69b6d3c.glb",
+      "sha256": "e332a69b6d3c760456a1408b53967de49e3a31579539546e8619d681805695ad",
+      "bytes": 318928,
+      "kind": "glb"
+    },
+    "prepared/drive_quad.glb": {
+      "url": "/assets/models/prepared_drive_quad.424789d9236f.glb",
+      "sha256": "424789d9236f6185299a135ba7b45b0eef9a02d93d150e327e7bd4eae255233d",
+      "bytes": 131700,
+      "kind": "glb"
+    },
+    "prepared/favela.glb": {
+      "url": "/assets/models/prepared_favela.a2d7e6cd49fd.glb",
+      "sha256": "a2d7e6cd49fddaade93c5b36bc60423c6472dfbfade4f2aef9c44edcf24a2a6f",
+      "bytes": 1493068,
+      "kind": "glb"
+    },
+    "prepared/fence01.glb": {
+      "url": "/assets/models/prepared_fence01.fde9068cb0b7.glb",
+      "sha256": "fde9068cb0b78348d17c797aaf639f2e239e421ee92fdc78251f7091029532c2",
+      "bytes": 159300,
+      "kind": "glb"
+    },
+    "prepared/generator01.glb": {
+      "url": "/assets/models/prepared_generator01.01be869c0789.glb",
+      "sha256": "01be869c078957108bc9803c13f558516b4dece929fc945365a24412eb3b9734",
+      "bytes": 166088,
+      "kind": "glb"
+    },
+    "prepared/house01.glb": {
+      "url": "/assets/models/prepared_house01.4fb87cebd803.glb",
+      "sha256": "4fb87cebd80323b30181f6815d800bc8b2962b7c5839cfff273c56fb579a00b2",
+      "bytes": 167448,
+      "kind": "glb"
+    },
+    "prepared/house02.glb": {
+      "url": "/assets/models/prepared_house02.c60ef9fec3ea.glb",
+      "sha256": "c60ef9fec3ea9a955b579fba475b0f0244500dee8ca55b0bf60c299c67fe418d",
+      "bytes": 178148,
+      "kind": "glb"
+    },
+    "prepared/house03.glb": {
+      "url": "/assets/models/prepared_house03.d4acba388cf9.glb",
+      "sha256": "d4acba388cf99c1a25ad7d549c60301ba9b407b5b04b568505b631ca3053381f",
+      "bytes": 165600,
+      "kind": "glb"
+    },
+    "prepared/slum_corner.glb": {
+      "url": "/assets/models/prepared_slum_corner.f4462eb3b88d.glb",
+      "sha256": "f4462eb3b88d3a62e876df333c55d9669a10bf61ca86e5aaa1e53484a321f895",
+      "bytes": 107484,
+      "kind": "glb"
+    },
+    "prepared/slum_room.glb": {
+      "url": "/assets/models/prepared_slum_room.ddb0c5071b7c.glb",
+      "sha256": "ddb0c5071b7cf56e559da121573542643095a118404d3e057f6c3298a2de7bdd",
+      "bytes": 53824,
+      "kind": "glb"
+    },
+    "prepared/trailer01.glb": {
+      "url": "/assets/models/prepared_trailer01.02b0087839aa.glb",
+      "sha256": "02b0087839aa6d2285d2e7e0aec13e6a56b88777250c4e1c623f538421e1335b",
+      "bytes": 159064,
+      "kind": "glb"
+    },
+    "prepared/watertank01.glb": {
+      "url": "/assets/models/prepared_watertank01.deb6308d9f6d.glb",
+      "sha256": "deb6308d9f6dea8243d3b8b8748f4812f21e4cb1ef917970935be9ee8402e69f",
+      "bytes": 165516,
+      "kind": "glb"
     },
     "pump-shotgun.bbmodel": {
       "url": "/assets/models/pump-shotgun.5b7a1b543c38.bbmodel",

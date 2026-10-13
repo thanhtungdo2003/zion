@@ -22,5 +22,7 @@ export const assetManifestSchema = z
 export type AssetManifest = z.infer<typeof assetManifestSchema>;
 
 export const ASSET_MANIFEST_URL = '/assets/manifest.json';
-export const MAX_GLB_BYTES = 16 * 1024 * 1024;
+// Authored building packs can contain embedded textures and several structures.
+// This is a build-time validation ceiling, not a preload budget: clients load on demand.
+export const MAX_GLB_BYTES = 64 * 1024 * 1024;
 export const MAX_BBMODEL_BYTES = 8 * 1024 * 1024;

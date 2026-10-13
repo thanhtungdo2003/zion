@@ -93,7 +93,7 @@ export class WorldMapStore {
     const generation = ++this.generation;
     this.emit({ error: null });
     try {
-      const atlas = await getWorldAtlas();
+      const atlas = await getWorldAtlas(this.state.world?.mode);
       if (generation === this.generation && atlas.worldId === this.state.world?.worldId) this.emit({ atlas });
     } catch { if (generation === this.generation) this.emit({ error: 'Không tải được địa hình. Thử tải lại bản đồ.' }); }
   }
@@ -122,7 +122,7 @@ export class WorldMapStore {
     const world = this.state.world;
     if (!world || x < 0 || z < 0 || x >= world.sizeChunks * world.chunkSize || z >= world.sizeChunks * world.chunkSize) return false;
     const camp = this.state.world?.camp;
-    return (!!camp && Math.hypot(x - camp.x, z - camp.z) <= 1000) || this.exploration.has(x, z);
+    return world.mode === 'battle-royale' || (!!camp && Math.hypot(x - camp.x, z - camp.z) <= 1000) || this.exploration.has(x, z);
   }
   add(x: number, z: number, name: string, icon: string): string | null {
     if (this.state.locations.filter((m) => !m.fixed).length >= 100 || !name.trim() || !this.known(x, z) || !MAP_ICONS.some((i) => i.id === icon)) return null;

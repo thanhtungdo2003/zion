@@ -1,5 +1,5 @@
 import type { LifeWorld } from './game/base-life';
-import { STARTING_ZCOIN, validateContent } from '@zion/shared';
+import { BATTLE_MAP, STARTING_ZCOIN, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -99,6 +99,14 @@ async function main(): Promise<void> {
     initialWorldTimeMs: record.worldTimeMs,
   });
 
+  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale' }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger);
+  await battleWorld.start();
+  const battleGame = new GameServer({ config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+  const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
+  const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
+  const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
+  const battleTiles = atlasTileProvider(battleWorld.generator, BATTLE_MAP.id);
+
   const savedLife = await db.query<{ state: LifeWorld }>('SELECT state FROM world_base_life WHERE world_id = $1', [config.WORLD_ID]);
   if (savedLife.rows[0]) game.lifeWorld = savedLife.rows[0].state;
   const savedContent = await db.query<{ content: unknown }>('SELECT content FROM game_content WHERE world_id = $1', [config.WORLD_ID]);
@@ -130,8 +138,8 @@ async function main(): Promise<void> {
   const app = await buildHttpApp({
     news: new NewsRepository(db),
     progression,
-    atlas: atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout),
-    atlasTile: atlasTileProvider(world.generator, config.WORLD_ID),
+    atlas: mode => mode === 'battle-royale' ? battleAtlas() : survivalAtlas(),
+    atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : survivalTiles(x, z),
     teams,
     config,
     logger,
@@ -233,9 +241,10 @@ async function main(): Promise<void> {
     },
   });
 
-  gateway = new GameGateway(config, logger, metrics, auth, game, audit);
+  gateway = new GameGateway(config, logger, metrics, auth, game, audit, battleGame);
   gateway.attach(app.server);
   game.start();
+  battleGame.start();
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
@@ -257,9 +266,11 @@ async function main(): Promise<void> {
     try {
       gateway?.stopAccepting();
       await game.stop();
+      await battleGame.stop();
       await gateway?.close();
       await app.close();
       await world.close();
+      await battleWorld.close();
       await audit.close();
       await kv.close();
       await db.end();

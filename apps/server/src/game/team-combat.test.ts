@@ -15,6 +15,7 @@ interface CombatHarness {
   damage(attacker: number | null, target: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void;
   hitTarget(attacker: Player, target: Player, amount: number, zone: string, x: number, y: number, z: number, dx: number, dz: number, impulse: number, now: number): void;
   vegetation: { explode: () => void };
+  vehicles: { blast: () => void; release: () => void };
   zombies: { near: () => never[]; alert: () => void };
   grid: { query: () => Player[] };
   explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade', now: number): void;
@@ -28,6 +29,7 @@ async function setup() {
   const b = new Player(2, 'b', 'Bravo', session, 501, 0, 500);
   const enemy = new Player(3, 'c', 'Enemy', session, 502, 0, 500);
   const server = Object.create(GameServer.prototype) as CombatHarness;
+  server.vehicles = { blast: vi.fn(), release: vi.fn() };
   server.deps = { teams }; server.players = new Map([[1, a], [2, b], [3, enemy]]);
   server.spawns = { inSafeZone: () => false }; server.broadcastNear = vi.fn();
   server.broadcastPlayerList = vi.fn();

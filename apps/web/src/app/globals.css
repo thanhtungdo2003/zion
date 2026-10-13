@@ -357,6 +357,7 @@ button {
 }
 
 .menu-top {
+  z-index: 2;
   position: absolute;
   top: 0;
   left: 0;
@@ -446,7 +447,12 @@ button {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
+  max-height: max(100px, calc(100dvh - 180px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+
+.menu-launch > * { flex-shrink: 0; }
 
 .menu-zalo {
   display: flex;
@@ -455,14 +461,15 @@ button {
   max-width: 100%;
   margin-bottom: 8px;
   border-radius: 12px;
+  flex-shrink: 0;
 }
 
 .menu-zalo img {
   display: block;
   width: auto;
   height: auto;
-  max-width: min(100%, 340px);
-  max-height: clamp(120px, calc(100dvh - 280px), 520px);
+  max-width: min(100%, 190px);
+  max-height: clamp(80px, calc(100dvh - 420px), 290px);
   border-radius: inherit;
 }
 
@@ -2476,3 +2483,29 @@ kbd {
   .leaderboard-table th, .leaderboard-table td { padding: 10px 8px; font-size: 12px; }
   .leaderboard-footer { padding: 12px; }
 }
+.battle-status { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; max-width: min(580px, 75vw); padding: 12px 20px; text-align: center; color: #fff; background: rgba(20, 8, 12, .85); border-top: 3px solid #ff263d; pointer-events: none; z-index: 15; }
+.battle-status b { color: #ff6474; font-size: 14px; letter-spacing: .08em; }
+.battle-drop { position: absolute; left: 50%; top: 60%; transform: translate(-50%, -50%); display: grid; gap: 8px; width: min(420px, 86vw); padding: 16px 22px; text-align: center; color: #fff; background: rgba(10, 17, 28, .78); border: 1px solid #79b9ff; border-radius: 12px; pointer-events: none; z-index: 18; }
+.battle-drop progress { width: 100%; height: 6px; accent-color: #8dccff; }
+.battle-drop strong { font-size: 34px; color: #8dccff; }
+.battle-drop span { font-size: 13px; }
+.battle-drop kbd { padding: 2px 5px; background: #27374e; border-radius: 3px; }
+.battle-status span { font-size: 13px; }
+.battle-status small { font-size: 11px; color: #c2b5b8; }
+.battle-warning { color: #ff5669; font-size: 14px; }
+.battle-result { z-index: 100; }
+.battle-result .overlay-card { display: grid; gap: 16px; }
+@media (max-width: 700px) { .battle-status { top: 8px; padding: 8px 10px; max-width: 60vw; } .battle-status b, .battle-status span { font-size: 11px; } }
+
+.hud-vehicle { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); display: grid; gap: 6px; padding: 12px 18px; background: rgba(10,14,12,.9); border: 1px solid #81784d; color: #f4ead2; text-align: center; pointer-events: auto; }
+.hud-vehicle b { color: #ff4939; }
+.hud-vehicle button { padding: 7px 12px; color: inherit; background: #333b30; border: 1px solid #8c9668; cursor: pointer; }
+.hud-vehicle.driving { left: 326px; bottom: 68px; transform: none; width: 188px; box-sizing: border-box; padding: 8px 10px; gap: 4px; text-align: left; font-size: 12px; }
+.hud-vehicle.driving strong { font-size: 13px; }
+.hud-vehicle.driving button { padding: 4px 8px; font-size: 12px; }
+.hud-vehicle-durability { display: flex; align-items: center; gap: 6px; }
+.hud-vehicle-durability progress { appearance: none; width: 100%; height: 7px; border: 0; background: #343a32; accent-color: #9cae67; }
+.hud-vehicle-durability progress::-webkit-progress-bar { background: #343a32; }
+.hud-vehicle-durability progress::-webkit-progress-value { background: #9cae67; }
+.hud-vehicle-durability progress::-moz-progress-bar { background: #9cae67; }
+.touch-mode .hud-vehicle.driving { left: auto; right: max(12px, env(safe-area-inset-right)); bottom: max(40px, calc(env(safe-area-inset-bottom) + 36px)); width: 150px; }

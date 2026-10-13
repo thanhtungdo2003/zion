@@ -8,22 +8,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { performance } from 'node:perf_hooks';
-import { BIOME_MAP_COLORS, BIOME_NAMES, Biome, type ChunkData } from '@zion/shared';
+import { BATTLE_MAP, BIOME_MAP_COLORS, BIOME_NAMES, Biome, type ChunkData } from '@zion/shared';
 import { createDefaultRegistry } from '@zion/assets';
-import { WorldGenerator, encodePngRgb, makeColumnSample, normalizeSeed } from '../src/index';
+import { WorldGenerator, allStructures, encodePngRgb, makeColumnSample, normalizeSeed } from '../src/index';
 
 function arg(name: string, def: string): string {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : def;
 }
 
-const seedArg = arg('seed', 'zion-alpha');
+const mode = arg('mode', 'survival') === 'battle-royale' ? 'battle-royale' : 'survival';
+const seedArg = arg('seed', mode === 'battle-royale' ? BATTLE_MAP.seed : 'zion-alpha');
 const seed = normalizeSeed(seedArg);
-const sizeChunks = Number(arg('size', '128'));
+const sizeChunks = Number(arg('size', mode === 'battle-royale' ? String(BATTLE_MAP.sizeChunks) : '128'));
 const mpp = Number(arg('mpp', '8'));
 
 const t0 = performance.now();
-const gen = new WorldGenerator({ seed, sizeChunks }, createDefaultRegistry());
+const gen = new WorldGenerator({ seed, sizeChunks, mode }, createDefaultRegistry());
 const tInit = performance.now() - t0;
 
 const W = Math.floor(gen.worldSize / mpp);
@@ -87,6 +88,16 @@ for (const { a, b, length, bridge } of gen.roads?.segments ?? []) {
   }
 }
 
+if (mode === 'battle-royale') for (const site of allStructures(gen)) {
+  for (const part of site.parts.filter(p => p.asset === 2107 && p.y < 1)) {
+    const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
+    const x = Math.floor((site.x + part.x * c + part.z * s) / mpp), z = Math.floor((site.z - part.x * s + part.z * c) / mpp);
+    if (x < 0 || z < 0 || x >= W || z >= W) continue;
+    const k = (z * W + x) * 3;
+    rgb[k] = site.kind === 'factory' ? 235 : 186; rgb[k + 1] = site.kind === 'factory' ? 152 : 180; rgb[k + 2] = 105;
+  }
+}
+
 // Chunk generation benchmark + determinism check.
 const t2 = performance.now();
 let props = 0;
@@ -102,7 +113,7 @@ const spawns = gen.findSpawnPoints(16);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const outDir = path.resolve(here, '../preview');
 await mkdir(outDir, { recursive: true });
-const file = path.join(outDir, `world-${seed}.png`);
+const file = path.join(outDir, `${mode === 'battle-royale' ? 'battle' : 'world'}-${seed}.png`);
 await writeFile(file, encodePngRgb(W, W, rgb, (d) => deflateSync(d)));
 
 const total = W * W;

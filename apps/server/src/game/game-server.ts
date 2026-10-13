@@ -1,4 +1,7 @@
 import { SharedChests } from './chests';
+import { Vehicles } from './vehicles';
+import { BattleRoyaleMatch } from './battle-royale';
+import { BATTLE_MAP, generateBattleLoot, vehicleOwner, type ChestData, type GameMode } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -10,6 +13,10 @@ import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCost, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
+import { battleStructures } from '@zion/worldgen';
+import { BATTLE_ASSET } from '@zion/assets';
+import { battlePlaneAt } from '@zion/shared';
+import { doorColliders, stepAirborne } from '@zion/physics';
 import { type TeamService, TeamError } from './teams';
 import { TEAM_QUESTS } from '@zion/shared';
 import { chooseMissionStructure } from './mission-locations';
@@ -137,6 +144,7 @@ const MAX_PLAYERS = 256;
 const MAX_STEP_DISTANCE = DEFAULT_CHARACTER.sprintSpeed * TICK_DT * 3 + 0.5;
 
 export interface GameServerDeps {
+  mode?: GameMode;
   progression?: ProgressionService;
   teams?: TeamService;
   config: AppConfig;
@@ -157,6 +165,7 @@ export interface GameServerDeps {
  * collision world, resolves combat, streams chunks and sends interest-filtered snapshots.
  */
 export class GameServer {
+  readonly vehicles: Vehicles;
   private readonly vegetation: VegetationDamage;
   private readonly vegetationView = new WeakMap<Player, { cx: number; cz: number; revisions: Map<number, number> }>();
   lifeWorld: LifeWorld = { plots: {}, nextGrowth: 0 };
@@ -211,19 +220,38 @@ export class GameServer {
   private accumulator = 0;
   private lastPersist = Date.now();
   private persisting: Promise<void> | null = null;
+  private battle: BattleRoyaleMatch | null = null;
+  private readonly battleChests = new Map<string, ChestData>();
+  private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
+  private readonly battleDoors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
+  private readonly doorUsedAt = new Map<number, number>();
+  private battleWasOccupied = false;
+  private battleFlightStarted = false;
 
   constructor(private readonly deps: GameServerDeps) {
+    if (deps.mode === 'battle-royale') this.battle = new BattleRoyaleMatch(deps.world.generator.seed, deps.world.generator.worldSize);
+    if (this.battle) for (const site of battleStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
+      const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
+      this.battleDoors.set(site.gid * 10000 + i, { x: site.x + part.x * c + part.z * s, y: site.y + part.y, z: site.z - part.x * s + part.z * c, yaw: site.yaw + part.yaw, open: false });
+    }
     this.chests = new SharedChests({
       near: (p, id) => this.chestNear(p, id),
-      load: (id) => deps.playerStates.loadChest(id),
-      commit: (id, data, p, inventory) => deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined),
+      load: (id) => this.battle ? Promise.resolve(this.battleChests.get(id) ?? null) : deps.playerStates.loadChest(id),
+      commit: (id, data, p, inventory) => {
+        if (this.battle) { this.battleChests.set(id, structuredClone(data)); return Promise.resolve(); }
+        return deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined);
+      },
+      loot: this.battle ? generateBattleLoot : undefined,
+      searchMs: this.battle ? 1000 : undefined,
       sync: (p) => { p.cancelReload(); this.syncLoadout(p); this.sendInv(p); },
       finish: (p) => this.finishQuestMutation(p),
       error: (err) => this.log.error({ err }, 'shared chest transaction failed'),
-    }, () => this.serverTime, () => Math.floor(this.worldTimeMs / this.dayLengthMs));
+    }, () => this.serverTime, () => this.battle ? 0 : Math.floor(this.worldTimeMs / this.dayLengthMs));
     this.log = deps.logger.child({ module: 'game' });
     const gen = deps.world.generator;
     this.collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
+    this.vehicles = new Vehicles(this.collision, gen);
+    for (const [id, door] of this.battleDoors) this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door));
     this.vegetation = new VegetationDamage({
       ground: (x, z) => {
         const y = this.collision.terrainHeight(x, z);
@@ -266,13 +294,14 @@ export class GameServer {
   }
 
   applyContent(content: GameContent): void {
+    if (this.battle) content = { ...content, npcs: [], quests: [], baseLife: { ...DEFAULT_BASE_LIFE, animals: [], plots: [], crops: [], stations: [], trades: [], recipes: [], decorations: [], stamina: { ...DEFAULT_BASE_LIFE.stamina, capacityDecay: 0 } } };
     this.content = structuredClone(content);
     // Add the chef's new stock to worlds with an older saved Camp Studio catalogue.
     if (this.content.baseLife && this.content.npcs.some((n) => n.id === 'chef') &&
         !this.content.baseLife.trades.some((t) => t.npc === 'chef' && t.item === 'coal_carton')) {
       this.content.baseLife.trades.push(structuredClone(DEFAULT_BASE_LIFE.trades.find((t) => t.id === 'chef_coal_carton')!));
     }
-    for (const quest of COLONEL_SEARCH_QUESTS) if (!this.content.quests.some((q) => q.id === quest.id)) this.content.quests.push(structuredClone(quest));
+    if (!this.battle) for (const quest of COLONEL_SEARCH_QUESTS) if (!this.content.quests.some((q) => q.id === quest.id)) this.content.quests.push(structuredClone(quest));
     this.life = new BaseLife(this.content.baseLife ?? DEFAULT_BASE_LIFE);
     this.configureAnimals();
     this.quests = new QuestEngine(this.content);
@@ -575,11 +604,13 @@ export class GameServer {
   private finishQuestMutation(p: Player): void {
     p.questBusy = false;
     for (const deferred of p.afterQuest.splice(0)) deferred();
+    if (this.battle) return;
     if (p.questBusy) return;
     if (!p.session.open || p.onLeaveSaved) void this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }]).catch((err: unknown) => this.log.error({ err }, 'post-disconnect transaction save failed')).finally(() => { p.onLeaveSaved?.(); p.onLeaveSaved = null; });
   }
 
   private queueQuestEvent(p: Player, event: QuestEvent): void {
+    if (this.battle) return;
     p.questEvents.push(event);
     if (!p.questBusy) void this.flushQuestEvents(p);
   }
@@ -865,6 +896,7 @@ export class GameServer {
   worldInfo(): WorldInfo {
     const gen = this.deps.world.generator;
     return {
+      mode: this.battle ? 'battle-royale' : 'survival',
       worldId: this.deps.worldId,
       sizeChunks: gen.config.sizeChunks,
       chunkSize: CHUNK_SIZE,
@@ -926,6 +958,10 @@ export class GameServer {
   /* ------------------------------------ join/leave --------------------------------------- */
 
   async join(session: ClientSession): Promise<void> {
+    if (this.battle && (!this.battle.accepting || this.players.size + this.joiningAccounts.size >= BATTLE_MAP.maxPlayers)) {
+      session.sendError('server_full', 'Trận Battle Royale đang diễn ra hoặc đã đủ 32 người. Hãy quay lại sảnh và thử trận sau.', true);
+      session.close(CloseCode.ServerFull, 'battle unavailable'); return;
+    }
     const acc = session.account;
     if (!acc) throw new Error('join without account');
     if (this.joiningAccounts.has(acc.accountId)) {
@@ -955,7 +991,7 @@ export class GameServer {
     }
 
     await this.pendingSaves.get(acc.accountId);
-    let saved = await this.deps.playerStates.load(acc.accountId);
+    let saved = this.battle ? null : await this.deps.playerStates.load(acc.accountId);
     let pos: ValidatedPosition | null = null;
     let health = PLAYER_MAX_HEALTH;
     const pin = saved ? ([Math.floor(saved.x / CHUNK_SIZE), Math.floor(saved.z / CHUNK_SIZE)] as [number, number]) : null;
@@ -967,10 +1003,15 @@ export class GameServer {
         else this.log.info({ accountId: acc.accountId }, 'saved position invalid; respawning');
       }
       pos ??= await this.spawns.pickSpawn();
+      if (this.battle) {
+        for (let attempt = 0; attempt < 16 && [...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 50); attempt++) pos = await this.spawns.pickSpawn();
+        if ([...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 30)) throw new Error('No separated battle spawn available');
+      }
     } finally {
       this.joining.delete(session.id);
     }
     if (!session.open) return;
+    if (this.battle && !this.battle.accepting) { session.sendError('server_full', 'Trận đã bắt đầu. Hãy thử trận tiếp theo.', true); session.close(CloseCode.ServerFull, 'battle started'); return; }
     if (this.deps.progression) saved = await this.deps.playerStates.deliverRequisitions({ accountId: acc.accountId, x: pos.x, y: pos.y, z: pos.z, yaw: saved?.yaw ?? 0, health, coins: saved?.coins ?? STARTING_ZCOIN, inventory: saved?.inventory ?? defaultLoadout(), journal: saved?.journal, life: saved?.life, suspendedZombies: saved?.suspendedZombies ?? [] });
     const joinedRank = await this.deps.progression?.title(acc.accountId);
     if (!session.open) return;
@@ -983,7 +1024,7 @@ export class GameServer {
     const player = new Player(this.nextEntityId++, acc.accountId, acc.username, session, pos.x, pos.y, pos.z);
     player.yaw = saved?.yaw ?? 0;
     player.health = health;
-    player.coins = Math.max(0, Math.round(saved?.coins ?? STARTING_ZCOIN));
+    player.coins = this.battle ? 0 : Math.max(0, Math.round(saved?.coins ?? STARTING_ZCOIN));
     player.life = saved?.life?.quotas ? saved.life : this.life.initial();
     player.life.capacity = Math.min(this.life.config.stamina.maximum, Math.max(this.life.config.stamina.minimumCapacity, player.life.capacity));
     player.life.stamina = Math.max(0, Math.min(player.life.capacity, player.life.stamina));
@@ -991,7 +1032,7 @@ export class GameServer {
     player.suspendedZombies = saved?.suspendedZombies ?? [];
     if (joinedRank) player.rank = joinedRank;
     this.quests.reset(player, Date.now());
-    player.inv.load(saved?.inventory ?? defaultLoadout());
+    player.inv.load(this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
     // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
     player.inv.load({ ...player.inv.toJSON(), items: player.inv.items.filter(item => {
       if (item.itemId !== 'c4_detonator') return true;
@@ -1009,10 +1050,12 @@ export class GameServer {
     this.players.set(player.id, player);
     this.byAccount.set(acc.accountId, player);
     this.grid.update(player);
+    if (this.battle) { this.battle.join(player.id, player.username); this.battleWasOccupied = true; }
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
       t: 'welcome',
+      mode: this.battle ? 'battle-royale' : 'survival',
       playerId: player.id,
       username: player.username,
       world: this.worldInfo(),
@@ -1025,11 +1068,14 @@ export class GameServer {
     this.zombies.restore(player);
     this.syncVegetation(player);
     this.sendInv(player);
+    if (this.battle) for (const [id, door] of this.battleDoors) session.sendJson({ t: 'door', id, ...door });
     this.sendQuests(player);
     this.sendTeam(player);
     this.sendLife(player);
-    player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
+    if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
+    else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
+    if (this.battle) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
     session.sendJson(this.npcList());
     session.sendJson({ t: 'coins', drops: [...this.coinDrops].map(([id, c]) => ({ id, x: c.x, y: c.y, z: c.z, amount: c.amount })) });
     this.broadcastPlayerList();
@@ -1041,6 +1087,7 @@ export class GameServer {
     if (!p) return;
     session.player = null;
     if (this.players.get(p.id) !== p) return;
+    this.vehicles.release(p);
     this.cancelLifeAction(p, false);
     p.suspendedZombies.push(...this.zombies.suspend(p, [...this.players.values()]));
     p.active = false;
@@ -1052,7 +1099,8 @@ export class GameServer {
     this.deps.metrics.players = this.players.size;
     // The final save is tracked per account: a re-login waits for it before loading, so it can
     // never start from a stale row (no rollback / duplication by quick reconnects).
-    const saved = p.questBusy
+    this.battle?.leave(p.id);
+    const saved = this.battle ? Promise.resolve() : p.questBusy
       ? new Promise<void>((resolve) => { p.onLeaveSaved = resolve; })
       : this.deps.playerStates
         .saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }])
@@ -1070,6 +1118,9 @@ export class GameServer {
 
   handleMessage(session: ClientSession, msg: ClientMessage): void {
     const p = session.player;
+    if (this.battle && !['in', 'ping', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle'].includes(msg.t)) return;
+    if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
+    if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
     if (p && msg.t === 'tutorial') {
       updateTutorial(p, msg, this.serverTime);
       p.session.sendJson({ t: 'tutorialState', ...tutorialProgress(p) });
@@ -1077,6 +1128,24 @@ export class GameServer {
     }
     if (!p || p.questBusy) return;
     switch (msg.t) {
+      case 'door': {
+        const door = this.battleDoors.get(msg.id);
+        if (!this.battle || !door || p.dead || p.downed || Math.hypot(p.state.x - door.x, p.state.z - door.z) > 3 || Math.abs(p.state.y - door.y) > 2) return;
+        if (this.serverTime - (this.doorUsedAt.get(p.id) ?? -Infinity) < 250) return;
+        this.doorUsedAt.set(p.id, this.serverTime);
+        if (door.open && [...this.players.values()].some(other => {
+          const dx = other.state.x - door.x, dz = other.state.z - door.z, c = Math.cos(door.yaw), s = Math.sin(door.yaw);
+          return !other.dead && Math.abs(dx * c - dz * s) < .9 && Math.abs(dx * s + dz * c) < .7 && Math.abs(other.state.y - door.y) < 2;
+        })) return;
+        door.open = !door.open;
+        this.collision.setOwnerColliders(0xb0000000 + msg.id, doorColliders(door));
+        this.broadcast({ t: 'door', id: msg.id, ...door });
+        return;
+      }
+      case 'vehicle':
+        this.vehicles.toggle(p, msg.id, this.serverTime);
+        this.vehicles.send(p, this.serverTime);
+        return;
       case 'pvp':
         if (p.dead || p.downed || p.pvpUntil <= this.serverTime) return;
         p.pvpEnabled = msg.enabled;
@@ -1186,6 +1255,10 @@ export class GameServer {
     }
     const text = sanitizeChat(raw);
     if (!text) return;
+    if (/^\/vehicle(?:\s|$)/i.test(text)) {
+      this.onCommand(p, text.slice(1).trim());
+      return;
+    }
     if (channel === 'team') {
       if (!this.deps.teams?.forAccount(p.accountId)) { this.reply(p, 'Bạn chưa tham gia đội.'); return; }
       void this.deps.teams.action(p.accountId, p.username, { op: 'chat', text }, p.rank).then(() => {
@@ -1214,6 +1287,12 @@ export class GameServer {
   }
 
   private onCommand(p: Player, line: string): void {
+    const vehicleCommand = line.split(/\s+/);
+    if (vehicleCommand[0]?.toLowerCase() === 'vehicle') {
+      this.reply(p, this.vehicles.spawn(p, vehicleCommand[1], this.serverTime));
+      this.vehicles.send(p, this.serverTime); return;
+    }
+    if (this.battle) { this.reply(p, 'Lệnh sinh tồn không dùng trong Battle Royale.'); return; }
     const [cmd = '', ...args] = line.split(/\s+/);
     switch (cmd.toLowerCase()) {
       case 'locate':
@@ -1322,6 +1401,7 @@ export class GameServer {
   }
 
   private onRespawn(p: Player): void {
+    if (this.battle) return;
     if (!p.dead || this.respawning.has(p.id)) return;
     if (this.serverTime - p.deadAt < RESPAWN_DELAY_MS) return;
     this.respawning.add(p.id);
@@ -1358,11 +1438,49 @@ export class GameServer {
 
   /* ------------------------------------ simulation --------------------------------------- */
 
+  private stepBattle(now: number): void {
+    const match = this.battle!;
+    if (!this.players.size && !this.joiningAccounts.size && this.battleWasOccupied) {
+      this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear();
+      this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
+      this.battle = new BattleRoyaleMatch(this.deps.world.generator.seed, this.deps.world.generator.worldSize);
+      this.battleFlightStarted = false;
+      this.doorUsedAt.clear();
+      this.vehicles.reset();
+      for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); }
+      this.battleWasOccupied = false; return;
+    }
+    match.tick(now);
+    if (match.startedAt !== null && !this.battleFlightStarted) {
+      this.battleFlightStarted = true;
+      for (const p of this.players.values()) { p.state.flight = 1; p.state.grounded = false; p.inputs.length = 0; }
+    }
+    if (match.startedAt !== null && match.phase === 'running') {
+      const plane = battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt);
+      for (const p of this.players.values()) if (!p.dead && p.state.flight === 1) {
+        Object.assign(p.state, { x: plane.x, y: plane.y - 2, z: plane.z, vx: this.deps.world.generator.worldSize * .76 / 55, vy: 0, vz: this.deps.world.generator.worldSize * .44 / 55, grounded: false });
+        if (plane.remainingMs === 0) p.state.flight = 2;
+      }
+    }
+    if (this.tick % TICK_RATE !== 0) return;
+    if (match.phase === 'running') {
+      for (const p of this.players.values()) if (!p.dead && match.outside(p.state.x, p.state.z)) {
+        this.damage(null, p, match.state(now).damagePerSecond, 'red_zone', p.state.x, p.state.y + 1, p.state.z, now);
+      }
+      match.tick(now);
+    }
+    for (const p of this.players.values()) p.session.sendJson({ ...match.state(now, p.id), drop: { phase: p.state.flight === 1 ? 'boarding' : p.state.flight === 2 ? 'falling' : p.state.flight === 3 ? 'parachute' : 'landed', altitude: Math.max(0, p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)), parachuteOpen: p.state.flight === 3 } });
+    if (match.phase === 'finished' && match.state(now).remainingMs === 0) {
+      for (const p of [...this.players.values()]) { this.leave(p.session, 'battle finished'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
+    }
+  }
+
   private step(): void {
     const t0 = performance.now();
     this.tick++;
     this.worldTimeMs += TICK_MS;
     const now = this.serverTime;
+    if (this.battle) this.stepBattle(now);
 
     this.chests.step();
 
@@ -1421,11 +1539,11 @@ export class GameServer {
         p.wireReadyAt = now + WIRE_INTERVAL_MS;
         this.damage(null, p, WIRE_DAMAGE, 'barbed_wire', p.state.x, p.state.y + 0.8, p.state.z, now);
       }
-      if (this.tick % TICK_RATE === 0) {
+      if (!this.battle && this.tick % TICK_RATE === 0) {
         this.resolveQuestLocations(p);
         this.queueQuestEvent(p, { type: 'visit', x: p.state.x, z: p.state.z });
       }
-      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone);
+      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone, !!p.vehicleId);
       this.grid.update(p);
       p.streamer.setCenter(p.chunkX, p.chunkZ);
       this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed });
@@ -1434,6 +1552,26 @@ export class GameServer {
         void this.deps.teams?.progress(p.accountId).catch((err: unknown) => this.log.error({ err }, 'team rally progress failed'));
       }
     }
+
+    this.vehicles.step(now, TICK_DT, this.players, (v, occupant) => {
+      if (occupant && !occupant.dead) this.killPlayer(occupant, null, now, 'xe phát nổ');
+      this.collision.removeOwnerColliders(vehicleOwner(v.id));
+      this.explode(0x60000000 + v.id, v.x, v.y + .8, v.z, 7, 220, null, 'rocket', now);
+    }, (p, speed) => this.damage(null, p, Math.round((speed - 8) * 1.8), 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now));
+    this.vehicles.strike(now, (v, r) => this.zombies.near(v.x, v.z, r).filter((z) => !z.dead), (z) => z.state, 80,
+      (z, v, amount, dx, dz, impulse) => this.hitZombie(v.driver ? this.players.get(v.driver) ?? null : null, z, amount, 'vehicle', z.state.x, z.state.y + 0.8, z.state.z, dx, dz, impulse, now));
+    this.vehicles.strike(now, (v, r) => [...this.players.values()].filter((p) => !p.dead && !p.vehicleId && Math.hypot(p.state.x - v.x, p.state.z - v.z) < r), (p) => p.state, 80,
+      (p, v, amount, dx, dz, impulse) => {
+        this.damage(v.driver, p, amount, 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now, 'xe tông', { kx: dx, kz: dz, force: +impulse.toFixed(2) });
+        // A hard hit kills outright instead of leaving the victim downed.
+        if (amount >= 140 && p.downed && !p.dead) this.killPlayer(p, v.driver, now, 'xe tông');
+      });
+    // Vehicle movement is integrated once per tick, independent of input packet count.
+    for (const p of this.players.values()) if (p.vehicleId) {
+      this.grid.update(p); p.streamer.setCenter(p.chunkX, p.chunkZ);
+      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, false, true);
+    }
+    if (this.tick % 2 === 0) for (const p of this.players.values()) this.vehicles.send(p, now);
 
     if (this.tick % PHYSICS_UPDATE_TICKS === 0) {
       const centers: Array<[number, number]> = [];
@@ -1445,8 +1583,10 @@ export class GameServer {
     this.stepGrenades(now);
     this.activeScratch.length = 0;
     for (const p of this.players.values()) if (p.active) this.activeScratch.push(p);
-    this.zombies.step(this.activeScratch, now, this.timeOfDay());
-    this.guards.step(this.zombies.zombies.values(), this.activeScratch, now);
+    if (!this.battle) {
+      this.zombies.step(this.activeScratch, now, this.timeOfDay());
+      this.guards.step(this.zombies.zombies.values(), this.activeScratch, now);
+    }
     // Announce the stalls to everyone once each NPC has been placed.
     if (!this.lifeBusy) for (const animal of this.animals.values()) {
       if (animal.dead && now - (animal.record.diedAt ?? 0) >= (animal.def.respawnMs ?? 10_000)) {
@@ -1455,7 +1595,7 @@ export class GameServer {
         for (const p of this.players.values()) this.sendLife(p);
       }
     }
-    if (this.tick % (TICK_RATE * 4) === 0) this.stepWildlife(now);
+    if (!this.battle && this.tick % (TICK_RATE * 4) === 0) this.stepWildlife(now);
     if (!this.lifeBusy) for (const animal of this.animals.values()) animal.step(now, (target, amount) => {
       // Livestock retaliation uses the same server damage path as hostile creatures.
       this.damage(null, target, amount, 'bite', target.state.x, target.state.y + 0.5, target.state.z, now);
@@ -1477,7 +1617,7 @@ export class GameServer {
         else p.session.sendJson(speech);
       }
     }
-    if (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT)) this.broadcast(this.npcList());
+    if (!this.battle && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
@@ -1514,6 +1654,18 @@ export class GameServer {
   }
 
   private applyInput(p: Player, input: InputMessage, now: number): void {
+    if (p.vehicleId) {
+      this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now);
+      p.pitch = input.pitch; p.aiming = false; p.lastButtons = 0; p.lastProcessedSeq = input.s;
+      return;
+    }
+    if (p.state.flight) {
+      p.yaw = input.yaw; p.pitch = input.pitch; p.aiming = false;
+      const jump = !!(input.b & Buttons.Jump) && !(p.lastButtons & Buttons.Jump);
+      if (p.state.flight === 1 && jump) p.state.flight = 2;
+      else stepAirborne(p.state, { mx: input.mx, mz: input.mz, yaw: input.yaw, jump, sprint: !!(input.b & Buttons.Sprint) }, this.collision, TICK_DT);
+      p.lastButtons = input.b & (Buttons.Jump | Buttons.Sprint); p.lastProcessedSeq = input.s; return;
+    }
     p.yaw = input.aimYaw ?? input.yaw;
     p.pitch = input.pitch;
     // What is in hand / on the back comes from the server's inventory, not the client's claim.
@@ -1587,6 +1739,8 @@ export class GameServer {
 
   /** Neutral step when a client's inputs stall (keeps gravity/water physics authoritative). */
   private coast(p: Player): void {
+    if (p.vehicleId) return;
+    if (p.state.flight) { stepAirborne(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false }, this.collision, TICK_DT); return; }
     this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false, prone: p.state.prone, speedMul: p.speedMul }, TICK_DT, this.stepInfo);
   }
 
@@ -1693,6 +1847,7 @@ export class GameServer {
 
   private playerAttackAllowed(attacker: Player, target: Player, now: number): boolean {
     if (attacker === target || attacker.dead || attacker.downed) return false;
+    if (this.battle) return this.battle.canFight(attacker.id) && this.battle.canFight(target.id);
     // A real player hit reveals the control even when damage is disabled.
     if (attacker.pvpUntil <= now && attacker.pvpEnabled) {
       attacker.pvpEnabled = false;
@@ -1704,13 +1859,13 @@ export class GameServer {
   }
 
   /** Routes a hit to a player or a zombie. */
-  private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, knockbackMultiplier = 1): void {
+  private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, knockbackMultiplier = 1, weapon = attacker.weapon): void {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else {
       const t = target as Player;
-      if (!this.playerAttackAllowed(attacker, t, now) || tutorialProtected(t, this.serverTime)) return;
-      this.damage(attacker.id, t, amount, zone, x, y, z, now);
+      if (!this.playerAttackAllowed(attacker, t, now) || (!this.battle && tutorialProtected(t, this.serverTime))) return;
+      this.damage(attacker.id, t, amount, zone, x, y, z, now, weapon);
       if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
     }
   }
@@ -1768,25 +1923,26 @@ export class GameServer {
     for (const p of near) p.session.sendText(text);
   }
 
-  private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number): void {
+  private damage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number, weapon?: number | string, knock?: { kx: number; kz: number; force: number }): void {
     const attacker = attackerId !== null ? this.players.get(attackerId) : undefined;
     if (attackerId !== null && !isZombieId(attackerId) && attackerId < NPC_ID_BASE) {
       if (!attacker || !this.playerAttackAllowed(attacker, t, now)) return;
     }
-    if (t.dead || amount <= 0 || tutorialProtected(t, this.serverTime)) return;
-    if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now)); return; }
+    if (t.dead || amount <= 0 || (!this.battle && tutorialProtected(t, this.serverTime))) return;
+    if (this.battle && !this.battle.canFight(t.id)) return;
+    if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now, weapon, knock)); return; }
     if (t.downed) {
       // Hitting someone who is down drains what is left of their bleed-out.
       t.bleed -= amount;
       this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z });
-      if (t.bleed <= 0 || zone === 'suicide') this.killPlayer(t, attackerId, now);
+      if (t.bleed <= 0 || zone === 'suicide') this.killPlayer(t, attackerId, now, weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined));
       return;
     }
     // Safe zone: no player-caused damage (guns, melee, grenades) to players inside the camp.
     // (Camp NPCs firing back at whoever shot them are the exception.)
     if (attackerId !== null && !isZombieId(attackerId) && attackerId < NPC_ID_BASE && this.spawns.inSafeZone(t.state.x, t.state.z)) return;
     // Worn armour soaks up part of every hit and wears down by what it absorbed.
-    const prot = armorProtection(t.armor);
+    const prot = zone === 'red_zone' ? 0 : armorProtection(t.armor);
     if (prot > 0) {
       const absorbed = amount * prot;
       amount = Math.max(1, Math.round(amount - absorbed));
@@ -1798,15 +1954,16 @@ export class GameServer {
     }
     t.health = Math.max(0, t.health - amount);
     t.dirty = true;
-    this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z });
+    this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z, ...knock });
     if (t.health <= 0) {
-      if (zone === 'suicide') this.killPlayer(t, attackerId, now);
+      if (this.battle || zone === 'suicide') this.killPlayer(t, attackerId, now, weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined));
       else this.knockDown(t, now);
     }
   }
 
   /** Out of health: down on the ground, bleeding out (100 over 60 s) until revived or dead. */
   private knockDown(t: Player, now: number): void {
+    this.vehicles.release(t);
     t.downed = true;
     t.bleed = 100;
     t.distressAt = 0;
@@ -1819,16 +1976,35 @@ export class GameServer {
   }
 
   /** Final death. Active quests are lost, and so are the quest items being carried. */
-  private killPlayer(t: Player, attackerId: number | null, now: number): void {
+  private killPlayer(t: Player, attackerId: number | null, now: number, cause?: number | string): void {
     if (t.dead) return;
+    this.vehicles.release(t);
     t.downed = false;
     t.bleed = 0;
     t.reviving = null;
     t.health = 0;
     t.dead = true;
+    t.state.flight = 0;
     this.cancelLifeAction(t);
     t.deadAt = now;
     t.killerId = attackerId;
+    if (this.battle) {
+      this.battle.eliminate(t.id);
+      const killer = attackerId === null ? undefined : this.players.get(attackerId);
+      const weapon = cause ?? killer?.weapon ?? 0;
+      const itemId = typeof weapon === 'number' ? Object.keys(WEAPON_BY_ITEM).find(id => WEAPON_BY_ITEM[id] === weapon) : undefined;
+      const label = typeof weapon === 'string' ? weapon : itemId ? ITEMS[itemId]?.name ?? itemId : 'tay không';
+      this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: killer ? `${killer.username} đã hạ ${t.username} bằng ${label}.` : `${t.username} đã bị loại bởi ${label}.` });
+      this.chests.close(t);
+      const items = t.inv.items.filter(item => !isStash(item.container)).map(item => ({ ...item, container: 'backpack' as const, x: 0, y: 0 }));
+      const id = `9999:${t.id}:${Math.round(now)}:0`;
+      const crate = { id, x: t.state.x, y: t.state.y, z: t.state.z };
+      this.battleChests.set(id, { items, searched: true, revision: 0, capacity: Math.max(24, items.length) });
+      this.deathCrates.set(id, crate);
+      for (const item of items) t.inv.remove(item.uid);
+      this.broadcast({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
+      this.syncLoadout(t); this.sendInv(t);
+    }
     t.inputs.length = 0;
     t.state.vx = 0;
     t.state.vz = 0;
@@ -2003,6 +2179,7 @@ export class GameServer {
 
   /** Blast damage with linear falloff; cover blocks it for players. */
   private explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade' | 'grenade40' | 'rocket', now: number): void {
+    this.vehicles.blast(x, y, z, radius, damage, now);
     const liveOwner = owner && this.players.get(owner.id) === owner ? owner : null;
     this.vegetation.explode(x, y, z, radius, now);
     const cx = Math.floor(x / CHUNK_SIZE);
@@ -2028,7 +2205,7 @@ export class GameServer {
       const d = Math.hypot(tx, ty, tz);
       if (d >= radius) continue;
       if (d > 0.3 && this.collision.raycast(x, y + 0.3, z, tx / d, ty / d, tz / d, d, Mask.LineOfSight, this.blastHit)) continue;
-      this.damage(owner?.id ?? null, t, Math.round(damage * (1 - d / radius)), 'blast', t.state.x, t.state.y + 0.9, t.state.z, now);
+      this.damage(owner?.id ?? null, t, Math.round(damage * (1 - d / radius)), 'blast', t.state.x, t.state.y + 0.9, t.state.z, now, kind === 'grenade' ? 'lựu đạn' : kind === 'rocket' ? 'rocket' : 'lựu đạn 40 mm');
     }
     if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
     // Livestock caught in the blast (credited to the thrower).
@@ -2113,13 +2290,14 @@ export class GameServer {
       const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
+      if (stopped && !hit.target && !npcHit) this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag);
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
       this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped, normal: !npcHit && !hit.target && stopped ? hit.normal : undefined });
       if (r.spec.blast) {
         this.explode(r.id, r.x, r.y, r.z, r.spec.blast.radius, r.spec.blast.damage, r.owner, r.spec.kind === 'rocket' ? 'rocket' : 'grenade40', now);
       } else if (!npcHit && hit.target && hit.zone && owner) {
         const k = Math.hypot(r.vx, r.vz) || 1;
-        this.hitTarget(owner, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, r.vx / k, r.vz / k, r.damage * .12 * r.knockback, now, r.knockback);
+        this.hitTarget(owner, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, r.vx / k, r.vz / k, r.damage * .12 * r.knockback, now, r.knockback, r.w);
       }
     }
   }
@@ -2338,6 +2516,8 @@ export class GameServer {
 
   private chestNear(p: Player, id: string): { field: boolean } | null {
     if (!p.active || p.dead || p.downed) return null;
+    const crate = this.deathCrates.get(id);
+    if (crate) return Math.hypot(crate.x - p.state.x, crate.z - p.state.z) <= CHEST_REACH && Math.abs(crate.y - p.state.y) <= 2.5 ? { field: false } : null;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const chunk = this.deps.world.peek(p.chunkX + dx, p.chunkZ + dz, 0)?.data;
       if (!chunk) continue;
@@ -2392,7 +2572,7 @@ export class GameServer {
     const z = p.state.z - Math.cos(a) * d;
     const ground = this.collision.terrainHeight(x, z);
     const y = Number.isFinite(ground) && Math.abs(ground - p.state.y) < 1.5 ? ground : p.state.y;
-    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS };
+    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
     this.groundItems.set(id, g);
     this.broadcast({ t: 'ground', items: [{ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z }] });
   }
@@ -2582,6 +2762,9 @@ export class GameServer {
 
   private flagsOf(p: Player, now: number): number {
     let f = 0;
+    if (p.state.flight === 1) f |= EntityFlags.InPlane;
+    if (p.state.flight === 2) f |= EntityFlags.Freefall;
+    if (p.state.flight === 3) f |= EntityFlags.Parachute;
     if (p.state.grounded) f |= EntityFlags.Grounded;
     if (p.state.swimming) f |= EntityFlags.Swimming;
     if (p.dead) f |= EntityFlags.Dead;
@@ -2616,6 +2799,7 @@ export class GameServer {
   /* ------------------------------------ persistence -------------------------------------- */
 
   private async persistAll(all: boolean): Promise<void> {
+    if (this.battle) return;
     const batch = [];
     for (const p of this.players.values()) {
       if (p.questBusy || (!all && !p.dirty)) continue;

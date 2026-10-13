@@ -1,4 +1,4 @@
-import type { AtlasTile } from '@zion/shared';
+import type { AtlasTile, GameMode } from '@zion/shared';
 import { getAtlasTile } from '@/lib/api';
 
 /** Only queue the current viewport; cap concurrent downloads and retained detail tiles. */
@@ -8,7 +8,7 @@ export class AtlasTiles {
   private active = new Set<string>();
   private failed = new Map<string, number>();
   private disposed = false;
-  constructor(private readonly worldId: string, private readonly changed: () => void) {}
+  constructor(private readonly worldId: string, private readonly changed: () => void, private readonly mode?: GameMode) {}
   setVisible(keys: string[]): void {
     this.wanted = keys;
     for (const key of keys) {
@@ -24,7 +24,7 @@ export class AtlasTiles {
       if (this.tiles.has(key) || this.active.has(key) || (this.failed.get(key) ?? 0) > Date.now()) continue;
       const [x, z] = key.split(':').map(Number);
       this.active.add(key);
-      void getAtlasTile(x, z).then((tile) => {
+      void getAtlasTile(x, z, this.mode).then((tile) => {
         if (this.disposed) return;
         if (tile.worldId !== this.worldId) throw new Error('Map world changed');
         this.tiles.set(key, tile);

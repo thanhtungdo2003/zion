@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
+import type { GameMode } from '@zion/shared';
 import { itemName, translate, translateMsg, type Lang, type Msg, type TKey } from './i18n';
 
 /** User settings (language, audio) shared by the menu and the in-game pause screen. */
@@ -65,6 +66,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private loaded = false;
   private manualTouch = false;
+  private mode: GameMode = 'survival';
+  private cameras: Record<GameMode, CameraMode> = { survival: 'top-down', 'battle-royale': 'first-person' };
 
   get = (): SettingsState => this.state;
 
@@ -80,7 +83,22 @@ export class SettingsStore {
     const { state, manualTouch } = load();
     this.manualTouch = manualTouch;
     this.state = state;
+    this.cameras.survival = state.cameraMode;
+    try {
+      const saved = JSON.parse(localStorage.getItem('zion.camera.v1') ?? '{}') as Record<string, unknown>;
+      const battle = saved['battle-royale'];
+      if (battle === 'first-person' || battle === 'third-person' || battle === 'top-down') this.cameras['battle-royale'] = battle;
+    } catch { /* keep the first-person BR default */ }
+    this.state = { ...state, cameraMode: this.cameras[this.mode] };
     if (typeof document !== 'undefined') document.documentElement.lang = state.lang;
+    for (const fn of this.listeners) fn();
+  }
+
+  setGameMode(mode: GameMode): void {
+    this.hydrate();
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.state = { ...this.state, cameraMode: this.cameras[mode] };
     for (const fn of this.listeners) fn();
   }
 
@@ -89,9 +107,11 @@ export class SettingsStore {
     if (!isRollKey(nextRoll) || !isProneKey(nextProne) || nextRoll === nextProne) return;
     if (typeof patch.touchControls === 'boolean') this.manualTouch = true;
     this.state = { ...this.state, ...patch };
+    if (patch.cameraMode) this.cameras[this.mode] = patch.cameraMode;
     if (typeof document !== 'undefined') document.documentElement.lang = this.state.lang;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.state, manualTouch: this.manualTouch }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...this.state, cameraMode: this.cameras.survival, manualTouch: this.manualTouch }));
+      localStorage.setItem('zion.camera.v1', JSON.stringify(this.cameras));
     } catch {
       /* storage unavailable: settings just aren't remembered */
     }

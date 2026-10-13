@@ -3,7 +3,7 @@ import type { LifePlayer, TimedAction } from './base-life';
 import type { TutorialId } from '@zion/shared';
 import type { QuestEvent, QuestJournal } from './quests';
 import { CHUNK_SIZE, InventoryModel, NO_ARMOR, PLAYER_MAX_HEALTH, STARTING_ZCOIN, type ArmorLoadout, type InputMessage, type MeleeSpec } from '@zion/shared';
-import { HUMANOID_RIG, PRONE_RIG, createCharacterState, type CharacterState } from '@zion/physics';
+import { HUMANOID_RIG, PRONE_RIG, SEATED_RIG, createCharacterState, type CharacterState } from '@zion/physics';
 import { InputBudget, SuspicionTracker } from './anticheat';
 import type { ChunkStreamer } from './chunk-streamer';
 import type { ClientSession } from './session';
@@ -15,6 +15,7 @@ export interface PoseSample {
   z: number;
   yaw: number;
   prone?: boolean;
+  seated?: boolean;
 }
 
 const HISTORY = 48; // > 1.5 s at 30 Hz
@@ -25,7 +26,7 @@ export class PoseHistory {
   private head = 0;
   private count = 0;
 
-  push(t: number, x: number, y: number, z: number, yaw: number, prone = false): void {
+  push(t: number, x: number, y: number, z: number, yaw: number, prone = false, seated = false): void {
     const s = this.buf[this.head]!;
     s.t = t;
     s.x = x;
@@ -33,6 +34,7 @@ export class PoseHistory {
     s.z = z;
     s.yaw = yaw;
     s.prone = prone;
+    s.seated = seated;
     this.head = (this.head + 1) % HISTORY;
     this.count = Math.min(HISTORY, this.count + 1);
   }
@@ -63,6 +65,7 @@ export class PoseHistory {
         else if (dy < -Math.PI) dy += Math.PI * 2;
         out.yaw = s.yaw + dy * a;
         out.prone = s.prone;
+        out.seated = s.seated;
         return true;
       }
       newer = s;
@@ -73,6 +76,7 @@ export class PoseHistory {
 }
 
 export class Player {
+  vehicleId = 0;
   pvpEnabled = false;
   pvpUntil = 0;
   pvpLastSecond = 0;
@@ -80,8 +84,8 @@ export class Player {
   suspendedZombies: SuspendedZombie[] = [];
   nextEncounterRestoreAt = 0;
   readonly state: CharacterState;
-  get rig() { return this.state.prone ? PRONE_RIG : HUMANOID_RIG; }
-  rigAt(pose: PoseSample) { return pose.prone ? PRONE_RIG : HUMANOID_RIG; }
+  get rig() { return this.vehicleId ? SEATED_RIG : this.state.prone ? PRONE_RIG : HUMANOID_RIG; }
+  rigAt(pose: PoseSample) { return pose.seated ? SEATED_RIG : pose.prone ? PRONE_RIG : HUMANOID_RIG; }
   yaw = 0;
   pitch = 0;
   aiming = false;

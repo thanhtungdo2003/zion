@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CHEST_SEARCH_MS, InventoryModel, type ChestData, type InventoryData, type ServerJsonMessage } from '@zion/shared';
+import { ARMOR_SPECS, CHEST_SEARCH_MS, InventoryModel, type ChestData, type InventoryData, type ServerJsonMessage } from '@zion/shared';
 import { SharedChests, type ChestHooks } from './chests';
 import type { Player } from './player';
 
@@ -21,6 +21,23 @@ const id = '2002:100:0:200';
 const open = (service: SharedChests, p: Player) => service.handle(p, { t: 'inv', op: 'chestOpen', id });
 
 describe('shared world chests', () => {
+  it('opens a death crate immediately and preserves weapon magazines and armor durability', async () => {
+    const inv = new InventoryModel();
+    const gun = inv.add('ak47')!; gun.mag = 7;
+    const armorId = ARMOR_SPECS[0]!.item;
+    const armor = inv.add(armorId, 13)!;
+    const { service, hooks } = setup(false, { items: inv.items, searched: true, revision: 0, capacity: 40 });
+    const a = player();
+    await open(service, a.p);
+    expect(a.sendJson.mock.calls.at(-1)![0]).toMatchObject({ searched: true, field: false, capacity: 40 });
+    await service.handle(a.p, { t: 'inv', op: 'chestSearch', id });
+    expect(hooks.commit).not.toHaveBeenCalled();
+    await service.handle(a.p, { t: 'inv', op: 'chestTake', id, uid: gun.uid, revision: 0 });
+    await service.handle(a.p, { t: 'inv', op: 'chestTake', id, uid: armor.uid, revision: 1 });
+    expect(a.p.inv.items.find(item => item.itemId === 'ak47')?.mag).toBe(7);
+    expect(a.p.inv.items.find(item => item.itemId === armorId)?.count).toBe(13);
+    expect(a.sendJson.mock.calls.at(-1)![0]).toMatchObject({ items: [], revision: 2 });
+  });
   it('loads once for concurrent viewers and broadcasts deposits with original magazine and charges', async () => {
     const { hooks, service } = setup(); const a = player(), b = player();
     await Promise.all([open(service, a.p), open(service, b.p)]);

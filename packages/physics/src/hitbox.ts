@@ -46,6 +46,16 @@ export const ZOMBIE_CRAWL_RIG: readonly RigPart[] = [
   { zone: 'leg_r', a: [0.12, 0.18, 0.35], b: [0.14, 0.1, 1.1], r: 0.135 },
 ];
 
+/** Feet-origin matches the render skeleton lowered into a driving seat. */
+export const SEATED_RIG: readonly RigPart[] = [
+  { zone: 'head', a: [0, 1.37, -.05], b: [0, 1.37, -.05], r: .14 },
+  { zone: 'torso', a: [0, .72, 0], b: [0, 1.15, -.04], r: .22 },
+  { zone: 'arm_l', a: [-.3, 1.1, 0], b: [-.3, .88, -.48], r: .08 },
+  { zone: 'arm_r', a: [.3, 1.1, 0], b: [.3, .88, -.48], r: .08 },
+  { zone: 'leg_l', a: [-.16, .7, 0], b: [-.16, .45, -.48], r: .12 },
+  { zone: 'leg_r', a: [.16, .7, 0], b: [.16, .45, -.48], r: .12 },
+];
+
 /** Authored prone root tilts the body forward, with the head raised just above the ground. */
 export const PRONE_RIG: readonly RigPart[] = [
   { zone: 'head', a: [0, .4, -1.5], b: [0, .4, -1.5], r: .14 },

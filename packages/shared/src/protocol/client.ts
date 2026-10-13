@@ -70,6 +70,8 @@ export const chatMessageSchema = z
   .strict();
 
 export const respawnMessageSchema = z.object({ t: z.literal('respawn') }).strict();
+export const doorMessageSchema = z.object({ t: z.literal('door'), id: u32 }).strict();
+export const vehicleMessageSchema = z.object({ t: z.literal('vehicle'), id: u32.optional() }).strict();
 
 /** Testing aid: jump the world clock to a time of day (0…1, 0.5 = noon). */
 export const setTimeMessageSchema = z.object({ t: z.literal('settime'), tod: finite.min(0).max(1) }).strict();
@@ -148,6 +150,8 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   pingMessageSchema,
   chatMessageSchema,
   respawnMessageSchema,
+  doorMessageSchema,
+  vehicleMessageSchema,
   setTimeMessageSchema,
 ]);
 
@@ -158,6 +162,7 @@ export type AuthMessage = z.infer<typeof authMessageSchema>;
 export type InputMessage = z.infer<typeof inputMessageSchema>;
 export type PingMessage = z.infer<typeof pingMessageSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
+export type DoorMessage = z.infer<typeof doorMessageSchema>;
 export type BuyMessage = z.infer<typeof buyMessageSchema>;
 export type SellMessage = z.infer<typeof sellMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;

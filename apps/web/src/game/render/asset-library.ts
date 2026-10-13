@@ -63,20 +63,24 @@ function swayMaterial(sway: number): MeshLambertMaterial {
 /** Flattens a glTF scene into one merged geometry per material (instancing-friendly). */
 function flattenScene(root: Object3D, scale: number, offset: readonly [number, number, number]): ModelPart[] {
   root.updateMatrixWorld(true);
-  const byMaterial = new Map<Material, BufferGeometry[]>();
+  const byMaterial = new Map<string, {material:Material;geos:BufferGeometry[];wheel?:number;wheelCenter?:readonly [number,number,number]}>();
   const base = new Matrix4().makeTranslation(offset[0], offset[1], offset[2]).multiply(new Matrix4().makeScale(scale, scale, scale));
   root.traverse((o) => {
     if (!(o instanceof Mesh)) return;
     const mat = (Array.isArray(o.material) ? o.material[0] : o.material) as Material;
     const g = (o.geometry as BufferGeometry).clone().applyMatrix4(new Matrix4().multiplyMatrices(base, o.matrixWorld));
-    const list = byMaterial.get(mat) ?? [];
-    list.push(g);
-    byMaterial.set(mat, list);
+    const wheel=o.userData.vehicleWheel as number|undefined;
+    const wheelCenter=o.userData.wheelCenter as [number,number,number]|undefined;
+    if(wheelCenter)g.translate(-wheelCenter[0],-wheelCenter[1],-wheelCenter[2]);
+    const key=mat.uuid+':'+(wheel??'body');
+    const list = byMaterial.get(key) ?? {material:mat,geos:[],wheel,wheelCenter};
+    list.geos.push(g);
+    byMaterial.set(key, list);
   });
   const parts: ModelPart[] = [];
-  for (const [material, geos] of byMaterial) {
+  for (const {material,geos,wheel,wheelCenter} of byMaterial.values()) {
     const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos, false);
-    if (merged) parts.push({ geometry: merged, material });
+    if (merged) parts.push({ geometry: merged, material, wheel, wheelCenter });
     if (geos.length > 1) for (const geometry of geos) geometry.dispose();
   }
   return parts;
@@ -88,6 +92,21 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
  * collider-sized placeholder box and are reported, never thrown into the render loop.
  */
 export class AssetLibrary {
+  private glbActive = 0;
+  private readonly glbWaiters: Array<() => void> = [];
+  inRange(numericId: number, distanceSquared: number): boolean {
+    const def = this.registry.byNumericId(numericId);
+    return !!def && distanceSquared <= def.render.maxDistance ** 2;
+  }
+  private async acquireGlb(): Promise<() => void> {
+    if (this.glbActive >= 2) await new Promise<void>(resolve => this.glbWaiters.push(resolve));
+    else this.glbActive++;
+    return () => {
+      const next = this.glbWaiters.shift();
+      if (next) next();
+      else this.glbActive--;
+    };
+  }
   private manifest: AssetManifest | null = null;
   private manifestLoading: Promise<AssetManifest> | null = null;
   private readonly visuals = new Map<number, AssetVisual>();
@@ -164,8 +183,9 @@ export class AssetLibrary {
       case 'procedural': {
         const geometry = buildProceduralGeometry(model.generator, model.params, def.numericId);
         const material = swayMaterial(def.render.sway);
+        if (def.numericId === 2210) { material.polygonOffset = true; material.polygonOffsetFactor = -2; material.polygonOffsetUnits = -2; }
         if (model.generator === 'rock' || model.generator === 'slab') naturalMaterial(material, 'rock');
-        else if (model.generator !== 'bridge_block') naturalMaterial(material, 'tree');
+        else if (model.generator !== 'bridge_block' && model.generator !== 'water_tank') naturalMaterial(material, 'tree');
         return { def, parts: [{ geometry, material }] };
       }
       case 'bbmodel': {
@@ -176,6 +196,9 @@ export class AssetLibrary {
         return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset, model.axisScale) };
       }
       case 'glb': {
+        const release = await this.acquireGlb();
+        try {
+        if (this.disposed) throw new Error('asset library disposed');
         const entry = (await this.getManifest()).files[model.path];
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const gltf = await this.gltf.loadAsync(entry.url);
@@ -183,6 +206,7 @@ export class AssetLibrary {
         // Flattened parts own cloned buffers but retain the original materials/textures.
         gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });
         return { def, parts };
+        } finally { release(); }
       }
     }
   }

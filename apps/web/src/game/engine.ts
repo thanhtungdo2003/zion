@@ -1,5 +1,10 @@
 import { weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
 import { ZombieOutline } from './render/zombie-outline';
+import { VehicleRenderer } from './render/vehicles';
+import { VEHICLES } from '@zion/shared';
+import { TargetVisibility } from './target-visibility';
+import { BattleZone } from './render/battle-zone';
+import type { GameMode } from '@zion/shared';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
@@ -95,6 +100,9 @@ import { RemoteEntity } from './interpolation';
 import { GameConnection } from './net/connection';
 import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
+import { BattleFlightRenderer } from './render/battle-flight';
+import { doorColliders } from '@zion/physics';
+import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
 import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
@@ -180,6 +188,8 @@ function aimPitch(dist: number): number {
  * game outcomes — the server's snapshot always wins.
  */
 export class GameEngine {
+  private vehicles: VehicleRenderer | null = null;
+  private drivingYaw: number | null = null;
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.5, 2600);
@@ -228,6 +238,8 @@ export class GameEngine {
   private groundItems: GroundItems | null = null;
   private slashes: SlashEffects | null = null;
   private interact = '';
+  private readonly doors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
+  private nearDoor: number | null = null;
   private lastStationScan = 0;
   private readonly shotRay = makeRayHit();
   private effects: CombatEffects | null = null;
@@ -317,15 +329,23 @@ export class GameEngine {
   private cameraMode: CameraMode = 'top-down';
   private zombieOutline: ZombieOutline | null = null;
   private readonly outlinedZombies: Object3D[] = [];
+  private readonly targetVisibility = new TargetVisibility();
+  private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
+  private lootCrateRenderer: BaseLifeRenderer | null = null;
   private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
+  private readonly vehicleCamera = new ThirdPersonCamera();
   private shoulderAim = { yaw: 0, pitch: 0 };
   private get shotYaw(): number { return this.mouseLook ? this.shoulderAim.yaw : this.input.yaw; }
   private get shotPitch(): number { return this.mouseLook ? this.shoulderAim.pitch : this.input.pitch; }
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
   private readonly recoil = new GunRecoil();
+  private battleZone: BattleZone | null = null;
+  private battleFlight: BattleFlightRenderer | null = null;
+  private planeReceivedAt = 0;
+  private flightCamera = false;
   private recoilWeapon: number | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -334,6 +354,7 @@ export class GameEngine {
     private readonly hud: HudStore,
     private readonly inventory: InventoryStore,
     private readonly worldMap = new WorldMapStore(),
+    mode: GameMode = 'survival',
   ) {
     this.weaponCtl = new WeaponController({
       available: (w) => this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? ''),
@@ -372,6 +393,7 @@ export class GameEngine {
         if (active) this.sounds?.unlock();
       },
       openInventory: () => this.onInteract(),
+      vehicle: () => this.useVehicle(),
       hotbar: (slot) => this.inventory.selectSlot(slot),
       cycleHotbar: (dir) => this.inventory.cycle(dir),
       reload: () => this.weaponCtl.reload(performance.now(), this.equippedWeapon()),
@@ -443,7 +465,7 @@ export class GameEngine {
         });
         this.input.release();
       },
-    });
+    }, mode);
   }
 
   /* ------------------------------------- lifecycle --------------------------------------- */
@@ -543,12 +565,17 @@ export class GameEngine {
   }
 
   dispose(): void {
+    this.vehicles?.dispose();
+    this.battleZone?.dispose();
+    this.battleFlight?.dispose();
     this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
     for (const b of this.bubbles) b.el.remove();
     this.lifeRenderer?.dispose();
     this.privateQuestRenderer?.dispose();
+    this.lootCrateRenderer?.dispose();
+    settingsStore.setGameMode('survival');
     cancelAnimationFrame(this.raf);
     this.conn.close();
     this.input.dispose();
@@ -628,8 +655,20 @@ export class GameEngine {
   tutorial(message: Extract<ClientMessage, { t: 'tutorial' }>): void { this.conn.sendTutorial(message); }
 
   setMapOpen(open: boolean): void {
-    this.hud.set({ mapOpen: open });
+    // Opening the atlas must use this frame's heading, not the throttled HUD sample.
+    const state = this.local?.state;
+    this.hud.set({ mapOpen: open, ...(open ? {
+      viewYaw: this.input.yaw,
+      ...(state ? { position: [state.x, state.y, state.z] as [number, number, number] } : {}),
+    } : {}) });
     this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open;
+  }
+
+  useVehicle(): void {
+    if (!this.local || this.local.dead || this.local.state.flight) return;
+    const p = this.local.state;
+    const v = this.vehicles?.rider(this.welcome!.playerId) ?? this.vehicles?.nearest(p.x, p.y, p.z);
+    if (v) this.conn.sendVehicle(v.id);
   }
 
   lifeAction(op: 'plant' | 'harvest' | 'cook' | 'buy' | 'sell' | 'eat' | 'loot' | 'ignite', target: string, choice?: string, uid?: number): void {
@@ -673,7 +712,8 @@ export class GameEngine {
     if (l) {
       const s = l.state;
       const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.swimming ? EntityFlags.Swimming : 0) | (s.rollTicks > 0 ? EntityFlags.Rolling : 0) | (l.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0);
-      step(this.localStepKey, s.x, s.y, s.z, Math.hypot(s.vx, s.vz), flags, l.dead);
+      if (l.riding) sounds.stopLoop(this.localStepKey);
+      else step(this.localStepKey, s.x, s.y, s.z, Math.hypot(s.vx, s.vz), flags, l.dead);
     }
     const seen = new Set<number>();
     for (const [id, r] of this.remotes) {
@@ -681,6 +721,12 @@ export class GameEngine {
       seen.add(id);
       const p = r.avatar.root.position;
       const last = this.stepKeys.get(id) ?? { x: p.x, z: p.z, speed: 0 };
+      if (this.vehicles?.rider(id)) {
+        sounds.stopLoop(last);
+        last.x = p.x; last.z = p.z; last.speed = 0;
+        this.stepKeys.set(id, last);
+        continue;
+      }
       // Smoothed speed from the rendered (interpolated) position.
       const v = Math.hypot(p.x - last.x, p.z - last.z) / Math.max(dt, 1e-3);
       last.speed += (v - last.speed) * Math.min(1, dt * 8);
@@ -864,11 +910,19 @@ export class GameEngine {
 
   private onWelcome(m: WelcomeMessage): void {
     this.welcome = m;
+    settingsStore.setGameMode(m.mode ?? 'survival');
+    this.hud.set({ mode: m.mode ?? 'survival', battle: null, tutorial: null });
+    if (m.mode === 'battle-royale') {
+      this.battleZone = new BattleZone(this.scene);
+      this.battleFlight = new BattleFlightRenderer(this.scene);
+      void this.battleFlight.load().catch(err => console.error('Battle models unavailable', err));
+    }
     const world = m.world;
     this.worldMap.initialize(world);
     const worldSize = world.sizeChunks * world.chunkSize;
     this.clock.seed(m.serverTime);
     this.store = new ChunkStore(worldSize, world.seaLevel, this.registry);
+    this.vehicles = new VehicleRenderer(this.scene, this.library, this.store.collision);
     this.local = new LocalPlayer(this.store.collision, m.spawn.x, m.spawn.y, m.spawn.z);
     this.input.yaw = m.spawn.yaw;
     this.sky?.dispose();
@@ -983,12 +1037,14 @@ export class GameEngine {
       if (seen.has(id)) continue;
       r.avatar.dispose(this.scene);
       this.remotes.delete(id);
+      this.targetVisibility.forget(id);
     }
     for (const [id, zb] of this.zombies) {
       if (seen.has(id)) continue;
       zb.avatar.dispose(this.scene);
       this.sounds?.stop(zb);
       this.zombies.delete(id);
+      this.targetVisibility.forget(id);
     }
   }
 
@@ -1123,6 +1179,25 @@ export class GameEngine {
       case 'pvp':
         this.hud.set({ pvpEnabled: m.enabled, pvpRemaining: Math.ceil(m.remainingMs / 1000) });
         break;
+      case 'battle':
+        this.hud.set({ battle: m });
+        this.planeReceivedAt = performance.now();
+        this.battleZone?.update(m);
+        if (m.phase === 'finished') this.input.release();
+        break;
+      case 'door': {
+        const was = this.doors.get(m.id)?.open;
+        this.doors.set(m.id, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, open: m.open });
+        this.store?.collision.setOwnerColliders(0xb0000000 + m.id, doorColliders(m));
+        this.battleFlight?.door(m);
+        if (was !== undefined && was !== m.open) this.sounds?.play(m.open ? 'doorOpen' : 'doorClose', { volume: .8, at: m });
+        break;
+      }
+      case 'vehicles': {
+        this.vehicles?.sync(m);
+        if (this.local) this.local.riding = m.vehicles.some(v => v.driver === this.welcome?.playerId);
+        break;
+      }
       case 'tutorialState':
         this.hud.set({ tutorial: m });
         break;
@@ -1278,6 +1353,13 @@ export class GameEngine {
       case 'inv':
         this.onInventory(m);
         break;
+      case 'lootCrates':
+        this.deathCrates.clear();
+        for (const crate of m.crates) this.deathCrates.set(crate.id, crate);
+        this.lootCrateRenderer ??= new BaseLifeRenderer(this.scene);
+        void this.lootCrateRenderer.update(m.crates.map(crate => ({ ...crate, model: '/models/materias/old-wooden-crate.bbmodel' }))).catch(err => console.error('Loot crate model loading failed', err));
+        this.lastStationScan = 0;
+        break;
       case 'ground':
         for (const g of m.items) this.groundItems?.add(g.id, g.itemId, g.count, g.x, g.y, g.z, performance.now());
         this.lastStationScan = 0;
@@ -1371,6 +1453,21 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
+    this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now());
+    const driving = this.vehicles?.rider(this.welcome!.playerId);
+    const seat = this.vehicles?.seat(this.welcome!.playerId);
+    if (!!driving !== local.riding) {
+      this.vehicleCamera.reset(); this.camFocusInit = false;
+      if (driving) { this.input.pitch = -.16; this.aiming = false; this.scoped = false; }
+    }
+    if (driving) {
+      const delta = this.drivingYaw === null ? driving.yaw - this.input.yaw : driving.yaw - this.drivingYaw;
+      const heading = this.input.yaw + Math.atan2(Math.sin(delta), Math.cos(delta));
+      this.input.yaw = Math.atan2(Math.sin(heading), Math.cos(heading));
+    }
+    this.drivingYaw = driving?.yaw ?? null;
+    local.riding = !!driving;
+    this.applyViewMode();
     if (this.mouseLook && !this.camFocusInit) this.updateCamera(local.state.x, local.state.y, local.state.z, 0);
 
     const equipped = this.inventory.get().equipped;
@@ -1398,9 +1495,9 @@ export class GameEngine {
     local.decayCorrection(dt);
 
     const alpha = this.accumulator / TICK_DT;
-    const px = local.prev.x + (local.state.x - local.prev.x) * alpha + local.correction.x;
-    const py = local.prev.y + (local.state.y - local.prev.y) * alpha + local.correction.y;
-    const pz = local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
+    const px = seat?.x ?? local.prev.x + (local.state.x - local.prev.x) * alpha + local.correction.x;
+    const py = seat?.y ?? local.prev.y + (local.state.y - local.prev.y) * alpha + local.correction.y;
+    const pz = seat?.z ?? local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
     if (!local.dead) this.worldMap.explore(px, pz);
 
     const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
@@ -1413,21 +1510,35 @@ export class GameEngine {
 
     // Remote players render INTERPOLATION_DELAY in the past between two snapshots.
     const renderTime = this.clock.now() - INTERPOLATION_DELAY_MS;
+    this.updateAim(px, py, pz);
+    // Detection uses this frame's eye position and facing, before rendering any target.
+    this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
+    this.outlinedZombies.length = 0;
     for (const r of this.remotes.values()) {
       const pose = r.entity.sample(renderTime);
-      if (r.burnUntil && r.burnUntil > now && r.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
-      r.avatar.setWeapon(itemId, this.weapons);
+      r.avatar.setWeapon(this.vehicles?.rider(r.entity.id) ? null : itemId, this.weapons);
       r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
       r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
       r.avatar.setAimPitch(pose.pitch);
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
-      if (r.entity.kind === EntityKind.Guard) this.guardPoses.push(pose);
+      r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
+      const ride = this.vehicles?.rider(r.entity.id);
+      if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
+      r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride?.yaw ?? pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
+      const target = r.entity.kind === EntityKind.Player || r.entity.kind === EntityKind.Animal || r.entity.kind === EntityKind.Guard;
+      if (target && this.cameraMode === 'top-down') {
+        r.avatar.root.visible &&= this.targetVisibility.visible(r.entity.id, this.vision?.canSee(pose.x, pose.y + .9, pose.z, this.store?.collision) ?? false, now);
+        if (r.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) this.outlinedZombies.push(r.avatar.root);
+      }
+      if (r.burnUntil && r.burnUntil > now && r.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
+      this.battleFlight?.player(r.entity.id, pose.x, pose.y, pose.z, pose.yaw, r.avatar.root.visible ? pose.flags : 0, dt);
+      if (r.entity.kind === EntityKind.Guard && r.avatar.root.visible) this.guardPoses.push(pose);
       // Remote blade swings: a slash arc when their attack starts.
       const attacking = (pose.flags & EntityFlags.Attacking) !== 0;
-      if (attacking && !r.attacking && weaponSpec(r.weapon)?.kind === 'melee') this.slashAt(
-        () => r.avatar.root.parent && !(r.entity.pose.flags & EntityFlags.Dead) ? r.entity.pose : null,
+      if (attacking && !r.attacking && r.avatar.root.visible && weaponSpec(r.weapon)?.kind === 'melee') this.slashAt(
+        () => r.avatar.root.parent && r.avatar.root.visible && !(r.entity.pose.flags & EntityFlags.Dead) ? r.entity.pose : null,
         r.weapon, r.avatar.slashVariant,
       );
       r.attacking = attacking;
@@ -1448,18 +1559,15 @@ export class GameEngine {
       (this.aiming ? EntityFlags.Aiming : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0);
-    this.updateAim(px, py, pz);
     this.scanStations(px, pz, now);
-    this.outlinedZombies.length = 0;
     // Zombies: interpolated like players, but only visible inside the vision cone (or very close).
     for (const zb of this.zombies.values()) {
       const pose = zb.entity.sample(renderTime);
       const dx = pose.x - px;
       const dz = pose.z - pz;
-      const close = dx * dx + dz * dz < 2.5 * 2.5;
-      // Once spotted, a zombie stays visible even after the player looks away.
-      zb.avatar.seen = zb.avatar.seen || close || (this.vision?.canSee(pose.x, pose.y + 0.9, pose.z, this.store?.collision) ?? true);
+      zb.avatar.seen = this.cameraMode !== 'top-down' || this.targetVisibility.visible(zb.entity.id, this.vision?.canSee(pose.x, pose.y + .9, pose.z, this.store?.collision) ?? false, now);
       zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt, pose.health);
+      zb.avatar.root.visible = zb.avatar.seen;
       if (this.cameraMode === 'top-down' && zb.avatar.seen && zb.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) this.outlinedZombies.push(zb.avatar.root);
       if (zb.burnUntil && zb.burnUntil > now && zb.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       this.zombieVoice(zb, pose, dx * dx + dz * dz);
@@ -1473,16 +1581,27 @@ export class GameEngine {
       if (objects.length) void this.privateQuestRenderer?.update(objects).catch(() => undefined);
     }
     this.localAvatar?.setStance(this.inventory.stance());
-    this.localAvatar?.setWeapon(this.inventory.equippedItemId(), this.weapons);
+    this.localAvatar?.setWeapon(driving ? null : this.inventory.equippedItemId(), this.weapons);
     this.localAvatar?.setOffhand(offhand, this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
-    if (this.localAvatar && this.firstPerson) this.localAvatar.root.visible = false;
+    const flightFlags = local.state.flight === 1 ? EntityFlags.InPlane : local.state.flight === 2 ? EntityFlags.Freefall : local.state.flight === 3 ? EntityFlags.Parachute : 0;
+    this.localAvatar?.flightPose(flightFlags, (local.lastButtons & Buttons.Sprint) !== 0, Math.hypot(local.state.vx, local.state.vz) > 2, dt);
+    this.localAvatar?.drivingPose(driving ? VEHICLES[driving.kind].quad : null, driving?.yaw ?? this.input.yaw,driving?.motion?.pitch,driving?.motion?.roll);
+    this.viewModel?.setVisible(!driving);
+    this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
+    const battle = this.hud.get().battle;
+    const plane = battle?.plane ? battlePlaneAt(this.welcome!.world.sizeChunks * CHUNK_SIZE, BATTLE_FLIGHT.durationMs - battle.plane.remainingMs + performance.now() - this.planeReceivedAt) : undefined;
+    this.battleFlight?.update(dt, this.elapsed, px, pz, plane && plane.remainingMs > 0 ? plane : undefined);
+    this.battleFlight?.retainPlayers(new Set([this.welcome!.playerId, ...this.remotes.keys()]));
+    if (plane && plane.remainingMs > 0) this.sounds?.loopAt(this.battleFlight!, 'transportPlane', { volume: local.state.flight === 1 ? .8 : .65, at: local.state.flight === 1 ? undefined : plane, maxDistance: 1200 });
+    else if (this.battleFlight) this.sounds?.stopLoop(this.battleFlight);
+    if (this.localAvatar && this.firstPerson && !local.state.flight) this.localAvatar.root.visible = false;
     if (this.viewModel) {
       const axes = this.input.axes();
       this.viewModel.update(dt, {
-        visible: this.firstPerson && !this.scoped && !local.dead,
+        visible: this.firstPerson && !this.scoped && !local.dead && !local.state.flight && !driving,
         moving: axes.mx !== 0 || axes.mz !== 0,
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
@@ -1500,7 +1619,7 @@ export class GameEngine {
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateCamera(px, py, pz, dt);
-    if (this.localAvatar && this.cameraMode === 'third-person') this.localAvatar.root.visible = !this.scoped && this.thirdPersonCamera.distance > .75;
+    if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
     this.updateShoulderAim(px, py, pz);
     if (this.firstPerson && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
@@ -1558,10 +1677,10 @@ export class GameEngine {
     if (now - this.lastMinimap > 330 && this.minimap) {
       this.lastMinimap = now;
       const teamIds = new Set(this.hud.get().team?.members.map((m) => m.entityId));
-      const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
+      const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.avatar.root.visible && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
       const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).map((m) => ({ x: m.x!, z: m.z! }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows);
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.hud.get().battle);
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
@@ -1648,7 +1767,8 @@ export class GameEngine {
       if (pose) { b.x = pose.x; b.y = pose.y; b.z = pose.z; }
       const v = this.guideTmp.set(b.x, b.y + 2.35, b.z).project(this.camera);
       const near = !b.player || this.camera.position.distanceToSquared(pose!) <= 35 * 35;
-      const visible = near && !(b.player && self && this.mouseLook) && v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+      const detected = self || this.cameraMode !== 'top-down' || this.remotes.get(b.npc)?.avatar.root.visible !== false;
+      const visible = detected && near && !(b.player && self && this.mouseLook) && v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
       b.el.style.display = visible ? '' : 'none';
       if (visible) b.el.style.transform = `translate(${Math.round((v.x + 1) * 0.5 * w)}px, ${Math.round((1 - v.y) * 0.5 * h)}px) translate(-50%, -100%)`;
       b.el.style.opacity = b.until - now < 300 ? String((b.until - now) / 300) : '1';
@@ -1683,6 +1803,17 @@ export class GameEngine {
 
   private fixedStep(local: LocalPlayer): void {
     if (!this.conn.open) return;
+    if (local.riding) {
+      const axes = this.input.axes();
+      this.aiming = false; this.scoped = false;
+      this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, 0, undefined));
+      this.input.acknowledgeTouchPresses(); return;
+    }
+    if (local.state.flight) {
+      const axes = this.input.axes(), buttons = this.input.buttons() & (Buttons.Jump | Buttons.Sprint);
+      this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, buttons, undefined));
+      this.input.acknowledgeTouchPresses(); return;
+    }
     this.updateShoulderAim(local.state.x, local.state.y, local.state.z);
     // Screen-relative WASD -> camera-yaw world direction -> the character's yaw-local axes.
     const a = this.input.axes();
@@ -2086,6 +2217,7 @@ export class GameEngine {
     let near: 'field' | 'camp' | null = null;
     let closestChest = CHEST_REACH * CHEST_REACH;
     this.nearChest = null;
+    this.nearDoor = null;
     for (const chunk of this.store.chunks.values()) {
       if (chunk.lod !== 0) continue;
       for (const prop of chunk.props) {
@@ -2101,6 +2233,17 @@ export class GameEngine {
         const inCamp = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
         near = inCamp ? 'camp' : null;
       }
+    }
+    for (const crate of this.deathCrates.values()) {
+      const distance = (crate.x - px) ** 2 + (crate.z - pz) ** 2;
+      if (distance <= closestChest && Math.abs(crate.y - (this.local?.state.y ?? crate.y)) <= 2.5) {
+        closestChest = distance; this.nearChest = crate.id;
+      }
+    }
+    let doorDistance = 2.4;
+    for (const [id, door] of this.doors) {
+      const d = Math.hypot(door.x - px, door.z - pz);
+      if (d < doorDistance && Math.abs(door.y - (this.local?.state.y ?? door.y)) < 2) { doorDistance = d; this.nearDoor = id; }
     }
     this.station = near;
     let merchant = false;
@@ -2134,7 +2277,7 @@ export class GameEngine {
     if (open && open.npc !== talk?.npc) this.hud.set({ dialogue: null });
     const ground = this.groundItems?.nearest(px, pz);
     const lifeHere = this.lifeTarget(px, pz);
-    const label: Msg | null = this.hud.get().downed !== null ? null : lifeHere ? lifeHere.label : ground
+    const label: Msg | null = this.hud.get().downed !== null ? null : this.nearDoor !== null ? { key: 'raw', vars: { text: this.doors.get(this.nearDoor)?.open ? 'E · Đóng cửa' : 'E · Mở cửa' } } : lifeHere ? lifeHere.label : ground
       ? { key: 'interact.pickup', vars: { item: ground.itemId } }
       : this.downedNear() ? { key: 'interact.revive', vars: { item: this.remoteName(this.downedNear()!.id, EntityKind.Player) } }
       : talk ? { key: 'interact.talk', vars: { item: talk.name } }
@@ -2143,7 +2286,7 @@ export class GameEngine {
       : merchant ? { key: 'interact.shop' }
       : nurse ? { key: 'interact.nurse' }
       : near === 'camp' ? { key: 'interact.camp_cache' } : near ? { key: 'interact.cache' } : null;
-    const sig = label ? `${label.key}:${label.vars?.item ?? ''}` : '';
+    const sig = JSON.stringify(label);
     if (sig !== this.interact) {
       this.interact = sig;
       this.hud.set({ interact: label });
@@ -2188,6 +2331,8 @@ export class GameEngine {
   private onInteract(): void {
     // The dead can't rummage through bags or talk.
     if (!this.local || this.local.dead || this.hud.get().downed !== null) return;
+    if (this.local.state.flight) return;
+    if (this.nearDoor !== null) { this.conn.sendDoor(this.nearDoor); return; }
     const down = this.downedNear();
     if (down) {
       this.conn.sendRevive(down.id);
@@ -2467,13 +2612,15 @@ export class GameEngine {
     const settings = settingsStore.get();
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
-    const mode = settings.cameraMode;
+    const mode = this.local?.riding ? 'third-person' : settings.cameraMode;
     const fp = mode === 'first-person';
     const mouseLook = mode !== 'top-down';
     this.input.sensitivity = settings.mouseSens * 0.00004;
     const hud = this.hud.get();
     this.input.freeCursor = mouseLook && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
+    this.vision?.setOverlay(!mouseLook);
     if (mode === this.cameraMode) return;
+    this.targetVisibility.clear();
     const wasMouseLook = this.mouseLook;
     this.cameraMode = mode;
     this.recoil.reset();
@@ -2481,7 +2628,6 @@ export class GameEngine {
     if (!wasMouseLook || !mouseLook) this.input.pitch = mode === 'third-person' ? -.12 : 0;
     this.thirdPersonCamera.reset();
     this.shoulderAim = { yaw: this.input.yaw, pitch: this.input.pitch };
-    this.vision?.setOverlay(!mouseLook);
     if (fp && !this.viewModel) {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
@@ -2495,12 +2641,42 @@ export class GameEngine {
   }
 
   private updateCamera(px: number, py: number, pz: number, dt: number): void {
+    if (this.local?.state.flight) {
+      this.flightCamera = true;
+      const yaw = this.input.yaw, boarding = this.local.state.flight === 1;
+      const distance = boarding ? 65 : 9;
+      this.camera.position.set(px + Math.sin(yaw) * distance, py + (boarding ? 22 : 4), pz + Math.cos(yaw) * distance);
+      this.camera.lookAt(px, py + (boarding ? 0 : .6), pz);
+      this.camera.fov = 78; this.camera.updateProjectionMatrix();
+      return;
+    }
+    if (this.flightCamera) {
+      this.flightCamera = false; this.camFocusInit = false; this.thirdPersonCamera.reset();
+      this.camera.fov = this.mouseLook ? FP_FOV : 40; this.camera.updateProjectionMatrix();
+    }
     // A non-finite position (bad snapshot) would blank the whole view: hold the last camera.
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
+    const vehicle = this.local?.riding && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
+    if (vehicle) {
+      // Centre the chase camera above the roof; the vehicle's own body never blocks it.
+      const f = this.camFocus, height = VEHICLES[vehicle.kind].height + .6;
+      const k = this.camFocusInit ? 1 - Math.exp(-dt * 18) : 1;
+      f.lerp(this.focus.set(vehicle.x, vehicle.y + height, vehicle.z), k);
+      this.camFocusInit = true;
+      this.vehicles!.withoutOwnColliders(vehicle, () => this.vehicleCamera.update(cam, f, this.input.yaw, Math.max(-.6, Math.min(.2, this.input.pitch)), dt, this.store?.collision, false,
+        { distance: 6 + Math.min(2, Math.abs(vehicle.speed) / 17), height: 1 }));
+      const fov = 70 + Math.min(8, Math.abs(vehicle.speed) / 4);
+      if (Math.abs(cam.fov-fov) > .01) { cam.fov = fov; cam.updateProjectionMatrix(); }
+      this.input.lookScale = 1;
+      occlusionUniforms.uFadeCam.value.copy(cam.position);
+      occlusionUniforms.uFadeTarget.value.set(0, -1e5, 0);
+      this.props?.updateOcclusion(1e9, -1e5, 1e9, cam.position.x, cam.position.y, cam.position.z, dt);
+      return;
+    }
     if (this.mouseLook) {
       // Smooth the eye: prediction corrections and step-ups would otherwise jolt the whole view.
-      const eye = py + (this.local ? characterEyeHeight(this.local.state) : DEFAULT_CHARACTER.eyeHeight);
+      const eye = py + (this.local?.riding ? 1.32 : this.local ? characterEyeHeight(this.local.state) : DEFAULT_CHARACTER.eyeHeight);
       const f = this.camFocus;
       if (!this.camFocusInit || (f.x - px) ** 2 + (f.z - pz) ** 2 > 25) {
         f.set(px, eye, pz);
@@ -2528,7 +2704,10 @@ export class GameEngine {
         if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
         cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
         if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
-          applyFirstPersonRoll(cam, this.local.state, this.local.prev.rollTicks, this.accumulator / TICK_DT);
+          const rolling=this.local.state.rollTicks>0;
+          const alongLook=Math.abs(Math.cos(this.local.state.rollYaw-this.input.yaw))>.65;
+          if(!(rolling&&alongLook&&this.localAvatar?.rollCamera(cam)))
+            applyFirstPersonRoll(cam, this.local.state, this.local.prev.rollTicks, this.accumulator / TICK_DT);
         }
       }
       // Nothing is see-through in first person: park the fade target far below the world and let
@@ -2651,11 +2830,17 @@ export class GameEngine {
       else if (status === 'dead') status = 'playing';
     }
     this.hud.set({
+      vehicle: (() => {
+        const v = this.vehicles?.rider(this.welcome!.playerId) ?? this.vehicles?.nearest(px, py, pz);
+        return v ? { name: VEHICLES[v.kind].name, driving: v.driver === this.welcome!.playerId, speed: Math.round(Math.abs(v.speed) * 3.6), health: Math.ceil(v.health / VEHICLES[v.kind].health * 100), exploding: v.health <= 0 && !v.exploded } : null;
+      })(),
       status,
+      ...(this.hud.get().battle && local.state.flight ? { battle: { ...this.hud.get().battle!, drop: { phase: local.state.flight === 1 ? 'boarding' as const : local.state.flight === 2 ? 'falling' as const : 'parachute' as const, altitude: Math.max(0, py - (store.collision.terrainHeight(px, pz) || 0)), parachuteOpen: local.state.flight === 3, speed: Math.hypot(local.state.vx, local.state.vy, local.state.vz) * 3.6, heading: ((this.input.yaw * 180 / Math.PI) % 360 + 360) % 360 } } } : {}),
       loadProgress: Math.min(1, lod0 / expectedLod0),
       fps: this.fps,
       pingMs: Math.round(this.clock.rttMs),
       position: [px, py, pz],
+      viewYaw: this.input.yaw,
       chunk: [Math.floor(px / CHUNK_SIZE), Math.floor(pz / CHUNK_SIZE)],
       biome: sample?.biome ?? '—',
       surface: sample?.surface ?? '—',

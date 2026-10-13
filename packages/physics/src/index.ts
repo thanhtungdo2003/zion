@@ -7,3 +7,6 @@ export * from './world';
 export * from './character';
 export * from './hitbox';
 export * from './projectile';
+export * from './airborne';
+export * from './doors';
+export * from './vehicles';

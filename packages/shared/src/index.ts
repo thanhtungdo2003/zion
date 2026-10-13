@@ -28,3 +28,5 @@ export * from './studio-currency';
 export * from './news';
 export * from './handbook';
 export * from './leaderboard';
+export * from './battle-royale';
+export * from './vehicles';

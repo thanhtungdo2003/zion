@@ -8,3 +8,6 @@ export * from './manifest';
 export * from './camp-assets';
 export * from './bridge-assets';
 export * from './vehicle-assets';
+export * from './battle-assets';
+export * from './imported-assets';
+export * from './imported-building-ids';

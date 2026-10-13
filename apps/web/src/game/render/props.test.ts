@@ -10,7 +10,7 @@ function fixture() {
   const geometry = new BoxGeometry();
   const material = new MeshLambertMaterial();
   const visual = { def, parts: [{ geometry, material }] };
-  const library = { get: vi.fn(() => visual), load: vi.fn() };
+  const library = { get: vi.fn(() => visual), load: vi.fn(), inRange: vi.fn(() => true) };
   const chunk = { cx: 0, cz: 0, lod: 0, props: [] } as unknown as ChunkData;
   const scene = new Scene();
   const renderer = new PropRenderer(scene, library as unknown as AssetLibrary, () => [chunk]);

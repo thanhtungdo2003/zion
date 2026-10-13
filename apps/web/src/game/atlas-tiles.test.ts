@@ -17,7 +17,7 @@ describe('visible map details', () => {
     cache.setVisible(['4:0']);
     pending.get(0)!(tile(0)); await settle();
     expect(getAtlasTile).toHaveBeenCalledTimes(3);
-    expect(getAtlasTile).toHaveBeenLastCalledWith(4, 0);
+    expect(getAtlasTile).toHaveBeenLastCalledWith(4, 0, undefined);
     pending.get(1)!(tile(1)); pending.get(4)!(tile(4)); await settle();
     cache.setVisible(['4:0']);
     expect(getAtlasTile).toHaveBeenCalledTimes(3);

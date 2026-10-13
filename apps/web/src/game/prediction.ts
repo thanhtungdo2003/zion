@@ -1,6 +1,7 @@
 import { Buttons, EntityFlags, TICK_DT, type InputMessage, type SelfState } from '@zion/shared';
 import {
   CharacterController,
+  stepAirborne,
   copyCharacterState,
   createCharacterState,
   type CharacterInput,
@@ -24,6 +25,7 @@ const SNAP_DISTANCE = 4;
  * are. Any residual error is blended out visually over a few frames, never by teleporting.
  */
 export class LocalPlayer {
+  riding = false;
   readonly state: CharacterState;
   readonly prev: CharacterState;
   private readonly controller: CharacterController;
@@ -38,7 +40,7 @@ export class LocalPlayer {
   lastServer: SelfState | null = null;
   reconcileError = 0;
 
-  constructor(world: CollisionWorld, x: number, y: number, z: number) {
+  constructor(private readonly world: CollisionWorld, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
     this.prev = createCharacterState(x, y, z);
     this.controller = new CharacterController(world);
@@ -53,13 +55,14 @@ export class LocalPlayer {
   speedMul = 1;
 
   step(mx: number, mz: number, yaw: number, pitch: number, buttons: number, renderTime: number | undefined, weapon = 0): InputMessage {
+    const pressedJump = !!(buttons & Buttons.Jump) && !(this.lastButtons & Buttons.Jump);
     this.lastButtons = buttons;
     copyCharacterState(this.state, this.prev);
     const input: CharacterInput = {
       mx,
       mz,
       yaw,
-      jump: (buttons & Buttons.Jump) !== 0,
+      jump: this.state.flight ? pressedJump : (buttons & Buttons.Jump) !== 0,
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
       prone: (buttons & Buttons.Prone) !== 0,
@@ -67,7 +70,7 @@ export class LocalPlayer {
     };
     this.seq++;
     if (!this.dead) {
-      this.controller.step(this.state, input, TICK_DT);
+      this.simulate(input);
       this.pending.push({ seq: this.seq, input });
       if (this.pending.length > MAX_PENDING) this.pending.shift();
     }
@@ -95,11 +98,12 @@ export class LocalPlayer {
     s.swimming = (server.flags & EntityFlags.Swimming) !== 0;
     s.prone = (server.flags & EntityFlags.Prone) !== 0;
     s.climbing = (server.flags & EntityFlags.Climbing) !== 0;
+    s.flight = server.flags & EntityFlags.InPlane ? 1 : server.flags & EntityFlags.Freefall ? 2 : server.flags & EntityFlags.Parachute ? 3 : 0;
     s.stuckTicks = server.stuckTicks;
     s.rollTicks = server.rollTicks;
     s.rollCooldown = server.rollCooldown;
     s.rollYaw = server.rollYaw;
-    if (!this.dead) for (const p of this.pending) this.controller.step(s, p.input, TICK_DT);
+    if (!this.dead) for (const p of this.pending) this.simulate(p.input);
 
     const ex = before.x - s.x;
     const ey = before.y - s.y;
@@ -130,9 +134,17 @@ export class LocalPlayer {
     s.z = z;
     s.vx = s.vy = s.vz = 0;
     s.prone = false;
+    s.flight = 0;
     copyCharacterState(s, this.prev);
     this.pending.length = 0;
     this.correction.x = this.correction.y = this.correction.z = 0;
+  }
+
+  private simulate(input: CharacterInput): void {
+    if (this.riding) return;
+    if (this.state.flight === 1) { if (input.jump) this.state.flight = 2; else { this.state.x += this.state.vx * TICK_DT; this.state.z += this.state.vz * TICK_DT; } }
+    else if (this.state.flight) stepAirborne(this.state, input, this.world, TICK_DT);
+    else this.controller.step(this.state, input, TICK_DT);
   }
 
   decayCorrection(dt: number): void {

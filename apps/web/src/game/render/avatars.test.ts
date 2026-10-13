@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { Box3, BoxGeometry, Group, Matrix4, Mesh, Sprite, Vector3 } from 'three';
+import { Box3, BoxGeometry, Group, Matrix4, Mesh, Sprite, Vector3, PerspectiveCamera, Quaternion } from 'three';
 import type { WeaponLibrary } from './weapons';
 import { EntityFlags } from '@zion/shared';
 import { Avatar } from './avatars';
@@ -221,6 +221,33 @@ describe('lobby rifle patrol', () => {
 });
 
 describe('survivor roll recovery', () => {
+  it.each([0,Math.PI])('keeps the first-person eye attached to the head during a roll heading %s',rollYaw=>{
+    const avatar=new Avatar(template,true),camera=new PerspectiveCamera();
+    avatar.update(10,30,10,0,EntityFlags.Grounded,0,0);
+    const head=avatar.root.getObjectByName('head')!;
+    avatar.root.updateMatrixWorld(true);
+    const eyeLocal=new Vector3(10,31.62,9.88);head.worldToLocal(eyeLocal);
+    const previous=camera.quaternion.clone();
+    avatar.update(10,30,10,0,EntityFlags.Grounded|EntityFlags.Rolling,1,0,{rollTicks:18,rollYaw});
+    camera.rotation.set(0,0,0,'YXZ');
+    expect(avatar.rollCamera(camera)).toBe(true);
+    const eyeExpected=head.localToWorld(eyeLocal.clone());
+    expect(camera.position.distanceTo(eyeExpected)).toBeLessThan(1e-8);
+    expect(camera.quaternion.angleTo(previous)).toBeGreaterThan(1);
+    const up=new Vector3(0,1,0).applyQuaternion(camera.quaternion);
+    const headUp=new Vector3(0,1,0).applyQuaternion(head.getWorldQuaternion(new Quaternion()));
+    expect(up.distanceTo(headUp)).toBeLessThan(1e-8);
+  });
+  it('anchors a seated survivor at the calibrated feet origin and clears walking root motion',()=>{
+    const avatar=new Avatar(template,true);
+    avatar.update(10,30,10,0,EntityFlags.Grounded|EntityFlags.Rolling,1,0,{rollTicks:12,rollYaw:Math.PI});
+    avatar.drivingPose(false,.7,.15,-.1);
+    const root=avatar.root.getObjectByName('root')!;
+    expect(root.rotation.x).toBeCloseTo(0);expect(root.position.length()).toBeCloseTo(0);
+    expect(avatar.root.rotation.y).toBeCloseTo(.7);expect(avatar.root.rotation.x).toBeCloseTo(.15);expect(avatar.root.rotation.z).toBeCloseTo(-.1);
+    avatar.drivingPose(null,.7);
+    expect(avatar.root.rotation.x).toBe(0);expect(avatar.root.rotation.z).toBe(0);
+  });
   it('keeps the committed heading and finishes with the simulation even after position corrections', () => {
     const avatar = new Avatar(template, true);
     const dt = 1 / 60;

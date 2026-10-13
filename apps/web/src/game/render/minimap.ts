@@ -1,4 +1,6 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
+import type { BattleState } from '@zion/shared';
+import { drawBattleCircles } from '../battle-map-overlay';
 import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
@@ -178,6 +180,7 @@ export class Minimap {
     teammates: ReadonlyArray<{ x: number; z: number }> = [],
     locations?: ReadonlyArray<MapLocation>,
     arrows = true,
+    battle: BattleState | null = null,
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -213,6 +216,7 @@ export class Minimap {
     ctx.fillRect(-W, -W, 3 * W, 3 * W);
     ctx.restore();
     ctx.fillStyle = '#ff3b30';
+    drawBattleCircles(ctx, battle, (x, z) => ({ x: (x - (px - half)) * scale, y: (z - (pz - half)) * scale }), scale);
     for (const o of zombies) {
       const ox = (o.x - (px - half)) * scale;
       const oz = (o.z - (pz - half)) * scale;

@@ -1,4 +1,4 @@
-import type { RankTitle } from '@zion/shared';
+import type { BattleState, GameMode, RankTitle } from '@zion/shared';
 import type { BaseLifeMessage, QuestStateMessage, TeamView, TutorialProgress } from '@zion/shared';
 import type { Msg } from '@/lib/i18n';
 
@@ -19,6 +19,9 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
+  vehicle: { name: string; driving: boolean; speed: number; health: number; exploding: boolean } | null;
+  mode: GameMode;
+  battle: BattleState | null;
   pvpEnabled: boolean;
   pvpRemaining: number;
   rank: RankTitle | null;
@@ -45,6 +48,7 @@ export interface HudState {
   fps: number;
   pingMs: number;
   position: [number, number, number];
+  viewYaw: number;
   chunk: [number, number];
   biome: string;
   surface: string;
@@ -86,6 +90,9 @@ export interface HudState {
 
 export function initialHud(): HudState {
   return {
+    mode: 'survival',
+    battle: null,
+    vehicle: null,
     pvpEnabled: false,
     pvpRemaining: 0,
     rank: null,
@@ -109,6 +116,7 @@ export function initialHud(): HudState {
     fps: 0,
     pingMs: 0,
     position: [0, 0, 0],
+    viewYaw: 0,
     chunk: [0, 0],
     biome: '—',
     surface: '—',

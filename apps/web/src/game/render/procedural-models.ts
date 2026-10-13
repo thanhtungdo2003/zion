@@ -257,6 +257,12 @@ function slab(p: Params, rng: Rng): BufferGeometry {
 }
 
 const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeometry> = {
+  water_tank: (_p, rng) => {
+    const parts = [paint(new CylinderGeometry(1.9, 1.9, 3.2, 20).translate(0, 1.6, 0), 0x89928a, rng)];
+    parts.push(paint(new ConeGeometry(2.05, .4, 20).translate(0, 3.4, 0), 0x5c6a64, rng));
+    for (const y of [.15, 1.6, 3.1]) parts.push(paint(new CylinderGeometry(1.96, 1.96, .12, 20).translate(0, y, 0), 0x4e5b55, rng));
+    return merge(parts);
+  },
   bridge_block: (p, rng) => {
     const w = num(p, 'width', 2), h = num(p, 'height', .3), d = num(p, 'depth', 2);
     const color = typeof p.color === 'string' ? new Color(p.color).getHex() : 0x77766b;

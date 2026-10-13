@@ -3,7 +3,7 @@
 import { SOUND_FILES } from '@/game/audio';
 
 /**
- * Asset preloading for the main menu's loading screen. Every model and sound is downloaded once
+ * Asset preloading for the main menu's loading screen. Core models and sounds are downloaded once
  * into memory; the game's loaders read through `cachedFetch`, so entering the world (a client-side
  * navigation, same JS context) needs no further downloads.
  */
@@ -48,7 +48,7 @@ function emit(next: Partial<typeof state>): void {
   for (const l of listeners) l();
 }
 
-/** Downloads every model (asset manifest) and sound, a few at a time; safe to call repeatedly. */
+/** Downloads core models and sounds; prepared buildings/vehicles load only when nearby. */
 export function preloadAll(): Promise<void> {
   started ??= (async () => {
     let manifest: Manifest | null = null;
@@ -60,6 +60,7 @@ export function preloadAll(): Promise<void> {
     }
     const urls = new Set<string>();
     for (const [rel, f] of Object.entries(manifest?.files ?? {})) {
+      if (/^(prepared|buildings|vehicles)\//.test(rel)) continue;
       urls.add(f.url);
       // Game models are also served by their plain path (characters, weapons, NPCs, props).
       if (!rel.startsWith('decor/') && !rel.startsWith('nature/')) urls.add(`/models/${rel}`);

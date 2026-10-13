@@ -22,6 +22,7 @@ import { CAMP_PAD, CAMP_BLEND, campDistance, campChunkProps, findCampSite, type 
 import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
 import { RoadNetwork } from './roads';
+import { battleStructures, battleTerrain } from './battle-map';
 
 export const enum WaterKind {
   None = 0,
@@ -103,7 +104,7 @@ export class WorldGenerator {
     this.seaLevel = this.config.seaLevel;
     this.fields = new WorldFields(this.config.seed, this.worldSize, this.config.generatorVersion >= 3 ? .42 : 1);
     this.hydrology = new Hydrology(this.fields, this.worldSize, this.seaLevel);
-    if (this.config.generatorVersion >= 2) this.camp = findCampSite(this);
+    if (this.config.mode !== 'battle-royale' && this.config.generatorVersion >= 2) this.camp = findCampSite(this);
     this.rawTerrain = false;
   }
 
@@ -125,6 +126,21 @@ export class WorldGenerator {
   /* --------------------------------- column sampling -------------------------------------- */
 
   sampleColumn(x: number, z: number, out: ColumnSample = makeColumnSample()): ColumnSample {
+    if (this.config.mode === 'battle-royale') {
+      const roads = this.roads;
+      this.fields.base(x, z, out.base);
+      let height = battleTerrain(this.seed, this.worldSize, this.seaLevel, x, z);
+      for (const site of battleStructures(this)) {
+        if (Math.abs(x - site.x) > site.radius + 16 || Math.abs(z - site.z) > site.radius + 16) continue;
+        const blend = 1 - smoothstep(site.radius, site.radius + 16, Math.hypot(x - site.x, z - site.z));
+        height += (site.y - height) * blend;
+      }
+      out.height = height; out.water = NaN; out.waterKind = height < this.seaLevel ? WaterKind.Sea : WaterKind.None;
+      out.river = 0; out.temperature = .6; out.humidity = .5;
+      out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
+      if (roads) { roads.query(x, z, out); out.height += (out.roadHeight - out.height) * roads.blend(out); }
+      return out;
+    }
     const roads = this.roads;
     const b = this.fields.base(x, z, out.base);
     const sea = this.seaLevel;

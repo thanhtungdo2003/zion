@@ -86,6 +86,9 @@ export class PropRenderer {
     for (const chunk of chunks) {
       if (chunk.lod > PROPS_MAX_LOD) continue;
       for (const p of chunk.props) {
+        if (p.asset === 2202) continue;
+        const location = propTransform(chunk, p);
+        if (!this.library.inRange(p.asset, (location.x - camX) ** 2 + (location.z - camZ) ** 2)) continue;
         if (++scanned % 128 === 0) yield;
         let v = visuals.get(p.asset);
         if (!v) {

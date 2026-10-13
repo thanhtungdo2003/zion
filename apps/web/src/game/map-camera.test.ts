@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { mapToScreen, screenToMap, zoomMap } from './map-camera';
+import { mapHeading, mapToScreen, screenToMap, zoomMap } from './map-camera';
+
+describe('player heading on the north-up world map', () => {
+  it.each([0, Math.PI / 2, Math.PI, -Math.PI / 2, .73])('points toward the projected look direction for yaw %s', yaw => {
+    const camera = { x: 500, z: 500, scale: .5 };
+    const origin = mapToScreen(500, 500, 800, 600, camera);
+    const ahead = mapToScreen(500 - Math.sin(yaw) * 20, 500 - Math.cos(yaw) * 20, 800, 600, camera);
+    const angle = mapHeading(yaw);
+    expect(Math.sin(angle)).toBeCloseTo((ahead.x - origin.x) / 10);
+    expect(-Math.cos(angle)).toBeCloseTo((ahead.y - origin.y) / 10);
+  });
+});
 
 describe('map dragging and zoom coordinates', () => {
   it('converts a map click to the correct world position after panning', () => {

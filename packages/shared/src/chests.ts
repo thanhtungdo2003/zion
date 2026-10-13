@@ -11,7 +11,7 @@ export function chestKey(asset: number, x: number, y: number, z: number): string
   return `${asset}:${Math.round(x * 100)}:${Math.round(y * 100)}:${Math.round(z * 100)}`;
 }
 /** `day` is the world day a field crate was last restocked on; field crates reset each new day. */
-export interface ChestData { items: PlacedItem[]; searched: boolean; revision: number; day?: number }
+export interface ChestData { items: PlacedItem[]; searched: boolean; revision: number; day?: number; capacity?: number }
 export interface ChestStateMessage extends ChestData {
   t: 'chest'; id: string; field: boolean; capacity: number;
   searchRemainingMs: number; busy: boolean; closed?: boolean; error?: string;
@@ -43,6 +43,29 @@ export function generateChestLoot(existing: readonly PlacedItem[], random: () =>
     const count = maxCount(ITEMS[itemId]!); if (count) item.count = count;
     const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
     items.push(item);
+  }
+  return items;
+}
+
+/** Combat supplies only; every fresh BR crate has a loaded gun and compatible ammunition. */
+export function generateBattleLoot(existing: readonly PlacedItem[], random: () => number = Math.random): PlacedItem[] {
+  const items = existing.map(i => ({ ...i }));
+  let uid = Math.max(0, ...items.map(i => i.uid));
+  const pick = (pool: readonly string[]) => pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!;
+  const add = (itemId: string) => {
+    if (items.length >= CHEST_CAPACITY) return;
+    const item: PlacedItem = { uid: ++uid, itemId, container: 'backpack', x: 0, y: 0, rotated: false };
+    const count = maxCount(ITEMS[itemId]!); if (count) item.count = count;
+    const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
+    items.push(item);
+  };
+  const gun = pick(['gl18', 'mp5', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
+  add(gun);
+  add(Object.values(ITEMS).find(item => item.ammo?.guns.includes(gun))!.id);
+  add(pick(ARMOR_SPECS.map(a => a.item)));
+  for (let i = 0, n = 2 + Math.floor(random() * 3); i < n; i++) {
+    const roll = random();
+    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .9 ? 'grenade' : pick(ARMOR_SPECS.map(a => a.item)));
   }
   return items;
 }

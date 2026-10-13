@@ -123,12 +123,21 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
     )}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">
+      {state.vehicle && <div className={`hud-vehicle${state.vehicle.driving ? ' driving' : ''}`} role="status">
+        <strong>{state.vehicle.name}</strong>
+        {state.vehicle.driving && <>
+          <span>{state.vehicle.speed} km/h</span>
+          <div className="hud-vehicle-durability"><progress aria-label="Độ bền xe" max={100} value={state.vehicle.health} /><small>{state.vehicle.health}%</small></div>
+        </>}
+        {state.vehicle.exploding && <b>XE SẮP NỔ! NHẤN F ĐỂ THOÁT!</b>}
+        <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }))}>F · {state.vehicle.driving ? 'Xuống xe' : 'Lên xe'}</button>
+      </div>}
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
       {showWorld && (
         <>
           <div className="hud-panel hud-minimap">
             <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><span><Icon name="lucide:expand" /> M</span></button>
-            {state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
+            {state.mode !== 'battle-royale' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
               <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
             </button>}
             <div className="hud-clock">
@@ -319,7 +328,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       )}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onCameraChange={onResume}>
-        {state.status === 'playing' && (
+        {state.status === 'playing' && state.mode !== 'battle-royale' && (
           <section className="set-section">
             <h3>
               <span>06</span> {t('settings.tutorial')}
@@ -348,9 +357,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>
-            <button className="btn btn-primary" disabled={state.respawnIn > 0} onClick={onRespawn}>
+            {state.mode === 'battle-royale' ? <><p>Bạn đã bị loại{state.battle?.placement ? ` · Hạng #${state.battle.placement}` : ''}. Không hồi sinh trong trận.</p><button className="btn btn-primary" onClick={onLeave}>Về sảnh</button></> : <button className="btn btn-primary" disabled={state.respawnIn > 0} onClick={onRespawn}>
               {state.respawnIn > 0 ? t('hud.respawn_in', { s: state.respawnIn }) : t('hud.respawn')}
-            </button>
+            </button>}
           </div>
         </div>
       )}

@@ -37,7 +37,7 @@ export class RoadNetwork {
   constructor(gen: WorldGenerator) {
     this.improved = gen.config.generatorVersion >= 6;
     this.wear = new Simplex2(gen.seed ^ 0xa5fa17);
-    if (!gen.camp) return;
+    if (!gen.camp && gen.config.mode !== 'battle-royale') return;
     // Site probing must not depend on the road network currently being constructed.
     const raw = gen.rawTerrain;
     gen.rawTerrain = true;
@@ -52,7 +52,8 @@ export class RoadNetwork {
   }
 
   private build(gen: WorldGenerator): void {
-    const camp = gen.camp!;
+    // A routing origin in the wilderness is not a safe camp or a player spawn.
+    const camp = gen.camp ?? { x: gen.worldSize * .5, z: gen.worldSize * .5, y: gen.heightAt(gen.worldSize * .5, gen.worldSize * .5) };
     const sites = allStructures(gen);
     const step = Math.max(12, gen.worldSize / 256);
     const n = Math.ceil(gen.worldSize / step) + 1, count = n * n;
@@ -327,7 +328,7 @@ export class RoadNetwork {
         bridge.bay = { side: this.bridges.length % 2 ? -1 : 1, start, end: start + 48 };
       }
       if (bridge) this.bridges.push(bridge);
-      const distanceFromCamp = Math.hypot((a.x + b.x) * .5 - gen.camp!.x, (a.z + b.z) * .5 - gen.camp!.z);
+      const distanceFromCamp = Math.hypot((a.x + b.x) * .5 - camp.x, (a.z + b.z) * .5 - camp.z);
       const halfWidth = bridge?.halfWidth ?? (gen.config.generatorVersion >= 5 ? 1.5 + 1.9 * (1 - smoothstep(150, 1400, distanceFromCamp)) : ROAD_HALF_WIDTH);
       const segment: RoadSegment = { a, b, length, halfWidth, ...(bridge ? { bridge } : {}) };
       if (this.improved && !bridge) {

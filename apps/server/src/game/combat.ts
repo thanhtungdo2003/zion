@@ -56,6 +56,7 @@ export interface RayResult<T extends Combatant = Player> {
   rewoundMs: number;
   /** Outward surface normal for world geometry, absent for bodies or a miss. */
   normal?: [number, number, number];
+  colliderTag?: number;
 }
 
 /**
@@ -102,7 +103,7 @@ export function castCombatRay<T extends Combatant>(
   }
   const limit = best ? best.t : range;
   if (collision.raycast(ox, oy, oz, dx, dy, dz, limit, Mask.LineOfSight, losHit)) {
-    return { target: null, zone: null, t: losHit.t, rewoundMs: nowMs - rewindTo, normal: [losHit.nx, losHit.ny, losHit.nz] };
+    return { target: null, zone: null, t: losHit.t, rewoundMs: nowMs - rewindTo, normal: [losHit.nx, losHit.ny, losHit.nz], colliderTag: losHit.tag };
   }
   return { target: best?.target ?? null, zone: best?.zone ?? null, t: limit, rewoundMs: nowMs - rewindTo };
 }

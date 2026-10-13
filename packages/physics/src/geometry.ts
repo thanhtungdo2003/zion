@@ -288,14 +288,15 @@ export function capsuleVsBox(
   const s = box.sin;
   let dx = ax - box.cx;
   let dz = az - box.cz;
-  const lax = dx * c - dz * s;
-  const laz = dx * s + dz * c;
-  const lay = ay - box.cy;
+  const m = box.basis;
+  const lax = m ? dx*m[0]!+(ay-box.cy)*m[1]!+dz*m[2]! : dx * c - dz * s;
+  const laz = m ? dx*m[6]!+(ay-box.cy)*m[7]!+dz*m[8]! : dx * s + dz * c;
+  const lay = m ? dx*m[3]!+(ay-box.cy)*m[4]!+dz*m[5]! : ay - box.cy;
   dx = bx - box.cx;
   dz = bz - box.cz;
-  const lbx = dx * c - dz * s;
-  const lbz = dx * s + dz * c;
-  const lby = by - box.cy;
+  const lbx = m ? dx*m[0]!+(by-box.cy)*m[1]!+dz*m[2]! : dx * c - dz * s;
+  const lbz = m ? dx*m[6]!+(by-box.cy)*m[7]!+dz*m[8]! : dx * s + dz * c;
+  const lby = m ? dx*m[3]!+(by-box.cy)*m[4]!+dz*m[5]! : by - box.cy;
 
   let t = closestTOnSegment(lax, lay, laz, lbx, lby, lbz, 0, 0, 0);
   let px = 0;
@@ -355,7 +356,8 @@ export function capsuleVsBox(
       depth = penZ + r;
     }
   }
-  writeContact(out, lnx * c + lnz * s, lny, -lnx * s + lnz * c, depth);
+  if (m) writeContact(out,lnx*m[0]!+lny*m[3]!+lnz*m[6]!,lnx*m[1]!+lny*m[4]!+lnz*m[7]!,lnx*m[2]!+lny*m[5]!+lnz*m[8]!,depth);
+  else writeContact(out, lnx * c + lnz * s, lny, -lnx * s + lnz * c, depth);
   return true;
 }
 
@@ -447,8 +449,9 @@ export function rayBox(
   const s = box.sin;
   const rx = ox - box.cx;
   const rz = oz - box.cz;
-  const lo = [rx * c - rz * s, oy - box.cy, rx * s + rz * c] as const;
-  const ld = [dx * c - dz * s, dy, dx * s + dz * c] as const;
+  const m=box.basis,ry=oy-box.cy;
+  const lo = m ? [rx*m[0]!+ry*m[1]!+rz*m[2]!,rx*m[3]!+ry*m[4]!+rz*m[5]!,rx*m[6]!+ry*m[7]!+rz*m[8]!] : [rx * c - rz * s, ry, rx * s + rz * c];
+  const ld = m ? [dx*m[0]!+dy*m[1]!+dz*m[2]!,dx*m[3]!+dy*m[4]!+dz*m[5]!,dx*m[6]!+dy*m[7]!+dz*m[8]!] : [dx * c - dz * s, dy, dx * s + dz * c];
   const h = [box.hx, box.hy, box.hz] as const;
   let tNear = -Infinity;
   let tFar = Infinity;
@@ -489,9 +492,9 @@ export function rayBox(
   const lnx = axis === 0 ? sign : 0;
   const lny = axis === 1 ? sign : 0;
   const lnz = axis === 2 ? sign : 0;
-  outNormal.x = lnx * c + lnz * s;
-  outNormal.y = lny;
-  outNormal.z = -lnx * s + lnz * c;
+  outNormal.x = m ? lnx*m[0]!+lny*m[3]!+lnz*m[6]! : lnx * c + lnz * s;
+  outNormal.y = m ? lnx*m[1]!+lny*m[4]!+lnz*m[7]! : lny;
+  outNormal.z = m ? lnx*m[2]!+lny*m[5]!+lnz*m[8]! : -lnx * s + lnz * c;
   return tNear;
 }
 

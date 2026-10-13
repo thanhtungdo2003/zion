@@ -1,4 +1,5 @@
 import type { ChestStateMessage } from '../chests';
+import type { BattleState, GameMode } from '../battle-royale';
 import type { BaseLifeConfig } from '../base-life';
 import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
@@ -23,6 +24,7 @@ export type ErrorCode =
   | 'internal';
 
 export interface WelcomeMessage {
+  mode?: GameMode;
   t: 'welcome';
   playerId: number;
   username: string;
@@ -57,6 +59,8 @@ export interface ChatBroadcast {
   /** A server reply (command output), shown greyed out without a sender. */
   system?: boolean;
 }
+export interface DoorStateEvent { t: 'door'; id: number; x: number; y: number; z: number; yaw: number; open: boolean }
+export interface LootCratesEvent { t: 'lootCrates'; crates: { id: string; x: number; y: number; z: number }[] }
 
 export interface HitEvent {
   t: 'hit';
@@ -252,6 +256,8 @@ export interface DistressMessage { t: 'distress'; playerId: number; name: string
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
 export type ServerJsonMessage =
+  | import('../vehicles').VehiclesMessage
+  | BattleState
   | { t: 'pvp'; enabled: boolean; remainingMs: number }
   | RankUpdate
   | TutorialStateMessage
@@ -268,6 +274,8 @@ export type ServerJsonMessage =
   | ErrorMessage
   | PongMessage
   | ChatBroadcast
+  | DoorStateEvent
+  | LootCratesEvent
   | HitEvent
   | ShotEvent
   | GrenadeEvent
@@ -326,6 +334,9 @@ export const EntityFlags = {
   Reviving: 1 << 10,
   Prone: 1 << 11,
   Aiming: 1 << 12,
+  InPlane: 1 << 13,
+  Freefall: 1 << 14,
+  Parachute: 1 << 15,
 } as const;
 
 export interface SelfState {

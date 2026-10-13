@@ -44,6 +44,8 @@ export interface BoxShape {
   /** Cached cos(yaw) / sin(yaw). Use makeBox() to construct. */
   cos: number;
   sin: number;
+  /** Optional full rotation for dynamic bodies; buildings retain the yaw-only fast path. */
+  basis?: readonly number[];
 }
 
 export type ColliderShape = SphereShape | CapsuleShape | BoxShape;
@@ -95,6 +97,13 @@ export function shapeAABB(s: ColliderShape, out: AABB = emptyAABB()): AABB {
       out.maxZ = Math.max(s.az, s.bz) + s.r;
       return out;
     case 'box': {
+      if (s.basis) {
+        const b=s.basis,ex=Math.abs(b[0]!)*s.hx+Math.abs(b[3]!)*s.hy+Math.abs(b[6]!)*s.hz,
+          ey=Math.abs(b[1]!)*s.hx+Math.abs(b[4]!)*s.hy+Math.abs(b[7]!)*s.hz,
+          ez=Math.abs(b[2]!)*s.hx+Math.abs(b[5]!)*s.hy+Math.abs(b[8]!)*s.hz;
+        Object.assign(out,{minX:s.cx-ex,maxX:s.cx+ex,minY:s.cy-ey,maxY:s.cy+ey,minZ:s.cz-ez,maxZ:s.cz+ez});
+        return out;
+      }
       const ex = Math.abs(s.cos) * s.hx + Math.abs(s.sin) * s.hz;
       const ez = Math.abs(s.sin) * s.hx + Math.abs(s.cos) * s.hz;
       out.minX = s.cx - ex;

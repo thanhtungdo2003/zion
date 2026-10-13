@@ -30,6 +30,7 @@ function setup(wall = false) {
     players: new Map([[shooter.id, shooter], [target.id, target]]),
     grid: { query: () => [shooter, target] }, zombies: { near: () => [], alert: vi.fn() }, animals: new Map(),
     allied: () => false, npcOnRay: () => null,
+    vehicles: { hitAt: vi.fn() },
     life: { spend: vi.fn() }, attackStaminaCost: () => 0, useRound: () => true,
     broadcastNear: vi.fn(), broadcastAt: vi.fn(), hitTarget: vi.fn(),
   }) as Harness;

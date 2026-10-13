@@ -10,3 +10,4 @@ export * from './png';
 export * from './structures';
 export * from './roads';
 export * from './bridges';
+export * from './battle-map';

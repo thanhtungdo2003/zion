@@ -62,7 +62,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean };
+  private readonly handlers: { openInventory: () => void; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -70,7 +70,7 @@ export class InputController {
     handlers: {
       openChat: () => void;
       activeChange: (active: boolean) => void;
-      openInventory: () => void;
+      openInventory: () => void; vehicle?: () => void;
       hotbar: (slot: number) => void;
       cycleHotbar: (dir: number) => void;
       reload: () => void;
@@ -96,6 +96,7 @@ export class InputController {
         return;
       }
       if (this.suspended || !this.active) return;
+      if (e.code === 'KeyF') { if (!e.repeat) this.handlers.vehicle?.(); return; }
       if (e.code === 'KeyP') {
         if (!e.repeat) cycleCameraMode();
         return;

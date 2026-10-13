@@ -1,0 +1,182 @@
+import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
+import type { WorldGenerator } from '@zion/worldgen';
+import type { Player } from './player';
+
+export class Vehicles {
+  readonly states = new Map<number, VehicleState>();
+  private readonly controls = new Map<number, { throttle: number; steer: number; at: number }>();
+  private readonly usedAt = new Map<number, number>();
+  private readonly spawnAt = new Map<number, number>();
+  private readonly spawns = new Map<number, { x: number; y: number; z: number; yaw: number }>();
+  private readonly struck = new WeakMap<object, Map<number, number>>();
+  constructor(private readonly world: CollisionWorld, gen: WorldGenerator) {
+    const kinds: VehicleKind[] = ['car', 'jeep', 'quad', 'grizzly'];
+    const limit = gen.config.mode === 'battle-royale' ? 64 : 80;
+    for (const segment of gen.roads?.segments ?? []) {
+      if (this.states.size >= limit) break;
+      if (segment.bridge || segment.length < 15) continue;
+      const x = (segment.a.x + segment.b.x) / 2, z = (segment.a.z + segment.b.z) / 2;
+      if ([...this.states.values()].some(v => Math.hypot(v.x - x, v.z - z) < 115)) continue;
+      if (gen.camp && Math.hypot(x - gen.camp.x, z - gen.camp.z) < 180) continue;
+      const y = gen.heightAt(x, z);
+      if (y < gen.seaLevel + 1) continue;
+      const id = this.states.size + 1;
+      const v: VehicleState = { id, kind: kinds[(id - 1) % 4]!, x, y, z, yaw: Math.atan2(segment.a.x - segment.b.x, segment.a.z - segment.b.z), speed: 0, driver: null, health: VEHICLES[kinds[(id - 1) % 4]!].health, explodeAt: 0, exploded: false };
+      this.states.set(id, v); this.spawns.set(id, { x, y, z, yaw: v.yaw }); this.install(v);
+    }
+  }
+  private install(v: VehicleState): void { this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
+  spawn(p: Player, type: string | undefined, now: number): string {
+    const aliases: Record<string, VehicleKind> = { car: 'car', lada: 'car', jeep: 'jeep', quad: 'quad', quadbike: 'quad', grizzly: 'grizzly' };
+    const key = type?.toLowerCase();
+    const kind = key && Object.hasOwn(aliases, key) ? aliases[key] : undefined;
+    if (!kind) return '/vehicle <car|jeep|quad|grizzly>';
+    if (p.dead || p.downed || p.state.flight || p.vehicleId) return 'Hãy đứng trên mặt đất và xuống xe trước.';
+    if (now - (this.spawnAt.get(p.id) ?? -Infinity) < 3000) return 'Đợi 3 giây trước khi tạo xe tiếp.';
+    if (this.states.size >= 160) return 'Bản đồ đã đạt giới hạn phương tiện.';
+    const def = VEHICLES[kind];
+    for (const distance of [5, 7, 9]) for (const angle of [0, .6, -.6, Math.PI]) {
+      const yaw = p.yaw + angle, x = p.state.x - Math.sin(yaw) * distance, z = p.state.z - Math.cos(yaw) * distance;
+      const y = this.world.terrainHeight(x, z), reach = Math.hypot(def.halfX, def.halfZ) + .3;
+      if (!Number.isFinite(y) || y < this.world.seaLevel + .4 || !this.world.isAreaLoaded(x-reach,z-reach,x+reach,z+reach) || !this.world.inBounds(x-reach,z-reach) || !this.world.inBounds(x+reach,z+reach)) continue;
+      let blocked = false;
+      for (const dx of [-def.halfX, 0, def.halfX]) for (const dz of [-def.halfZ, 0, def.halfZ]) {
+        const px = x + dx * Math.cos(yaw) + dz * Math.sin(yaw), pz = z - dx * Math.sin(yaw) + dz * Math.cos(yaw);
+        if (Math.abs(this.world.terrainHeight(px,pz)-y) > .6 || this.world.overlapsCapsule(px,y+.4,pz,px,y+1.5,pz,.35,Mask.CharacterMovement,.04)) blocked=true;
+      }
+      if (blocked) continue;
+      const id = Math.max(0,...this.states.keys())+1;
+      const v: VehicleState = {id,kind,x,y,z,yaw:Math.atan2(Math.sin(p.yaw),Math.cos(p.yaw)),speed:0,health:def.health,driver:null,explodeAt:0,exploded:false};
+      this.states.set(id,v);this.spawns.set(id,{x,y,z,yaw:v.yaw});this.install(v);this.spawnAt.set(p.id,now);
+      return `Đã tạo ${def.name}. Nhấn F để lên/xuống xe.`;
+    }
+    return 'Không có đủ khoảng trống gần bạn để tạo xe.';
+  }
+  driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
+  control(p: Player, throttle: number, steer: number, now: number): void {
+    if (p.vehicleId) this.controls.set(p.vehicleId, { throttle, steer, at: now });
+  }
+  toggle(p: Player, id: number | undefined, now: number): void {
+    if (p.dead || p.downed || p.state.flight || p.questBusy || now - (this.usedAt.get(p.id) ?? -Infinity) < 350) return;
+    this.usedAt.set(p.id, now);
+    if (this.driving(p)) { this.exit(p); return; }
+    const v = id ? this.states.get(id) : [...this.states.values()].filter(v => !v.driver && v.health > 0).sort((a, b) => Math.hypot(a.x - p.state.x, a.z - p.state.z) - Math.hypot(b.x - p.state.x, b.z - p.state.z))[0];
+    if (!v || v.driver || v.health <= 0 || v.exploded || Math.hypot(v.x - p.state.x, v.z - p.state.z) > VEHICLE_REACH || Math.abs(v.y - p.state.y) > 2.5) return;
+    // Reach is not enough: do not let F pull players through a wall.
+    const dx = v.x - p.state.x, dz = v.z - p.state.z, d = Math.hypot(dx, dz), hit = makeRayHit();
+    this.world.removeOwnerColliders(vehicleOwner(v.id));
+    const blocked = d > .1 && this.world.raycast(p.state.x, p.state.y + 1.2, p.state.z, dx / d, 0, dz / d, d, Mask.LineOfSight, hit);
+    this.install(v);
+    if (blocked) return;
+    v.driver = p.id; p.vehicleId = v.id; p.state.prone = false; p.state.rollTicks = 0; p.strike = null;
+    p.history.clear(); this.seat(p, v);
+  }
+  exit(p: Player, force = false): boolean {
+    const v = this.driving(p);
+    if (!v) return true;
+    this.world.removeOwnerColliders(vehicleOwner(v.id));
+    const def = VEHICLES[v.kind], c = Math.cos(v.yaw), s = Math.sin(v.yaw), hit = makeRayHit();
+    let point: { x: number; y: number; z: number } | undefined;
+    for (const [side, back] of [[-1, 0], [1, 0], [-1, 1], [1, 1], [0, 1]]) {
+      const dx = side! * (def.halfX + 1), dz = back! * (def.halfZ + 1);
+      const x = v.x + dx * c + dz * s, z = v.z - dx * s + dz * c;
+      const terrain = this.world.terrainHeight(x, z), water = this.world.waterLevel(x, z);
+      const waterExit = terrain < water && v.y < water + 1.5;
+      let y = terrain;
+      // Exit beside the submerged chassis, then let swimming move the player upwards.
+      // Jumping straight to the surface could teleport through a bridge or a roof.
+      if (waterExit) y = Math.max(terrain, Math.min(water - DEFAULT_CHARACTER.swimFloatDepth - .05, v.y + .1));
+      if (!Number.isFinite(y) || !this.world.inBounds(x, z)) continue;
+      if (!this.world.isAreaLoaded(x-.4,z-.4,x+.4,z+.4) || this.world.overlapsCapsule(x,y+.4,z,x,y+1.4,z,.35,Mask.CharacterMovement,.04)) continue;
+      const dy=y+1.2-(v.y+1.3),distance = Math.hypot(x - v.x, dy, z - v.z);
+      if (this.world.raycast(v.x, v.y + 1.3, v.z, (x - v.x) / distance, dy / distance, (z - v.z) / distance, distance + .3, Mask.LineOfSight, hit)) continue;
+      if (!waterExit && this.world.raycast(x, y + .2, z, 0, 1, 0, 1.8, Mask.LineOfSight, hit)) continue;
+      point = { x, y: y + .05, z }; break;
+    }
+    this.install(v);
+    if (!point && !force) return false;
+    v.driver = null; this.controls.delete(v.id); p.vehicleId = 0;
+    if (point) Object.assign(p.state, point);
+    const water = this.world.waterLevel(p.state.x, p.state.z), swimming = water - p.state.y > DEFAULT_CHARACTER.swimDepth;
+    p.state.vx = p.state.vy = p.state.vz = 0; p.state.grounded = !swimming; p.state.swimming = swimming;
+    p.inputs.length = 0; p.history.clear(); p.dirty = true;
+    p.session.sendJson({ t: 'respawn', playerId: p.id, x: p.state.x, y: p.state.y, z: p.state.z });
+    return true;
+  }
+  release(p: Player): void { this.exit(p, true); this.usedAt.delete(p.id); }
+  private seat(p: Player, v: VehicleState): void {
+    Object.assign(p.state, vehicleSeat(v), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false });
+    p.yaw = v.yaw; p.dirty = true;
+  }
+  step(now: number, dt: number, players: ReadonlyMap<number, Player>, explode: (v: VehicleState, occupant: Player | undefined) => void, impact: (p: Player, speed: number) => void): void {
+    for (const v of this.states.values()) {
+      const p = v.driver ? players.get(v.driver) : undefined;
+      if (v.driver && (!p || p.dead || p.downed)) { if (p) this.release(p); else v.driver = null; }
+      if (v.explodeAt && now >= v.explodeAt && !v.exploded) {
+        v.exploded = true; v.speed = 0; this.world.removeOwnerColliders(vehicleOwner(v.id));
+        explode(v, p);
+        if (p && p.vehicleId === v.id) this.release(p);
+        this.install(v); continue;
+      }
+      if (!v.driver && Math.abs(v.speed) < .01 && Math.abs(v.motion?.lateral ?? 0) < .01 && Math.abs(v.motion?.yawVelocity ?? 0) < .01 && v.motion?.grounded && Math.abs(v.motion.vy)<.03 && Math.abs(v.motion.pitchVelocity)+Math.abs(v.motion.rollVelocity)<.03) continue;
+      this.world.removeOwnerColliders(vehicleOwner(v.id));
+      const input = this.controls.get(v.id), fresh = p && input && now - input.at < 250;
+      const speed = stepVehicle(v, fresh ? input.throttle : 0, fresh ? input.steer : 0, this.world, dt, now, (id) => {
+        const other = this.states.get(id);
+        return other && !other.exploded ? other : undefined;
+      });
+      this.install(v);
+      if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
+    }
+  }
+  /**
+   * Moving vehicles hit bodies with momentum: damage and knockback follow the closing speed,
+   * and the vehicle loses speed by the mass ratio instead of stopping on a pedestrian.
+   */
+  strike<T extends object>(now: number, bodies: (v: VehicleState, radius: number) => Iterable<T>, position: (t: T) => { x: number; y: number; z: number }, mass: number,
+    hit: (target: T, v: VehicleState, damage: number, dirX: number, dirZ: number, impulse: number) => void): void {
+    for (const v of this.states.values()) {
+      const def = VEHICLES[v.kind], lateral = v.motion?.lateral ?? 0, speed = Math.hypot(v.speed, lateral);
+      if (v.exploded || speed < 3) continue;
+      const vx = -Math.sin(v.yaw) * v.speed + Math.cos(v.yaw) * lateral, vz = -Math.cos(v.yaw) * v.speed - Math.sin(v.yaw) * lateral;
+      for (const target of bodies(v, Math.hypot(def.halfX, def.halfZ) + 1)) {
+        const t = position(target), local = vehicleLocalPoint(v, t.x, t.y + .5, t.z);
+        if (Math.abs(local.x) > def.halfX + .35 || Math.abs(local.z) > def.halfZ + .35 || local.y < -.6 || local.y > def.height + .3) continue;
+        let seen = this.struck.get(target);
+        if (!seen) this.struck.set(target, seen = new Map());
+        if (now - (seen.get(v.id) ?? -Infinity) < 700) continue;
+        // Only the side the vehicle is moving into delivers the blow.
+        const dx = t.x - v.x, dz = t.z - v.z, closing = (dx * vx + dz * vz) / Math.max(.3, Math.hypot(dx, dz));
+        if (closing < 3) continue;
+        seen.set(v.id, now);
+        const weight = Math.min(1.4, def.mass / 900), share = mass / (mass + def.mass);
+        const px = vx / speed + dx * .4, pz = vz / speed + dz * .4, n = Math.hypot(px, pz) || 1;
+        hit(target, v, Math.round((closing - 3) ** 1.35 * 4.2 * weight), px / n, pz / n, closing * .55);
+        v.speed *= 1 - share * 1.6;
+        if (v.motion) v.motion.lateral = lateral * (1 - share * 1.6);
+      }
+    }
+  }
+  hitAt(x: number, y: number, z: number, amount: number, now: number, colliderTag?: number): void {
+    if (amount < 25 || colliderTag === undefined || colliderTag < 50001) return;
+    for (const v of this.states.values()) {
+      if (v.exploded || colliderTag !== 50000+v.id) continue;
+      const p=vehicleLocalPoint(v,x,y,z),def=VEHICLES[v.kind];
+      if(Math.abs(p.x)<=def.halfX+.12&&Math.abs(p.z)<=def.halfZ+.12&&p.y>=0&&p.y<=def.height+.12) {damageVehicle(v,amount*.6,now);break;}
+    }
+  }
+  blast(x: number, y: number, z: number, radius: number, damage: number, now: number): void {
+    for (const v of this.states.values()) {
+      const d = Math.hypot(v.x - x, v.y + .6 - y, v.z - z);
+      if (d < radius) damageVehicle(v, damage * (1 - d / radius), now);
+    }
+  }
+  send(p: Player, now: number): void {
+    p.session.sendJson({ t: 'vehicles', time: now, vehicles: [...this.states.values()].filter(v => v.driver === p.id || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
+  }
+  reset(): void {
+    this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();
+    for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.speed = 0; v.braking=false;delete v.impact;v.motion=createVehicleMotion(v.kind); this.install(v); }
+  }
+}
