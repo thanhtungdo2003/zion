@@ -9,7 +9,24 @@ import type { Player } from './player';
 const director = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => undefined });
 
 describe('zombie damage', () => {
-  it.each([0, 1, 2, 3] as const)('decapitation kills variant %s at full health and preserves its snapshot variant', variant => {
+  it('keeps brute movement intact under hits and prevents decapitation without blocking damage', () => {
+    const zombie = new Zombie(1_000_021, 10, 0, 10, ZombieVariant.Brute);
+    const attacker = { dead: false } as Player;
+    zombie.state.vx = 2;
+    zombie.state.vz = -3;
+    zombie.staggerUntil = 50;
+    expect(director.hit(zombie, 'decapitation', 30, 1, 1, 20, 100, attacker).killed).toBe(false);
+    expect(zombie.health).toBe(250);
+    expect(zombie.limbs & Limb.Head).toBe(0);
+    expect(zombie.state.vx).toBe(2);
+    expect(zombie.state.vz).toBe(-3);
+    expect(zombie.staggerUntil).toBe(50);
+    expect(zombie.target).toBe(attacker);
+    expect(director.hit(zombie, 'head', 250, 1, 0, 20, 200, attacker).killed).toBe(true);
+    expect(zombie.limbs & Limb.Head).toBe(0);
+    expect(zombie.state.vx).toBe(2);
+  });
+  it.each([0, 1, 3] as const)('decapitation kills variant %s at full health and preserves its snapshot variant', variant => {
     const zombie = new Zombie(1_000_020, 10, 0, 10, variant);
     const result = director.hit(zombie, 'decapitation', 1, 1, 0, 4, 100, null);
     expect(result.killed).toBe(true);

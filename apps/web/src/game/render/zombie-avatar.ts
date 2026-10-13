@@ -126,6 +126,7 @@ export class ZombieAvatar {
     if (this.deadFor >= 0) return this.ragdoll;
     this.deadFor = 0; // Death stays latched while older interpolated snapshots catch up.
     this.flinch = 0;
+    if (this.variant === ZombieVariant.Brute) kx = kz = force = 0;
     const aliases: Record<string, string> = { arm_left: 'arm_upper_l', arm_right: 'arm_upper_r', leg_left: 'leg_thigh_l', leg_right: 'leg_thigh_r' };
     this.ragdoll = Ragdoll.start(this.model, (name) => this.bones.get(name)?.node ?? this.bones.get(aliases[name] ?? '')?.node, PX, ground, kx, kz, force);
     return this.ragdoll;
@@ -133,7 +134,7 @@ export class ZombieAvatar {
 
   /** Clone only this zombie's head; shared mesh resources remain owned by the model library. */
   severHead(kx = 0, kz = 1, force = 4): void {
-    if (this.detachedHead) return;
+    if (this.variant === ZombieVariant.Brute || this.detachedHead) return;
     const head = this.bones.get('head')?.node;
     if (!head) return;
     this.root.updateMatrixWorld(true);

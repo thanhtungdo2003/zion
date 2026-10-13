@@ -1,4 +1,4 @@
-import { Vector3, type PerspectiveCamera } from 'three';
+import { Vector3, type PerspectiveCamera, type Ray } from 'three';
 import { Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 
 const CAMERA_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7, .7], [.7, -.7], [-.7, -.7]] as const;
@@ -45,6 +45,13 @@ export class ThirdPersonCamera {
 }
 
 /** Aim from the authoritative muzzle to the camera's centre target (shoulder parallax). */
+export function reticleAim(origin: Vector3, ray: Ray, distance: number): { yaw: number; pitch: number } {
+  const target = ray.at(distance, new Vector3());
+  // Camera-side obstacles must not turn ammunition backwards through the character.
+  if (target.clone().sub(origin).dot(ray.direction) < .2) target.copy(origin).addScaledVector(ray.direction, 2);
+  return thirdPersonAim(origin, target);
+}
+
 export function thirdPersonAim(origin: Vector3, target: Vector3): { yaw: number; pitch: number } {
   const dx = target.x - origin.x, dy = target.y - origin.y, dz = target.z - origin.z;
   return { yaw: Math.atan2(-dx, -dz), pitch: Math.max(-1.4, Math.min(1.4, Math.atan2(dy, Math.hypot(dx, dz)))) };

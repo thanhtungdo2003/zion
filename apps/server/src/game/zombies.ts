@@ -493,14 +493,16 @@ export class ZombieDirector {
   hit(z: Zombie, zone: string, damage: number, dirX: number, dirZ: number, impulse: number, now: number, attacker: Player | null): { killed: boolean; broke: number } {
     if (z.dead) return { killed: false, broke: 0 };
     // Knockback: shove along the shot direction and briefly stagger.
-    const s = z.state;
-    const len = Math.hypot(dirX, dirZ) || 1;
-    s.vx += (dirX / len) * impulse;
-    s.vz += (dirZ / len) * impulse;
-    z.staggerUntil = Math.max(z.staggerUntil, now + 120 + impulse * 60);
+    if (z.variant !== ZombieVariant.Brute) {
+      const s = z.state;
+      const len = Math.hypot(dirX, dirZ) || 1;
+      s.vx += (dirX / len) * impulse;
+      s.vz += (dirZ / len) * impulse;
+      z.staggerUntil = Math.max(z.staggerUntil, now + 120 + impulse * 60);
+    }
     if (attacker && !attacker.dead) z.target = attacker;
     const broke = 0;
-    if (zone === 'decapitation') {
+    if (zone === 'decapitation' && z.variant !== ZombieVariant.Brute) {
       z.limbs |= Limb.Head;
       z.health = 0;
     } else if (zone === 'head' && z.variant !== ZombieVariant.Brute) {

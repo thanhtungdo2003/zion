@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CollisionWorld, Heightfield, Layer, makeBox } from '@zion/physics';
-import { WEAPON_SPECS, WeaponId, rollsDecapitation, type MeleeSpec } from '@zion/shared';
+import { WEAPON_SPECS, WeaponId, ZombieVariant, rollsDecapitation, type MeleeSpec } from '@zion/shared';
 import { GameServer } from './game-server';
 import { Player } from './player';
 import { Zombie, ZombieDirector } from './zombies';
@@ -9,6 +9,25 @@ import type { ClientSession } from './session';
 afterEach(() => vi.restoreAllMocks());
 
 describe('melee cleave', () => {
+  it('never rolls decapitation or substitutes full health damage for brute primary and cleave hits', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const collision = new CollisionWorld({ worldSize: 64, seaLevel: -20 });
+    const attacker = new Player(1, 'a', 'A', {} as ClientSession, 16, 0, 16);
+    const targets = [new Zombie(1_000_001, 16, 0, 15, ZombieVariant.Brute), new Zombie(1_000_002, 17.2, 0, 14.5, ZombieVariant.Brute)];
+    for (const z of targets) z.history.push(100, z.state.x, 0, z.state.z, 0);
+    const hitTarget = vi.fn();
+    const server = Object.assign(Object.create(GameServer.prototype), {
+      collision, zombies: { near: () => targets }, grid: { query: () => [] },
+      animals: new Map(), scratch: [], peacefulNpcs: () => [], hitTarget,
+    }) as { resolveStrike(p: Player, now: number, rt: undefined, blade: MeleeSpec): void };
+    const blade = WEAPON_SPECS[WeaponId.FireAxe] as MeleeSpec;
+    random.mockClear();
+    server.resolveStrike(attacker, 100, undefined, blade);
+    expect(hitTarget).toHaveBeenCalledTimes(2);
+    expect(hitTarget.mock.calls.map(call => call[2])).toEqual([blade.damage, Math.round(blade.damage * (blade.cleaveMultiplier ?? .5))]);
+    expect(hitTarget.mock.calls.every(call => call[3] !== 'decapitation')).toBe(true);
+    expect(random).not.toHaveBeenCalled();
+  });
   it('does not roll an instant kill against another player even with a sharp axe', () => {
     const collision = new CollisionWorld({ worldSize: 64, seaLevel: -20 });
     const attacker = new Player(1, 'a', 'A', {} as ClientSession, 16, 0, 16);

@@ -1,12 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
 import { CollisionWorld, Layer, makeBox } from '@zion/physics';
-import { ThirdPersonCamera, thirdPersonAim } from './third-person-camera';
+import { ThirdPersonCamera, thirdPersonAim, reticleAim } from './third-person-camera';
 
 function fixture() {
   return { camera: new PerspectiveCamera(75, 16 / 9, .05, 1000), boom: new ThirdPersonCamera(), focus: new Vector3(16, 1.62, 16), world: new CollisionWorld({ worldSize: 64, seaLevel: -50 }) };
 }
 describe('third-person shoulder camera', () => {
+  it.each([false, true])('converges first-person shots on nearby reticle targets with prone=%s', prone => {
+    const camera = new PerspectiveCamera(75, 16 / 9, .05, 1000);
+    const muzzle = new Vector3(16, prone ? .4 : 1.35, 16);
+    camera.position.set(16.03, prone ? .55 : 1.62, 15.88);
+    camera.rotation.set(-.12, .4, .02, 'YXZ');
+    camera.updateMatrixWorld(true);
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2(0, 0), camera);
+    for (const distance of [.5, 1, 2, 5, 100]) {
+      const target = ray.ray.at(distance, new Vector3());
+      const aim = reticleAim(muzzle, ray.ray, distance);
+      const shot = new Vector3(-Math.sin(aim.yaw) * Math.cos(aim.pitch), Math.sin(aim.pitch), -Math.cos(aim.yaw) * Math.cos(aim.pitch));
+      const travel = target.clone().sub(muzzle).dot(shot);
+      const impact = muzzle.clone().addScaledVector(shot, travel);
+      expect(impact.distanceTo(target)).toBeLessThan(1e-8);
+      expect(impact.project(camera).x).toBeCloseTo(0, 8);
+      expect(impact.y).toBeCloseTo(0, 8);
+    }
+  });
+  it('keeps shots forward when a shoulder camera sees an obstruction behind the muzzle', () => {
+    const { camera, boom, focus } = fixture();
+    boom.update(camera, focus, 0, 0, 1 / 60);
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2(0, 0), camera);
+    const aim = reticleAim(focus, ray.ray, .1);
+    expect(aim.yaw).toBeCloseTo(0);
+    expect(aim.pitch).toBeCloseTo(0);
+  });
   it.each([0, Math.PI / 2, -Math.PI / 2, Math.PI])('stays behind the player with shoulder clearance at yaw %s', yaw => {
     const { camera, boom, focus } = fixture();
     boom.update(camera, focus, yaw, -.12, 1 / 60);

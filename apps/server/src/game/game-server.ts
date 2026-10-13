@@ -50,6 +50,7 @@ import {
   weaponSpeedFactor,
   weaponStaminaFactor,
   rollsDecapitation,
+  ZombieVariant,
   packArmor,
   MEDKIT_USE_MS,
   DEV_COIN_GRANT,
@@ -1664,7 +1665,7 @@ export class GameServer {
       : resolveMelee(p, candidates, this.collision, now, renderTime);
     if (!res) return;
     const apply = (target: Combatant, damage: number, zone: string, x: number, y: number, z: number, force: number) => {
-      const sever = target instanceof Zombie && !target.dead && rollsDecapitation(blade);
+      const sever = target instanceof Zombie && target.variant !== ZombieVariant.Brute && !target.dead && rollsDecapitation(blade);
       this.hitTarget(p, target, sever ? target.health : damage, sever ? 'decapitation' : zone, x, y, z, -Math.sin(p.yaw), -Math.cos(p.yaw), force, now);
     };
     apply(res.target, res.damage, blade && res.zone === 'torso' ? 'slash' : res.zone, res.x, res.y, res.z, blade ? 4 : 2.5);
@@ -1699,7 +1700,7 @@ export class GameServer {
     }
     attacker.pvpUntil = now + 60_000;
     this.sendPvp(attacker, now);
-    return attacker.pvpEnabled && !this.allied(attacker, target);
+    return (attacker.pvpEnabled || (target.pvpEnabled && target.pvpUntil > now)) && !this.allied(attacker, target);
   }
 
   /** Routes a hit to a player or a zombie. */
@@ -1727,6 +1728,10 @@ export class GameServer {
   }
 
   private hitZombie(attacker: Player | null, zb: Zombie, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, sourceId = attacker?.id ?? 0): void {
+    if (zb.variant === ZombieVariant.Brute) {
+      impulse = 0;
+      if (zone === 'decapitation') zone = 'slash';
+    }
     const res = this.zombies.hit(zb, zone, amount, dirX, dirZ, impulse, now, attacker);
     const len = Math.hypot(dirX, dirZ) || 1;
     const msgHit = {

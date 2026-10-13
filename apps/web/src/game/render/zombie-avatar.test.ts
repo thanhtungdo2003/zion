@@ -4,6 +4,7 @@ import { Box3, Scene, Vector3 } from 'three';
 import { EntityFlags, Limb, zombieScale, type ZombieVariant } from '@zion/shared';
 import { buildBBModel, type RawModel } from './character-model';
 import { ZombieAvatar } from './zombie-avatar';
+import { Ragdoll } from './ragdoll';
 
 const variants = ['hunched-rotting-zombie', 'gaunt-zombie', 'brute-zombie', 'crimson-eyed-zombie'];
 afterEach(() => vi.restoreAllMocks());
@@ -20,7 +21,17 @@ async function avatar(variant = 0) {
 }
 
 describe('zombie death ragdolls', () => {
-  it.each([0, 1, 2, 3])('variant %s loses its head once, falls to terrain and removes the detached model with the corpse', async variant => {
+  it('keeps the brute head attached and removes directional impulse from its ragdoll', async () => {
+    const zombie = await avatar(2);
+    const start = vi.spyOn(Ragdoll, 'start');
+    zombie.severHead(1, 0, 20);
+    zombie.update(10, 0, 10, 0, EntityFlags.Dead, Limb.Head, .1);
+    expect(zombie.root.getObjectByName('head')!.visible).toBe(true);
+    expect(zombie.root.getObjectByName('detached-zombie-head')).toBeUndefined();
+    expect(start).toHaveBeenCalledOnce();
+    expect(start.mock.calls[0]!.slice(-3)).toEqual([0, 0, 0]);
+  });
+  it.each([0, 1, 3])('variant %s loses its head once, falls to terrain and removes the detached model with the corpse', async variant => {
     const zombie = await avatar(variant), scene = new Scene();
     zombie.addTo(scene);
     const head = zombie.root.getObjectByName('head')!;
@@ -42,7 +53,7 @@ describe('zombie death ragdolls', () => {
     expect(detached.parent).toBeNull();
   });
   it('restores headless corpses from snapshot data without the original hit event', async () => {
-    const zombie = await avatar(2);
+    const zombie = await avatar(0);
     zombie.update(10, 0, 10, 0, EntityFlags.Dead, Limb.Head, .1);
     expect(zombie.root.getObjectByName('head')!.visible).toBe(false);
     expect(zombie.root.getObjectByName('detached-zombie-head')).toBeDefined();
@@ -82,7 +93,7 @@ describe('zombie death ragdolls', () => {
     const after = body.getWorldPosition(new Vector3());
     expect(body.matrixAutoUpdate).toBe(false);
     expect(zombie.root.position.toArray()).toEqual([10, 0, 10]);
-    expect(after.x).toBeGreaterThan(before.x);
+    if (variant !== 2) expect(after.x).toBeGreaterThan(before.x);
     expect(after.y).toBeLessThan(before.y);
     expect(zombie.root.visible).toBe(true);
     expect(zombie.root.getObjectsByProperty('isMesh', true)).toHaveLength(meshCount);

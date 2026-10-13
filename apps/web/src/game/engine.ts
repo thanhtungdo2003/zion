@@ -3,7 +3,7 @@ import { ZombieOutline } from './render/zombie-outline';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
-import { ThirdPersonCamera, thirdPersonAim } from './third-person-camera';
+import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
@@ -321,8 +321,8 @@ export class GameEngine {
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
   private shoulderAim = { yaw: 0, pitch: 0 };
-  private get shotYaw(): number { return this.cameraMode === 'third-person' ? this.shoulderAim.yaw : this.input.yaw; }
-  private get shotPitch(): number { return this.cameraMode === 'third-person' ? this.shoulderAim.pitch : this.input.pitch; }
+  private get shotYaw(): number { return this.mouseLook ? this.shoulderAim.yaw : this.input.yaw; }
+  private get shotPitch(): number { return this.mouseLook ? this.shoulderAim.pitch : this.input.pitch; }
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
   private readonly recoil = new GunRecoil();
@@ -1770,8 +1770,8 @@ export class GameEngine {
       }
       this.localAvatar?.playOnce('grenade_throw');
     }
-    const msg = local.step(moveX, moveZ, this.cameraMode === 'third-person' ? this.input.yaw : yaw, this.shotPitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
-    if (this.cameraMode === 'third-person') msg.aimYaw = yaw;
+    const msg = local.step(moveX, moveZ, this.mouseLook ? this.input.yaw : yaw, this.shotPitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
+    if (this.mouseLook) msg.aimYaw = yaw;
     this.input.acknowledgeTouchPresses();
     if (throwDist !== undefined) msg.td = Math.min(100, throwDist);
     const back = this.backItemId();
@@ -2330,8 +2330,8 @@ export class GameEngine {
   }
 
   private updateShoulderAim(px: number, py: number, pz: number): void {
-    if (this.cameraMode !== 'third-person') return;
-    this.camera.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+    if (!this.mouseLook) return;
+    this.camera.rotation.set(this.input.pitch, this.input.yaw, this.camera.rotation.z, 'YXZ');
     this.camera.updateMatrixWorld(true);
     this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
     const ray = this.raycaster.ray;
@@ -2339,10 +2339,7 @@ export class GameEngine {
     if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
     distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
     this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone), pz);
-    this.tmpB.copy(ray.direction).multiplyScalar(distance).add(ray.origin);
-    // A camera-side obstruction must never turn a shot backwards through the character.
-    if (this.tmpC.subVectors(this.tmpB, this.tmpA).dot(ray.direction) < .2) this.tmpB.copy(this.tmpA).addScaledVector(ray.direction, 2);
-    this.shoulderAim = thirdPersonAim(this.tmpA, this.tmpB);
+    this.shoulderAim = reticleAim(this.tmpA, ray, distance);
   }
 
   private updateAimInner(px: number, py: number, pz: number): void {

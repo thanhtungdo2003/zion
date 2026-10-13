@@ -66,6 +66,27 @@ describe('team friendly fire', () => {
 });
 
 describe('opt-in player combat', () => {
+  it.each(['torso', 'slash', 'blast', 'fire'])('allows a peaceful player to deal %s damage to an enemy with PvP enabled', async zone => {
+    const { server, a, enemy } = await setup();
+    enemy.pvpEnabled = true; enemy.pvpUntil = 60_000;
+    server.hitTarget(a, enemy, 20, zone, 0, 0, 0, 1, 0, 8, 100);
+    expect(enemy.health).toBe(80);
+    expect(enemy.state.vx).toBe(6);
+    expect(a.pvpEnabled).toBe(false);
+    enemy.downed = true; enemy.bleed = 80;
+    server.damage(a.id, enemy, 20, zone, 0, 0, 0, 200);
+    expect(enemy.bleed).toBeLessThan(80);
+  });
+  it('still protects allies with PvP enabled and enemies whose PvP has expired', async () => {
+    const { server, a, b, enemy } = await setup();
+    b.pvpEnabled = enemy.pvpEnabled = true;
+    b.pvpUntil = 60_000; enemy.pvpUntil = 50;
+    for (const target of [b, enemy]) {
+      server.hitTarget(a, target, 20, 'slash', 0, 0, 0, 1, 0, 8, 100);
+      expect(target.health).toBe(100);
+      expect(target.state.vx).toBe(0);
+    }
+  });
   it.each(['torso', 'slash', 'blast', 'fire'])('reveals control for a minute but blocks default %s damage, armor wear and bleed', async (zone) => {
     const { server, a, enemy } = await setup();
     const wear = vi.spyOn(enemy.inv, 'wearArmor');
