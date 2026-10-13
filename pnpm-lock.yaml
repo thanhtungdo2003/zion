@@ -65,6 +65,9 @@ importers:
       ioredis:
         specifier: ^5.4.1
         version: 5.11.1
+      jolt-physics:
+        specifier: ^1.1.0
+        version: 1.1.0
       jose:
         specifier: ^5.9.6
         version: 5.10.0
@@ -1616,6 +1619,9 @@ packages:
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+
+  jolt-physics@1.1.0:
+    resolution: {integrity: sha512-Erl+X0yK2f9/8Wrl55Nb2y9FYS5xDx375EabnHq+TbSDYEuPZBLvpaLV4nbc1M5gyA5Llbug81wSj1zSMRUr7Q==}
 
   jose@5.10.0:
     resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
@@ -3468,6 +3474,8 @@ snapshots:
       is-extglob: 2.1.1
 
   isexe@2.0.0: {}
+
+  jolt-physics@1.1.0: {}
 
   jose@5.10.0: {}
 

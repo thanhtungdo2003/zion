@@ -1,7 +1,8 @@
 import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
-import { damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
+import { damageVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 import type { WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
+import { JoltVehicles } from './jolt-vehicles';
 
 export class Vehicles {
   readonly states = new Map<number, VehicleState>();
@@ -10,7 +11,9 @@ export class Vehicles {
   private readonly spawnAt = new Map<number, number>();
   private readonly spawns = new Map<number, { x: number; y: number; z: number; yaw: number }>();
   private readonly struck = new WeakMap<object, Map<number, number>>();
+  private readonly physics: JoltVehicles;
   constructor(private readonly world: CollisionWorld, gen: WorldGenerator) {
+    this.physics = new JoltVehicles(world);
     const kinds: VehicleKind[] = ['car', 'jeep', 'quad', 'grizzly'];
     const limit = gen.config.mode === 'battle-royale' ? 64 : 80;
     for (const segment of gen.roads?.segments ?? []) {
@@ -26,7 +29,7 @@ export class Vehicles {
       this.states.set(id, v); this.spawns.set(id, { x, y, z, yaw: v.yaw }); this.install(v);
     }
   }
-  private install(v: VehicleState): void { this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
+  private install(v: VehicleState): void { this.physics.add(v); this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
   spawn(p: Player, type: string | undefined, now: number): string {
     const aliases: Record<string, VehicleKind> = { car: 'car', lada: 'car', jeep: 'jeep', quad: 'quad', quadbike: 'quad', grizzly: 'grizzly' };
     const key = type?.toLowerCase();
@@ -114,22 +117,24 @@ export class Vehicles {
       const p = v.driver ? players.get(v.driver) : undefined;
       if (v.driver && (!p || p.dead || p.downed)) { if (p) this.release(p); else v.driver = null; }
       if (v.explodeAt && now >= v.explodeAt && !v.exploded) {
-        v.exploded = true; v.speed = 0; this.world.removeOwnerColliders(vehicleOwner(v.id));
+        v.exploded = true; this.world.removeOwnerColliders(vehicleOwner(v.id));
         explode(v, p);
         if (p && p.vehicleId === v.id) this.release(p);
-        this.install(v); continue;
+        this.install(v);
       }
-      if (!v.driver && Math.abs(v.speed) < .01 && Math.abs(v.motion?.lateral ?? 0) < .01 && Math.abs(v.motion?.yawVelocity ?? 0) < .01 && v.motion?.grounded && Math.abs(v.motion.vy)<.03 && Math.abs(v.motion.pitchVelocity)+Math.abs(v.motion.rollVelocity)<.03) continue;
-      this.world.removeOwnerColliders(vehicleOwner(v.id));
-      const input = this.controls.get(v.id), fresh = p && input && now - input.at < 250;
-      const speed = stepVehicle(v, fresh ? input.throttle : 0, fresh ? input.steer : 0, this.world, dt, now, (id) => {
-        const other = this.states.get(id);
-        return other && !other.exploded ? other : undefined;
-      });
-      this.install(v);
+    }
+    // One Jolt step for every vehicle together, so they also collide with each other.
+    const impacts = this.physics.step(this.states.values(), (v) => {
+      const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) : undefined;
+      return p && input && now - input.at < 250 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
+    }, dt, now);
+    for (const [id, speed] of impacts) {
+      const v = this.states.get(id)!, p = v.driver ? players.get(v.driver) : undefined;
+      this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
       if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
     }
   }
+  dispose(): void { this.physics.dispose(); }
   /**
    * Moving vehicles hit bodies with momentum: damage and knockback follow the closing speed,
    * and the vehicle loses speed by the mass ratio instead of stopping on a pedestrian.

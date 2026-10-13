@@ -95,6 +95,11 @@ export class CollisionWorld {
     return this.terrain.has(chunkKey(cx, cz));
   }
 
+  /** The loaded terrain patch of a chunk, if any (e.g. to mirror into another physics engine). */
+  terrainChunk(cx: number, cz: number): Heightfield | undefined {
+    return this.terrain.get(chunkKey(cx, cz));
+  }
+
   get chunkCount(): number {
     return this.terrain.size;
   }
