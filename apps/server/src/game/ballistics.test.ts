@@ -62,7 +62,7 @@ describe('authoritative bullet flight', () => {
     for (let tick = 1; tick <= 5; tick++) step(1000 + tick * TICK_DT * 1000);
     expect(server.hitTarget).not.toHaveBeenCalled();
     expect(server.rounds).toHaveLength(0);
-    expect(server.broadcastAt).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.objectContaining({ t: 'projEnd', z: expect.closeTo(49, 1) }));
+    expect(server.broadcastAt).toHaveBeenCalledWith(expect.any(Number), expect.any(Number), expect.objectContaining({ t: 'projEnd', z: expect.closeTo(49, 1), normal: [0, 0, 1] }));
   });
 
   it('checks current target positions rather than damaging a body that moved before arrival', () => {

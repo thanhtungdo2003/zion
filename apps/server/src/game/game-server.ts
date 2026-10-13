@@ -2102,14 +2102,14 @@ export class GameServer {
         stopped = true;
       }
       r.x = nx;
-      r.y = Number.isFinite(ground) ? Math.max(ny, ground + 0.05) : ny;
+      r.y = r.spec.kind === 'bullet' ? ny : Number.isFinite(ground) ? Math.max(ny, ground + 0.05) : ny;
       r.z = nz;
       r.traveled += t;
       const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
-      this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped });
+      this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped, normal: !npcHit && !hit.target && stopped ? hit.normal : undefined });
       if (r.spec.blast) {
         this.explode(r.id, r.x, r.y, r.z, r.spec.blast.radius, r.spec.blast.damage, r.owner, r.spec.kind === 'rocket' ? 'rocket' : 'grenade40', now);
       } else if (!npcHit && hit.target && hit.zone && owner) {

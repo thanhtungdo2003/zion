@@ -157,6 +157,8 @@ export interface ProjectileEndEvent {
   hit: boolean;
   /** False for range/lifetime expiry, which should not create an impact in mid-air. */
   impact?: boolean;
+  /** World surface hit; only these impacts receive a bullet-hole texture overlay. */
+  normal?: [number, number, number];
 }
 
 /** Where the camp's service NPCs stand (for the minimap and the edge-of-screen guides). */

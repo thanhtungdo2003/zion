@@ -66,6 +66,8 @@ describe('first person weapon', () => {
     expect(barrel.dot(target.clone().sub(at).normalize())).toBeGreaterThan(0.99999);
     const root = model.parent!.parent!;
     expect(Math.abs(root.position.x)).toBeLessThan(0.001);
+    expect(root.position.y).toBeLessThan(-.2);
+    expect(root.position.z).toBeLessThan(-.4);
     for (let i = 0; i < 90; i++) view.update(1 / 60, state);
     expect(root.position.x).toBeCloseTo(0.2, 3);
   });

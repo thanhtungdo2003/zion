@@ -12,6 +12,7 @@ import { GRENADE_GRAVITY, WeaponId, weaponSpec, advanceBallistic, type C4Pose, t
 import { Mask, makeRayHit, stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
 import type { SoundBank } from '../audio';
 import { ParticleFX, ParticleSystem } from './particles';
+import { BulletHoles } from './bullet-holes';
 
 /** A launcher round replayed from the server's launch event (ballistic, ended by 'projEnd'). */
 interface FlyingRound {
@@ -55,6 +56,7 @@ export interface ShotInfo {
 export class CombatEffects {
   private disposed = false;
   readonly particles: ParticleSystem;
+  private readonly bulletHoles: BulletHoles;
   private readonly roundHit = makeRayHit();
   private readonly flashLights: PointLight[] = [];
   private flashNext = 0;
@@ -94,6 +96,7 @@ export class CombatEffects {
     private readonly listener: () => Vector3,
   ) {
     this.particles = new ParticleSystem(scene);
+    this.bulletHoles = new BulletHoles(scene);
     this.bulletModel.add(this.bulletGlow);
     for (let i = 0; i < 4; i++) {
       const l = new PointLight(0xffc070, 0, 9, 1.6);
@@ -189,7 +192,7 @@ export class CombatEffects {
     this.rounds.set(e.id, { kind: e.kind, x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz, gravity: e.gravity, drag: e.drag ?? 0, maxAge: e.maxFlightSec ?? 8, mesh, age: 0 });
   }
 
-  endRound(id: number, x: number, y: number, z: number, hitBody: boolean, impact = true): void {
+  endRound(id: number, x: number, y: number, z: number, hitBody: boolean, impact = true, normal?: [number, number, number]): void {
     const r = this.rounds.get(id);
     if (!r) return;
     this.scene.remove(r.mesh);
@@ -197,6 +200,7 @@ export class CombatEffects {
     if (!impact) return;
     if (r.kind === 'bullet') {
       ParticleFX.impact(this.particles, x, y, z);
+      if (!hitBody && normal) this.bulletHoles.add(x, y, z, normal);
     } else if (r.kind === 'bolt') {
       ParticleFX.impact(this.particles, x, y, z);
       this.sounds?.play(hitBody ? 'arrowHitSoft' : 'arrowHitHard', { at: { x, y, z }, volume: 0.9, maxDistance: 35 });
@@ -267,6 +271,7 @@ export class CombatEffects {
   /* ----------------------------------------- frame ----------------------------------------- */
 
   update(dt: number, world: CollisionWorld | null | undefined): void {
+    this.bulletHoles.update();
 
     for (const l of this.flashLights) l.intensity = Math.max(0, l.intensity - dt * 220);
     for (const [id, h] of this.heat) {
@@ -344,6 +349,7 @@ export class CombatEffects {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.bulletHoles.dispose();
     for (const mesh of [this.bulletModel, this.bulletGlow, this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);

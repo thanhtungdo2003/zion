@@ -1267,7 +1267,7 @@ export class GameEngine {
         break;
       }
       case 'projEnd':
-        this.effects?.endRound(m.id, m.x, m.y, m.z, m.hit, m.impact);
+        this.effects?.endRound(m.id, m.x, m.y, m.z, m.hit, m.impact, m.normal);
         break;
       case 'armorHit':
         if (m.broke) this.toast({ key: 'toast.armor_broken' });

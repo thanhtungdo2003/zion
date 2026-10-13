@@ -165,7 +165,7 @@ export class CampGuardDirector {
       r.traveled += hit.t;
       if (!hit.target && hit.t >= length - 1e-4 && r.traveled < AK.range - 1e-4) continue;
       this.flying.splice(i, 1);
-      this.hooks.projectileEnd?.({ t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target, impact: !!hit.target || hit.t < length - 1e-4 });
+      this.hooks.projectileEnd?.({ t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target, impact: !!hit.target || hit.t < length - 1e-4, normal: hit.normal });
       if (hit.target instanceof Zombie && hit.zone) this.hooks.hit(r.guard, hit.target,
         Math.round(AK.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, dx / distance, dz / distance, now);
     }

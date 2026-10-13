@@ -240,7 +240,7 @@ export class ViewModel {
     if (hidden) this.root.visible = false;
 
     const relaxed = 1 - this.aimBlend;
-    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 + this.aimBlend * 0.17 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.25 + this.recoil.offset * .6 + az);
+    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.25 - this.aimBlend * .18 + this.recoil.offset * .6 + az);
     const supportArm = this.current ? this.supportArms.get(this.current) : null;
     if (supportArm) supportArm.visible = !s.reloading && !this.offhandId;
     this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);

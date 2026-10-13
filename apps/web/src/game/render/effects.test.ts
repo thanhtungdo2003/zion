@@ -5,6 +5,21 @@ import { WeaponId } from '@zion/shared';
 import type { SoundBank } from '../audio';
 
 describe('combat visual resources', () => {
+  it('adds hole overlays only for confirmed bullet hits on world geometry', () => {
+    const scene = new Scene();
+    const effects = new CombatEffects(scene, null, null, () => new Vector3());
+    const round = { t: 'proj', id: 1, ownerId: 2, w: WeaponId.AK47, kind: 'bullet', x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: -100, gravity: 9.81 } as const;
+    effects.launch(round);
+    effects.endRound(1, 0, 1, -1, true, true, [0, 0, 1]);
+    expect(scene.getObjectByName('bullet-hole')).toBeUndefined();
+    effects.launch({ ...round, id: 2 });
+    effects.endRound(2, 0, 1, -1, false, false, [0, 0, 1]);
+    expect(scene.getObjectByName('bullet-hole')).toBeUndefined();
+    effects.launch({ ...round, id: 3 });
+    effects.endRound(3, 0, 1, -1, false, true, [0, 0, 1]);
+    expect(scene.getObjectByName('bullet-hole')).toBeDefined();
+    effects.dispose(); expect(scene.children).toHaveLength(0);
+  });
   it('renders a glowing round without a line trail and replays gravity and drag', () => {
     const scene = new Scene();
     const effects = new CombatEffects(scene, null, null, () => new Vector3());
