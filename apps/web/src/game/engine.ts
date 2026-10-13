@@ -7,7 +7,7 @@ import { ThirdPersonCamera, thirdPersonAim } from './third-person-camera';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
-import { RecoilSpring, weaponRecoil } from './first-person-recoil';
+import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
@@ -218,6 +218,7 @@ export class GameEngine {
   private readonly weaponCtl: WeaponController;
   /** Sniper scope state: world-space camera pan and the dashed laser (local player only). */
   private scoped = false;
+  private aiming = false;
   private readonly scopePan = new Vector3();
   private scopeZoom = 0;
   private laser: Line | null = null;
@@ -324,7 +325,7 @@ export class GameEngine {
   private get shotPitch(): number { return this.cameraMode === 'third-person' ? this.shoulderAim.pitch : this.input.pitch; }
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
-  private readonly recoil = new RecoilSpring();
+  private readonly recoil = new GunRecoil();
   private recoilWeapon: number | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1256,7 +1257,7 @@ export class GameEngine {
       case 'proj': {
         this.effects?.launch(m);
         // Someone else's launcher: their muzzle blast and launch sound (ours played on the trigger).
-        if (m.ownerId !== this.welcome?.playerId) {
+        if (m.kind !== 'bullet' && m.ownerId !== this.welcome?.playerId) {
           const shooter = this.remotes.get(m.ownerId)?.avatar;
           const muzzle = shooter?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(m.x, m.y, m.z);
           const dir = this.tmpB.set(m.vx, m.vy, m.vz).normalize();
@@ -1266,7 +1267,7 @@ export class GameEngine {
         break;
       }
       case 'projEnd':
-        this.effects?.endRound(m.id, m.x, m.y, m.z, m.hit);
+        this.effects?.endRound(m.id, m.x, m.y, m.z, m.hit, m.impact);
         break;
       case 'armorHit':
         if (m.broke) this.toast({ key: 'toast.armor_broken' });
@@ -1380,7 +1381,9 @@ export class GameEngine {
     this.viewModel?.setOffhand(offhand, this.weapons);
     if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
       // Change the actual input pitch so the camera, centre reticle and authoritative shots agree.
-      this.input.pitch = this.recoil.apply(this.input.pitch, dt);
+      const aim = this.recoil.apply(this.input.yaw, this.input.pitch, dt);
+      this.input.yaw = Math.atan2(Math.sin(aim.yaw), Math.cos(aim.yaw));
+      this.input.pitch = aim.pitch;
     } else this.recoil.reset();
 
     // Fixed-rate input + prediction, exactly mirroring the server tick.
@@ -1435,13 +1438,14 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone;
+    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming;
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
       (local.state.grounded ? EntityFlags.Grounded : 0) |
       (local.state.swimming ? EntityFlags.Swimming : 0) |
       (local.state.rollTicks > 0 ? EntityFlags.Rolling : 0) |
       (local.state.prone ? EntityFlags.Prone : 0) |
+      (this.aiming ? EntityFlags.Aiming : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0);
     this.updateAim(px, py, pz);
@@ -1483,6 +1487,7 @@ export class GameEngine {
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
         firing: !local.state.swimming && weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
+        aiming: this.aiming,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
       });
@@ -1510,8 +1515,8 @@ export class GameEngine {
     this.updateLaser(px, py, pz);
     const scopeSpec = weaponSpec(this.equippedWeapon());
     const scopeMagnification = this.scoped && scopeSpec?.kind === 'gun' ? scopeSpec.scope ?? 1 : 1;
-    if (this.hud.get().scoped !== this.scoped || this.hud.get().scopeMagnification !== scopeMagnification) {
-      this.hud.set({ scoped: this.scoped, scopeMagnification });
+    if (this.hud.get().aiming !== this.aiming || this.hud.get().scoped !== this.scoped || this.hud.get().scopeMagnification !== scopeMagnification) {
+      this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification });
     }
     this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
@@ -1698,16 +1703,13 @@ export class GameEngine {
     let buttons = this.input.buttons();
     if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
-    // Scoped in: planted feet, so no walking, rolling or jumping.
+    // Aim is separate from the trigger and available with iron sights as well as optics.
     const equippedSpec = weaponSpec(weapon);
-    this.scoped = equippedSpec?.kind === 'gun' && !!equippedSpec.scope && this.input.aiming && !local.dead && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
+    this.aiming = equippedSpec?.kind === 'gun' && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
+    this.scoped = this.aiming && equippedSpec?.kind === 'gun' && !!equippedSpec.scope;
     let moveX = mx;
     let moveZ = mz;
-    if (this.scoped) {
-      moveX = 0;
-      moveZ = 0;
-      buttons &= ~(Buttons.Jump | Buttons.Roll | Buttons.Sprint);
-    }
+    if (this.aiming) { buttons |= Buttons.Aim; buttons &= ~Buttons.Sprint; }
     // Down on the ground: no moving, no shooting (the server ignores it too).
     if (this.hud.get().downed !== null) {
       moveX = 0;
@@ -1807,15 +1809,15 @@ export class GameEngine {
   }
 
   /**
-   * Instant local feedback for our own shot: tracers stop at the first wall/prop. The server
-   * resolves the real hits (with its own spread) and tells everyone else.
+   * Immediate local muzzle/sound feedback; flying ammunition comes from server launch events.
    */
   private localShot(weapon: number): void {
     const spec = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>];
     const local = this.local;
     if (spec?.kind !== 'gun' || !local) return;
-    this.viewModel?.kick(Math.min(1.5, weaponRecoil(weapon) * 28));
-    if (this.mouseLook) this.recoil.kick(weaponRecoil(weapon, this.scoped ? spec.scope ?? 1 : 1));
+    const kick = weaponRecoil(weapon) * (this.aiming ? .65 : 1) * (.85 + Math.random() * .3);
+    this.viewModel?.kick(Math.min(1.8, kick * 28));
+    if (this.mouseLook) this.recoil.kick(kick);
     const s = local.state;
     const yaw = this.shotYaw;
     const fx = -Math.sin(yaw);
@@ -1824,22 +1826,6 @@ export class GameEngine {
     const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
     const ends: number[] = [];
-    const pellets = !spec.fire || spec.fire === 'hitscan' ? spec.pellets : 0;
-    for (let i = 0; i < pellets; i++) {
-      const a = (Math.random() * 2 - 1) * spec.spread;
-      const b = (Math.random() * 2 - 1) * spec.spread * 0.5;
-      // Aim pitch comes from the cursor distance (see updateAim).
-      const p = this.shotPitch + b;
-      const dx = -Math.sin(yaw + a) * Math.cos(p);
-      const dz = -Math.cos(yaw + a) * Math.cos(p);
-      const dy = Math.sin(p);
-      const len = Math.hypot(dx, dy, dz);
-      let t = spec.range;
-      if (this.store?.collision.raycast(ox, oy, oz, dx / len, dy / len, dz / len, spec.range, Mask.LineOfSight, this.shotRay)) t = this.shotRay.t;
-      // The round stops in the first body it hits (zombie, animal, player) instead of passing through.
-      t = this.bodyHit(ox, oy, oz, dx / len, dy / len, dz / len, t);
-      ends.push(ox + (dx / len) * t, oy + (dy / len) * t, oz + (dz / len) * t);
-    }
     const heavy = heavyKick(weapon);
     const av = this.localAvatar;
     const dir = new Vector3(fx * Math.cos(this.shotPitch), Math.sin(this.shotPitch), fz * Math.cos(this.shotPitch));
@@ -2241,7 +2227,7 @@ export class GameEngine {
 
   /** Dashed aim line from the muzzle along the barrel to the first wall (only we see it). */
   private updateLaser(px: number, py: number, pz: number): void {
-    if (!this.scoped) {
+    if (!this.scoped || this.mouseLook) {
       if (this.laser) this.laser.visible = false;
       return;
     }
@@ -2529,16 +2515,16 @@ export class GameEngine {
         f.z += (pz - f.z) * kh;
         f.y += (eye - f.y) * kv;
       }
-      this.scopeZoom += ((this.scoped ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
+      this.scopeZoom += ((this.aiming ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
       const spec = weaponSpec(this.equippedWeapon());
-      const magnification = spec?.kind === 'gun' ? spec.scope ?? 1 : 1;
+      const magnification = spec?.kind === 'gun' ? spec.scope ?? (this.firstPerson ? 1.25 : 1.35) : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
       const fov = scopeFov(FP_FOV, zoom);
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
       if (this.cameraMode === 'third-person' && !this.scoped) {
-        this.thirdPersonCamera.update(cam, f, this.input.yaw, this.input.pitch, dt, this.store?.collision);
+        this.thirdPersonCamera.update(cam, f, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
       } else {
         cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
         const shake = (this.effects?.shake ?? 0) * 0.25;

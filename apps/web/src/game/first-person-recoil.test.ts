@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { WeaponId } from '@zion/shared';
-import { RecoilSpring, weaponRecoil } from './first-person-recoil';
+import { GunRecoil, RecoilSpring, weaponRecoil } from './first-person-recoil';
 
 describe('first-person recoil', () => {
+  it('smoothly adds unpredictable recoil on both axes without losing mouse compensation', () => {
+    const a = new GunRecoil(), b = new GunRecoil();
+    a.kick(.03, () => .9); b.kick(.03, () => .1);
+    expect(a.apply(0, 0, 0)).toEqual({ yaw: 0, pitch: 0 });
+    const right = a.apply(0, 0, .03), left = b.apply(0, 0, .03);
+    expect(right.yaw).toBeGreaterThan(0); expect(left.yaw).toBeLessThan(0);
+    expect(right.pitch).toBeGreaterThan(0); expect(left.pitch).toBeGreaterThan(0);
+    let aim = { yaw: right.yaw - .1, pitch: right.pitch - .1 };
+    for (let i = 0; i < 240; i++) aim = a.apply(aim.yaw, aim.pitch, 1 / 60);
+    expect(aim.yaw).toBeCloseTo(-.1, 7); expect(aim.pitch).toBeCloseTo(-.1, 7);
+    a.reset(); expect(a.apply(0, 0, .1)).toEqual({ yaw: 0, pitch: 0 });
+  });
   it('lifts smoothly after the shot and settles without bouncing below the original aim', () => {
     const recoil = new RecoilSpring();
     const kick = weaponRecoil(WeaponId.AK47);

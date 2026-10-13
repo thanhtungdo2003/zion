@@ -11,9 +11,10 @@ export const Buttons = {
   Roll: 1 << 3,
   Prone: 1 << 4,
   ThrowC4: 1 << 5,
+  Aim: 1 << 6,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();

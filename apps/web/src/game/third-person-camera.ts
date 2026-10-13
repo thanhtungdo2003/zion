@@ -7,19 +7,21 @@ const CAMERA_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7
 export class ThirdPersonCamera {
   distance = 0;
   private initialized = false;
+  private aimBlend = 0;
   private readonly direction = new Vector3();
   private readonly right = new Vector3();
   private readonly up = new Vector3();
   private readonly origin = new Vector3();
   private readonly hit = makeRayHit();
 
-  reset(): void { this.initialized = false; }
+  reset(): void { this.initialized = false; this.aimBlend = 0; }
 
-  update(camera: PerspectiveCamera, focus: Vector3, yaw: number, pitch: number, dt: number, collision?: CollisionWorld): void {
+  update(camera: PerspectiveCamera, focus: Vector3, yaw: number, pitch: number, dt: number, collision?: CollisionWorld, aiming = false): void {
+    this.aimBlend += ((aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-dt * 14));
     this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
     this.direction.set(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
-      .multiplyScalar(2.8).addScaledVector(this.right, .55);
-    this.direction.y += .3;
+      .multiplyScalar(2.8 - this.aimBlend * 1.35).addScaledVector(this.right, .55 - this.aimBlend * .13);
+    this.direction.y += .3 - this.aimBlend * .16;
     const desired = this.direction.length();
     this.direction.divideScalar(desired);
     this.up.crossVectors(this.direction, this.right).normalize();

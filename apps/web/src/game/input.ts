@@ -178,7 +178,7 @@ export class InputController {
     this.cleanup.push(() => element.removeEventListener('click', click));
   }
 
-  /** Right mouse button held (sniper scope). */
+  /** Right mouse button held: aim with any gun, or prepare an aimed throw. */
   get aiming(): boolean {
     return !this.suspended && this.active && ((this.mouseButtons & 4) !== 0 || this.touchAim);
   }

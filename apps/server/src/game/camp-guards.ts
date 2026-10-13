@@ -1,6 +1,7 @@
 import {
   CHUNK_SIZE, ENTITY_INTEREST_RADIUS_CHUNKS, EntityFlags, EntityKind, MUZZLE_HEIGHT,
-  NPC_ID_BASE, TICK_DT, WeaponId, WEAPON_SPECS, type EntityState, type ShotEvent,
+  NPC_ID_BASE, TICK_DT, WeaponId, WEAPON_SPECS, advanceBallistic, bulletSpec,
+  type BallisticState, type EntityState, type ShotEvent, type ProjectileEvent, type ProjectileEndEvent,
 } from '@zion/shared';
 import {
   CharacterController, HUMANOID_RIG, Mask, ZONE_DAMAGE_MULTIPLIER, createCharacterState, makeRayHit,
@@ -45,12 +46,16 @@ export class CampGuard {
 
 interface GuardHooks {
   shot(message: ShotEvent): void;
+  projectile?(message: ProjectileEvent): void;
+  projectileEnd?(message: ProjectileEndEvent): void;
   hit(guard: CampGuard, zombie: Zombie, damage: number, zone: string,
     x: number, y: number, z: number, dx: number, dz: number, now: number): void;
 }
 
 /** Gate sentries and four roaming camp guards only damage zombies. */
 export class CampGuardDirector {
+  private nextRoundId = 0x60000000;
+  private readonly flying: Array<BallisticState & { id: number; guard: CampGuard; traveled: number }> = [];
   readonly guards: CampGuard[];
   private readonly controller: CharacterController;
   private readonly sight = makeRayHit();
@@ -141,13 +146,28 @@ export class CampGuardDirector {
       guard.rounds--;
       if (guard.rounds === 0) guard.reloadUntil = now + AK.reloadMs;
       const [ax, ay, az] = spreadDirection(dx / length, dy / length, dz / length, AK.spread, Math.random);
-      const hit = castCombatRay(guard, candidates, this.collision, now, undefined, s.x, oy, s.z, ax, ay, az, AK.range);
-      const x = s.x + ax * hit.t, y = oy + ay * hit.t, z = s.z + az * hit.t;
-      this.hooks.shot({ t: 'shot', shooterId: guard.id, w: WeaponId.AK47, ox: s.x, oy, oz: s.z, ends: [x, y, z] });
-      if (hit.target instanceof Zombie && hit.zone) {
-        this.hooks.hit(guard, hit.target, Math.round(AK.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone,
-          x, y, z, ax, az, now);
-      }
+      const spec = bulletSpec(WeaponId.AK47, AK);
+      const r = { id: this.nextRoundId++, guard, traveled: 0, x: s.x, y: oy, z: s.z, vx: ax * spec.speed, vy: ay * spec.speed, vz: az * spec.speed };
+      this.flying.push(r);
+      this.hooks.shot({ t: 'shot', shooterId: guard.id, w: WeaponId.AK47, ox: s.x, oy, oz: s.z, ends: [] });
+      this.hooks.projectile?.({ t: 'proj', id: r.id, ownerId: guard.id, w: WeaponId.AK47, kind: 'bullet', x: r.x, y: r.y, z: r.z, vx: r.vx, vy: r.vy, vz: r.vz, gravity: spec.gravity, drag: spec.drag, maxFlightSec: spec.maxFlightSec });
+    }
+    const spec = bulletSpec(WeaponId.AK47, AK);
+    for (let i = this.flying.length - 1; i >= 0; i--) {
+      const r = this.flying[i]!;
+      const ox = r.x, oy = r.y, oz = r.z;
+      advanceBallistic(r, spec.gravity, spec.drag ?? 0, TICK_DT);
+      const dx = r.x - ox, dy = r.y - oy, dz = r.z - oz;
+      const distance = Math.hypot(dx, dy, dz) || 1e-6;
+      const length = Math.min(distance, AK.range - r.traveled);
+      const hit = castCombatRay(r.guard, candidates, this.collision, now, undefined, ox, oy, oz, dx / distance, dy / distance, dz / distance, length);
+      r.x = ox + dx / distance * hit.t; r.y = oy + dy / distance * hit.t; r.z = oz + dz / distance * hit.t;
+      r.traveled += hit.t;
+      if (!hit.target && hit.t >= length - 1e-4 && r.traveled < AK.range - 1e-4) continue;
+      this.flying.splice(i, 1);
+      this.hooks.projectileEnd?.({ t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target, impact: !!hit.target || hit.t < length - 1e-4 });
+      if (hit.target instanceof Zombie && hit.zone) this.hooks.hit(r.guard, hit.target,
+        Math.round(AK.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, dx / distance, dz / distance, now);
     }
   }
 

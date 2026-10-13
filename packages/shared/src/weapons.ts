@@ -33,15 +33,18 @@ export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
 export const MAX_WEAPON_ID = 24;
 
 /** What a gun's trigger produces. */
-export type FireMode = 'hitscan' | 'projectile' | 'flame';
+export type FireMode = 'ballistic' | 'projectile' | 'flame';
 /** Flying rounds simulated by the server: 40 mm grenades, rockets and crossbow bolts. */
-export type ProjectileKind = 'grenade40' | 'rocket' | 'bolt';
+export type ProjectileKind = 'grenade40' | 'rocket' | 'bolt' | 'bullet';
 
 export interface ProjectileSpec {
   kind: ProjectileKind;
   /** Launch speed (m/s) for straight shots; lobbed rounds solve their speed from the aim distance. */
   speed: number;
   gravity: number;
+  /** Linear air resistance (1/s). */
+  drag?: number;
+  maxRange?: number;
   /** Lobbed (grenade launcher): fired at this elevation so it lands at the cursor. */
   lob?: { elevation: number; maxRange: number };
   /** Explosive rounds: blast radius (m) and damage at the centre (linear falloff). */

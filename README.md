@@ -27,13 +27,17 @@ Open http://localhost:3000 and click **Play as guest**. Then click into the canv
 | Keys | |
 |---|---|
 | `W A S D` | move (`Shift` sprint, `Space` jump) |
-| Mouse | look; `LMB` melee |
+| Mouse | look; `LMB` fire / melee; hold `RMB` to aim any gun (scope if equipped) |
 | `V` | third/first-person camera |
 | `M` / click minimap | large map (drag, wheel or pinch to zoom, click to add a named icon) |
 | `Enter` / `T` | chat |
 | `Esc` | release mouse |
 
 To run everything in containers instead, use `docker compose --profile app up --build`.
+
+In first person, holding RMB brings the gun into its aiming pose; firing from the hip keeps it to the right. Third-person aim moves the camera closer to the shoulder. ADS reduces movement to 65% walking speed, blocks sprinting, and settles accuracy over 180 ms. Moving and sustained bursts increase spread; prone steadies it. Camera recoil climbs and drifts sideways with smooth, randomized recovery, with 35% less kick while aiming.
+
+Bullets are server-authoritative flying rounds with weapon-specific muzzle velocity, gravity and air resistance. Each simulation tick sweeps their flight segment against bodies and world geometry, so damage happens on arrival and thin walls block fast rounds. Clients render small, softly glowing rounds without line tracers and replay the same ballistic integration. Deploy web and server together (protocol 22).
 
 Teams are available from **Đội nhóm** in the main lobby. Create a public team or share its eight-character invite code; up to five survivors can join. The leader can rename the team, change visibility, remove members, or transfer leadership. Everyone marks ready before the leader deploys the team. The lobby displays each member's character. Private team chat is available in the lobby and survival HUD; teammates have green minimap dots and directional edge markers and cannot damage each other.
 

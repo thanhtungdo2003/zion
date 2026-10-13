@@ -63,7 +63,7 @@ export class LocalPlayer {
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
       prone: (buttons & Buttons.Prone) !== 0,
-      speedMul: this.speedMul,
+      speedMul: this.speedMul * (buttons & Buttons.Aim ? .65 : 1),
     };
     this.seq++;
     if (!this.dead) {

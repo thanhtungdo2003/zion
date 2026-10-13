@@ -15,7 +15,8 @@ function fixture() {
   const player = new Player(1, 'a', 'Alpha', {} as ClientSession, 16, 0, 16);
   player.life = life.initial(); player.state.grounded = true;
   const server = Object.assign(Object.create(GameServer.prototype), {
-    life, controller: new CharacterController(world), stepInfo: {}, flag: vi.fn(),
+    life, controller: new CharacterController(world), stepInfo: {}, flag: vi.fn(), rounds: [], nextGrenadeId: 1,
+    players: new Map([[player.id, player]]), broadcastAt: vi.fn(),
   }) as { syncLoadout(p: Player): void; applyInput(p: Player, input: InputMessage, now: number): void; tryAttack(p: Player, now: number, rt?: number): void };
   const local = new LocalPlayer(world, 16, 0, 16); local.state.grounded = true;
   return { server, player, local, world };
@@ -93,18 +94,19 @@ describe('held weapon burden', () => {
     expect(player.strike).not.toBeNull();
     expect(player.life.stamina).toBeCloseTo(5);
   });
-  it('uses Barrett ammunition and stronger knockback when resolving a real authoritative ray', () => {
+  it('uses Barrett ammunition and stronger knockback when its physical round arrives', () => {
     const { server, player, world } = fixture();
     const target = new Zombie(1_000_022, 16, 0, 10);
     target.history.push(1000, 16, 0, 10, 0);
     const hitTarget = vi.fn();
     Object.assign(server, { collision: world, grid: { query: () => [] }, zombies: { near: () => [target], alert: vi.fn() }, animals: new Map(), scratch: [], npcOnRay: () => null, broadcastNear: vi.fn(), hitTarget });
-    const fire = server as unknown as { tryShoot(p: Player, now: number, rt?: number): void };
+    const fire = server as unknown as { tryShoot(p: Player, now: number, rt?: number): void; stepRounds(now: number): void };
     for (const [id, weapon] of [['awm', WeaponId.AWM], ['barrett', WeaponId.Barrett]] as const) {
       const gun = player.inv.add(id)!; player.inv.equip(gun.uid); player.weapon = weapon; player.fireReadyAt = 0;
       const rounds = gun.mag!;
       fire.tryShoot(player, 1000);
       expect(gun.mag).toBe(rounds - 1);
+      fire.stepRounds(1000 + TICK_DT * 1000);
       player.inv.remove(gun.uid);
     }
     expect(hitTarget).toHaveBeenCalledTimes(2);

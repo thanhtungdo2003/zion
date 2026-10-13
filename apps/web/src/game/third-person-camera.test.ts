@@ -23,6 +23,18 @@ describe('third-person shoulder camera', () => {
     expect(camera.position.y - focus.y).toBeCloseTo(.3);
   });
 
+  it('smoothly moves to the shoulder while aiming and returns when released', () => {
+    const { camera, boom, focus, world } = fixture();
+    boom.update(camera, focus, 0, 0, 1 / 60, world);
+    boom.update(camera, focus, 0, 0, 1 / 60, world, true);
+    expect(camera.position.z - focus.z).toBeGreaterThan(1.45);
+    expect(camera.position.z - focus.z).toBeLessThan(2.8);
+    for (let i = 0; i < 120; i++) boom.update(camera, focus, 0, 0, 1 / 60, world, true);
+    expect(camera.position.z - focus.z).toBeCloseTo(1.45, 5);
+    for (let i = 0; i < 150; i++) boom.update(camera, focus, 0, 0, 1 / 60, world);
+    expect(camera.position.z - focus.z).toBeCloseTo(2.8, 5);
+  });
+
   it('pulls in immediately before a wall and eases back after the obstruction clears', () => {
     const { camera, boom, focus, world } = fixture();
     boom.update(camera, focus, 0, 0, 1 / 60, world);

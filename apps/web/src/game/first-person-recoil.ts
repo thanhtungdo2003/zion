@@ -39,6 +39,28 @@ export class RecoilSpring {
   }
 }
 
+/** Independent camera axes: smooth random climb and lateral drift, preserving mouse input. */
+export class GunRecoil {
+  private readonly vertical = new RecoilSpring(15, Math.PI / 22);
+  private readonly left = new RecoilSpring(13, Math.PI / 40);
+  private readonly right = new RecoilSpring(13, Math.PI / 40);
+
+  kick(strength: number, random = Math.random): void {
+    this.vertical.kick(strength * (.8 + random() * .6));
+    const horizontal = (random() * 2 - 1) * strength * .65;
+    (horizontal < 0 ? this.left : this.right).kick(Math.abs(horizontal));
+  }
+
+  apply(yaw: number, pitch: number, dt: number): { yaw: number; pitch: number } {
+    return {
+      yaw: yaw + this.right.update(dt) - this.left.update(dt),
+      pitch: this.vertical.apply(pitch, dt),
+    };
+  }
+
+  reset(): void { this.vertical.reset(); this.left.reset(); this.right.reset(); }
+}
+
 /** Peak camera lift in degrees, tuned for each weapon's weight and firing cadence. */
 const KICK: Partial<Record<WeaponId, number>> = {
   [WeaponId.PKM]: 1.1,

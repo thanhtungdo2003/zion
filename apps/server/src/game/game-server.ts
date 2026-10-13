@@ -15,6 +15,9 @@ import { TEAM_QUESTS } from '@zion/shared';
 import { chooseMissionStructure } from './mission-locations';
 import {
   Buttons,
+  advanceBallistic,
+  bulletSpec,
+  gunSpread,
   CHUNK_SIZE,
   Surface,
   ENTITY_INTEREST_RADIUS_CHUNKS,
@@ -190,7 +193,7 @@ export class GameServer {
   readonly merchant: CampNpc;
   readonly nurse: CampNpc;
   /** Launcher rounds in flight (40 mm grenades, rockets, bolts). */
-  private readonly rounds: Array<{ id: number; owner: Player; w: number; spec: ProjectileSpec; damage: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; dieAt: number }> = [];
+  private readonly rounds: Array<{ id: number; owner: Player; w: number; spec: ProjectileSpec; damage: number; knockback: number; traveled: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; dieAt: number }> = [];
   private readonly activeScratch: Player[] = [];
   private readonly blastHit = makeRayHit();
   /** ZCoin lying on the ground, waiting to be picked up. */
@@ -250,6 +253,8 @@ export class GameServer {
     });
     this.guards = new CampGuardDirector(gen.camp, this.collision, {
       shot: (message) => this.broadcastAt(message.ox, message.oz, message),
+      projectile: (message) => this.broadcastAt(message.x, message.z, message),
+      projectileEnd: (message) => this.broadcastAt(message.x, message.z, message),
       hit: (guard, zombie, damage, zone, x, y, z, dx, dz, now) =>
         this.hitZombie(null, zombie, damage, zone, x, y, z, dx, dz, 1.2, now, guard.id),
     });
@@ -1512,7 +1517,9 @@ export class GameServer {
     p.pitch = input.pitch;
     // What is in hand / on the back comes from the server's inventory, not the client's claim.
     const held = p.inv.equippedItem();
-    p.weapon = held ? (WEAPON_BY_ITEM[held.itemId] ?? 0) : 0;
+    const weapon = held ? (WEAPON_BY_ITEM[held.itemId] ?? 0) : 0;
+    if (weapon !== p.weapon) { p.aiming = false; p.gunHeat = 0; p.lastGunShotAt = -Infinity; }
+    p.weapon = weapon;
     const s = p.state;
     const px = s.x;
     const pz = s.z;
@@ -1521,7 +1528,12 @@ export class GameServer {
     if (tutorialProtected(p, this.serverTime)) buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
     // Downed: can't do anything but lie there (and call for help).
     if (p.downed) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
-    if (p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
+    const canAim = weaponSpec(p.weapon)?.kind === 'gun' && s.grounded && !s.swimming && s.rollTicks === 0 && !p.reloadAt && !p.downed && !p.dead;
+    const aiming = canAim && (buttons & Buttons.Aim) !== 0;
+    if (aiming && !p.aiming) p.aimStartedAt = now;
+    p.aiming = aiming;
+    if (!aiming) buttons &= ~Buttons.Aim;
+    if (aiming || p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
     if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
@@ -1534,7 +1546,7 @@ export class GameServer {
     const wasRolling = p.state.rollTicks > 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, speedMul: p.speedMul },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) },
       TICK_DT,
       this.stepInfo,
     );
@@ -1873,10 +1885,10 @@ export class GameServer {
     }
   }
 
-  /** Hitscan gun: fire rate and spread are enforced here; the client only says "trigger down". */
-  private tryShoot(p: Player, now: number, renderTime: number | undefined): void {
+  /** Spawn ammunition now; damage is resolved only when its swept flight reaches a body. */
+  private tryShoot(p: Player, now: number, _renderTime: number | undefined): void {
     const spec = WEAPON_SPECS[p.weapon as Exclude<WeaponId, 0>];
-    if (spec?.kind !== 'gun' || now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
+    if (spec?.kind !== 'gun' || now < p.fireReadyAt - FIRE_TOLERANCE_MS || this.rounds.length + spec.pellets > 4096) return;
     if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
     this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
@@ -1885,36 +1897,19 @@ export class GameServer {
     const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
     const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
-    const candidates: Combatant[] = [
-      ...this.grid.query(p.chunkX, p.chunkZ, Math.ceil(spec.range / CHUNK_SIZE), this.scratch).filter((t) => !this.allied(p, t)),
-      ...this.zombies.near(ox, oz, spec.range + 2),
-      ...this.animals.values(),
-    ];
-    const ends: number[] = [];
-    const damageBy = new Map<Combatant, { dmg: number; zone: string; x: number; y: number; z: number; pellets: number }>();
+    p.gunHeat = Math.max(0, p.gunHeat - (now - p.lastGunShotAt) / 700);
+    const spread = gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone, p.gunHeat);
+    p.gunHeat = Math.min(1.5, p.gunHeat + .22);
+    p.lastGunShotAt = now;
+    const proj = bulletSpec(p.weapon, spec);
+    this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [] });
     for (let i = 0; i < spec.pellets; i++) {
-      const [dx, dy, dz] = spreadDirection(ax, ay, az, spec.spread, Math.random);
-      const r = castCombatRay(p, candidates, this.collision, now, renderTime, ox, oy, oz, dx, dy, dz, spec.range);
-      const npcHit = this.npcOnRay(ox, oy, oz, dx, dy, dz, r.t);
-      if (npcHit) {
-        this.provokeNpc(npcHit.npc, p, now);
-        ends.push(+(ox + dx * npcHit.t).toFixed(2), +(oy + dy * npcHit.t).toFixed(2), +(oz + dz * npcHit.t).toFixed(2));
-        continue;
-      }
-      const x = ox + dx * r.t;
-      const y = oy + dy * r.t;
-      const z = oz + dz * r.t;
-      ends.push(+x.toFixed(2), +y.toFixed(2), +z.toFixed(2));
-      if (r.target && r.zone) {
-        const prev = damageBy.get(r.target);
-        const dmg = spec.damage * ZONE_DAMAGE_MULTIPLIER[r.zone];
-        // A headshot pellet wins over body hits for the reported zone.
-        const zone = prev && prev.zone === 'head' ? 'head' : r.zone;
-        damageBy.set(r.target, { dmg: (prev?.dmg ?? 0) + dmg, zone, x, y, z, pellets: (prev?.pellets ?? 0) + 1 });
-      }
+      const [dx, dy, dz] = spreadDirection(ax, ay, az, spread, Math.random);
+      const id = this.nextGrenadeId++;
+      const vx = dx * proj.speed, vy = dy * proj.speed, vz = dz * proj.speed;
+      this.rounds.push({ id, owner: p, w: p.weapon, spec: proj, damage: spec.damage, knockback: spec.knockback ?? 1, traveled: 0, x: ox, y: oy, z: oz, vx, vy, vz, dieAt: now + proj.maxFlightSec * 1000 });
+      this.broadcastNear(p, { t: 'proj', id, ownerId: p.id, w: p.weapon, kind: 'bullet', x: ox, y: oy, z: oz, vx, vy, vz, gravity: proj.gravity, drag: proj.drag, maxFlightSec: proj.maxFlightSec });
     }
-    this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends });
-    for (const [t, d] of damageBy) this.hitTarget(p, t, Math.round(d.dmg), d.zone, d.x, d.y, d.z, ax, az, d.pellets * spec.damage * 0.12 * (spec.knockback ?? 1), now, spec.knockback ?? 1);
     this.zombies.alert(ox, oz, 45, now);
   }
 
@@ -2067,13 +2062,13 @@ export class GameServer {
       vz = fz * h;
     } else {
       const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
-      const [dx, dy, dz] = spreadDirection(ax, ay, az, spec.spread, Math.random);
+      const [dx, dy, dz] = spreadDirection(ax, ay, az, gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone), Math.random);
       vx = dx * proj.speed;
       vy = dy * proj.speed;
       vz = dz * proj.speed;
     }
     const id = this.nextGrenadeId++;
-    this.rounds.push({ id, owner: p, w: p.weapon, spec: proj, damage: spec.damage, x, y, z, vx, vy, vz, dieAt: now + proj.maxFlightSec * 1000 });
+    this.rounds.push({ id, owner: p, w: p.weapon, spec: proj, damage: spec.damage, knockback: spec.knockback ?? 1, traveled: 0, x, y, z, vx, vy, vz, dieAt: now + proj.maxFlightSec * 1000 });
     this.broadcastNear(p, { t: 'proj', id, ownerId: p.id, w: p.weapon, kind: proj.kind, x, y, z, vx, vy, vz, gravity: proj.gravity });
     this.zombies.alert(x, z, proj.kind === 'bolt' ? 12 : 40, now);
   }
@@ -2082,42 +2077,44 @@ export class GameServer {
   private stepRounds(now: number): void {
     for (let i = this.rounds.length - 1; i >= 0; i--) {
       const r = this.rounds[i]!;
-      r.vy -= r.spec.gravity * TICK_DT;
-      const sx = r.vx * TICK_DT;
-      const sy = r.vy * TICK_DT;
-      const sz = r.vz * TICK_DT;
-      const len = Math.hypot(sx, sy, sz) || 1e-6;
+      const ox = r.x, oy = r.y, oz = r.z;
+      advanceBallistic(r, r.spec.gravity, r.spec.drag ?? 0, TICK_DT);
+      const sx = r.x - ox, sy = r.y - oy, sz = r.z - oz;
+      r.x = ox; r.y = oy; r.z = oz;
+      const fullLen = Math.hypot(sx, sy, sz) || 1e-6;
+      const len = Math.min(fullLen, Math.max(0, (r.spec.maxRange ?? Infinity) - r.traveled));
+      const dx = sx / fullLen, dy = sy / fullLen, dz = sz / fullLen;
       const candidates: Combatant[] = [
-        ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), 1, this.scratch).filter((t) => !this.allied(r.owner, t)),
+        ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), Math.ceil((len + 3) / CHUNK_SIZE), this.scratch).filter((t) => !this.allied(r.owner, t)),
         ...this.zombies.near(r.x, r.z, len + 3),
         ...this.animals.values(),
       ];
-      const hit = castCombatRay(r.owner, candidates, this.collision, now, undefined, r.x, r.y, r.z, sx / len, sy / len, sz / len, len);
-      const npcHit = this.npcOnRay(r.x, r.y, r.z, sx / len, sy / len, sz / len, hit.t);
+      const hit = castCombatRay(r.owner, candidates, this.collision, now, undefined, r.x, r.y, r.z, dx, dy, dz, len);
+      const npcHit = this.npcOnRay(r.x, r.y, r.z, dx, dy, dz, hit.t);
       if (npcHit && this.players.get(r.owner.id) === r.owner) this.provokeNpc(npcHit.npc, r.owner, now);
-      let t = hit.target || hit.t < len - 1e-4 ? hit.t : len;
-      let stopped = !!hit.target || hit.t < len - 1e-4;
-      const nx = r.x + (sx / len) * t;
-      const ny = r.y + (sy / len) * t;
-      const nz = r.z + (sz / len) * t;
+      const t = npcHit ? npcHit.t : hit.t;
+      let stopped = !!npcHit || !!hit.target || hit.t < len - 1e-4;
+      const nx = r.x + dx * t;
+      const ny = r.y + dy * t;
+      const nz = r.z + dz * t;
       const ground = this.collision.terrainHeight(nx, nz);
       if (Number.isFinite(ground) && ny <= ground) {
         stopped = true;
-        t = Math.max(0, t - 0.05);
       }
       r.x = nx;
       r.y = Number.isFinite(ground) ? Math.max(ny, ground + 0.05) : ny;
       r.z = nz;
-      const expired = now >= r.dieAt;
+      r.traveled += t;
+      const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
-      this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target });
+      this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped });
       if (r.spec.blast) {
         this.explode(r.id, r.x, r.y, r.z, r.spec.blast.radius, r.spec.blast.damage, r.owner, r.spec.kind === 'rocket' ? 'rocket' : 'grenade40', now);
-      } else if (hit.target && hit.zone && owner) {
+      } else if (!npcHit && hit.target && hit.zone && owner) {
         const k = Math.hypot(r.vx, r.vz) || 1;
-        this.hitTarget(owner, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, r.vx / k, r.vz / k, 3, now);
+        this.hitTarget(owner, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, r.x, r.y, r.z, r.vx / k, r.vz / k, r.damage * .12 * r.knockback, now, r.knockback);
       }
     }
   }
@@ -2587,6 +2584,7 @@ export class GameServer {
     if (now < p.attackingUntil) f |= EntityFlags.Attacking;
     if (p.state.rollTicks > 0) f |= EntityFlags.Rolling;
     if (p.state.prone) f |= EntityFlags.Prone;
+    if (p.aiming && !p.dead && !p.downed) f |= EntityFlags.Aiming;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.downed) f |= EntityFlags.Downed;

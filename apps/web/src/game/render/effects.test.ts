@@ -5,6 +5,21 @@ import { WeaponId } from '@zion/shared';
 import type { SoundBank } from '../audio';
 
 describe('combat visual resources', () => {
+  it('renders a glowing round without a line trail and replays gravity and drag', () => {
+    const scene = new Scene();
+    const effects = new CombatEffects(scene, null, null, () => new Vector3());
+    effects.launch({ t: 'proj', id: 1, ownerId: 2, w: WeaponId.AK47, kind: 'bullet', x: 0, y: 10, z: 0, vx: 100, vy: 0, vz: 0, gravity: 9.81, drag: .12, maxFlightSec: 1 });
+    const mesh = scene.children.find((node): node is Mesh => node instanceof Mesh)!;
+    expect(mesh.children).toHaveLength(1);
+    expect(scene.children.some(node => node.type === 'LineSegments')).toBe(false);
+    effects.update(.1, null);
+    expect(mesh.position.x).toBeGreaterThan(0); expect(mesh.position.x).toBeLessThan(10);
+    expect(mesh.position.y).toBeLessThan(10);
+    effects.endRound(1, 9, 9, 0, false);
+    expect(mesh.parent).toBeNull();
+    effects.dispose();
+    expect(scene.children).toHaveLength(0);
+  });
   it('plays one PKM report per round across the full magazine without an audio loop', () => {
     const sounds = { loopAt: vi.fn(), stopLoop: vi.fn(), play: vi.fn(), stop: vi.fn() };
     const effects = new CombatEffects(new Scene(), null, sounds as unknown as SoundBank, () => new Vector3());

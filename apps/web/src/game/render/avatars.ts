@@ -117,6 +117,7 @@ export class Avatar {
   private recoil = 0;
   private swimLift = 0;
   private aimPitch = 0;
+  private aimBlend = 0;
   private readonly weaponObjects = new Map<string, { obj: Object3D; visual: WeaponVisual; bones: Map<string, Bone & { restScale: Vector3 }> }>();
   private weaponAnim: { clip: CharacterClip; time: number; rate: number } | null = null;
   private airborne = 0;
@@ -401,11 +402,13 @@ export class Avatar {
     // Raise/lower the arms (and the gun with them) to the aim elevation.
     const held = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
     const treating = this.healing || (flags & EntityFlags.Reviving) !== 0;
+    const aiming = !limp && !rolling && !treating && (flags & EntityFlags.Aiming) !== 0;
+    this.aimBlend += ((aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-dt * 14));
     if (held) held.obj.visible = !treating;
     if (!rolling && this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !treating) {
       for (const arm of ['arm_right', 'arm_left']) {
         const b = this.bones.get(arm);
-        if (b) b.node.rotation.x += this.aimPitch;
+        if (b) b.node.rotation.x += this.aimPitch + this.aimBlend * .12;
       }
     }
     if (this.recoil > 0) {

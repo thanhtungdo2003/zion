@@ -135,7 +135,7 @@ export interface ProjectileEvent {
   ownerId: number;
   /** WeaponId that fired it. */
   w: number;
-  kind: 'grenade40' | 'rocket' | 'bolt';
+  kind: 'grenade40' | 'rocket' | 'bolt' | 'bullet';
   x: number;
   y: number;
   z: number;
@@ -143,6 +143,8 @@ export interface ProjectileEvent {
   vy: number;
   vz: number;
   gravity: number;
+  drag?: number;
+  maxFlightSec?: number;
 }
 
 /** A round stopped: it hit something (`hit` = a body) at (x,y,z). Explosives also send 'explosion'. */
@@ -153,6 +155,8 @@ export interface ProjectileEndEvent {
   y: number;
   z: number;
   hit: boolean;
+  /** False for range/lifetime expiry, which should not create an impact in mid-air. */
+  impact?: boolean;
 }
 
 /** Where the camp's service NPCs stand (for the minimap and the edge-of-screen guides). */
@@ -319,6 +323,7 @@ export const EntityFlags = {
   /** Performing CPR on a downed teammate. */
   Reviving: 1 << 10,
   Prone: 1 << 11,
+  Aiming: 1 << 12,
 } as const;
 
 export interface SelfState {

@@ -19,6 +19,17 @@ function fixture() {
 }
 
 describe('first person weapon', () => {
+  it('keeps hip fire to the right even during sustained fire and recoil', () => {
+    const { camera, view, state } = fixture();
+    for (let i = 0; i < 120; i++) {
+      if (i % 6 === 0) view.kick();
+      view.update(1 / 60, { ...state, firing: true });
+    }
+    expect(camera.children[0]!.position.x).toBeCloseTo(.2, 3);
+    view.update(1 / 60, { ...state, aiming: true });
+    expect(camera.children[0]!.position.x).toBeGreaterThan(0);
+    expect(camera.children[0]!.position.x).toBeLessThan(.2);
+  });
   it('keeps a heavy swing moving after a normal swing has recovered, then returns to rest', () => {
     const heavy = fixture(), normal = fixture(), idle = fixture();
     heavy.view.swing(1, 1100);
@@ -41,11 +52,11 @@ describe('first person weapon', () => {
     expect(view.weaponPoint('eject', at)).toBe(false);
   });
 
-  it('centres the gun while firing and converges the barrel on the target', () => {
+  it('centres the gun only while aiming and converges the barrel on the target', () => {
     const { camera, view, state } = fixture();
     const target = camera.localToWorld(new Vector3(0, 0, -12));
     for (let i = 0; i < 90; i++) {
-      view.update(1 / 60, { ...state, firing: true });
+      view.update(1 / 60, { ...state, aiming: true });
       view.aimAt(target);
     }
     const marker = camera.getObjectByName('weapon-muzzle')!;
@@ -80,16 +91,16 @@ describe('first person weapon', () => {
       return new Vector3(1, 0, 0).transformDirection(model.matrixWorld).applyQuaternion(camera.quaternion.clone().invert());
     };
     for (let frame = 0; frame < 90; frame++) {
-      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+      view.update(1 / 60, { ...state, firing: true, aiming: true }); view.aimAt(target);
     }
     const resting = barrelDirection().y;
     view.kick();
     for (let frame = 0; frame < 3; frame++) {
-      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+      view.update(1 / 60, { ...state, firing: true, aiming: true }); view.aimAt(target);
     }
     expect(barrelDirection().y).toBeGreaterThan(resting + .03);
     for (let frame = 0; frame < 120; frame++) {
-      view.update(1 / 60, { ...state, firing: true }); view.aimAt(target);
+      view.update(1 / 60, { ...state, firing: true, aiming: true }); view.aimAt(target);
     }
     expect(barrelDirection().y).toBeCloseTo(resting, 6);
   });

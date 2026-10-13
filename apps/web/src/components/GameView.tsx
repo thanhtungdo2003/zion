@@ -112,7 +112,7 @@ export default function GameView() {
   return (
     <div className={`game-root${touchControls ? ' touch-mode' : ''}`} onMouseDownCapture={onClickCapture}>
       <div ref={container} style={{ position: 'absolute', inset: 0 }} />
-      {touchVisible && <MobileControls controls={touch} canAim={spec?.kind === 'gun' && !!spec.scope} canReload={spec?.kind === 'gun'} reloading={hud.ammo?.reload !== null && hud.ammo?.reload !== undefined} rollCooldown={hud.rollCd} weaponUid={inv.equipped} c4={spec?.kind === 'throw' && !!spec.remote && inv.items.find(i => i.uid === inv.equipped)?.itemId === 'c4'} />}
+      {touchVisible && <MobileControls controls={touch} canAim={spec?.kind === 'gun'} canReload={spec?.kind === 'gun'} reloading={hud.ammo?.reload !== null && hud.ammo?.reload !== undefined} rollCooldown={hud.rollCd} weaponUid={inv.equipped} c4={spec?.kind === 'throw' && !!spec.remote && inv.items.find(i => i.uid === inv.equipped)?.itemId === 'c4'} />}
       <Hud
         state={hud}
         onMinimap={attachMinimap}

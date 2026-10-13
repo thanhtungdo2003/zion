@@ -84,6 +84,10 @@ export class Player {
   rigAt(pose: PoseSample) { return pose.prone ? PRONE_RIG : HUMANOID_RIG; }
   yaw = 0;
   pitch = 0;
+  aiming = false;
+  aimStartedAt = 0;
+  gunHeat = 0;
+  lastGunShotAt = -Infinity;
   health = PLAYER_MAX_HEALTH;
   /** ZCoin balance (server-authoritative). */
   coins = STARTING_ZCOIN;

@@ -339,7 +339,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       </SettingsModal>
 
       {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
-        <div className="fp-crosshair" aria-hidden>
+        <div className={`fp-crosshair${state.aiming ? ' is-aiming' : ''}`} aria-hidden>
           <i /><i /><i /><i />
         </div>
       )}

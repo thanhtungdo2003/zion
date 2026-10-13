@@ -70,6 +70,7 @@ export interface HudState {
   interact: Msg | null;
   /** Looking through the equipped weapon's scope. */
   scoped: boolean;
+  aiming: boolean;
   scopeMagnification: number;
   /** ZCoin balance (server wallet). */
   coins: number;
@@ -129,6 +130,7 @@ export function initialHud(): HudState {
     ammo: null,
     interact: null,
     scoped: false,
+    aiming: false,
     scopeMagnification: 1,
     coins: 0,
     healing: null,

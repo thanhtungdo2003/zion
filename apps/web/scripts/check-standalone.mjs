@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { URL, fileURLToPath } from 'node:url';
 import { readyStandaloneEntry } from './standalone.mjs';
 
 try {

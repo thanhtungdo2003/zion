@@ -1,10 +1,6 @@
 import {
   AdditiveBlending,
-  BufferAttribute,
-  BufferGeometry,
   IcosahedronGeometry,
-  LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshBasicMaterial,
   PointLight,
@@ -12,27 +8,10 @@ import {
   type Object3D,
   type Scene,
 } from 'three';
-import { GRENADE_GRAVITY, WeaponId, weaponSpec, type C4Pose, type ProjectileEvent } from '@zion/shared';
-import { stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
+import { GRENADE_GRAVITY, WeaponId, weaponSpec, advanceBallistic, type C4Pose, type ProjectileEvent } from '@zion/shared';
+import { Mask, makeRayHit, stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
 import type { SoundBank } from '../audio';
 import { ParticleFX, ParticleSystem } from './particles';
-
-const MAX_BULLETS = 96;
-/** Visual bullet speed (m/s) and streak length (m). */
-const BULLET_SPEED = 260;
-const BULLET_LEN = 2.2;
-
-interface Bullet {
-  ox: number;
-  oy: number;
-  oz: number;
-  dx: number;
-  dy: number;
-  dz: number;
-  len: number;
-  t: number;
-  active: boolean;
-}
 
 /** A launcher round replayed from the server's launch event (ballistic, ended by 'projEnd'). */
 interface FlyingRound {
@@ -44,6 +23,8 @@ interface FlyingRound {
   vy: number;
   vz: number;
   gravity: number;
+  drag: number;
+  maxAge: number;
   mesh: Object3D;
   age: number;
 }
@@ -74,12 +55,7 @@ export interface ShotInfo {
 export class CombatEffects {
   private disposed = false;
   readonly particles: ParticleSystem;
-  private readonly bulletPos = new Float32Array(MAX_BULLETS * 6);
-  private readonly bulletColor = new Float32Array(MAX_BULLETS * 6);
-  private readonly bulletGeo = new BufferGeometry();
-  private readonly bulletLines: LineSegments;
-  private readonly bullets: Bullet[] = Array.from({ length: MAX_BULLETS }, () => ({ ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 0, len: 0, t: 0, active: false }));
-  private bulletNext = 0;
+  private readonly roundHit = makeRayHit();
   private readonly flashLights: PointLight[] = [];
   private flashNext = 0;
   /** Pooled so the scene's light count never changes (that would recompile every shader). */
@@ -103,6 +79,8 @@ export class CombatEffects {
   private readonly tmpDir = new Vector3();
   private readonly xAxis = new Vector3(1, 0, 0);
   private readonly fallbackRound = new Mesh(new IcosahedronGeometry(0.08), new MeshBasicMaterial({ color: 0x777755 }));
+  private readonly bulletModel = new Mesh(new IcosahedronGeometry(.025, 1), new MeshBasicMaterial({ color: 0xffe6ac, toneMapped: false }));
+  private readonly bulletGlow = new Mesh(new IcosahedronGeometry(.055, 1), new MeshBasicMaterial({ color: 0xffd183, transparent: true, opacity: .18, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
   private readonly fallbackGrenade = new Mesh(new IcosahedronGeometry(0.07), new MeshBasicMaterial({ color: 0x445533 }));
 
   setProjectileModels(models: Map<string, Object3D>): void {
@@ -116,14 +94,7 @@ export class CombatEffects {
     private readonly listener: () => Vector3,
   ) {
     this.particles = new ParticleSystem(scene);
-    this.bulletGeo.setAttribute('position', new BufferAttribute(this.bulletPos, 3));
-    this.bulletGeo.setAttribute('color', new BufferAttribute(this.bulletColor, 3));
-    this.bulletLines = new LineSegments(
-      this.bulletGeo,
-      new LineBasicMaterial({ vertexColors: true, transparent: true, blending: AdditiveBlending, depthWrite: false }),
-    );
-    this.bulletLines.frustumCulled = false;
-    scene.add(this.bulletLines);
+    this.bulletModel.add(this.bulletGlow);
     for (let i = 0; i < 4; i++) {
       const l = new PointLight(0xffc070, 0, 9, 1.6);
       this.flashLights.push(l);
@@ -149,8 +120,6 @@ export class CombatEffects {
     const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
     light.position.copy(m);
     light.intensity = heavy ? 14 : 9;
-    const e = info.ends;
-    for (let i = 0; i + 2 < e.length; i += 3) this.fireBullet(m.x, m.y, m.z, e[i]!, e[i + 1]!, e[i + 2]!);
     const h = this.heat.get(shooterId) ?? { h: 0, at: new Vector3() };
     h.h = Math.min(1, h.h + (heavy ? 0.35 : 0.09));
     h.at.copy(m);
@@ -213,19 +182,22 @@ export class CombatEffects {
 
   launch(e: ProjectileEvent): void {
     if (this.rounds.has(e.id)) return;
-    const model = this.projectileModels.get(e.kind);
+    const model = e.kind === 'bullet' ? this.bulletModel : this.projectileModels.get(e.kind);
     const mesh = (model ?? this.fallbackRound).clone(true);
     mesh.position.set(e.x, e.y, e.z);
     this.scene.add(mesh);
-    this.rounds.set(e.id, { kind: e.kind, x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz, gravity: e.gravity, mesh, age: 0 });
+    this.rounds.set(e.id, { kind: e.kind, x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz, gravity: e.gravity, drag: e.drag ?? 0, maxAge: e.maxFlightSec ?? 8, mesh, age: 0 });
   }
 
-  endRound(id: number, x: number, y: number, z: number, hitBody: boolean): void {
+  endRound(id: number, x: number, y: number, z: number, hitBody: boolean, impact = true): void {
     const r = this.rounds.get(id);
     if (!r) return;
     this.scene.remove(r.mesh);
     this.rounds.delete(id);
-    if (r.kind === 'bolt') {
+    if (!impact) return;
+    if (r.kind === 'bullet') {
+      ParticleFX.impact(this.particles, x, y, z);
+    } else if (r.kind === 'bolt') {
       ParticleFX.impact(this.particles, x, y, z);
       this.sounds?.play(hitBody ? 'arrowHitSoft' : 'arrowHitHard', { at: { x, y, z }, volume: 0.9, maxDistance: 35 });
     }
@@ -235,16 +207,6 @@ export class CombatEffects {
   trackMuzzle(shooterId: number, at: Vector3 | null): void {
     const h = this.heat.get(shooterId);
     if (h && at) h.at.copy(at);
-  }
-
-  private fireBullet(ox: number, oy: number, oz: number, ex: number, ey: number, ez: number): void {
-    const dx = ex - ox;
-    const dy = ey - oy;
-    const dz = ez - oz;
-    const len = Math.hypot(dx, dy, dz);
-    if (len < 0.1) return;
-    const b = this.bullets[this.bulletNext++ % MAX_BULLETS]!;
-    Object.assign(b, { ox, oy, oz, dx: dx / len, dy: dy / len, dz: dz / len, len, t: 0, active: true });
   }
 
   /* --------------------------------------- grenades ---------------------------------------- */
@@ -305,24 +267,6 @@ export class CombatEffects {
   /* ----------------------------------------- frame ----------------------------------------- */
 
   update(dt: number, world: CollisionWorld | null | undefined): void {
-    for (let k = 0; k < MAX_BULLETS; k++) {
-      const b = this.bullets[k]!;
-      if (!b.active) continue;
-      b.t += dt * BULLET_SPEED;
-      const head = Math.min(b.t, b.len);
-      const tail = Math.max(0, b.t - BULLET_LEN);
-      if (tail >= b.len) {
-        b.active = false;
-        this.bulletPos.fill(0, k * 6, k * 6 + 6);
-        this.bulletColor.fill(0, k * 6, k * 6 + 6);
-        ParticleFX.impact(this.particles, b.ox + b.dx * b.len, b.oy + b.dy * b.len, b.oz + b.dz * b.len);
-        continue;
-      }
-      this.bulletPos.set([b.ox + b.dx * tail, b.oy + b.dy * tail, b.oz + b.dz * tail, b.ox + b.dx * head, b.oy + b.dy * head, b.oz + b.dz * head], k * 6);
-      this.bulletColor.set([0.25, 0.18, 0.08, 1, 0.92, 0.65], k * 6);
-    }
-    this.bulletGeo.attributes.position!.needsUpdate = true;
-    this.bulletGeo.attributes.color!.needsUpdate = true;
 
     for (const l of this.flashLights) l.intensity = Math.max(0, l.intensity - dt * 220);
     for (const [id, h] of this.heat) {
@@ -349,20 +293,27 @@ export class CombatEffects {
     }
 
     for (const [id, r] of this.rounds) {
+      const step = Math.min(dt, Math.max(0, r.maxAge - r.age));
       r.age += dt;
-      r.vy -= r.gravity * dt;
-      r.x += r.vx * dt;
-      r.y += r.vy * dt;
-      r.z += r.vz * dt;
+      const ox = r.x, oy = r.y, oz = r.z;
+      advanceBallistic(r, r.gravity, r.drag, step);
+      if (world && r.kind === 'bullet') {
+        const dx = r.x - ox, dy = r.y - oy, dz = r.z - oz;
+        const len = Math.hypot(dx, dy, dz);
+        // Locally sweep geometry to keep the visible round out of walls while awaiting projEnd.
+        if (len > 0 && world.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len, Mask.LineOfSight, this.roundHit)) {
+          r.mesh.visible = false;
+        }
+      }
       r.mesh.position.set(r.x, r.y, r.z);
       const sp = Math.hypot(r.vx, r.vy, r.vz) || 1;
       this.tmpDir.set(r.vx / sp, r.vy / sp, r.vz / sp);
       r.mesh.quaternion.setFromUnitVectors(this.xAxis, this.tmpDir);
       if (r.kind === 'rocket') ParticleFX.rocketTrail(this.particles, r.x - this.tmpDir.x * 0.5, r.y - this.tmpDir.y * 0.5, r.z - this.tmpDir.z * 0.5, this.tmpDir.x, this.tmpDir.y, this.tmpDir.z);
       else if (r.kind === 'grenade40') ParticleFX.smokeTrail(this.particles, r.x, r.y, r.z);
-      else ParticleFX.boltTrail(this.particles, r.x, r.y, r.z);
+      else if (r.kind === 'bolt') ParticleFX.boltTrail(this.particles, r.x, r.y, r.z);
       // Safety net if the end event was lost.
-      if (r.age > 8) {
+      if (r.age > r.maxAge + .25) {
         this.scene.remove(r.mesh);
         this.rounds.delete(id);
       }
@@ -393,10 +344,7 @@ export class CombatEffects {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.scene.remove(this.bulletLines);
-    this.bulletGeo.dispose();
-    (this.bulletLines.material as LineBasicMaterial).dispose();
-    for (const mesh of [this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
+    for (const mesh of [this.bulletModel, this.bulletGlow, this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);
     for (const g of this.grenades.values()) this.scene.remove(g.mesh);
