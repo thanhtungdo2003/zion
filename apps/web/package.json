@@ -10,6 +10,7 @@
     "build": "next build",
     "postbuild": "node scripts/prepare-standalone.mjs",
     "start": "node aapanel-start.mjs",
+    "check:standalone": "node scripts/check-standalone.mjs",
     "test:standalone": "node --test scripts/standalone.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

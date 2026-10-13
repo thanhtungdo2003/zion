@@ -179,6 +179,16 @@ The main menu's **Tải ứng dụng / Download app** button installs ZION as a 
 
 For aaPanel deployments, run `pnpm install --frozen-lockfile` then `pnpm build` from the repository root. Restart the service only after the build succeeds. The web postbuild step copies `.next/static` and `public` (including game models) into the standalone app. Set the web process startup file to `apps/web/aapanel-start.mjs`, or use `pnpm --filter @zion/web start`; configure `PORT` and `HOSTNAME=127.0.0.1` to match the reverse proxy. The monorepo server entry is `.next/standalone/apps/web/server.js` inside `apps/web`. Build output is ignored by Git and must be generated or uploaded in full on each deployment. `pnpm --filter @zion/web test:standalone` checks artifact validation and asset preparation.
 
+If aaPanel repeatedly reports `Missing Next.js standalone server`, stop the web process and its automatic restart while repairing the deployment. On the Linux host, run these commands from `/www/wwwroot/zion`, stopping at the first failure:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --filter @zion/web build
+pnpm --filter @zion/web check:standalone
+```
+
+The check must print the ready server path before you restart the aaPanel web process. It validates the server entry, its `.next/BUILD_ID`, and the prepared static/public directories without starting a listener. If the build fails, fix the first build error and rerun it; a Git pull alone does not create `.next/standalone`. Keep the build lifecycle scripts enabled so `prebuild` generates the asset manifest and `postbuild` prepares standalone assets. When uploading a build, include the entire `apps/web/.next/standalone` tree, including hidden `.next` directories and traced dependencies, and build for the target OS; copying only `server.js` is insufficient. After restart, verify an HTTP response through the reverse proxy and that the process remains running beyond the previous three-second restart interval.
+
 - `GET /health/live` is a liveness check. `GET /health/ready` checks the database, Redis or the memory store, the worldgen workers and simulation tick p99, and returns 503 when degraded.
 - `GET /metrics` returns Prometheus text and requires `Authorization: Bearer $METRICS_TOKEN`. It covers connections, players, tick timing and overruns, bytes out, dropped snapshots, chunk cache and queue, rejected upgrades by reason, and anti-cheat flags and kicks.
 - Graceful shutdown on SIGINT/SIGTERM stops accepting connections, notifies and saves players, persists world time, then drains the audit queue, the pools and the workers. It is forced after 15 s.

@@ -1,5 +1,5 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, CanvasTexture, Matrix4, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
