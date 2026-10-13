@@ -3,6 +3,7 @@ import { Icon } from '@/components/Icon';
 
 import { Spinner } from '@/components/Spinner';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { LoadingScreen } from '@/components/LoadingScreen';
@@ -269,6 +270,22 @@ export default function MainMenu() {
       {session && teamOpen && <TeamLobby lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
 
       <div className="menu-launch">
+        <a
+          className="menu-zalo"
+          href="/zalo-group-qr.jpg"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Mở ảnh mã QR tham gia nhóm Zalo Zion ở kích thước đầy đủ"
+        >
+          <Image
+            src="/zalo-group-qr.jpg"
+            alt="Mã QR tham gia nhóm Zalo Zion. Quét mã bằng Zalo để tham gia."
+            width={840}
+            height={1280}
+            priority
+            unoptimized
+          />
+        </a>
         {modeOpen && (
           <ul className="menu-modes" role="listbox">
             {GAME_MODES.map((m) => (

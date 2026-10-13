@@ -448,6 +448,29 @@ button {
   gap: 6px;
 }
 
+.menu-zalo {
+  display: flex;
+  justify-content: center;
+  align-self: center;
+  max-width: 100%;
+  margin-bottom: 8px;
+  border-radius: 12px;
+}
+
+.menu-zalo img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 340px);
+  max-height: clamp(120px, calc(100dvh - 280px), 520px);
+  border-radius: inherit;
+}
+
+.menu-zalo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
 .menu-mode {
   display: flex;
   align-items: baseline;
