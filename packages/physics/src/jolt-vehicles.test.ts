@@ -111,4 +111,25 @@ describe('Jolt vehicles', () => {
       expect(Math.cos(v.motion!.roll)).toBeGreaterThan(.8);
     } finally { sim.dispose(); }
   });
+  it.each(['jeep', 'car'] as const)('settles a parked %s and keeps it still through enter, drive and exit', (kind) => {
+    const w = world(), v = { ...car(w, kind), driver: null as number | null }, sim = new JoltVehicles(w);
+    try {
+      sim.add(v);
+      run(sim, [v], 3, 0, 0);
+      const rest = v.y;
+      v.driver = 1;
+      let hop = 0, roll = 0;
+      // Enter, a short drive, brake, and exit: no hop, no tilt, no runaway afterwards.
+      for (let i = 0; i < 240; i++) {
+        if (i === 150) v.driver = null;
+        sim.step([v], (s) => (s.driver ? { throttle: i < 60 ? 1 : i < 120 ? -1 : 0, steer: 0 } : undefined), 1 / 30, 4000 + i * 33);
+        if (i < 5) hop = Math.max(hop, Math.abs(v.y - rest));
+        roll = Math.max(roll, Math.abs(v.motion!.roll));
+      }
+      expect(hop).toBeLessThan(.02);
+      expect(roll).toBeLessThan(.05);
+      expect(Math.abs(v.speed)).toBeLessThan(.3);
+      expect(Math.abs(v.motion!.vy)).toBeLessThan(.1);
+    } finally { sim.dispose(); }
+  });
 });

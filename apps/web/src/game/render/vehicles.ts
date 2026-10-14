@@ -10,6 +10,8 @@ import { VehicleSmoke } from './vehicle-smoke';
 // playback interpolating between real states; extrapolating and then correcting backwards
 // on every packet was what made fast vehicles visibly twitch rearwards.
 const VEHICLE_RENDER_DELAY_MS = 105;
+/** Delay for the vehicle we drive: two 30 Hz snapshot intervals. */
+const OWN_RENDER_DELAY_MS = 70;
 
 interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number }
 export class VehicleRenderer {
@@ -18,6 +20,7 @@ export class VehicleRenderer {
   private readonly smoke: VehicleSmoke;
   /** Monotonic playback clock; server clock re-syncs are slewed in instead of jumping. */
   private playback: number | undefined;
+  private ownPlayback: number | undefined;
   private disposed = false;
   constructor(private readonly scene:Scene,private readonly library:AssetLibrary,private readonly world:CollisionWorld){this.smoke=new VehicleSmoke(scene);}
   sync(message:VehiclesMessage):void{
@@ -29,9 +32,6 @@ export class VehicleRenderer {
       else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0});}
     }
   }
-  private predicted:{id:number;pose:VehicleState}|null=null;
-  /** The locally predicted pose of the vehicle we drive (null = none): drawn instead of the snapshots. */
-  override(id:number|null,pose:VehicleState|null):void{this.predicted=id!==null&&pose?{id,pose}:null;}
   rider(id:number):VehicleState|undefined{return [...this.views.values()].find(v=>v.target.driver===id)?.pose;}
   nearest(x:number,y:number,z:number):VehicleState|undefined{
     return [...this.views.values()].map(v=>v.target).filter(v=>!v.driver&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
@@ -40,8 +40,12 @@ export class VehicleRenderer {
     const target=serverTime-VEHICLE_RENDER_DELAY_MS;
     if(this.playback===undefined||Math.abs(target-this.playback)>400)this.playback=target;
     else this.playback+=dt*1000+(target-this.playback)*Math.min(1,dt*1.5);
+    // Our own car arrives every server tick (30 Hz), so it can be shown closer to the present.
+    const ownTarget=serverTime-OWN_RENDER_DELAY_MS;
+    if(this.ownPlayback===undefined||Math.abs(ownTarget-this.ownPlayback)>400)this.ownPlayback=ownTarget;
+    else this.ownPlayback+=dt*1000+(ownTarget-this.ownPlayback)*Math.min(1,dt*1.5);
     for(const view of this.views.values()){
-      const v=view.target,p=view.pose=this.predicted?.id===v.id?this.predicted.pose:view.timeline.play(this.playback),def=VEHICLES[v.kind];
+      const v=view.target,p=view.pose=view.timeline.play(v.driver===localId?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
       // Camera/LOS colliders follow the same interpolated pose as the mesh. Installing the
       // newest packet here caused the chase camera to alternate between two positions.
       this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));

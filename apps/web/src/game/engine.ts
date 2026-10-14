@@ -103,7 +103,6 @@ import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { BattleFlightRenderer } from './render/battle-flight';
 import { PowerCables } from './render/power-cables';
-import { VehiclePrediction } from './vehicle-prediction';
 import { doorColliders } from '@zion/physics';
 import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
@@ -227,6 +226,21 @@ export class GameEngine {
   /** Last hit that interrupts first aid (zone damage does not). */
   private healBreakAt = 0;
   private wasAiming = false;
+  /** Crosshair bloom from recent shots (0…1), decaying every frame. */
+  private shotBloom = 0;
+  private crosshairSpread = -1;
+  /** Dynamic crosshair: opens with speed, jumps and recent shots, tightens when aiming. */
+  private updateCrosshair(dt: number): void {
+    const s = this.local?.state;
+    if (!s || typeof document === 'undefined') return;
+    this.shotBloom = Math.max(0, this.shotBloom - dt * 2.6);
+    const speed = Math.min(1, Math.hypot(s.vx, s.vz) / 6), air = s.grounded || s.swimming ? 0 : .7;
+    const spread = Math.min(1, (speed * .55 + air + this.shotBloom) * (this.aiming ? .35 : 1));
+    const eased = this.crosshairSpread < 0 ? spread : this.crosshairSpread + (spread - this.crosshairSpread) * Math.min(1, dt * 14);
+    if (Math.abs(eased - this.crosshairSpread) < .002) return;
+    this.crosshairSpread = eased;
+    document.documentElement.style.setProperty('--xh-spread', eased.toFixed(3));
+  }
   /** ZCoin dropped by zombies (server-owned; we only show them and ask to pick up). */
   private readonly coinDrops = new Map<number, Object3D>();
   private readonly coinRingGeometry = new RingGeometry(0.28, 0.36, 28);
@@ -351,7 +365,6 @@ export class GameEngine {
   private battleZone: BattleZone | null = null;
   private battleFlight: BattleFlightRenderer | null = null;
   private powerCables: PowerCables | null = null;
-  private vehiclePrediction: VehiclePrediction | null = null;
   /** When the in-game loading phase began (0 = not loading). */
   private loadingSince = 0;
   private planeReceivedAt = 0;
@@ -579,7 +592,6 @@ export class GameEngine {
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
     this.powerCables?.dispose(); this.powerCables = null;
-    this.vehiclePrediction?.end();
     this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
@@ -953,8 +965,7 @@ export class GameEngine {
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
-    this.vehiclePrediction?.end();
-    this.vehiclePrediction = new VehiclePrediction(this.store!.collision);
+
     this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp);
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
@@ -1209,12 +1220,7 @@ export class GameEngine {
       }
       case 'vehicles': {
         this.vehicles?.sync(m);
-        {
-          // Our own car: start or keep predicting it, and reconcile with this snapshot.
-          const own = m.vehicles.find(v => v.driver === this.welcome?.playerId);
-          if (own && this.vehiclePrediction) { this.vehiclePrediction.begin(own); this.vehiclePrediction.reconcile(own, m.time, this.clock.rttMs / 2); }
-          else this.vehiclePrediction?.end();
-        }
+
         if (this.local) this.local.riding = m.vehicles.some(v => v.driver === this.welcome?.playerId);
         break;
       }
@@ -1501,7 +1507,6 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
-    this.vehicles?.override(this.vehiclePrediction?.id ?? null, this.vehiclePrediction?.pose(Math.min(1, this.accumulator / TICK_DT)) ?? null);
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now());
     const driving = this.vehicles?.rider(this.welcome!.playerId);
     const seat = this.vehicles?.seat(this.welcome!.playerId);
@@ -1641,6 +1646,7 @@ export class GameEngine {
     this.viewModel?.setVisible(!driving);
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
     const battle = this.hud.get().battle;
+    this.updateCrosshair(dt);
     const live = this.liveBattle();
     // The island's power grid is described by the map atlas; string the cables once it arrives.
     if (!this.powerCables && this.welcome?.mode === 'battle-royale' && this.worldMap.get().atlas?.cables) this.powerCables = new PowerCables(this.scene, this.worldMap.get().atlas!.cables!);
@@ -1860,8 +1866,6 @@ export class GameEngine {
       const axes = this.input.axes();
       this.aiming = false; this.scoped = false;
       this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, 0, undefined));
-      // Drive our own car locally with exactly the inputs the server will apply.
-      this.vehiclePrediction?.step(axes.mz, axes.mx, this.clock.now());
       this.input.acknowledgeTouchPresses(); return;
     }
     if (local.state.flight) {
@@ -2012,6 +2016,7 @@ export class GameEngine {
     const kick = weaponRecoil(weapon) * (this.aiming ? .65 : 1) * (.85 + Math.random() * .3);
     this.viewModel?.kick(Math.min(1.8, kick * 28));
     if (this.mouseLook) this.recoil.kick(kick);
+    this.shotBloom = Math.min(1, this.shotBloom + .22 + kick * .4);
     const s = local.state;
     const yaw = this.shotYaw;
     const fx = -Math.sin(yaw);
@@ -2988,14 +2993,15 @@ function reloadSound(weapon: number): [SoundName, number] {
       return ['akReload', 1];
     case WeaponId.M4A1:
     case WeaponId.AUG:
-      return ['akReload', 1.08];
+      return ['rifleReload', 1];
     case WeaponId.SVD:
-      return ['akReload', 0.95];
+      return ['rifleReload', 0.92];
     case WeaponId.MP5:
-      return ['akReload', 1.2];
+      return ['rifleReload', 1.15];
     case WeaponId.Flamethrower:
       return ['akReload', 0.8];
     case WeaponId.Shotgun:
+      return ['shotgunPump', 1];
     case WeaponId.Saiga12:
     case WeaponId.GrenadeLauncher:
       return ['shotgunReload', weapon === WeaponId.GrenadeLauncher ? 0.85 : 1];
@@ -3006,6 +3012,6 @@ function reloadSound(weapon: number): [SoundName, number] {
     case WeaponId.Crossbow:
       return ['glockReload', 1.5];
     default:
-      return ['glockReload', 1];
+      return ['pistolReload', 1];
   }
 }

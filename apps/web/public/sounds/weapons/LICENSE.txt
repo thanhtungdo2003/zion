@@ -1,0 +1,4 @@
+Weapon recordings in this folder are from OpenGameArt.org, all CC0 (public domain):
+- pistol/rifle/sniper/shotgun shots: "Gunshot sounds" by Tabasco (https://opengameart.org/content/gunshot-sounds), single shots cut from the range recordings.
+- rifle-reload, pistol-reload, shotgun-pump: "Gun Reload Sounds" by SpringySpringo (https://opengameart.org/content/gun-reload-sounds).
+- mag-in, bullet-load: "Gun Reload Sound Effects" by BMacZero (https://opengameart.org/content/gun-reload-sound-effects).

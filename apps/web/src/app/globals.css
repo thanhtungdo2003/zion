@@ -2554,3 +2554,30 @@ kbd {
 .hud-kill b { font: 700 15px var(--cond); letter-spacing: .22em; color: #ff4a4a; text-shadow: 0 1px 3px #000; }
 .hud-kill span { font: 600 11px var(--mono); color: var(--text); text-shadow: 0 1px 2px #000; }
 @keyframes hud-kill { 0% { opacity: 0; transform: translate(-50%, 6px) scale(1.15); } 12% { opacity: 1; transform: translate(-50%, 0) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---- Tactical HUD pass: white crosshair with dynamic bloom, ammo readout, interaction prompt. */
+:root { --xh-spread: 0; }
+.fp-crosshair { width: calc(18px + var(--xh-spread) * 34px); height: calc(18px + var(--xh-spread) * 34px); transition: none; filter: drop-shadow(0 0 1px rgba(0,0,0,.9)) drop-shadow(0 0 1px rgba(0,0,0,.6)); }
+.fp-crosshair.is-aiming { width: calc(14px + var(--xh-spread) * 20px); height: calc(14px + var(--xh-spread) * 20px); }
+.fp-crosshair i, .fp-crosshair::after { background: rgba(240, 242, 236, .92); }
+.fp-crosshair i:nth-child(1), .fp-crosshair i:nth-child(2) { width: 2px; height: 7px; }
+.fp-crosshair i:nth-child(3), .fp-crosshair i:nth-child(4) { width: 7px; height: 2px; }
+.fp-crosshair::after { width: 2px; height: 2px; margin: -1px 0 0 -1px; }
+.hud-ammo { position: absolute; right: 16px; bottom: 132px; display: grid; justify-items: end; gap: 4px; min-width: 132px; padding: 8px 10px 7px; background: linear-gradient(90deg, transparent, rgba(8, 10, 9, .72) 30%); color: var(--text); pointer-events: none; font-family: var(--mono); }
+.hud-ammo-count { display: flex; align-items: baseline; gap: 6px; }
+.hud-ammo-count b { font: 700 34px/1 var(--mono); letter-spacing: -.02em; text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums; }
+.hud-ammo-count span { font: 600 14px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.hud-ammo.low .hud-ammo-count b { color: #ffb000; }
+.hud-ammo.empty .hud-ammo-count b { color: #ff4a4a; }
+.hud-ammo-pips { display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; gap: 2px; max-width: 132px; }
+.hud-ammo-pips i { width: 2px; height: 8px; background: rgba(255,255,255,.18); }
+.hud-ammo-pips i.on { background: rgba(240,242,236,.85); }
+.hud-ammo.low .hud-ammo-pips i.on { background: #ffb000; }
+.hud-ammo-reload { display: grid; justify-items: end; gap: 3px; width: 120px; }
+.hud-ammo-reload span { display: block; width: 100%; height: 3px; background: var(--text); transform-origin: left; }
+.hud-ammo-reload small, .hud-ammo-hint { font: 600 10px var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.hud-ammo-hint { color: #ff4a4a; animation: hud-blink 1s steps(2) infinite; }
+@keyframes hud-blink { 50% { opacity: .35; } }
+.hud-interact { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 0; background: rgba(8, 10, 9, .78); border-left: 2px solid var(--accent); font: 600 13px var(--sans); letter-spacing: .02em; }
+.hud-interact kbd { min-width: 22px; text-align: center; padding: 2px 6px; background: var(--text); color: #0b0c0d; border: 0; font-weight: 700; }
+@media (max-width: 720px) { .hud-ammo { bottom: 150px; } .hud-ammo-count b { font-size: 26px; } }

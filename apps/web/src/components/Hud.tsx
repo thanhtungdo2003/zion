@@ -223,8 +223,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
           {state.team && <div className="team-hud"><span className="q-label"><Icon name="lucide:users" /> {state.team.name}</span>{state.team.members.filter((m) => m.name !== state.username).map((m) => <div key={m.accountId}><i /><span>{m.name}</span><small>{m.downed ? 'Cần cứu!' : m.health !== undefined && m.inGame ? `${m.health} HP` : m.online ? 'Ở sảnh' : t('hud.offline')}</small></div>)}</div>}
           {state.toast && <div className="toast">{tm(state.toast)}</div>}
           {state.interact && !inventoryOpen && (
-            <div className="hud-interact">
-              <kbd>E</kbd> {tm(state.interact)}
+            <div className="hud-interact" role="status">
+              <kbd>E</kbd><span>{tm(state.interact)}</span>
             </div>
           )}
           {state.scoped && !mouseLook && <div className="hud-scope" />}
@@ -353,6 +353,14 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
         <div className={`fp-crosshair${state.aiming ? ' is-aiming' : ''}`} aria-hidden>
           <i /><i /><i /><i />
+        </div>
+      )}
+      {state.status === 'playing' && state.ammo && !inventoryOpen && (
+        <div className={`hud-ammo${state.ammo.mag === 0 ? ' empty' : state.ammo.mag <= Math.ceil(state.ammo.max * .25) ? ' low' : ''}`} role="status" aria-label={`Đạn ${state.ammo.mag} trên ${state.ammo.reserve}`}>
+          <div className="hud-ammo-count"><b>{state.ammo.mag}</b><span>/ {state.ammo.reserve}</span></div>
+          <div className="hud-ammo-pips" aria-hidden>{Array.from({ length: Math.min(state.ammo.max, 40) }, (_, i) => <i key={i} className={i < state.ammo!.mag ? 'on' : undefined} />)}</div>
+          {state.ammo.reload !== null ? <div className="hud-ammo-reload"><span style={{ transform: `scaleX(${state.ammo.reload})` }} /><small>Đang thay đạn</small></div>
+            : state.ammo.mag === 0 ? <small className="hud-ammo-hint">{state.ammo.reserve > 0 ? <><kbd>R</kbd> Thay đạn</> : 'Hết đạn'}</small> : null}
         </div>
       )}
 

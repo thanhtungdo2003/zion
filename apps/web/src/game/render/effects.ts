@@ -136,17 +136,17 @@ export class CombatEffects {
     if (!s) return;
     switch (weapon) {
       case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
-      case WeaponId.Shotgun: s.play('shotgunShot', { at, maxDistance: 90 }); break;
+      case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); break;
       case WeaponId.Saiga12: s.play('shotgunShot', { at, rate: 1.12, volume: 0.95, maxDistance: 90 }); break;
       case WeaponId.DoubleBarrel: s.play('shotgunShot', { at, rate: 0.88, volume: 1.15, maxDistance: 100 }); break;
-      case WeaponId.AWM: s.play('akShot', { at, rate: 0.62, volume: 1.25, maxDistance: 160 }); break;
+      case WeaponId.AWM: s.play('sniperShot', { at, volume: 1.25, maxDistance: 180 }); break;
       case WeaponId.Barrett: s.play('barrettShot', { at, volume: 1.3, maxDistance: 180 }); break;
-      case WeaponId.SVD: s.play('akShot', { at, rate: 0.74, volume: 1.15, maxDistance: 140 }); break;
-      case WeaponId.GL18: s.play('akShot', { at, rate: 1.35, volume: 0.7, maxDistance: 70 }); break;
-      case WeaponId.Revolver: s.play('akShot', { at, rate: 0.9, volume: 1.05, maxDistance: 90 }); break;
-      case WeaponId.MP5: s.play('akShot', { at, rate: 1.5, volume: 0.6, maxDistance: 60 }); break;
-      case WeaponId.M4A1: s.play('akShot', { at, rate: 1.12, volume: 0.85, maxDistance: 90 }); break;
-      case WeaponId.AUG: s.play('akShot', { at, rate: 1.06, volume: 0.85, maxDistance: 90 }); break;
+      case WeaponId.SVD: s.play('rifleShot', { at, rate: .92, volume: 1.15, maxDistance: 150 }); break;
+      case WeaponId.GL18: s.play('pistolShot', { at, volume: 0.75, maxDistance: 70 }); break;
+      case WeaponId.Revolver: s.play('pistolShot', { at, rate: 0.85, volume: 1.05, maxDistance: 90 }); break;
+      case WeaponId.MP5: s.play('pistolShot', { at, rate: 1.12, volume: 0.65, maxDistance: 60 }); break;
+      case WeaponId.M4A1: s.play('rifleShot', { at, rate: 1.06, volume: 0.85, maxDistance: 100 }); break;
+      case WeaponId.AUG: s.play('rifleShot', { at, rate: 1.03, volume: 0.85, maxDistance: 100 }); break;
       default: s.play('akShot', { at, volume: 0.9, maxDistance: 90 });
     }
   }

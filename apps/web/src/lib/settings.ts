@@ -50,7 +50,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', ...GRAPHICS_PRESETS.high };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', ...GRAPHICS_PRESETS.high };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };

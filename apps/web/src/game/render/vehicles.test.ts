@@ -23,8 +23,8 @@ describe('vehicle graphics and camera collision',()=>{
       await Promise.resolve();
       renderer.update(1/60,1170,1,50,30,80,false,1170);
       const pose=renderer.rider(1)!;
-      // 105 ms delay interpolates between real packets; the second frame advances playback by dt.
-      expect(pose.z).toBeCloseTo(80-2*(1170-105+1000/60-1000)/100);
+      // Our own car (driver 1 = local player) plays 70 ms behind; the second frame adds dt.
+      expect(pose.z).toBeCloseTo(80-2*(1170-70+1000/60-1000)/100);
       expect(renderer.seat(1)).toEqual(vehicleSeat(pose));
       const root=scene.children.find(o=>o instanceof Group)!;
       root.updateMatrixWorld(true);

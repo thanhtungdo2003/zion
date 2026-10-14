@@ -125,7 +125,9 @@ export class JoltVehicles {
     settings.mUserData = v.id;
     const body = this.bodies.CreateBody(settings);
     Jolt.destroy(settings);
-    this.bodies.AddBody(keep(body.GetID()), Jolt.EActivation_DontActivate);
+    // Start awake so the springs settle to their real rest length before anyone gets in;
+    // otherwise the first throttle input lifts the parked body a few centimetres (a visible hop).
+    this.bodies.AddBody(keep(body.GetID()), Jolt.EActivation_Activate);
 
     const vehicle = new Jolt.VehicleConstraintSettings();
     vehicle.mUp = v3(0, 1, 0); vehicle.mForward = new Jolt.Vec3(0, 0, -1);
