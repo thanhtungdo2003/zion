@@ -63,6 +63,7 @@ export class Vehicles {
     if (p.vehicleId) this.controls.set(p.vehicleId, { throttle, steer, at: now });
   }
   toggle(p: Player, id: number | undefined, now: number): void {
+    if (!this.available) return;
     if (p.dead || p.downed || p.state.flight || p.questBusy || now - (this.usedAt.get(p.id) ?? -Infinity) < 350) return;
     this.usedAt.set(p.id, now);
     if (this.driving(p)) { this.exit(p); return; }
@@ -195,8 +196,10 @@ export class Vehicles {
       if (d < radius) damageVehicle(v, damage * (1 - d / radius), now);
     }
   }
+  /** False hides every vehicle (battle royale before the drop): none are sent or usable. */
+  available = true;
   send(p: Player, now: number): void {
-    p.session.sendJson({ t: 'vehicles', time: now, vehicles: [...this.states.values()].filter(v => v.driver === p.id || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
+    p.session.sendJson({ t: 'vehicles', time: now, vehicles: !this.available ? [] : [...this.states.values()].filter(v => v.driver === p.id || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
   }
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();

@@ -1478,9 +1478,15 @@ export class GameServer {
     }
     this.joinBots(match, now);
     match.tick(now);
+    // Vehicles exist only once everyone is on the ground: hidden in the lobby and the plane.
+    const vehicles = match.phase === 'running' && match.startedAt !== null && now - match.startedAt >= BATTLE_FLIGHT.durationMs;
+    if (vehicles !== this.vehicles.available) {
+      if (!vehicles) for (const p of this.players.values()) if (p.vehicleId) this.vehicles.release(p);
+      this.vehicles.available = vehicles;
+    }
     if (match.startedAt !== null && !this.battleFlightStarted) {
       this.battleFlightStarted = true;
-      for (const p of this.players.values()) { p.state.flight = 1; p.state.grounded = false; p.inputs.length = 0; }
+      for (const p of this.players.values()) { if (p.vehicleId) this.vehicles.release(p); p.state.flight = 1; p.state.grounded = false; p.inputs.length = 0; }
       this.bots?.board(now, match.circle);
     }
     if (match.startedAt !== null && match.phase === 'running') {
