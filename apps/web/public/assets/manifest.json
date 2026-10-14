@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-14T08:40:20.152Z",
+  "generatedAt": "2026-10-14T09:16:06.655Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1002,12 +1002,6 @@
       "url": "/assets/models/prepared_pine_small.054de675b49c.glb",
       "sha256": "054de675b49c954529e310e011669fb211632d8de357217ceb5dbcf2296c1325",
       "bytes": 76684,
-      "kind": "glb"
-    },
-    "prepared/pylon_hframe.glb": {
-      "url": "/assets/models/prepared_pylon_hframe.a4366a8cb3c0.glb",
-      "sha256": "a4366a8cb3c09fdd1194d6c47ff35d5a2e5176b8f7be24762ca2abce916eca90",
-      "bytes": 3011220,
       "kind": "glb"
     },
     "prepared/pylon_tower.glb": {

@@ -24,7 +24,6 @@ const jobs = [
   // Military island kit (battle royale). Options: height (target metres), rotateX (radians),
   // collider ('faces' | 'trunk' | 'box' | 'footing' | 'none'), category, layer, tags.
   ['buildings/electric_tower.glb', null, 'pylon_tower', 2430, 1, { height: 30, collider: 'footing', footing: 6, tags: ['power-grid'] }],
-  ['buildings/tva_pylon_pack_2.glb', null, 'pylon_hframe', 2431, 1, { height: 15, rotateX: -Math.PI / 2, collider: 'footing', footing: 4, tags: ['power-grid'] }],
   ['buildings/tower_crane.glb', null, 'tower_crane', 2432, 1, { collider: 'footing', footing: 40, tags: ['port'] }],
   ...[
     ['Tree_Small_a_LOD0_12', 'tree_small_a'], ['Tree_Small_b_LOD0_15', 'tree_small_b'], ['Tree_Small_c_LOD0_5', 'tree_small_c'],

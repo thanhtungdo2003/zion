@@ -20,15 +20,15 @@ import { vegetationPatch } from './vegetation-pattern';
 
 /** Grass density per surface (instances per ~1.2 m cell). */
 const GRASS_DENSITY: Partial<Record<Surface, number>> = {
-  [Surface.Grass]: 0.95,
-  [Surface.JungleFloor]: 0.85,
-  [Surface.DryGrass]: 0.7,
-  [Surface.ForestFloor]: 0.35,
-  [Surface.Mud]: 0.3,
-  [Surface.Dirt]: 0.12,
-  [Surface.Sand]: 0.04,
-  [Surface.Gravel]: 0.05,
-  [Surface.RoadVerge]: 0.65,
+  [Surface.Grass]: 0.55,
+  [Surface.JungleFloor]: 0.5,
+  [Surface.DryGrass]: 0.4,
+  [Surface.ForestFloor]: 0.2,
+  [Surface.Mud]: 0.18,
+  [Surface.Dirt]: 0.06,
+  [Surface.Sand]: 0.02,
+  [Surface.Gravel]: 0.03,
+  [Surface.RoadVerge]: 0.38,
 };
 const FLOWER_DENSITY: Partial<Record<Surface, number>> = {
   [Surface.Grass]: 0.07,
@@ -307,8 +307,9 @@ export class VegetationRenderer {
         if (slope > 1.25) continue;
         const add = (type: Cover) => data[type].push(x, y, z, rng.next(), k);
         if (gd > 0 && roll < gd * (0.2 + density * 1.1)) {
-          if ((lush || surface === Surface.Mud) && reedBed > 0.62 && humidity > 0.4) add('reeds');
-          else if (lush && density > 0.58) add('tall');
+          // Reed beds are rare patches; tall grass only in the densest spots.
+          if ((lush || surface === Surface.Mud) && reedBed > 0.82 && humidity > 0.45) add('reeds');
+          else if (lush && density > 0.72) add('tall');
           else add(density > 0.43 ? 'tufts' : 'grass');
         }
         // Flowers and forest undergrowth coexist with the grass layer.

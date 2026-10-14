@@ -9,7 +9,8 @@ import { battleTower as guardTower, modularBuilding } from '../battle-map';
 
 /** Prepared island assets (see apps/web/scripts/prepare-world-assets.mjs). */
 export const ISLAND_ASSET = {
-  pylonTower: 2430, pylonHFrame: 2431, crane: 2432,
+  // The TVA pack (2431) holds a row of pylon variants, not one pylon; poles use the camp utility pole.
+  pylonTower: 2430, pylonHFrame: CAMP_ASSET['utility-pole'], crane: 2432,
   treeSmall: [2440, 2441, 2442, 2443, 2444], treeBig: [2445, 2446, 2447],
   pineSmall: 2448, pineMedium: 2449, pineBig: 2450, conifer: 2451, deadPine: 2452, deadTree: 2453,
   bush: [2460, 2461, 2462], stone: [2463, 2464], rockMedium: [2465, 2466, 2467], rockBig: [2468, 2469, 2470], cliff: [2471, 2472],
@@ -18,8 +19,8 @@ export const ISLAND_ASSET = {
 
 /** Where the cables hang on each pylon kind: height and offsets along the cross-arm. */
 const PYLON = {
-  tower: { asset: ISLAND_ASSET.pylonTower, height: 26.5, arms: [-3.4, 0, 3.4], armAxis: 'x' as const },
-  hframe: { asset: ISLAND_ASSET.pylonHFrame, height: 13.6, arms: [-1, 0, 1], armAxis: 'z' as const },
+  tower: { asset: ISLAND_ASSET.pylonTower, height: 26.5, arms: [-3.4, 0, 3.4], armAxis: 'x' as const, scale: 1 },
+  hframe: { asset: ISLAND_ASSET.pylonHFrame, height: 8.4, arms: [-1.9, 0, 1.9], armAxis: 'x' as const, scale: 1.5 },
 };
 
 export interface Pylon { x: number; z: number; yaw: number; kind: 'tower' | 'hframe' }
@@ -130,7 +131,7 @@ export class AuthoredWorld {
     const out: Pylon[] = [];
     for (const line of this.map.power) {
       for (const [x, z, dx, dz] of along(line.points, line.spacing)) {
-        const yaw = line.kind === 'tower' ? Math.atan2(dx, dz) : Math.atan2(-dz, dx);
+        const yaw = Math.atan2(dx, dz);
         out.push({ x, z, yaw, kind: line.kind });
       }
     }
@@ -139,7 +140,7 @@ export class AuthoredWorld {
       const y = this.host.heightAt(p.x, p.z) - .1;
       const cx = Math.floor(p.x / CHUNK_SIZE), cz = Math.floor(p.z / CHUNK_SIZE), key = `${cx}:${cz}`;
       let list = this.pylonChunks.get(key); if (!list) this.pylonChunks.set(key, list = []);
-      list.push({ asset: def.asset, lx: quantizeLocal(p.x - cx * CHUNK_SIZE), lz: quantizeLocal(p.z - cz * CHUNK_SIZE), yq: quantizeHeight(y), rot: quantizeRotation(p.yaw), scale: quantizeScale(1) });
+      list.push({ asset: def.asset, lx: quantizeLocal(p.x - cx * CHUNK_SIZE), lz: quantizeLocal(p.z - cz * CHUNK_SIZE), yq: quantizeHeight(y), rot: quantizeRotation(p.yaw), scale: quantizeScale(def.scale) });
     }
     return this.pylonList = out;
   }
@@ -428,7 +429,7 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     for (const [x, z] of [[-74, -56], [-54, -56], [-74, -34], [-54, -34]] as const) plant.house(BUILDING_ASSET.tank, x, z, 0, 2);
     for (let i = 0; i < 6; i++) plant.house(BUILDING_ASSET.generator, -40 + i * 9, 24, 0, 1.2);
     for (let i = 0; i < 8; i++) plant.put(CAMP_ASSET['small-transformer'], 34 + (i % 4) * 5, 18 + Math.floor(i / 4) * 6);
-    for (const [x, z] of [[38, 46], [56, 46], [74, 46]] as const) plant.put(ISLAND_ASSET.pylonHFrame, x, z, 0, Math.PI / 2);
+    for (const [x, z] of [[38, 46], [56, 46], [74, 46]] as const) plant.put(ISLAND_ASSET.pylonHFrame, x, z, 0, Math.PI / 2, 1.5);
     for (const [x, z] of [[-74, 40], [-62, 56], [-80, 60]] as const) plant.put(ISLAND_ASSET.rockMedium[0], x, z, 0, 0, 1.6);
     plant.block(-74, 0, 2); plant.block(76, 0, 1); plant.block(0, 60, 1);
     site('power_plant', zone('plant').x, zone('plant').z, [104, 88], plant, { ground: Surface.Gravel });
@@ -475,7 +476,7 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
 
     const sub = new Kit();
     sub.rect(0, 0, 28, 24, CAMP_ASSET['iron-fence'], 2.25, 'w');
-    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) sub.put(ISLAND_ASSET.pylonHFrame, -12 + i * 12, -8 + j * 14, 0, Math.PI / 2);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) sub.put(ISLAND_ASSET.pylonHFrame, -12 + i * 12, -8 + j * 14, 0, Math.PI / 2, 1.5);
     for (let i = 0; i < 6; i++) sub.put(CAMP_ASSET['small-transformer'], -14 + i * 5.5, 4);
     sub.house(BUILDING_ASSET.barrack, 14, 16, 0, 1.3); sub.house(BUILDING_ASSET.generator, -16, 16);
     site('factory', zone('substation').x, zone('substation').z, [30, 26], sub, { ground: Surface.Gravel });
