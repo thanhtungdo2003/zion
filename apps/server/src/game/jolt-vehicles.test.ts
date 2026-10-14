@@ -96,4 +96,14 @@ describe('Jolt vehicles', () => {
       expect(b.health).toBeLessThanOrEqual(VEHICLES.car.health);
     } finally { sim.dispose(); }
   });
+  it.each(['car', 'jeep', 'quad'] as const)('keeps a %s on its wheels through a full-lock turn at speed', (kind) => {
+    const w = world(), v = car(w, kind, 120), sim = new JoltVehicles(w);
+    try {
+      sim.add(v); v.speed = 22;
+      let roll = 0;
+      run(sim, [v], 4, 1, 1, () => { roll = Math.max(roll, Math.abs(v.motion!.roll)); });
+      expect(roll).toBeLessThan(.6);
+      expect(Math.cos(v.motion!.roll)).toBeGreaterThan(.8);
+    } finally { sim.dispose(); }
+  });
 });

@@ -96,7 +96,10 @@ export class JoltVehicles {
     const bottom = Math.max(.2, def.wheelRadius * .85), top = def.height * (def.quad ? .72 : .9), cy = (bottom + top) / 2;
     const box = new Jolt.BoxShapeSettings(v3(def.halfX, (top - bottom) / 2, def.halfZ), .05);
     const placed = new Jolt.RotatedTranslatedShapeSettings(v3(0, cy, 0), q4(0, 0, 0, 1), box);
-    const shape = new Jolt.OffsetCenterOfMassShapeSettings(v3(0, def.com - cy, 0), placed).Create().Get();
+    // Mass sits low in the chassis (engine, frame, axles), around wheel-hub height: a low
+    // centre of mass keeps hard cornering and bumps from tipping the vehicle over.
+    const comY = Math.max(.15, def.wheelRadius * .55);
+    const shape = new Jolt.OffsetCenterOfMassShapeSettings(v3(0, comY - cy, 0), placed).Create().Get();
     const [qx, qy, qz, qw] = eulerQuat(v.yaw, m.pitch, m.roll);
     const settings = new Jolt.BodyCreationSettings(shape, rv3(v.x, v.y, v.z), q4(qx, qy, qz, qw), Jolt.EMotionType_Dynamic, LAYER_MOVING);
     settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
@@ -142,7 +145,7 @@ export class JoltVehicles {
     vehicle.mAntiRollBars.clear();
     for (const [left, right] of [[0, 1], [2, 3]] as const) {
       const bar = new Jolt.VehicleAntiRollBar();
-      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = def.mass * 1.4;
+      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = def.mass * 3;
       vehicle.mAntiRollBars.push_back(bar);
     }
     const constraint = new Jolt.VehicleConstraint(body, vehicle);
