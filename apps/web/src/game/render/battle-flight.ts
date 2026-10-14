@@ -53,7 +53,7 @@ export class BattleFlightRenderer {
       const d = visual.state;
       visual.root.visible = Math.hypot(d.x - x, d.z - z) < 180;
       if (!visual.root.visible || !this.doorTemplate) continue;
-      if (!visual.root.children.length) { const model = this.doorTemplate.root.clone(true); model.scale.setScalar(BB_UNITS_PER_METER / 16); visual.root.add(model); }
+      if (!visual.root.children.length) { const model = this.doorTemplate.root.clone(true); model.scale.setScalar(BB_UNITS_PER_METER / 16); model.scale.x *= 1.6; visual.root.add(model); }
       visual.time = Math.min(.1, visual.time + dt);
       this.animate(visual.root, this.doorTemplate, d.open ? 'open' : 'close', visual.time);
     }

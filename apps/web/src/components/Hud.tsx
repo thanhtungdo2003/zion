@@ -133,6 +133,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }))}>F · {state.vehicle.driving ? 'Xuống xe' : 'Lên xe'}</button>
       </div>}
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
+      {state.hitMarkAt > 0 && <div key={state.hitMarkAt} className={`hud-hitmark${state.hitMarkHead ? ' head' : ''}`} aria-hidden><i /><i /><i /><i /></div>}
       {showWorld && (
         <>
           <div className="hud-panel hud-minimap">

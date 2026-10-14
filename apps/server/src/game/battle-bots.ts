@@ -64,6 +64,8 @@ export class BattleBot implements Combatant {
   target: Combatant & { state: CharacterState; id: number } | null = null;
   seenAt = 0;
   reactAt = 0;
+  /** When the bot settled its aim on the current target (0 = not aimed). */
+  aimedAt = 0;
   strafe = 1;
   strafeUntil = 0;
   /** Last known position of whoever hurt it. */
@@ -327,7 +329,7 @@ export class BattleBotDirector {
     if (bot.healUntil) { mx = mz = 0; sprint = false; }
     // Turn smoothly rather than snapping.
     const turn = Math.atan2(Math.sin(yaw - bot.yaw), Math.cos(yaw - bot.yaw));
-    bot.yaw += Math.max(-.35, Math.min(.35, turn));
+    bot.yaw += Math.max(-.2, Math.min(.2, turn));
     // Movement axes are relative to the facing; recompute so a partly turned bot still heads to `yaw`.
     const rel = yaw - bot.yaw, c = Math.cos(rel), sn = Math.sin(rel);
     const rmx = mx * c - mz * sn, rmz = mx * sn + mz * c;
@@ -391,9 +393,11 @@ export class BattleBotDirector {
     }
     const s = bot.state, oy = s.y + (s.prone ? .45 : MUZZLE_HEIGHT);
     const t = target.state, tx = t.x - s.x, tz = t.z - s.z, ty = t.y + (t.prone ? .3 : 1.15) - oy;
-    // Only fire roughly along the facing.
+    // Fire only once the body has actually turned onto the target and held it briefly.
     const facing = Math.atan2(-tx, -tz), off = Math.abs(Math.atan2(Math.sin(facing - bot.yaw), Math.cos(facing - bot.yaw)));
-    if (off > .25) return;
+    if (off > .08) { bot.aimedAt = 0; return; }
+    if (!bot.aimedAt) bot.aimedAt = now;
+    if (now - bot.aimedAt < 220) return;
     const d = Math.hypot(tx, ty, tz) || 1;
     if (d > gun.range) return;
     bot.pitch = Math.atan2(ty, Math.hypot(tx, tz));

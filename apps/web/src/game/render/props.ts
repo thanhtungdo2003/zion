@@ -44,6 +44,10 @@ export class PropRenderer {
     private readonly chunks: () => Iterable<ChunkData>,
   ) {}
 
+  private distanceScale = 1;
+  /** Graphics setting: multiplies every asset's render distance. */
+  setDistanceScale(scale: number): void { if (scale !== this.distanceScale) { this.distanceScale = scale; this.markDirty(); } }
+
   markDirty(): void {
     this.dirty = true;
   }
@@ -106,7 +110,7 @@ export class PropRenderer {
           visuals.set(p.asset, v);
         }
         const t = propTransform(chunk, p);
-        const max = v.def.render.maxDistance;
+        const max = v.def.render.maxDistance * this.distanceScale;
         if ((t.x - camX) ** 2 + (t.z - camZ) ** 2 > max * max) continue;
         const b = this.batch(p.asset);
         if ((b.count + 1) * 16 > b.matrices.length) {

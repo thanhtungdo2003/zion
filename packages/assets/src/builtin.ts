@@ -262,25 +262,7 @@ export const BUILTIN_ASSETS: readonly AssetDefinitionInput[] = [
     collisionLayer: 'none',
     bounds: { radius: 0.8, height: 1.8 },
     render: { sway: 0.6, castShadow: false, maxDistance: 120 },
-    placement: {
-      layer: 'shrubs',
-      biomes: {
-        [Biome.Swamp]: 0.45,
-        [Biome.Plains]: 0.3,
-        [Biome.Forest]: 0.3,
-        [Biome.Jungle]: 0.25,
-        [Biome.SpruceForest]: 0.2,
-        [Biome.Coast]: 0.1,
-      },
-      nearWater: true,
-      waterClearance: 3,
-      maxSlope: 0.5,
-      minAltitude: -1,
-      maxAltitude: 120,
-      sink: 0.05,
-      scale: [0.7, 1.3],
-      clustering: 0.2,
-    },
+    // Reed beds are no longer scattered (kept registered for existing saves).
     tags: ['natural', 'wetland'],
   },
   {

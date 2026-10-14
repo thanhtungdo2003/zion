@@ -19,7 +19,7 @@ export const BATTLE_ASSETS: readonly AssetDefinitionInput[] = [
   },
   {
     id: 'battle.wooden_door', numericId: 2202, name: 'Wooden door', category: 'structure',
-    model: { kind: 'bbmodel', path: 'dists/wooden-door.bbmodel', unitsPerMeter: 16 },
+    model: { kind: 'bbmodel', path: 'dists/wooden-door.bbmodel', unitsPerMeter: 16, axisScale: [1.6, 1, 1] },
     // Door movement is server-authoritative; the open leaf itself has no static collider.
     colliders: [], collisionLayer: 'none', bounds: { radius: 1.2, height: 2.2 }, render: { maxDistance: 300 }, tags: ['battle', 'door'],
   },
@@ -30,13 +30,13 @@ export const BATTLE_ASSETS: readonly AssetDefinitionInput[] = [
   },
   {
     id: 'battle.door_jamb', numericId: 2204, name: 'Door surround', category: 'structure',
-    model: { kind: 'procedural', generator: 'bridge_block', params: { width: 1.4375, height: 3.2, depth: .4, color: '#77746c' } },
-    colliders: [{ type: 'box', center: [0, 1.6, 0], halfExtents: [.71875, 1.6, .2] }], bounds: { radius: 1, height: 3.2 }, render: { maxDistance: 650 },
+    model: { kind: 'procedural', generator: 'bridge_block', params: { width: 1.1, height: 3.2, depth: .4, color: '#77746c' } },
+    colliders: [{ type: 'box', center: [0, 1.6, 0], halfExtents: [.55, 1.6, .2] }], bounds: { radius: 1, height: 3.2 }, render: { maxDistance: 650 },
   },
   {
     id: 'battle.door_lintel', numericId: 2205, name: 'Door lintel', category: 'structure',
-    model: { kind: 'procedural', generator: 'bridge_block', params: { width: 1.125, height: 1.075, depth: .4, color: '#77746c' } },
-    colliders: [{ type: 'box', center: [0, .5375, 0], halfExtents: [.5625, .5375, .2] }], bounds: { radius: .7, height: 1.075 }, render: { maxDistance: 650 },
+    model: { kind: 'procedural', generator: 'bridge_block', params: { width: 1.8, height: 1.075, depth: .4, color: '#77746c' } },
+    colliders: [{ type: 'box', center: [0, .5375, 0], halfExtents: [.9, .5375, .2] }], bounds: { radius: 1, height: 1.075 }, render: { maxDistance: 650 },
   },
   {
     id: 'battle.tower_post', numericId: 2206, name: 'Steel tower support', category: 'structure',

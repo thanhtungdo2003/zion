@@ -66,6 +66,9 @@ export interface HudState {
   toast: Msg | null;
   /** Last time the local player took damage (ms) and how hard (0…1): drives the red vignette. */
   hurtAt: number;
+  /** Last time one of our hits landed on an enemy (hit marker), and whether it was a head shot. */
+  hitMarkAt: number;
+  hitMarkHead: boolean;
   hurtAmount: number;
   respawnIn: number;
   /** Magazine of the gun in hand (null when not holding a gun). */
@@ -133,6 +136,8 @@ export function initialHud(): HudState {
     chat: [],
     toast: null,
     hurtAt: 0,
+    hitMarkAt: 0,
+    hitMarkHead: false,
     hurtAmount: 0,
     respawnIn: 0,
     ammo: null,

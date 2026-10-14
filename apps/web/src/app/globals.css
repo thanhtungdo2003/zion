@@ -2534,3 +2534,13 @@ kbd {
 .hud-vehicle-durability progress::-webkit-progress-value { background: #9cae67; }
 .hud-vehicle-durability progress::-moz-progress-bar { background: #9cae67; }
 .touch-mode .hud-vehicle.driving { left: auto; right: max(12px, env(safe-area-inset-right)); bottom: max(40px, calc(env(safe-area-inset-bottom) + 36px)); width: 150px; }
+
+/* Hit marker: four short strokes forming an X around the crosshair. */
+.hud-hitmark { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; pointer-events: none; animation: hud-hitmark .28s ease-out forwards; }
+.hud-hitmark i { position: absolute; left: 50%; top: 50%; width: 9px; height: 2px; margin: -1px 0 0 -4.5px; background: #fff; box-shadow: 0 0 2px #000; }
+.hud-hitmark i:nth-child(1) { transform: rotate(45deg) translateX(-10px); }
+.hud-hitmark i:nth-child(2) { transform: rotate(135deg) translateX(-10px); }
+.hud-hitmark i:nth-child(3) { transform: rotate(225deg) translateX(-10px); }
+.hud-hitmark i:nth-child(4) { transform: rotate(315deg) translateX(-10px); }
+.hud-hitmark.head i { background: #ff4a4a; }
+@keyframes hud-hitmark { from { opacity: 1; transform: scale(1.25); } to { opacity: 0; transform: scale(1); } }

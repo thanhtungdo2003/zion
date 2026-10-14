@@ -206,6 +206,19 @@ export class VegetationRenderer {
     private readonly camp: WorldInfo['camp'] = null,
   ) {}
 
+  private density = 1;
+  private radius = VEG_RADIUS;
+  /** Graphics setting: grass density (0…1) and how many chunks around the player get cover. */
+  setQuality(density: number, radius: number): void {
+    if (density === this.density && radius === this.radius) return;
+    this.density = density; this.radius = radius;
+    for (const [key, v] of this.perChunk) {
+      for (const mesh of v) { this.scene.remove(mesh); this.originals.delete(mesh); mesh.dispose(); }
+      this.perChunk.delete(key); this.coverCells.delete(key);
+    }
+    this.centerX = Number.NaN;
+  }
+
   /** Rebuilds the set of vegetated chunks when the player's chunk changes (or a chunk updates). */
   update(px: number, pz: number, force = false, deadline = Infinity): void {
     const cx = Math.floor(px / CHUNK_SIZE);
@@ -216,8 +229,8 @@ export class VegetationRenderer {
     const wanted = new Set<number>();
     const missing: ChunkData[] = [];
     let built = 0;
-    for (let dz = -VEG_RADIUS; dz <= VEG_RADIUS; dz++) {
-      for (let dx = -VEG_RADIUS; dx <= VEG_RADIUS; dx++) {
+    for (let dz = -this.radius; dz <= this.radius; dz++) {
+      for (let dx = -this.radius; dx <= this.radius; dx++) {
         const chunk = this.getChunk(cx + dx, cz + dz);
         if (!chunk || chunk.lod !== 0) continue;
         const key = chunkKey(chunk.cx, chunk.cz);
@@ -296,7 +309,6 @@ export class VegetationRenderer {
         const density = patch(18, 0x73);
         // Larger, rarer patches keep flower fields as occasional discoveries.
         const meadow = patch(64, 0x94);
-        const reedBed = patch(24, 0xa6);
         const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
         const lush = surface === Surface.Grass || surface === Surface.DryGrass || surface === Surface.RoadVerge;
         // Skip cliff faces; sample the same triangle heightfield used by the terrain.
@@ -306,10 +318,9 @@ export class VegetationRenderer {
         ) / 0.35;
         if (slope > 1.25) continue;
         const add = (type: Cover) => data[type].push(x, y, z, rng.next(), k);
-        if (gd > 0 && roll < gd * (0.2 + density * 1.1)) {
-          // Reed beds are rare patches; tall grass only in the densest spots.
-          if ((lush || surface === Surface.Mud) && reedBed > 0.82 && humidity > 0.45) add('reeds');
-          else if (lush && density > 0.72) add('tall');
+        if (gd > 0 && roll < gd * this.density * (0.2 + density * 1.1)) {
+          // Tall grass only in the densest spots (reed beds were removed).
+          if (lush && density > 0.72) add('tall');
           else add(density > 0.43 ? 'tufts' : 'grass');
         }
         // Flowers and forest undergrowth coexist with the grass layer.
@@ -324,7 +335,7 @@ export class VegetationRenderer {
           const edge = smoothstep(MEADOW_THRESHOLD, MEADOW_THRESHOLD + 0.06, meadow);
           flowerDensity += (0.65 - fd) * remoteness * edge;
         }
-        if (fd > 0 && rng.next() < flowerDensity * (0.5 + humidity)) add('flowers');
+        if (fd > 0 && rng.next() < flowerDensity * this.density * (0.5 + humidity)) add('flowers');
         if ((forest || lush || surface === Surface.Mud) && humidity > 0.48) {
           if (rng.next() < (forest ? 0.09 : 0.018) * density) add('fern');
           if (rng.next() < (forest ? 0.025 : 0.009) * density) add('bush');

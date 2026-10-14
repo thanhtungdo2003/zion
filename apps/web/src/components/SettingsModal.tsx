@@ -1,6 +1,7 @@
 'use client';
 import { Icon } from './Icon';
 
+import { GRAPHICS_PRESETS, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isRollKey, isProneKey, PRONE_KEYS, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
@@ -20,7 +21,9 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, t } = useSettings();
+  const settings = useSettings();
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, renderScale, shadows, drawDistance, grassDensity, t } = settings;
+  const preset = graphicsPreset(settings);
 
   useEffect(() => {
     if (!open) setTab('general');
@@ -144,6 +147,42 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
             />
             <em>{Math.round(brightness * 100)}%</em>
           </label>
+        </section>
+        <section className="set-section">
+          <h3><span>02</span> Chất lượng đồ họa</h3>
+          <div className="set-langs set-camera" role="radiogroup" aria-label="Mức đồ họa">
+            {(['low', 'medium', 'high'] as GraphicsPreset[]).map((p) => (
+              <button key={p} type="button" role="radio" aria-checked={preset === p} className="set-lang" onClick={() => settingsStore.set(GRAPHICS_PRESETS[p])}>
+                <b>{p === 'low' ? 'THẤP' : p === 'medium' ? 'VỪA' : 'CAO'}</b>
+                <small>{p === 'low' ? 'Mượt nhất · máy yếu' : p === 'medium' ? 'Cân bằng' : 'Đẹp nhất'}</small>
+                <i aria-hidden><Icon name={preset === p ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
+          <label className="set-slider">
+            <span>Độ phân giải</span>
+            <input type="range" min={50} max={100} step={5} value={Math.round(renderScale * 100)} onChange={(e) => settingsStore.set({ renderScale: Number(e.target.value) / 100 })} />
+            <em>{Math.round(renderScale * 100)}%</em>
+          </label>
+          <label className="set-slider">
+            <span>Tầm nhìn vật thể</span>
+            <input type="range" min={40} max={100} step={5} value={Math.round(drawDistance * 100)} onChange={(e) => settingsStore.set({ drawDistance: Number(e.target.value) / 100 })} />
+            <em>{Math.round(drawDistance * 100)}%</em>
+          </label>
+          <label className="set-slider">
+            <span>Mật độ cỏ</span>
+            <input type="range" min={0} max={100} step={5} value={Math.round(grassDensity * 100)} onChange={(e) => settingsStore.set({ grassDensity: Number(e.target.value) / 100 })} />
+            <em>{Math.round(grassDensity * 100)}%</em>
+          </label>
+          <div className="set-langs set-camera" role="radiogroup" aria-label="Đổ bóng">
+            {(['off', 'low', 'high'] as const).map((q) => (
+              <button key={q} type="button" role="radio" aria-checked={shadows === q} className="set-lang" onClick={() => settingsStore.set({ shadows: q })}>
+                <b>{q === 'off' ? 'TẮT BÓNG' : q === 'low' ? 'BÓNG THẤP' : 'BÓNG CAO'}</b>
+                <small>{q === 'off' ? 'Nhẹ GPU nhất' : q === 'low' ? 'Bóng mờ, nhẹ' : 'Bóng sắc nét'}</small>
+                <i aria-hidden><Icon name={shadows === q ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
         </section>
         </div>}
 

@@ -31,6 +31,7 @@ import {
   Group,
   Mesh,
   PCFSoftShadowMap,
+  PCFShadowMap,
   PerspectiveCamera,
   Plane,
   Raycaster,
@@ -1260,6 +1261,8 @@ export class GameEngine {
         if (m.promoted) this.sounds?.play('questComplete', { volume: .9 });
         break;
       case 'hit':
+        // Hit marker: one of our shots or blows connected with someone else.
+        if (m.attackerId === this.welcome?.playerId && m.targetId !== m.attackerId && m.damage > 0) this.hud.set({ hitMarkAt: performance.now(), hitMarkHead: m.zone === 'head' || m.zone === 'decapitation' });
         if (m.zone === 'decapitation') this.zombies.get(m.targetId)?.avatar.severHead(m.kx ?? 0, m.kz ?? 1, m.force ?? 4);
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
@@ -2631,8 +2634,31 @@ export class GameEngine {
   }
 
   /** Applies camera mode, mouse capture, visibility and lens settings. */
+  private graphicsKey = '';
+  /** Applies the graphics settings when they change (resolution, shadows, distances, grass). */
+  private applyGraphics(settings: ReturnType<typeof settingsStore.get>): void {
+    const key = `${settings.renderScale}:${settings.shadows}:${settings.drawDistance}:${settings.grassDensity}:${!!this.sky}:${!!this.props}:${!!this.vegetation}`;
+    if (key === this.graphicsKey || !this.renderer?.shadowMap) return;
+    const shadowsBefore = this.renderer.shadowMap.enabled;
+    this.graphicsKey = key;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75) * settings.renderScale);
+    const shadows = settings.shadows !== 'off';
+    this.renderer.shadowMap.enabled = shadows;
+    this.renderer.shadowMap.type = settings.shadows === 'high' ? PCFSoftShadowMap : PCFShadowMap;
+    if (this.sky) {
+      const light = this.sky.light, size = settings.shadows === 'high' ? 2048 : 1024;
+      light.castShadow = shadows;
+      if (light.shadow.mapSize.x !== size) { light.shadow.mapSize.set(size, size); light.shadow.map?.dispose(); light.shadow.map = null; }
+    }
+    // Switching shadows on or off changes every lit shader.
+    if (shadowsBefore !== shadows) this.scene.traverse((o) => { const m = (o as { material?: { needsUpdate: boolean } | Array<{ needsUpdate: boolean }> }).material; if (Array.isArray(m)) m.forEach(x => { x.needsUpdate = true; }); else if (m) m.needsUpdate = true; });
+    this.props?.setDistanceScale(settings.drawDistance);
+    this.vegetation?.setQuality(settings.grassDensity, settings.grassDensity < .35 ? 1 : 2);
+  }
+
   private applyViewMode(): void {
     const settings = settingsStore.get();
+    this.applyGraphics(settings);
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
     const mode = this.local?.riding ? 'third-person' : settings.cameraMode;

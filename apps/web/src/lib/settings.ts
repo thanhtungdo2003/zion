@@ -30,10 +30,27 @@ export interface SettingsState {
   mouseSens: number;
   rollKey: RollKey;
   proneKey: ProneKey;
+  /** Graphics: internal resolution 0.5…1, shadow quality, draw distance 0.4…1, grass 0…1. */
+  renderScale: number;
+  shadows: ShadowQuality;
+  drawDistance: number;
+  grassDensity: number;
+}
+
+export type ShadowQuality = 'off' | 'low' | 'high';
+export type GraphicsPreset = 'low' | 'medium' | 'high';
+/** Presets trade picture quality for smoothness on weaker machines. */
+export const GRAPHICS_PRESETS: Record<GraphicsPreset, Pick<SettingsState, 'renderScale' | 'shadows' | 'drawDistance' | 'grassDensity'>> = {
+  low: { renderScale: .6, shadows: 'off', drawDistance: .5, grassDensity: .2 },
+  medium: { renderScale: .8, shadows: 'low', drawDistance: .75, grassDensity: .55 },
+  high: { renderScale: 1, shadows: 'high', drawDistance: 1, grassDensity: 1 },
+};
+export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
+  return (Object.keys(GRAPHICS_PRESETS) as GraphicsPreset[]).find(k => { const p = GRAPHICS_PRESETS[k]; return p.renderScale === s.renderScale && p.shadows === s.shadows && p.drawDistance === s.drawDistance && p.grassDensity === s.grassDensity; }) ?? null;
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC' };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.35, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', ...GRAPHICS_PRESETS.high };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
@@ -49,6 +66,11 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     state.lang = 'vi';
     if (typeof saved.volume === 'number' && Number.isFinite(saved.volume)) state.volume = Math.min(1, Math.max(0, saved.volume));
     if (typeof saved.brightness === 'number' && Number.isFinite(saved.brightness)) state.brightness = Math.min(2, Math.max(0.6, saved.brightness));
+    const clamp01 = (v: unknown, lo: number, fallback: number) => typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(lo, v)) : fallback;
+    state.renderScale = clamp01(saved.renderScale, .5, state.renderScale);
+    state.drawDistance = clamp01(saved.drawDistance, .4, state.drawDistance);
+    state.grassDensity = clamp01(saved.grassDensity, 0, state.grassDensity);
+    if (saved.shadows === 'off' || saved.shadows === 'low' || saved.shadows === 'high') state.shadows = saved.shadows;
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;
     else if (saved.firstPerson === true) state.cameraMode = 'first-person';

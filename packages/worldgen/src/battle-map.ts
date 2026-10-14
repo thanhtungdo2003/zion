@@ -41,8 +41,9 @@ export function modularBuilding(parts: CampPart[], x: number, z: number, floors:
     // Only the ground floor has a rear entrance. Upper front doors lead to balconies.
     for (const side of level === 0 ? [-1, 1] : [-1]) {
       put(BATTLE_ASSET.door, 0, y, side * 6.02);
-      put(BATTLE_ASSET.doorJamb, -1.28125, y, side * 6);
-      put(BATTLE_ASSET.doorJamb, 1.28125, y, side * 6);
+      // A 1.4 m clear doorway (the door is drawn 1.6× wider than its model).
+      put(BATTLE_ASSET.doorJamb, -1.45, y, side * 6);
+      put(BATTLE_ASSET.doorJamb, 1.45, y, side * 6);
       put(BATTLE_ASSET.doorLintel, 0, y + 2.125, side * 6);
     }
     for (const side of [-1, 1]) for (const offset of [-4, 0, 4]) {
