@@ -1,4 +1,4 @@
-import { DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, type Scene } from 'three';
+import { ConeGeometry, CylinderGeometry, DynamicDrawUsage, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, MeshLambertMaterial, type BufferGeometry, type Material, type Scene } from 'three';
 import { PROPS_MAX_LOD, propTransform, type ChunkData } from '@zion/shared';
 import type { AssetLibrary, AssetVisual } from './asset-library';
 
@@ -12,6 +12,23 @@ interface Batch {
   /** Any instance currently faded (so idle batches skip the attribute upload). */
   fading: boolean;
   hidden: Uint8Array;
+}
+
+/** Trees farther than this (m, × draw distance) are drawn as simple low-poly stand-ins. */
+const TREE_LOD_DISTANCE = 70;
+
+/** A distant tree: trunk plus one coarse canopy shape, two flat colours, no shadows. */
+interface Proxy { parts: Array<{ geometry: BufferGeometry; material: Material }> }
+const proxyMaterials = { trunk: new MeshLambertMaterial({ color: 0x4a3a2a }), broadleaf: new MeshLambertMaterial({ color: 0x3f5f2e }), conifer: new MeshLambertMaterial({ color: 0x2c4628 }), dead: new MeshLambertMaterial({ color: 0x5a4d3c }) };
+function makeProxy(v: AssetVisual): Proxy {
+  const h = v.def.bounds.height, r = v.def.bounds.radius, id = v.def.id;
+  const conifer = /pine|conifer|spruce/.test(id) && !/dead/.test(id), dead = /dead/.test(id);
+  const trunk = new CylinderGeometry(.12 + r * .03, .2 + r * .04, h * (dead ? .9 : .45), 5).translate(0, h * (dead ? .45 : .225), 0);
+  if (dead) return { parts: [{ geometry: trunk, material: proxyMaterials.dead }] };
+  const canopy = conifer
+    ? new ConeGeometry(r * .7, h * .82, 6).translate(0, h * .18 + h * .41, 0)
+    : new IcosahedronGeometry(1, 0).scale(r * .78, h * .36, r * .78).translate(0, h * .62, 0);
+  return { parts: [{ geometry: trunk, material: proxyMaterials.trunk }, { geometry: canopy, material: conifer ? proxyMaterials.conifer : proxyMaterials.broadleaf }] };
 }
 
 /** How fast occluders fade out / back in (per second). */
@@ -44,6 +61,7 @@ export class PropRenderer {
     private readonly chunks: () => Iterable<ChunkData>,
   ) {}
 
+  private readonly proxies = new Map<number, Proxy>();
   private distanceScale = 1;
   /** Graphics setting: multiplies every asset's render distance. */
   setDistanceScale(scale: number): void { if (scale !== this.distanceScale) { this.distanceScale = scale; this.markDirty(); } }
@@ -110,9 +128,11 @@ export class PropRenderer {
           visuals.set(p.asset, v);
         }
         const t = propTransform(chunk, p);
-        const max = v.def.render.maxDistance * this.distanceScale;
-        if ((t.x - camX) ** 2 + (t.z - camZ) ** 2 > max * max) continue;
-        const b = this.batch(p.asset);
+        const max = v.def.render.maxDistance * this.distanceScale, d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
+        if (d2 > max * max) continue;
+        // Distant trees keep their place but lose their detailed canopy (negative key = stand-in).
+        const lod = TREE_LOD_DISTANCE * Math.max(.6, this.distanceScale);
+        const b = this.batch(v.def.category === 'tree' && d2 > lod * lod ? -p.asset : p.asset);
         if ((b.count + 1) * 16 > b.matrices.length) {
           const grown = new Float32Array(b.matrices.length * 2);
           grown.set(b.matrices);
@@ -163,9 +183,12 @@ export class PropRenderer {
     const used = new Set<string>();
     for (const [asset, b] of this.batches) {
       if (b.count === 0) { this.batches.delete(asset); continue; }
-      const v = this.library.get(asset);
+      const v = this.library.get(Math.abs(asset));
       if (!v) continue;
-      v.parts.forEach((part, i) => {
+      const far = asset < 0;
+      let parts: Proxy['parts'] = v.parts;
+      if (far) { let proxy = this.proxies.get(-asset); if (!proxy) this.proxies.set(-asset, proxy = makeProxy(v)); parts = proxy.parts; }
+      parts.forEach((part, i) => {
         const key = `${asset}:${i}`;
         used.add(key);
         let mesh = this.meshes.get(key);
@@ -184,7 +207,7 @@ export class PropRenderer {
           geometry.setAttribute('aFade', new InstancedBufferAttribute(new Float32Array(cap), 1).setUsage(DynamicDrawUsage));
           mesh.instanceMatrix.setUsage(DynamicDrawUsage);
           mesh.frustumCulled = false;
-          mesh.castShadow = v.def.render.castShadow;
+          mesh.castShadow = !far && v.def.render.castShadow;
           mesh.receiveShadow = true;
           this.meshes.set(key, mesh);
           this.scene.add(mesh);

@@ -103,6 +103,7 @@ import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { BattleFlightRenderer } from './render/battle-flight';
 import { PowerCables } from './render/power-cables';
+import { VehiclePrediction } from './vehicle-prediction';
 import { doorColliders } from '@zion/physics';
 import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
@@ -349,6 +350,7 @@ export class GameEngine {
   private battleZone: BattleZone | null = null;
   private battleFlight: BattleFlightRenderer | null = null;
   private powerCables: PowerCables | null = null;
+  private vehiclePrediction: VehiclePrediction | null = null;
   private planeReceivedAt = 0;
   private flightCamera = false;
   private recoilWeapon: number | null = null;
@@ -574,6 +576,7 @@ export class GameEngine {
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
     this.powerCables?.dispose(); this.powerCables = null;
+    this.vehiclePrediction?.end();
     this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
@@ -947,6 +950,8 @@ export class GameEngine {
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
+    this.vehiclePrediction?.end();
+    this.vehiclePrediction = new VehiclePrediction(this.store!.collision);
     this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp);
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
@@ -1201,6 +1206,12 @@ export class GameEngine {
       }
       case 'vehicles': {
         this.vehicles?.sync(m);
+        {
+          // Our own car: start or keep predicting it, and reconcile with this snapshot.
+          const own = m.vehicles.find(v => v.driver === this.welcome?.playerId);
+          if (own && this.vehiclePrediction) { this.vehiclePrediction.begin(own); this.vehiclePrediction.reconcile(own, m.time, this.clock.rttMs / 2); }
+          else this.vehiclePrediction?.end();
+        }
         if (this.local) this.local.riding = m.vehicles.some(v => v.driver === this.welcome?.playerId);
         break;
       }
@@ -1466,6 +1477,7 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
+    this.vehicles?.override(this.vehiclePrediction?.id ?? null, this.vehiclePrediction?.pose(Math.min(1, this.accumulator / TICK_DT)) ?? null);
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now());
     const driving = this.vehicles?.rider(this.welcome!.playerId);
     const seat = this.vehicles?.seat(this.welcome!.playerId);
@@ -1824,6 +1836,8 @@ export class GameEngine {
       const axes = this.input.axes();
       this.aiming = false; this.scoped = false;
       this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, 0, undefined));
+      // Drive our own car locally with exactly the inputs the server will apply.
+      this.vehiclePrediction?.step(axes.mz, axes.mx, this.clock.now());
       this.input.acknowledgeTouchPresses(); return;
     }
     if (local.state.flight) {

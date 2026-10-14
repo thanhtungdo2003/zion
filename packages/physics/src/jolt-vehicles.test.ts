@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createVehicleMotion, VEHICLES, type VehicleState } from '@zion/shared';
-import { CollisionWorld, Heightfield, Layer, makeBox, makeCapsule } from '@zion/physics';
-import { JoltVehicles } from './jolt-vehicles';
+import { CollisionWorld } from './world';
+import { Heightfield } from './heightfield';
+import { Layer } from './layers';
+import { makeBox, makeCapsule } from './shapes';
+import { JoltVehicles, loadJolt } from './jolt-vehicles';
+
+beforeAll(() => loadJolt());
 
 function world(height = (_x: number, _z: number) => 30) {
   const w = new CollisionWorld({ worldSize: 192, seaLevel: 20 });

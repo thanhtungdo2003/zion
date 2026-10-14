@@ -353,39 +353,65 @@ export class RoadNetwork {
 
   /** Hand-drawn roads of an authored map: resampled, graded to the ground and smoothed. */
   private buildAuthored(gen: WorldGenerator): void {
-    const sample = makeColumnSample();
-    for (const road of authoredWorld(gen).map.roads) {
+    this.authored = true;
+    const sample = makeColumnSample(), roads = authoredWorld(gen).map.roads;
+    const lines: Node[][] = roads.map(road => {
       const points: Node[] = [];
       for (let i = 1; i < road.points.length; i++) {
-        const [ax, az] = road.points[i - 1]!, [bx, bz] = road.points[i]!, steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 10));
+        const [ax, az] = road.points[i - 1]!, [bx, bz] = road.points[i]!, steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 8));
         for (let k = i === 1 ? 0 : 1; k <= steps; k++) {
           const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
           gen.sampleColumn(x, z, sample);
-          points.push({ x, z, y: Math.max(gen.seaLevel + 1.2, sample.height), fixed: k === 0 || k === steps });
+          points.push({ x, z, y: Math.max(gen.seaLevel + 1.2, sample.height), fixed: false });
         }
       }
-      // Ease the profile: a moving average, then limit the grade in both directions.
-      for (let pass = 0; pass < 3; pass++) {
+      return points;
+    });
+    // Junctions: nodes of different roads that touch share one level, so crossings are flat.
+    const pinned = new Set<Node>();
+    const unify = () => {
+      for (let i = 0; i < lines.length; i++) for (const p of lines[i]!) {
+        const reach = roads[i]!.width + 4;
+        const cluster = [p];
+        for (let j = 0; j < lines.length; j++) if (j !== i) for (const q of lines[j]!) if (Math.hypot(q.x - p.x, q.z - p.z) < reach + roads[j]!.width) cluster.push(q);
+        if (cluster.length < 2) continue;
+        const level = cluster.reduce((sum, n) => sum + n.y, 0) / cluster.length;
+        for (const n of cluster) { n.y = level; pinned.add(n); }
+      }
+    };
+    const ease = (points: Node[]) => {
+      for (let pass = 0; pass < 4; pass++) {
         const ys = points.map(p => p.y);
-        for (let i = 1; i < points.length - 1; i++) points[i]!.y = (ys[i - 1]! + ys[i]! * 2 + ys[i + 1]!) / 4;
+        for (let i = 1; i < points.length - 1; i++) if (!pinned.has(points[i]!)) points[i]!.y = (ys[i - 1]! + ys[i]! * 2 + ys[i + 1]!) / 4;
       }
       for (const order of [1, -1]) for (let i = order > 0 ? 1 : points.length - 2; i >= 0 && i < points.length; i += order) {
         const prev = points[i - order]!, p = points[i]!, run = Math.hypot(p.x - prev.x, p.z - prev.z), limit = run * ROAD_MAX_GRADE;
-        p.y = Math.max(prev.y - limit, Math.min(prev.y + limit, p.y));
+        if (!pinned.has(p)) p.y = Math.max(prev.y - limit, Math.min(prev.y + limit, p.y));
       }
+    };
+    for (const points of lines) ease(points);
+    unify();
+    // Re-ease around the levelled junctions so approaches meet them smoothly.
+    for (const points of lines) ease(points);
+    lines.forEach((points, index) => {
+      const road = roads[index]!;
       for (let i = 1; i < points.length; i++) {
         const a = points[i - 1]!, b = points[i]!, length = Math.hypot(b.x - a.x, b.z - a.z);
+        if (length < .01) continue;
         const segment: RoadSegment = { a, b, length, halfWidth: road.width, widthA: road.width, widthB: road.width, paved: road.paved };
         this.segments.push(segment);
-        const margin = segment.halfWidth + ROAD_SHOULDER;
+        const margin = segment.halfWidth + 7;
         for (let z = Math.floor((Math.min(a.z, b.z) - margin) / CHUNK_SIZE); z <= Math.floor((Math.max(a.z, b.z) + margin) / CHUNK_SIZE); z++)
           for (let x = Math.floor((Math.min(a.x, b.x) - margin) / CHUNK_SIZE); x <= Math.floor((Math.max(a.x, b.x) + margin) / CHUNK_SIZE); x++) {
             const key = `${x}:${z}`;
             let list = this.buckets.get(key); if (!list) this.buckets.set(key, list = []); list.push(segment);
           }
       }
-    }
+    });
   }
+
+  /** Authored maps blend overlapping roads' heights so junctions have no seams. */
+  private authored = false;
 
   query(x: number, z: number, out: RoadQuery): void {
     out.roadDistance = Infinity; out.roadHeight = 0; out.roadAlong = 0;
@@ -406,6 +432,19 @@ export class RoadNetwork {
       out.roadBridge = !!bridge; out.roadHalfWidth = roadWidthAt(segment, t); out.roadPaved = !!segment.paved;
       if (bridge?.bay && t * length >= bridge.bay.start && t * length <= bridge.bay.end) out.roadHalfWidth += 8;
       out.roadBridgeEnd = bridge ? Math.min(t * length, (1 - t) * length) : Infinity;
+    }
+    if (this.authored && Number.isFinite(out.roadDistance)) {
+      // Where several roads overlap (junctions, bends), take a distance-weighted mean height.
+      let sum = 0, weights = 0;
+      for (const segment of this.buckets.get(`${Math.floor(x / CHUNK_SIZE)}:${Math.floor(z / CHUNK_SIZE)}`) ?? []) {
+        const { a, b, length } = segment, dx = b.x - a.x, dz = b.z - a.z;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (length * length)));
+        const distance = Math.hypot(x - a.x - dx * t, z - a.z - dz * t), reach = segment.halfWidth + 7;
+        if (distance > reach) continue;
+        const w = (1 - distance / reach) ** 2 + 1e-3;
+        sum += roadHeightAt(segment, t) * w; weights += w;
+      }
+      if (weights > 0) out.roadHeight = sum / weights;
     }
   }
 
@@ -434,7 +473,8 @@ export class RoadNetwork {
   blend(sample: RoadQuery): number {
     if (sample.roadBridge) return 0;
     const width = sample.roadHalfWidth ?? ROAD_HALF_WIDTH;
-    return 1 - smoothstep(width, width + ROAD_SHOULDER, sample.roadDistance);
+    // Authored roads ease into the ground over a wider verge, so cuts and fills stay gentle.
+    return 1 - smoothstep(width, width + (this.authored ? 7 : ROAD_SHOULDER), sample.roadDistance);
   }
 
   private buildFences(gen: WorldGenerator): void {

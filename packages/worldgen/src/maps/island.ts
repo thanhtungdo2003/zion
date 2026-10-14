@@ -84,28 +84,28 @@ export const ISLAND: AuthoredMap = {
   ],
   roads: [
     // Main avenue: harbour gate → town high street → mountain pass → base.
-    { paved: true, width: 4.2, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
+    { paved: true, width: 5.67, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
     // East road: town → substation → power plant.
-    { paved: true, width: 3.8, points: [[2140, 2600], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
+    { paved: true, width: 5.13, points: [[2140, 2600], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
     // West road: town → airfield.
-    { paved: true, width: 3.6, points: [[1820, 2600], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
+    { paved: true, width: 4.86, points: [[1820, 2600], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
     // South coast road: port → fishing village → airfield.
-    { paved: false, width: 2.8, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
+    { paved: false, width: 3.78, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
     // North coast road: base → highland village → plant.
-    { paved: false, width: 2.8, points: [[2240, 880], [2450, 850], [2700, 880], [2880, 940], [3060, 1060], [3220, 1300], [3330, 1550], [3360, 1800]] },
+    { paved: false, width: 3.78, points: [[2240, 880], [2450, 850], [2700, 880], [2880, 940], [3060, 1060], [3220, 1300], [3330, 1550], [3360, 1800]] },
     // Radar spur.
-    { paved: false, width: 2.4, points: [[1850, 1300], [1720, 1270], [1610, 1250]] },
+    { paved: false, width: 3.24, points: [[1850, 1300], [1720, 1270], [1610, 1250]] },
     // East village and the lighthouse.
-    { paved: false, width: 2.6, points: [[2620, 2160], [2760, 2230], [2850, 2260]] },
-    { paved: false, width: 2.4, points: [[3200, 1990], [3330, 2150], [3420, 2400], [3470, 2650]] },
+    { paved: false, width: 3.51, points: [[2620, 2160], [2760, 2230], [2850, 2260]] },
+    { paved: false, width: 3.24, points: [[3200, 1990], [3330, 2150], [3420, 2400], [3470, 2650]] },
     // Airfield runway and taxiway.
-    { paved: true, width: 15, points: [[800, 1640], [806, 1950], [812, 2260]] },
-    { paved: true, width: 6, points: [[806, 1950], [900, 1950], [960, 2000]] },
+    { paved: true, width: 20.25, points: [[800, 1640], [806, 1950], [812, 2260]] },
+    { paved: true, width: 8.1, points: [[806, 1950], [900, 1950], [960, 2000]] },
     // Port quay road.
-    { paved: true, width: 3.6, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
+    { paved: true, width: 4.86, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
     // Town street grid: 80 m blocks either side of the high street.
-    ...[2520, 2600, 2680, 2760, 2840].map(z => ({ paved: true, width: 3, points: [[1820, z], [1900, z], [1980, z], [2060, z], [2140, z]] as Point[] })),
-    ...[1820, 1900, 2060, 2140].map(x => ({ paved: true, width: 3, points: [[x, 2520], [x, 2600], [x, 2680], [x, 2760], [x, 2840]] as Point[] })),
+    ...[2520, 2600, 2680, 2760, 2840].map(z => ({ paved: true, width: 4.05, points: [[1820, z], [1900, z], [1980, z], [2060, z], [2140, z]] as Point[] })),
+    ...[1820, 1900, 2060, 2140].map(x => ({ paved: true, width: 4.05, points: [[x, 2520], [x, 2600], [x, 2680], [x, 2760], [x, 2840]] as Point[] })),
   ],
   power: [
     // Transmission line from the power station to the town substation.

@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@zion/shared": "workspace:*"
+    "@zion/shared": "workspace:*",
+    "jolt-physics": "^1.1.0"
   }
 }

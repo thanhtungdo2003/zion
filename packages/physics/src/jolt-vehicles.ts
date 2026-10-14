@@ -1,16 +1,31 @@
-import initJolt from 'jolt-physics';
-import { VEHICLES, createVehicleMotion, type VehicleState } from '@zion/shared';
-import { CHUNK_SIZE } from '@zion/shared';
-import { Layer, damageVehicle, type Collider, type CollisionWorld, type Heightfield } from '@zion/physics';
+import type initJolt from 'jolt-physics';
+import { VEHICLES, CHUNK_SIZE, createVehicleMotion, type VehicleState } from '@zion/shared';
+import { Layer } from './layers';
+import { damageVehicle } from './vehicles';
+import type { Collider } from './shapes';
+import type { CollisionWorld } from './world';
+import type { Heightfield } from './heightfield';
 
 /**
- * Server-only vehicle simulation on Jolt Physics (WASM). Each vehicle is a Jolt rigid body with a
+ * Vehicle simulation on Jolt Physics (WASM). Each vehicle is a Jolt rigid body with a
  * wheeled VehicleConstraint (engine, gearbox, differentials, anti-roll bars, friction-curve tyres,
  * cylinder-cast wheel contacts). Jolt does not own the world: terrain chunks and static colliders
  * of our CollisionWorld are mirrored into it on demand around vehicles that are awake.
  */
-const Jolt = await initJolt();
-type JoltModule = typeof Jolt;
+type JoltModule = Awaited<ReturnType<typeof initJolt>>;
+let Jolt!: JoltModule;
+let loading: Promise<void> | null = null;
+/**
+ * Loads the Jolt WASM module once (the server awaits it at start-up; browsers load it lazily,
+ * when the player first drives, so it never weighs on the initial page load).
+ */
+export function loadJolt(): Promise<void> {
+  return loading ??= import('jolt-physics').then(async (module) => {
+    Jolt = await module.default();
+    vec = new Jolt.Vec3(); rvec = new Jolt.RVec3(); quat = new Jolt.Quat();
+  });
+}
+export function joltLoaded(): boolean { return !!vec; }
 type Body = InstanceType<JoltModule['Body']>;
 type BodyID = InstanceType<JoltModule['BodyID']>;
 
@@ -33,7 +48,7 @@ interface Car {
 }
 export interface VehicleInput { throttle: number; steer: number }
 
-const vec = new Jolt.Vec3(), rvec = new Jolt.RVec3(), quat = new Jolt.Quat();
+let vec!: InstanceType<JoltModule['Vec3']>, rvec!: InstanceType<JoltModule['RVec3']>, quat!: InstanceType<JoltModule['Quat']>;
 const v3 = (x: number, y: number, z: number) => { vec.Set(x, y, z); return vec; };
 const rv3 = (x: number, y: number, z: number) => { rvec.Set(x, y, z); return rvec; };
 const q4 = (x: number, y: number, z: number, w: number) => { quat.Set(x, y, z, w); return quat; };
@@ -171,7 +186,8 @@ export class JoltVehicles {
     if (moved || pushed) {
       const vx = -Math.sin(v.yaw) * v.speed + Math.cos(v.yaw) * lateral, vz = -Math.cos(v.yaw) * v.speed - Math.sin(v.yaw) * lateral;
       this.bodies.SetLinearVelocity(car.id, v3(vx, m.vy, vz));
-      if (moved) this.bodies.SetAngularVelocity(car.id, v3(0, 0, 0));
+      // Small nudges (prediction corrections) keep the spin; teleports (resets) stop it.
+      if (moved && Math.hypot(v.x - s.x, v.z - s.z) > 2) this.bodies.SetAngularVelocity(car.id, v3(0, 0, 0));
       car.velocity = [vx, m.vy, vz];
       if (pushed && Math.hypot(vx, m.vy, vz) > .05) this.bodies.ActivateBody(car.id);
     }

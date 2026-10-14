@@ -381,10 +381,12 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
       [market, school, apartment, favelas],
       [houses, flats, market, houses],
     ];
+    // The whole town stands on one levelled platform: no steps between blocks and streets.
+    const townLevel = Math.max(sea + 2, world.terrain(1980, 2680));
     plan.forEach((row, j) => row.forEach((block, i) => {
       const kit = new Kit(), x = 1860 + i * 80, z = 2560 + j * 80;
       block(kit, j % 2 ? -1 : 1);
-      site('town', x, z, [33, 33], kit);
+      site('town', x, z, [40, 40], kit, { level: townLevel });
     }));
     // Outskirts along the approach roads.
     const homes: Array<[number, number, number, number]> = [

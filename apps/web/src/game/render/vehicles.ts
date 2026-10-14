@@ -29,6 +29,9 @@ export class VehicleRenderer {
       else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0});}
     }
   }
+  private predicted:{id:number;pose:VehicleState}|null=null;
+  /** The locally predicted pose of the vehicle we drive (null = none): drawn instead of the snapshots. */
+  override(id:number|null,pose:VehicleState|null):void{this.predicted=id!==null&&pose?{id,pose}:null;}
   rider(id:number):VehicleState|undefined{return [...this.views.values()].find(v=>v.target.driver===id)?.pose;}
   nearest(x:number,y:number,z:number):VehicleState|undefined{
     return [...this.views.values()].map(v=>v.target).filter(v=>!v.driver&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
@@ -38,7 +41,7 @@ export class VehicleRenderer {
     if(this.playback===undefined||Math.abs(target-this.playback)>400)this.playback=target;
     else this.playback+=dt*1000+(target-this.playback)*Math.min(1,dt*1.5);
     for(const view of this.views.values()){
-      const v=view.target,p=view.pose=view.timeline.play(this.playback),def=VEHICLES[v.kind];
+      const v=view.target,p=view.pose=this.predicted?.id===v.id?this.predicted.pose:view.timeline.play(this.playback),def=VEHICLES[v.kind];
       // Camera/LOS colliders follow the same interpolated pose as the mesh. Installing the
       // newest packet here caused the chase camera to alternate between two positions.
       this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));

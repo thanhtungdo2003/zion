@@ -1676,7 +1676,8 @@ export class GameServer {
       this.grid.update(p); p.streamer.setCenter(p.chunkX, p.chunkZ);
       p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, false, true);
     }
-    if (this.tick % 2 === 0) for (const p of this.players.values()) this.vehicles.send(p, now);
+    // Everyone gets vehicles at 15 Hz; drivers every tick, to reconcile their own prediction.
+    for (const p of this.players.values()) if (this.tick % 2 === 0 || p.vehicleId) this.vehicles.send(p, now);
 
     if (this.tick % PHYSICS_UPDATE_TICKS === 0) {
       const centers: Array<[number, number]> = [];

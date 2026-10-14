@@ -7,7 +7,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 const csp = [
   "default-src 'self'",
   // Next.js injects inline bootstrap scripts; eval is needed only by the dev-mode refresh runtime.
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+  // 'wasm-unsafe-eval' lets the browser compile the Jolt physics WebAssembly (vehicle prediction).
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",
@@ -28,6 +29,14 @@ const nextConfig = {
   output: 'standalone',
   // Keep the monorepo's standalone entry at apps/web/server.js on every host.
   outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
+  webpack(config, { isServer, webpack }) {
+    // jolt-physics probes Node built-ins (node:module) that never run in the browser.
+    if (!isServer) {
+      config.plugins.push(new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => { resource.request = resource.request.replace(/^node:/, ''); }));
+      config.resolve.fallback = { ...config.resolve.fallback, module: false, fs: false, path: false, url: false, worker_threads: false };
+    }
+    return config;
+  },
   async headers() {
     return [
       {
