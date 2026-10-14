@@ -1,6 +1,6 @@
 import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
-import type { WorldGenerator } from '@zion/worldgen';
+import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 import { JoltVehicles } from './jolt-vehicles';
 
@@ -17,7 +17,20 @@ export class Vehicles {
   constructor(private readonly world: CollisionWorld, gen: WorldGenerator) {
     this.physics = new JoltVehicles(world);
     const kinds: VehicleKind[] = ['car', 'jeep', 'quad', 'grizzly'];
-    const limit = gen.config.mode === 'battle-royale' ? 64 : 80;
+    if (gen.config.mode === 'battle-royale') {
+      // Battle royale: a pool of parking spots on roads beside inhabited places; every match
+      // draws a fresh random selection from it.
+      this.parking = battleParking(gen);
+      for (let id = 1; id <= Math.min(BATTLE_VEHICLES, this.parking.length); id++) {
+        const kind = kinds[(id - 1) % 4]!;
+        const v: VehicleState = { id, kind, x: 0, y: 0, z: 0, yaw: 0, speed: 0, driver: null, health: VEHICLES[kind].health, explodeAt: 0, exploded: false };
+        this.states.set(id, v);
+      }
+      this.shuffleParking();
+      for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); this.install(v); }
+      return;
+    }
+    const limit = 80;
     for (const segment of gen.roads?.segments ?? []) {
       if (this.states.size >= limit) break;
       if (segment.bridge || segment.length < 15) continue;
@@ -30,6 +43,16 @@ export class Vehicles {
       const v: VehicleState = { id, kind: kinds[(id - 1) % 4]!, x, y, z, yaw: Math.atan2(segment.a.x - segment.b.x, segment.a.z - segment.b.z), speed: 0, driver: null, health: VEHICLES[kinds[(id - 1) % 4]!].health, explodeAt: 0, exploded: false };
       this.states.set(id, v); this.spawns.set(id, { x, y, z, yaw: v.yaw }); this.install(v);
     }
+  }
+  private parking: Array<{ x: number; y: number; z: number; yaw: number }> = [];
+  /** Picks random, well-separated parking spots for the battle vehicles. */
+  private shuffleParking(): void {
+    const pool = [...this.parking];
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j]!, pool[i]!]; }
+    const chosen: typeof pool = [];
+    for (const spot of pool) if (chosen.length < this.states.size && chosen.every(c => Math.hypot(c.x - spot.x, c.z - spot.z) > 60)) chosen.push(spot);
+    for (const spot of pool) if (chosen.length < this.states.size && !chosen.includes(spot)) chosen.push(spot);
+    [...this.states.values()].forEach((v, i) => this.spawns.set(v.id, { ...chosen[i]! }));
   }
   private install(v: VehicleState): void { this.physics.add(v); this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
   spawn(p: Player, type: string | undefined, now: number): string {
@@ -203,6 +226,29 @@ export class Vehicles {
   }
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();
+    if (this.parking.length) this.shuffleParking();
     for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.speed = 0; v.braking=false;delete v.impact;v.motion=createVehicleMotion(v.kind); this.install(v); }
   }
+}
+
+const BATTLE_VEHICLES = 36;
+/** Road-side spots within reach of a building site, spaced along the road network. */
+function battleParking(gen: WorldGenerator): Array<{ x: number; y: number; z: number; yaw: number }> {
+  const sites = allStructures(gen).filter(s => s.radius > 10 && s.parts.length > 2);
+  const spots: Array<{ x: number; y: number; z: number; yaw: number }> = [];
+  for (const segment of gen.roads?.segments ?? []) {
+    if (segment.bridge || segment.halfWidth > 8) continue;
+    const dx = segment.b.x - segment.a.x, dz = segment.b.z - segment.a.z, length = Math.hypot(dx, dz);
+    if (length < 1) continue;
+    // Park on the verge, beside the carriageway.
+    const nx = -dz / length, nz = dx / length, side = spots.length % 2 ? 1 : -1;
+    const x = (segment.a.x + segment.b.x) / 2 + nx * side * (segment.halfWidth + 1.6), z = (segment.a.z + segment.b.z) / 2 + nz * side * (segment.halfWidth + 1.6);
+    if (!sites.some(s => Math.hypot(s.x - x, s.z - z) < s.radius + 45)) continue;
+    if (sites.some(s => Math.hypot(s.x - x, s.z - z) < Math.min(s.radius, 30))) continue;
+    if (spots.some(p => Math.hypot(p.x - x, p.z - z) < 25)) continue;
+    const y = gen.heightAt(x, z);
+    if (y < gen.seaLevel + 1 || Math.abs(gen.heightAt(x + 2, z) - y) > .6 || Math.abs(gen.heightAt(x, z + 2) - y) > .6) continue;
+    spots.push({ x, y, z, yaw: Math.atan2(-dx, -dz) });
+  }
+  return spots;
 }
