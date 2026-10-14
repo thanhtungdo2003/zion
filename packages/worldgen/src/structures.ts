@@ -2,6 +2,7 @@ import { CHUNK_SIZE, Rng, hash3, quantizeHeight, quantizeLocal, quantizeRotation
 import { CAMP_ASSET } from '@zion/assets';
 import { makeColumnSample, type ColumnSample, type WorldGenerator } from './generator';
 import type { CampPart } from './camp';
+import { authoredWorld } from './maps/authored';
 import { battleStructures } from './battle-map';
 import { importedRoofAccess, importedSettlement } from './imported-buildings';
 
@@ -14,7 +15,7 @@ import { importedRoofAccess, importedSettlement } from './imported-buildings';
 export type StructureKind = 'house_small' | 'house_large' | 'ruined_camp' | 'factory' | 'power_plant' | 'town';
 
 export interface Structure {
-  kind: StructureKind | 'farm' | 'hamlet' | 'watchtower' | 'water_tower';
+  kind: StructureKind | 'farm' | 'hamlet' | 'watchtower' | 'water_tower' | 'port';
   /** Centre (world metres) and the base height of the site. */
   x: number;
   z: number;
@@ -22,6 +23,9 @@ export interface Structure {
   yaw: number;
   /** Footprint radius: nothing natural grows inside, the ground is bare. */
   radius: number;
+  /** Rectangular pad half extents (site-local, rotated by `yaw`); `radius` then bounds it. */
+  halfX?: number;
+  halfZ?: number;
   /** Structure-local parts (rotated by `yaw` when placed). */
   parts: CampPart[];
   /** Seeded id of this site (makes its group ids unique). */
@@ -498,7 +502,7 @@ function flatBase(gen: WorldGenerator, x: number, z: number, r: number, toleranc
 
 /** Structures whose footprint may reach a point or area. */
 export function structuresNear(gen: WorldGenerator, x: number, z: number, extra = 0): Structure[] {
-  if (gen.config.mode === 'battle-royale') return battleStructures(gen).filter(s => Math.hypot(s.x - x, s.z - z) <= s.radius + extra);
+  if (gen.config.mode === 'battle-royale') return authoredWorld(gen).near(x, z, extra);
   allStructures(gen);
   const extraCells = extraCache.get(gen);
   const out: Structure[] = [];

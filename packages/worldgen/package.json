@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "preview": "tsx scripts/preview.ts"
+    "preview": "tsx scripts/preview.ts",
+    "map:studio": "tsx scripts/map-studio.ts"
   },
   "dependencies": {
     "@zion/assets": "workspace:*",

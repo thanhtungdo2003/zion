@@ -1,0 +1,121 @@
+/**
+ * Đảo Hắc Sơn — an abandoned military island, authored by hand for battle royale.
+ *
+ * Coordinates are world metres on the 4096 m battle map (x east, z south). Everything here is
+ * plain data; `authored.ts` turns it into terrain, roads, buildings, vegetation and the grid.
+ */
+
+export type Point = readonly [number, number];
+
+export type ZoneKind = 'port' | 'town' | 'military' | 'power_plant' | 'airfield' | 'village' | 'radar' | 'substation' | 'farm' | 'lighthouse';
+
+export interface MapZone {
+  id: string;
+  name: string;
+  kind: ZoneKind;
+  /** Label anchor and layout origin. */
+  x: number;
+  z: number;
+  /** Approximate extent, for labels and the map overview. */
+  radius: number;
+}
+
+export interface MapRoad { points: Point[]; width: number; paved: boolean }
+export interface PowerLine { points: Point[]; kind: 'tower' | 'hframe'; spacing: number }
+export interface Hill { x: number; z: number; radius: number; height: number }
+
+export interface AuthoredMap {
+  id: string;
+  name: string;
+  /** Closed coastline polygon (clockwise on the map). */
+  coast: Point[];
+  hills: Hill[];
+  /** Areas where trees grow densely (centre + radius); elsewhere woods are sparse. */
+  forests: Array<{ x: number; z: number; radius: number }>;
+  zones: MapZone[];
+  roads: MapRoad[];
+  power: PowerLine[];
+}
+
+export const ISLAND: AuthoredMap = {
+  id: 'hac-son',
+  name: 'Đảo Hắc Sơn',
+  coast: [
+    [900, 700], [1300, 520], [1800, 430], [2300, 450], [2800, 560], [3200, 760],
+    [3450, 1050], [3560, 1400], [3650, 1750], [3640, 2150], [3520, 2500], [3380, 2850],
+    [3150, 3150], [2800, 3400], [2450, 3520],
+    // The harbour basin cuts into the south coast.
+    [2330, 3560], [2300, 3420], [2240, 3330], [2120, 3305], [1960, 3310], [1880, 3380], [1840, 3580],
+    [1500, 3620], [1150, 3500], [850, 3300], [650, 3000],
+    [520, 2650], [420, 2300], [400, 1950], [470, 1600], [560, 1250], [700, 950],
+  ],
+  hills: [
+    // The northern spine (the base sits on its seaward shoulder, the radar on its summit).
+    { x: 1550, z: 1250, radius: 420, height: 175 },
+    { x: 2050, z: 1350, radius: 380, height: 120 },
+    { x: 2600, z: 1250, radius: 380, height: 140 },
+    { x: 1150, z: 1550, radius: 300, height: 85 },
+    // Eastern uplands and the highland village plateau.
+    { x: 3000, z: 1350, radius: 330, height: 90 },
+    { x: 2950, z: 950, radius: 220, height: 40 },
+    // Southern and western rolling hills.
+    { x: 2900, z: 2650, radius: 300, height: 70 },
+    { x: 950, z: 2650, radius: 260, height: 55 },
+    { x: 1500, z: 2950, radius: 200, height: 30 },
+    { x: 2500, z: 2450, radius: 220, height: 35 },
+  ],
+  forests: [
+    { x: 1350, z: 1500, radius: 380 }, { x: 2350, z: 1550, radius: 320 }, { x: 2800, z: 1350, radius: 300 },
+    { x: 1000, z: 2600, radius: 300 }, { x: 2950, z: 2600, radius: 330 }, { x: 1600, z: 900, radius: 250 },
+    { x: 3300, z: 1250, radius: 220 }, { x: 1500, z: 3200, radius: 200 },
+  ],
+  zones: [
+    { id: 'port', name: 'Cảng Hắc Hải', kind: 'port', x: 2080, z: 3150, radius: 260 },
+    { id: 'town', name: 'Thị trấn Thạch Lâm', kind: 'town', x: 1980, z: 2680, radius: 200 },
+    { id: 'base', name: 'Căn cứ Bắc Phong', kind: 'military', x: 2120, z: 820, radius: 170 },
+    { id: 'plant', name: 'Nhà máy nhiệt điện Đông Sơn', kind: 'power_plant', x: 3330, z: 1960, radius: 170 },
+    { id: 'airfield', name: 'Sân bay Tây Lĩnh', kind: 'airfield', x: 820, z: 1950, radius: 330 },
+    { id: 'fishing', name: 'Làng chài Nam Vịnh', kind: 'village', x: 1180, z: 3250, radius: 120 },
+    { id: 'highland', name: 'Làng Cao Nguyên', kind: 'farm', x: 2960, z: 960, radius: 120 },
+    { id: 'radar', name: 'Trạm ra-đa Đỉnh Gió', kind: 'radar', x: 1560, z: 1240, radius: 60 },
+    { id: 'substation', name: 'Trạm biến áp Thạch Lâm', kind: 'substation', x: 2240, z: 2300, radius: 50 },
+    { id: 'eastvillage', name: 'Xóm Đồi Thông', kind: 'village', x: 2850, z: 2250, radius: 90 },
+    { id: 'lighthouse', name: 'Mũi Hải Đăng', kind: 'lighthouse', x: 3480, z: 2700, radius: 40 },
+  ],
+  roads: [
+    // Main avenue: harbour gate → town high street → mountain pass → base.
+    { paved: true, width: 4.2, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
+    // East road: town → substation → power plant.
+    { paved: true, width: 3.8, points: [[2140, 2600], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
+    // West road: town → airfield.
+    { paved: true, width: 3.6, points: [[1820, 2600], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
+    // South coast road: port → fishing village → airfield.
+    { paved: false, width: 2.8, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
+    // North coast road: base → highland village → plant.
+    { paved: false, width: 2.8, points: [[2240, 880], [2450, 850], [2700, 880], [2880, 940], [3060, 1060], [3220, 1300], [3330, 1550], [3360, 1800]] },
+    // Radar spur.
+    { paved: false, width: 2.4, points: [[1850, 1300], [1720, 1270], [1610, 1250]] },
+    // East village and the lighthouse.
+    { paved: false, width: 2.6, points: [[2620, 2160], [2760, 2230], [2850, 2260]] },
+    { paved: false, width: 2.4, points: [[3200, 1990], [3330, 2150], [3420, 2400], [3470, 2650]] },
+    // Airfield runway and taxiway.
+    { paved: true, width: 15, points: [[800, 1640], [806, 1950], [812, 2260]] },
+    { paved: true, width: 6, points: [[806, 1950], [900, 1950], [960, 2000]] },
+    // Port quay road.
+    { paved: true, width: 3.6, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
+    // Town street grid: 80 m blocks either side of the high street.
+    ...[2520, 2600, 2680, 2760, 2840].map(z => ({ paved: true, width: 3, points: [[1820, z], [1900, z], [1980, z], [2060, z], [2140, z]] as Point[] })),
+    ...[1820, 1900, 2060, 2140].map(x => ({ paved: true, width: 3, points: [[x, 2520], [x, 2600], [x, 2680], [x, 2760], [x, 2840]] as Point[] })),
+  ],
+  power: [
+    // Transmission line from the power station to the town substation.
+    { kind: 'tower', spacing: 150, points: [[3230, 1930], [2950, 2010], [2650, 2090], [2400, 2190], [2260, 2280]] },
+    // From the substation north over the pass to the base.
+    { kind: 'tower', spacing: 160, points: [[2230, 2270], [2230, 2000], [2210, 1700], [2120, 1450], [2050, 1150], [2110, 920]] },
+    // West to the airfield.
+    { kind: 'tower', spacing: 160, points: [[2210, 2320], [1900, 2380], [1600, 2340], [1300, 2180], [1000, 2010], [880, 1990]] },
+    // Distribution poles through town and down to the harbour.
+    { kind: 'hframe', spacing: 60, points: [[2220, 2330], [2150, 2470], [2070, 2530], [2070, 2850], [2120, 3000], [2200, 3060]] },
+    { kind: 'hframe', spacing: 70, points: [[1880, 3060], [1700, 3140], [1500, 3200], [1260, 3240]] },
+  ],
+};

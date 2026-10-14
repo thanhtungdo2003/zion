@@ -11,3 +11,5 @@ export * from './structures';
 export * from './roads';
 export * from './bridges';
 export * from './battle-map';
+export * from './maps/authored';
+export * from './maps/island';

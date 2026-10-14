@@ -22,7 +22,7 @@ import { CAMP_PAD, CAMP_BLEND, campDistance, campChunkProps, findCampSite, type 
 import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
 import { RoadNetwork } from './roads';
-import { battleStructures, battleTerrain } from './battle-map';
+import { authoredWorld } from './maps/authored';
 
 export const enum WaterKind {
   None = 0,
@@ -127,14 +127,10 @@ export class WorldGenerator {
 
   sampleColumn(x: number, z: number, out: ColumnSample = makeColumnSample()): ColumnSample {
     if (this.config.mode === 'battle-royale') {
-      const roads = this.roads;
+      const roads = this.roads, world = authoredWorld(this);
       this.fields.base(x, z, out.base);
-      let height = battleTerrain(this.seed, this.worldSize, this.seaLevel, x, z);
-      for (const site of battleStructures(this)) {
-        if (Math.abs(x - site.x) > site.radius + 16 || Math.abs(z - site.z) > site.radius + 16) continue;
-        const blend = 1 - smoothstep(site.radius, site.radius + 16, Math.hypot(x - site.x, z - site.z));
-        height += (site.y - height) * blend;
-      }
+      // Districts sit on levelled pads that blend into the natural ground.
+      const height = world.levelled(x, z);
       out.height = height; out.water = NaN; out.waterKind = height < this.seaLevel ? WaterKind.Sea : WaterKind.None;
       out.river = 0; out.temperature = .6; out.humidity = .5;
       out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
@@ -325,6 +321,7 @@ export class WorldGenerator {
     const temperature = new Uint8Array(n * n);
     const humidity = new Uint8Array(n * n);
     const cols: ColumnSample[] = new Array<ColumnSample>(n * n);
+    const battle = this.config.mode === 'battle-royale' ? authoredWorld(this) : null;
 
     for (let j = -1; j <= n; j++) {
       for (let i = -1; i <= n; i++) {
@@ -346,11 +343,12 @@ export class WorldGenerator {
         const slope = Math.sqrt(gx * gx + gz * gz);
         const x = ox + i * step;
         const z = oz + j * step;
-        const b = this.classifyBiome(s, slope);
+        const b = battle ? battle.biome(s.height, slope, x, z) : this.classifyBiome(s, slope);
         const idx = j * n + i;
         biome[idx] = b;
         surface[idx] = this.camp && campDistance(this.camp, x, z) <= CAMP_PAD
           ? (Math.abs(x - this.camp.x) < 5 || Math.abs(z - this.camp.z - 30) < 3 ? Surface.Gravel : Surface.Dirt)
+          : battle ? this.roads?.surface(s, x, z) ?? battle.surface(s.height, slope, x, z, battle.near(x, z, 0)[0])
           : insideStructure(this, x, z, 0) ? Surface.Dirt : this.roads?.surface(s, x, z) ?? this.classifySurface(s, b, slope, x, z);
         temperature[idx] = Math.round(s.temperature * 255);
         humidity[idx] = Math.round(s.humidity * 255);
@@ -358,7 +356,10 @@ export class WorldGenerator {
       }
     }
 
-    const props: PropInstance[] = lod <= PROPS_MAX_LOD ? scatterChunkProps(this, cx, cz) : [];
+    const props: PropInstance[] = lod > PROPS_MAX_LOD ? [] : battle ? battle.chunkProps(cx, cz, (x, z) => {
+      const g = this.sampleColumn(x, z, this.scratch), height = g.height, road = g.roadDistance - (g.roadHalfWidth ?? 2.4);
+      return { height, slope: this.slopeAt(x, z, height, 1.5), road };
+    }) : scatterChunkProps(this, cx, cz);
     if (this.camp && lod <= PROPS_MAX_LOD) props.push(...campChunkProps(this.camp, cx, cz));
     if (lod <= PROPS_MAX_LOD) props.push(...structureChunkProps(this, cx, cz));
     if (lod <= PROPS_MAX_LOD) props.push(...this.roads?.chunkProps(cx, cz) ?? []);

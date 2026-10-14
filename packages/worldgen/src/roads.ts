@@ -6,6 +6,7 @@ import { IndexHeap } from './heap';
 import { allStructures, insideStructure } from './structures';
 import { bridgeProp, buildBridgeProps, type BridgeSpan } from './bridges';
 import { Simplex2 } from './noise';
+import { authoredWorld } from './maps/authored';
 
 export const ROAD_HALF_WIDTH = 2.4;
 export const ROAD_SHOULDER = 2;
@@ -42,7 +43,8 @@ export class RoadNetwork {
     const raw = gen.rawTerrain;
     gen.rawTerrain = true;
     try {
-      this.build(gen); this.buildFences(gen);
+      if (gen.config.mode === 'battle-royale') this.buildAuthored(gen); else this.build(gen);
+      this.buildFences(gen);
       buildBridgeProps(gen, this.bridges, (x, y, z, asset, yaw, scale) => {
         const { key, prop } = bridgeProp(x, y, z, asset, yaw, scale);
         let list = this.fences.get(key); if (!list) this.fences.set(key, list = []); list.push(prop);
@@ -345,6 +347,42 @@ export class RoadNetwork {
           const key = `${x}:${z}`;
           let list = this.buckets.get(key); if (!list) this.buckets.set(key, list = []); list.push(segment);
         }
+      }
+    }
+  }
+
+  /** Hand-drawn roads of an authored map: resampled, graded to the ground and smoothed. */
+  private buildAuthored(gen: WorldGenerator): void {
+    const sample = makeColumnSample();
+    for (const road of authoredWorld(gen).map.roads) {
+      const points: Node[] = [];
+      for (let i = 1; i < road.points.length; i++) {
+        const [ax, az] = road.points[i - 1]!, [bx, bz] = road.points[i]!, steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 10));
+        for (let k = i === 1 ? 0 : 1; k <= steps; k++) {
+          const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
+          gen.sampleColumn(x, z, sample);
+          points.push({ x, z, y: Math.max(gen.seaLevel + 1.2, sample.height), fixed: k === 0 || k === steps });
+        }
+      }
+      // Ease the profile: a moving average, then limit the grade in both directions.
+      for (let pass = 0; pass < 3; pass++) {
+        const ys = points.map(p => p.y);
+        for (let i = 1; i < points.length - 1; i++) points[i]!.y = (ys[i - 1]! + ys[i]! * 2 + ys[i + 1]!) / 4;
+      }
+      for (const order of [1, -1]) for (let i = order > 0 ? 1 : points.length - 2; i >= 0 && i < points.length; i += order) {
+        const prev = points[i - order]!, p = points[i]!, run = Math.hypot(p.x - prev.x, p.z - prev.z), limit = run * ROAD_MAX_GRADE;
+        p.y = Math.max(prev.y - limit, Math.min(prev.y + limit, p.y));
+      }
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1]!, b = points[i]!, length = Math.hypot(b.x - a.x, b.z - a.z);
+        const segment: RoadSegment = { a, b, length, halfWidth: road.width, widthA: road.width, widthB: road.width, paved: road.paved };
+        this.segments.push(segment);
+        const margin = segment.halfWidth + ROAD_SHOULDER;
+        for (let z = Math.floor((Math.min(a.z, b.z) - margin) / CHUNK_SIZE); z <= Math.floor((Math.max(a.z, b.z) + margin) / CHUNK_SIZE); z++)
+          for (let x = Math.floor((Math.min(a.x, b.x) - margin) / CHUNK_SIZE); x <= Math.floor((Math.max(a.x, b.x) + margin) / CHUNK_SIZE); x++) {
+            const key = `${x}:${z}`;
+            let list = this.buckets.get(key); if (!list) this.buckets.set(key, list = []); list.push(segment);
+          }
       }
     }
   }

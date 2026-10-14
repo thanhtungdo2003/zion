@@ -49,7 +49,7 @@ function DropHud({ state, drop }: { state: BattleState; drop: NonNullable<Battle
     </div>
     <div className="battle-drop-strip" role="note">
       <b>{label}</b>
-      {drop.phase === 'boarding' && <><span><kbd>Space</kbd> Nhảy</span><small>Tự nhảy sau {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</small></>}
+      {drop.phase === 'boarding' && <><span><kbd>Space</kbd> Nhảy</span><span><kbd>M</kbd> Chọn điểm nhảy</span><small>Tự nhảy sau {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</small></>}
       {drop.phase === 'falling' && <><span><kbd>WASD</kbd> Lướt</span><span><kbd>Shift</kbd> Lao nhanh</span><span><kbd>Space</kbd> Bung dù</span><small>Tự bung ở {BATTLE_FLIGHT.autoDeployHeight} m</small></>}
       {drop.phase === 'parachute' && <><span><kbd>WASD</kbd> Lượn dù</span><small>Tự thu dù khi chạm đất</small></>}
     </div>

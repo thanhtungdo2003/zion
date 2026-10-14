@@ -101,6 +101,7 @@ import { GameConnection } from './net/connection';
 import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { BattleFlightRenderer } from './render/battle-flight';
+import { PowerCables } from './render/power-cables';
 import { doorColliders } from '@zion/physics';
 import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
@@ -346,6 +347,7 @@ export class GameEngine {
   private readonly recoil = new GunRecoil();
   private battleZone: BattleZone | null = null;
   private battleFlight: BattleFlightRenderer | null = null;
+  private powerCables: PowerCables | null = null;
   private planeReceivedAt = 0;
   private flightCamera = false;
   private recoilWeapon: number | null = null;
@@ -570,6 +572,7 @@ export class GameEngine {
     this.vehicles?.dispose();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
+    this.powerCables?.dispose(); this.powerCables = null;
     this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
@@ -921,6 +924,7 @@ export class GameEngine {
     }
     const world = m.world;
     this.worldMap.initialize(world);
+    this.worldMap.onJump = (point) => this.conn.sendJumpPoint(point?.x ?? -1, point?.z ?? -1);
     const worldSize = world.sizeChunks * world.chunkSize;
     this.clock.seed(m.serverTime);
     this.store = new ChunkStore(worldSize, world.seaLevel, this.registry);
@@ -1599,6 +1603,8 @@ export class GameEngine {
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
     const battle = this.hud.get().battle;
     const live = this.liveBattle();
+    // The island's power grid is described by the map atlas; string the cables once it arrives.
+    if (!this.powerCables && this.welcome?.mode === 'battle-royale' && this.worldMap.get().atlas?.cables) this.powerCables = new PowerCables(this.scene, this.worldMap.get().atlas!.cables!);
     if (live) this.battleZone?.update(live);
     const plane = battle?.plane ? battlePlaneAt(this.welcome!.world.sizeChunks * CHUNK_SIZE, BATTLE_FLIGHT.durationMs - battle.plane.remainingMs + performance.now() - this.planeReceivedAt) : undefined;
     this.battleFlight?.update(dt, this.elapsed, px, pz, plane && plane.remainingMs > 0 ? plane : undefined);

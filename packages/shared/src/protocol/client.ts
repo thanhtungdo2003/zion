@@ -130,7 +130,11 @@ export const lifeMessageSchema = z.object({ t: z.literal('life'), op: z.enum(['p
 
 export const questMessageSchema = z.object({ t: z.literal('quest'), op: z.enum(['list', 'accept', 'cancel', 'turnin', 'retrieve']), npc: itemId, quest: itemId.optional(), /** retrieve: which placed item. */ index: z.number().int().min(0).max(63).optional() }).strict();
 
+/** Battle royale: where to leave the plane automatically (a point on its flight path), or clear it. */
+export const jumpPointMessageSchema = z.object({ t: z.literal('jumppoint'), x: z.number().finite().min(-1).max(100_000), z: z.number().finite().min(-1).max(100_000) }).strict();
+
 const plainClientMessageSchema = z.discriminatedUnion('t', [
+  jumpPointMessageSchema,
   z.object({ t: z.literal('pvp'), enabled: z.boolean() }).strict(),
   z.object({ t: z.literal('tutorial'), op: z.enum(['open', 'close', 'heartbeat']), id: z.enum(TUTORIAL_IDS).optional(), replay: z.boolean().optional() }).strict(),
   distressMessageSchema,

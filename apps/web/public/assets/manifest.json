@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-14T06:43:49.565Z",
+  "generatedAt": "2026-10-14T08:40:20.152Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -174,6 +174,18 @@
       "url": "/assets/models/armors_worn-work-jacket.408c351bd19b.bbmodel",
       "sha256": "408c351bd19b50ac8a8a5ed808e0b11ab94618509f57449bf184aba515f15c23",
       "bytes": 12679,
+      "kind": "bbmodel"
+    },
+    "buildings/old-green-zion-container.bbmodel": {
+      "url": "/assets/models/buildings_old-green-zion-container.ec6b543333ea.bbmodel",
+      "sha256": "ec6b543333eaf4db6623418bb5bf86e6a7788ba405dc6a411f6fd63e425da765",
+      "bytes": 34121,
+      "kind": "bbmodel"
+    },
+    "buildings/old-red-zion-container.bbmodel": {
+      "url": "/assets/models/buildings_old-red-zion-container.09cd2b77071d.bbmodel",
+      "sha256": "09cd2b77071dd571fc32fb9e78ed773a8077885df9092443e015b2a62f6712a8",
+      "bytes": 34197,
       "kind": "bbmodel"
     },
     "characters/teen-wasteland-survivor.bbmodel": {
@@ -692,6 +704,66 @@
       "bytes": 26769,
       "kind": "bbmodel"
     },
+    "nationals/banana_tree_low_poly.glb": {
+      "url": "/assets/models/nationals_banana_tree_low_poly.56a3e4ed0adc.glb",
+      "sha256": "56a3e4ed0adc56f6d84f6552ae74f66851af37cd51bb8b3e9686633f0ee38aaa",
+      "bytes": 1232724,
+      "kind": "glb"
+    },
+    "nationals/birch_tree_low_poly.glb": {
+      "url": "/assets/models/nationals_birch_tree_low_poly.246599f20734.glb",
+      "sha256": "246599f207349e12bdd9d02c8e76cc3aa1087f68588f55334ad0230c8af2f71d",
+      "bytes": 1349120,
+      "kind": "glb"
+    },
+    "nationals/laurel_tree_-_low_poly.glb": {
+      "url": "/assets/models/nationals_laurel_tree_-_low_poly.e2a478e4c56b.glb",
+      "sha256": "e2a478e4c56b2527b364b9e4581c8c0c27d7fa86d8cb1a2e27dc5b48062cdbd9",
+      "bytes": 750380,
+      "kind": "glb"
+    },
+    "nationals/low_poly_trees.glb": {
+      "url": "/assets/models/nationals_low_poly_trees.a2089a13d467.glb",
+      "sha256": "a2089a13d4673ea95e270627fc9f90d816cfb98bd6845bc8c0c38c0f0e26873d",
+      "bytes": 3221384,
+      "kind": "glb"
+    },
+    "nationals/lowpoly_asset_collection__little_nature_pack.glb": {
+      "url": "/assets/models/nationals_lowpoly_asset_collection__little_nature_pack.9972e1a891ef.glb",
+      "sha256": "9972e1a891ef89c9e41c29c754a14aa746782363f065a2854288a1eab3bd3e2f",
+      "bytes": 603852,
+      "kind": "glb"
+    },
+    "nationals/nature_vegetation_pack.glb": {
+      "url": "/assets/models/nationals_nature_vegetation_pack.2111992a0c3a.glb",
+      "sha256": "2111992a0c3a7e62fb3fae86dfce2f9127a9ab7de313397788bf897d0d2c1e36",
+      "bytes": 3361532,
+      "kind": "glb"
+    },
+    "nationals/pine_tree_2.glb": {
+      "url": "/assets/models/nationals_pine_tree_2.8fdb0bfe66fc.glb",
+      "sha256": "8fdb0bfe66fcd9ab3eca98202c1502c8ff2f953ce84cda04085a04f4b897e0e7",
+      "bytes": 1236708,
+      "kind": "glb"
+    },
+    "nationals/pine_tree_low_poly.glb": {
+      "url": "/assets/models/nationals_pine_tree_low_poly.2a9f7f946c63.glb",
+      "sha256": "2a9f7f946c63c31d6855acf13a4fc15f2fa1cf43ab5a5033b991c5a5174fcc39",
+      "bytes": 43600,
+      "kind": "glb"
+    },
+    "nationals/stylized_grass.glb": {
+      "url": "/assets/models/nationals_stylized_grass.613a893f2615.glb",
+      "sha256": "613a893f2615116373cd7a45c75c2dff5f921c7cf6ae45ffad577ffd2408ef84",
+      "bytes": 166852,
+      "kind": "glb"
+    },
+    "nationals/tree_low_poly_lowpoly.glb": {
+      "url": "/assets/models/nationals_tree_low_poly_lowpoly.d19829a2f15b.glb",
+      "sha256": "d19829a2f15b5c2aa3515ae9cc0bc99e084889b7c9f3f03d35685f226e9d8906",
+      "bytes": 173352,
+      "kind": "glb"
+    },
     "npcs/armored-soldier.bbmodel": {
       "url": "/assets/models/npcs_armored-soldier.79d42564280b.bbmodel",
       "sha256": "79d42564280b4244af625742e54ff2077995c08b81519e173a70e02f91f2772f",
@@ -758,6 +830,12 @@
       "bytes": 3952132,
       "kind": "glb"
     },
+    "prepared/banana_tree.glb": {
+      "url": "/assets/models/prepared_banana_tree.0b0fb0deb39d.glb",
+      "sha256": "0b0fb0deb39d7c1c78a5d67cc384595259fd201891cab68c109c4ffd43b17ade",
+      "bytes": 631760,
+      "kind": "glb"
+    },
     "prepared/barn01.glb": {
       "url": "/assets/models/prepared_barn01.11979a357daa.glb",
       "sha256": "11979a357daa310a8c4a89e5c4c719590d80e543300d60c215aa84d75b98fc01",
@@ -794,10 +872,58 @@
       "bytes": 162260,
       "kind": "glb"
     },
+    "prepared/bush_a.glb": {
+      "url": "/assets/models/prepared_bush_a.eb906228c4d1.glb",
+      "sha256": "eb906228c4d1724bd46ceee05737e9c1094c22d26e3c82b79a344e8dcc9d65e8",
+      "bytes": 52516,
+      "kind": "glb"
+    },
+    "prepared/bush_b.glb": {
+      "url": "/assets/models/prepared_bush_b.5db82791e3bb.glb",
+      "sha256": "5db82791e3bbceb4d8f0426dcb2bd98d12ad29e651c411dcce3f3aecca0563f0",
+      "bytes": 56176,
+      "kind": "glb"
+    },
+    "prepared/bush_c.glb": {
+      "url": "/assets/models/prepared_bush_c.ebce9e1ff51c.glb",
+      "sha256": "ebce9e1ff51c9d0714a7e599ddada790c4ab3d8a4c7e949bc2da0880c711bf01",
+      "bytes": 59828,
+      "kind": "glb"
+    },
+    "prepared/cliff_a.glb": {
+      "url": "/assets/models/prepared_cliff_a.837916a00472.glb",
+      "sha256": "837916a00472af70f72e72379257b313f7c9b63a1710d89db54c11cbec0efaa9",
+      "bytes": 38248,
+      "kind": "glb"
+    },
+    "prepared/cliff_b.glb": {
+      "url": "/assets/models/prepared_cliff_b.f40ca2f17295.glb",
+      "sha256": "f40ca2f17295f33a9c28dad2a1a38a9b369c085282e3d91133a6a8cc6aab509a",
+      "bytes": 36416,
+      "kind": "glb"
+    },
+    "prepared/conifer.glb": {
+      "url": "/assets/models/prepared_conifer.c4e4cdc82d7e.glb",
+      "sha256": "c4e4cdc82d7ec62e82967a80afefffa78125612db1e3adbd719edd3a4e47a721",
+      "bytes": 86408,
+      "kind": "glb"
+    },
     "prepared/container02.glb": {
       "url": "/assets/models/prepared_container02.80a50ef2eeea.glb",
       "sha256": "80a50ef2eeea948b1469baf714fe3d615833781fbb34ada7979938e38c7bf390",
       "bytes": 158956,
+      "kind": "glb"
+    },
+    "prepared/dead_pine.glb": {
+      "url": "/assets/models/prepared_dead_pine.f112c1731e3b.glb",
+      "sha256": "f112c1731e3b4c4f17d9d2beb5e40d06d97290e643414b55db695c1d874f69c8",
+      "bytes": 8792,
+      "kind": "glb"
+    },
+    "prepared/dead_tree.glb": {
+      "url": "/assets/models/prepared_dead_tree.6d3f14189e1d.glb",
+      "sha256": "6d3f14189e1d46d466f061c79f252e3a9814e4c70ddb66145b9788bb4dda9501",
+      "bytes": 6244,
       "kind": "glb"
     },
     "prepared/drive_car.glb": {
@@ -860,6 +986,72 @@
       "bytes": 165600,
       "kind": "glb"
     },
+    "prepared/pine_big.glb": {
+      "url": "/assets/models/prepared_pine_big.ffa81fb89854.glb",
+      "sha256": "ffa81fb898547d30747200fe3075fc839dbed31686f90e2c27456dcb3f7d9308",
+      "bytes": 74992,
+      "kind": "glb"
+    },
+    "prepared/pine_medium.glb": {
+      "url": "/assets/models/prepared_pine_medium.bfee6d652cb8.glb",
+      "sha256": "bfee6d652cb8b1dc74c29ac8a6161cce5861fb57be36c2d0f6cdb400b621104e",
+      "bytes": 74372,
+      "kind": "glb"
+    },
+    "prepared/pine_small.glb": {
+      "url": "/assets/models/prepared_pine_small.054de675b49c.glb",
+      "sha256": "054de675b49c954529e310e011669fb211632d8de357217ceb5dbcf2296c1325",
+      "bytes": 76684,
+      "kind": "glb"
+    },
+    "prepared/pylon_hframe.glb": {
+      "url": "/assets/models/prepared_pylon_hframe.a4366a8cb3c0.glb",
+      "sha256": "a4366a8cb3c09fdd1194d6c47ff35d5a2e5176b8f7be24762ca2abce916eca90",
+      "bytes": 3011220,
+      "kind": "glb"
+    },
+    "prepared/pylon_tower.glb": {
+      "url": "/assets/models/prepared_pylon_tower.d9d24e086005.glb",
+      "sha256": "d9d24e086005285f149d4770918b23e37fcc03cbc29d1aec64a0888a6a094136",
+      "bytes": 173228,
+      "kind": "glb"
+    },
+    "prepared/rock_big_a.glb": {
+      "url": "/assets/models/prepared_rock_big_a.632e9e753c79.glb",
+      "sha256": "632e9e753c798418f7ab22427e471206acb982ab1ca2bc4a09cb6c75d07ffb93",
+      "bytes": 40196,
+      "kind": "glb"
+    },
+    "prepared/rock_big_b.glb": {
+      "url": "/assets/models/prepared_rock_big_b.373c605cce38.glb",
+      "sha256": "373c605cce384906ac6cb0a8ffe161644ee266f81e43dda5881777e52c3ec143",
+      "bytes": 15920,
+      "kind": "glb"
+    },
+    "prepared/rock_big_c.glb": {
+      "url": "/assets/models/prepared_rock_big_c.9e04c8f0e632.glb",
+      "sha256": "9e04c8f0e6327b195c09cc272c553dd96c49ea7a7ebc07f16d6b34ac81100a22",
+      "bytes": 15920,
+      "kind": "glb"
+    },
+    "prepared/rock_medium_a.glb": {
+      "url": "/assets/models/prepared_rock_medium_a.33dd1f9e777a.glb",
+      "sha256": "33dd1f9e777a05663f778366991a15131b0f41e38bdd2e247b030a454a940b90",
+      "bytes": 13200,
+      "kind": "glb"
+    },
+    "prepared/rock_medium_b.glb": {
+      "url": "/assets/models/prepared_rock_medium_b.344982630c1a.glb",
+      "sha256": "344982630c1a253af637c373c49777edf8096433145fcf77b4e636c27fbc8861",
+      "bytes": 7056,
+      "kind": "glb"
+    },
+    "prepared/rock_medium_c.glb": {
+      "url": "/assets/models/prepared_rock_medium_c.7da455a79ba5.glb",
+      "sha256": "7da455a79ba5d711b6849f197786b097883e2f1510eac8056259f3e7cdafd061",
+      "bytes": 12876,
+      "kind": "glb"
+    },
     "prepared/slum_corner.glb": {
       "url": "/assets/models/prepared_slum_corner.f4462eb3b88d.glb",
       "sha256": "f4462eb3b88d3a62e876df333c55d9669a10bf61ca86e5aaa1e53484a321f895",
@@ -872,10 +1064,76 @@
       "bytes": 53824,
       "kind": "glb"
     },
+    "prepared/stone_small_a.glb": {
+      "url": "/assets/models/prepared_stone_small_a.968574998b06.glb",
+      "sha256": "968574998b06db1a0ee9a6ead279b3fa13867db755c7092e832bb356591c5b0d",
+      "bytes": 4444,
+      "kind": "glb"
+    },
+    "prepared/stone_small_b.glb": {
+      "url": "/assets/models/prepared_stone_small_b.7970f6db8f28.glb",
+      "sha256": "7970f6db8f28bbe3073d36130df7d349d1e535866450fa68c4931173f020a65d",
+      "bytes": 7636,
+      "kind": "glb"
+    },
+    "prepared/tower_crane.glb": {
+      "url": "/assets/models/prepared_tower_crane.c80b0d8c9b5b.glb",
+      "sha256": "c80b0d8c9b5bf84b5cb6580cb49ead906edab5272f028912f764e6ab0d0705b8",
+      "bytes": 5552388,
+      "kind": "glb"
+    },
     "prepared/trailer01.glb": {
       "url": "/assets/models/prepared_trailer01.02b0087839aa.glb",
       "sha256": "02b0087839aa6d2285d2e7e0aec13e6a56b88777250c4e1c623f538421e1335b",
       "bytes": 159064,
+      "kind": "glb"
+    },
+    "prepared/tree_big_a.glb": {
+      "url": "/assets/models/prepared_tree_big_a.472e47b65e3c.glb",
+      "sha256": "472e47b65e3c8c93823071e7a02da94689719c09cc27b2bc4bb04e83cb575ce5",
+      "bytes": 110436,
+      "kind": "glb"
+    },
+    "prepared/tree_big_b.glb": {
+      "url": "/assets/models/prepared_tree_big_b.82344eb70e19.glb",
+      "sha256": "82344eb70e19171b0552a38be3a50a9a10e87f78152337e375b89f74394995c4",
+      "bytes": 150844,
+      "kind": "glb"
+    },
+    "prepared/tree_big_c.glb": {
+      "url": "/assets/models/prepared_tree_big_c.5258aee5ba77.glb",
+      "sha256": "5258aee5ba7757995530255d0bc3e351c3924a4b22fa5d3975e10fb33928ecd2",
+      "bytes": 145268,
+      "kind": "glb"
+    },
+    "prepared/tree_small_a.glb": {
+      "url": "/assets/models/prepared_tree_small_a.e0149433bdcd.glb",
+      "sha256": "e0149433bdcd116ebf2f77f6470dc7129e9fc834f16c9bcb109a1f59e98f1898",
+      "bytes": 146712,
+      "kind": "glb"
+    },
+    "prepared/tree_small_b.glb": {
+      "url": "/assets/models/prepared_tree_small_b.ea3c9f5f7b63.glb",
+      "sha256": "ea3c9f5f7b63a94fe8d7cedd2d412a6324d4c56e75bb62b92efcd74a678f3a12",
+      "bytes": 103572,
+      "kind": "glb"
+    },
+    "prepared/tree_small_c.glb": {
+      "url": "/assets/models/prepared_tree_small_c.ec2ac160b345.glb",
+      "sha256": "ec2ac160b34580935b53d8164f3cc398c2bb2f500083451bbb06883f3668cd37",
+      "bytes": 85396,
+      "kind": "glb"
+    },
+    "prepared/tree_small_d.glb": {
+      "url": "/assets/models/prepared_tree_small_d.e9cc05548197.glb",
+      "sha256": "e9cc05548197da810fc1acb8ab10cbfc4778ed6cf0340c60814f258f65ea637c",
+      "bytes": 85136,
+      "kind": "glb"
+    },
+    "prepared/tree_small_e.glb": {
+      "url": "/assets/models/prepared_tree_small_e.a3922d3c33bd.glb",
+      "sha256": "a3922d3c33bd4c98352f8e667c3c884d7a94394fc8f9d0bdd338a7959ec65441",
+      "bytes": 63644,
       "kind": "glb"
     },
     "prepared/watertank01.glb": {

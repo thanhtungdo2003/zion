@@ -18,6 +18,7 @@ export const MAP_ICONS = [
 ] as const;
 const ROLE_NAMES: Record<string, string> = { farmer: 'Nông dân', chef: 'Đầu bếp', colonel: 'Đại tá', merchant: 'Thương nhân', nurse: 'Y tá', storage: 'Kho căn cứ', target: 'Trường bắn' };
 const ROLE_ICONS: Record<string, string> = { farmer: 'lucide:wheat', chef: 'lucide:utensils', colonel: 'lucide:shield', merchant: 'lucide:boxes', nurse: 'lucide:heart-pulse', storage: 'lucide:boxes', target: 'lucide:crosshair' };
+export const WAYPOINT_ID = 'quick:waypoint';
 export interface MapLocation { id: string; name: string; icon: string; x: number; z: number; fixed: boolean; guide: boolean; role?: string; quest?: boolean }
 type Span = [number, number];
 export type ExploredRows = Array<[number, Span[]]>;
@@ -53,11 +54,15 @@ export interface MapState {
   world: WorldInfo | null; atlas: WorldAtlas | null; error: string | null;
   locations: MapLocation[]; arrows: boolean; revision: number;
   camera: MapCamera | null;
+  /** Battle royale: chosen automatic jump point on the flight path. */
+  jump: { x: number; z: number } | null;
 }
 
 /** Personal map notebook, saved per account and world in this browser. */
 export class WorldMapStore {
-  private state: MapState = { world: null, atlas: null, error: null, locations: [], arrows: true, revision: 0, camera: null };
+  private state: MapState = { world: null, atlas: null, error: null, locations: [], arrows: true, revision: 0, camera: null, jump: null };
+  /** Sends the jump point to the server (set by the engine). */
+  onJump: ((point: { x: number; z: number } | null) => void) | null = null;
   exploration = new Exploration();
   private key = '';
   private listeners = new Set<() => void>();
@@ -85,7 +90,7 @@ export class WorldMapStore {
         camera = savedCamera(saved.camera);
       }
     } catch { /* Empty or unavailable browser storage. */ }
-    this.emit({ world, atlas: null, error: null, locations, arrows, camera });
+    this.emit({ world, atlas: null, error: null, locations, arrows, camera, jump: null });
     this.updateFixed([]);
     void this.loadAtlas();
   }
@@ -137,6 +142,14 @@ export class WorldMapStore {
     this.emit({ locations: this.state.locations.map((m) => m.id === id ? { ...m, ...patch } : m) }); this.saveSoon();
   }
   remove(id: string): void { this.emit({ locations: this.state.locations.filter((m) => m.fixed || m.id !== id) }); this.saveSoon(); }
+  setJump(point: { x: number; z: number } | null): void { this.emit({ jump: point }); this.onJump?.(point); }
+  /** One quick map pin with a guide arrow (battle royale); clicking it again removes it. */
+  setWaypoint(x: number, z: number): void {
+    const rest = this.state.locations.filter(m => m.id !== WAYPOINT_ID);
+    const old = this.state.locations.find(m => m.id === WAYPOINT_ID);
+    const locations = old && Math.hypot(old.x - x, old.z - z) < 25 ? rest : [...rest, { id: WAYPOINT_ID, name: 'Điểm đánh dấu', icon: 'lucide:flag', x, z, fixed: false, guide: true }];
+    this.emit({ locations }); this.saveSoon();
+  }
   setArrows(arrows: boolean): void { this.emit({ arrows }); this.saveSoon(); }
   setCamera(value: MapCamera): void {
     const camera = savedCamera(value);

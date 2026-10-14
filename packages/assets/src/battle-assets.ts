@@ -1,6 +1,6 @@
 import type { AssetDefinitionInput } from './schema';
 
-export const BATTLE_ASSET = { houseOne: 2200, houseTwo: 2201, door: 2202, plane: 2203, doorJamb: 2204, doorLintel: 2205, towerPost: 2206, waterTank: 2207, farmBed: 2208, crop: 2209, street: 2210, balconyPost: 2211 } as const;
+export const BATTLE_ASSET = { houseOne: 2200, houseTwo: 2201, door: 2202, plane: 2203, doorJamb: 2204, doorLintel: 2205, towerPost: 2206, waterTank: 2207, farmBed: 2208, crop: 2209, street: 2210, balconyPost: 2211, chimney: 2212, containerRed: 2213, containerGreen: 2214 } as const;
 // Authored bounds: 30 × 28/41 × 25 units. Normalize to 10 × 4.8/7.2 × 8.33 metres.
 // These closed models are solid scenery; loot belongs in the enterable modular buildings.
 export const BATTLE_ASSETS: readonly AssetDefinitionInput[] = [
@@ -64,3 +64,19 @@ export const BATTLE_ASSETS: readonly AssetDefinitionInput[] = [
     colliders: [], collisionLayer: 'none', bounds: { radius: 5.7, height: .03 }, render: { maxDistance: 800 },
   },
 ]);
+
+/** Island kit additions: power station chimney and shipping containers. */
+const ISLAND_EXTRAS: AssetDefinitionInput[] = [
+  {
+    id: 'battle.chimney', numericId: 2212, name: 'Power station chimney', category: 'structure',
+    model: { kind: 'procedural', generator: 'bridge_block', params: { width: 7, height: 62, depth: 7, color: '#6d6862' } },
+    colliders: [{ type: 'box', center: [0, 31, 0], halfExtents: [3.5, 31, 3.5] }], bounds: { radius: 5, height: 62 }, render: { maxDistance: 2400 }, tags: ['battle', 'power-plant'],
+  },
+  ...(['red', 'green'] as const).map((color, i): AssetDefinitionInput => ({
+    // 43 × 22 × 19 authored units → a 6.1 × 2.6 × 2.45 m shipping container.
+    id: `battle.container_${color}`, numericId: 2213 + i, name: `Shipping container (${color})`, category: 'structure',
+    model: { kind: 'bbmodel', path: `buildings/old-${color}-zion-container.bbmodel`, unitsPerMeter: 7, axisScale: [1, .83, .89], offset: [-.21, 0, .08] },
+    colliders: [{ type: 'box', center: [0, 1.3, 0], halfExtents: [3.07, 1.3, 1.22] }], bounds: { radius: 3.3, height: 2.6 }, render: { maxDistance: 700 }, tags: ['battle', 'port'],
+  })),
+];
+(BATTLE_ASSETS as AssetDefinitionInput[]).push(...ISLAND_EXTRAS);

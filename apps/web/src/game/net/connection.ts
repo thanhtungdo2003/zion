@@ -167,6 +167,11 @@ export class GameConnection {
     this.send({ t: 'armor', ...a });
   }
 
+  /** Battle royale automatic jump point (negative = clear). */
+  sendJumpPoint(x: number, z: number): void {
+    this.send({ t: 'jumppoint', x: Math.round(x), z: Math.round(z) });
+  }
+
   sendHeal(uid: number): void {
     this.send({ t: 'heal', uid });
   }

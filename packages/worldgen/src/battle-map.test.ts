@@ -4,58 +4,49 @@ import { BATTLE_MAP, CHEST_ASSETS, propTransform, TICK_DT } from '@zion/shared';
 import { CharacterController, CollisionWorld, Heightfield, createCharacterState, doorColliders, Mask, makeRayHit } from '../../physics/src/index';
 import { WorldGenerator } from './generator';
 import { normalizeSeed } from './config';
-import { battleStructures, battleTerrain, battleTower } from './battle-map';
+import { battleStructures, battleTower, modularBuilding } from './battle-map';
+import { authoredWorld, ISLAND_ASSET } from './maps/authored';
 import type { CampPart } from './camp';
 
 const registry = createDefaultRegistry();
 const config = { seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, mode: 'battle-royale' as const };
 const gen = new WorldGenerator(config, registry);
-describe('first seeded Battle Royale map', () => {
-  it('is deterministic, has no safe camp, and provides dry towns, construction sites and upstairs crates', () => {
-    const sites = battleStructures(gen), copy = new WorldGenerator(config, registry);
-    expect(gen.camp).toBeNull(); expect(gen.roads!.connectedSites.length).toBeGreaterThanOrEqual(140);
+describe('authored Battle Royale island', () => {
+  it('is deterministic, has no safe camp, and provides the planned districts with loot', () => {
+    const sites = battleStructures(gen), copy = new WorldGenerator(config, registry), world = authoredWorld(gen);
+    expect(gen.camp).toBeNull();
     expect(battleStructures(copy)).toEqual(sites);
-    expect(sites).toHaveLength(150);
-    expect(sites.some(s => s.kind === 'factory')).toBe(true);
+    expect(world.areas().map(a => a.kind)).toEqual(expect.arrayContaining(['port', 'town', 'military', 'power_plant', 'airfield', 'village']));
+    expect(gen.roads!.segments.length).toBeGreaterThan(500);
+    expect(gen.roads!.segments.some(s => s.paved)).toBe(true);
     for (const site of sites) {
-      expect(site.y).toBeGreaterThan(gen.seaLevel + 5);
-      expect(gen.heightAt(site.x, site.z)).toBeCloseTo(site.y);
-      expect(site.parts.some(p => CHEST_ASSETS.has(p.asset))).toBe(true);
-      if (site.kind === 'town') {
-        expect(site.parts.some(p => CHEST_ASSETS.has(p.asset) && p.y > 3)).toBe(true);
-        expect(new Set(site.parts.filter(p => p.asset === BATTLE_ASSET.door).map(p => p.group)).size).toBeGreaterThanOrEqual(12);
-        expect(site.parts.some(p => p.asset === 2421)).toBe(true);
-        expect(site.parts.filter(p => p.asset === BATTLE_ASSET.street).length).toBeGreaterThan(100);
-        const tiles = site.parts.filter(p => p.asset === BATTLE_ASSET.street);
-        expect(new Set(tiles.map(p => `${p.x}:${p.z}`)).size).toBe(tiles.length);
-        for (const a of tiles) for (const b of tiles) if (a !== b) expect(Math.abs(a.x-b.x) >= 8 || Math.abs(a.z-b.z) >= 8).toBe(true);
-        expect(site.parts.some(p => p.asset === BATTLE_ASSET.balconyPost)).toBe(true);
-      }
       for (const part of site.parts) expect(registry.byNumericId(part.asset)).toBeDefined();
+      if (site.radius > 2) {
+        // Land districts sit on dry levelled pads.
+        expect(site.y).toBeGreaterThan(gen.seaLevel + 1);
+        expect(gen.heightAt(site.x, site.z)).toBeCloseTo(site.y, 0);
+      }
     }
+    const town = sites.filter(s => s.kind === 'town');
+    expect(town.length).toBeGreaterThanOrEqual(16);
+    expect(town.flatMap(s => s.parts).filter(p => CHEST_ASSETS.has(p.asset)).length).toBeGreaterThan(30);
+    expect(town.some(s => s.parts.some(p => CHEST_ASSETS.has(p.asset) && p.y > 3))).toBe(true);
+    expect(town.flatMap(s => s.parts).some(p => p.asset === BATTLE_ASSET.door)).toBe(true);
+    expect(sites.flatMap(s => s.parts).filter(p => p.asset === ISLAND_ASSET.crane)).toHaveLength(3);
     expect(gen.findSpawnPoints(96, 65).length).toBeGreaterThanOrEqual(32);
     const s = sites[0]!, cx = Math.floor(s.x / 32), cz = Math.floor(s.z / 32);
     expect(gen.generateChunk(cx, cz, 0)).toEqual(copy.generateChunk(cx, cz, 0));
   });
-  it('has an irregular island coastline, dry foundations and clustered settlements', () => {
-    const size = gen.worldSize, sea = gen.seaLevel, sites = battleStructures(gen);
-    for (let t = 0; t <= size; t += 128) for (const [x, z] of [[0, t], [size, t], [t, 0], [t, size]]) expect(battleTerrain(gen.seed, size, sea, x!, z!)).toBeLessThan(sea);
-    const shores: number[] = [];
-    for (let i = 0; i < 16; i++) {
-      const angle = i * Math.PI / 8;
-      let distance = 0;
-      while (battleTerrain(gen.seed, size, sea, size / 2 + Math.cos(angle) * distance, size / 2 + Math.sin(angle) * distance) > sea && distance < size / 2) distance += 16;
-      shores.push(distance);
-    }
-    expect(Math.max(...shores) - Math.min(...shores)).toBeGreaterThan(200);
-    expect(sites.filter(s => s.kind === 'farm')).toHaveLength(24);
-    expect(sites.filter(s => s.kind === 'hamlet')).toHaveLength(28);
-    const nearest = sites.map(s => Math.min(...sites.filter(other => other !== s).map(other => Math.hypot(other.x - s.x, other.z - s.z))));
-    expect(nearest.reduce((sum, d) => sum + d, 0) / nearest.length).toBeLessThan(220);
-    for (const site of sites) for (let i = 0; i < 12; i++) {
-      const angle = i * Math.PI / 6;
-      expect(battleTerrain(gen.seed, size, sea, site.x + Math.cos(angle) * (site.radius + 24), site.z + Math.sin(angle) * (site.radius + 24))).toBeGreaterThan(sea + 7);
-    }
+  it('is an island with a harbour basin, woods and a power grid on land', () => {
+    const size = gen.worldSize, sea = gen.seaLevel, world = authoredWorld(gen);
+    for (let t = 0; t <= size; t += 256) for (const [x, z] of [[0, t], [size, t], [t, 0], [t, size]]) expect(gen.heightAt(x!, z!)).toBeLessThan(sea);
+    expect(gen.heightAt(2100, 3420)).toBeLessThan(sea - 1);
+    expect(gen.heightAt(1980, 2680)).toBeGreaterThan(sea + 5);
+    for (const pylon of world.pylons()) expect(gen.heightAt(pylon.x, pylon.z)).toBeGreaterThan(sea + 1);
+    expect(world.cables().every(c => c.points.length >= 2)).toBe(true);
+    let trees = 0;
+    for (let cz = 40; cz < 50; cz++) for (let cx = 38; cx < 48; cx++) trees += gen.generateChunk(cx, cz, 0).props.filter(p => p.asset >= 2440 && p.asset < 2460).length;
+    expect(trees).toBeGreaterThan(200);
   });
   it.each([false, true])('allows climbing a tower ladder onto its actual platform (water=%s)', water => {
     const world = new CollisionWorld({ worldSize: 96, seaLevel: -10 });
@@ -75,7 +66,9 @@ describe('first seeded Battle Royale map', () => {
     expect(state.grounded).toBe(true);
   });
   it('allows a real character to climb from the ground floor to the first upper floor', () => {
-    const site = battleStructures(gen).find(s => s.kind === 'factory')!, world = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: 20 });
+    const parts: CampPart[] = [];
+    modularBuilding(parts, -14, 14, 2, 4, false);
+    const site = { x: 96, z: 96, y: 0, parts }, world = new CollisionWorld({ worldSize: 256, seaLevel: -20 });
     const bx = site.x - 14, bz = site.z + 14;
     const cx = Math.floor(bx / 32), cz = Math.floor(bz / 32);
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) world.addChunk(cx + dx, cz + dz, new Heightfield((cx + dx) * 32, (cz + dz) * 32, 1, 33, new Float32Array(1089).fill(site.y), new Float32Array(1089).fill(NaN)), []);

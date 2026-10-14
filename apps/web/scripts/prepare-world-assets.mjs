@@ -21,6 +21,24 @@ const jobs = [
   ['buildings/pubg_building__low_poly_building.glb', null, 'apartment', 2421, 13],
   ['buildings/modular_slums.glb', 'E5_10', 'slum_room', 2422, 1.6],
   ['buildings/modular_slums.glb', 'C5_20', 'slum_corner', 2423, 1.6],
+  // Military island kit (battle royale). Options: height (target metres), rotateX (radians),
+  // collider ('faces' | 'trunk' | 'box' | 'footing' | 'none'), category, layer, tags.
+  ['buildings/electric_tower.glb', null, 'pylon_tower', 2430, 1, { height: 30, collider: 'footing', footing: 6, tags: ['power-grid'] }],
+  ['buildings/tva_pylon_pack_2.glb', null, 'pylon_hframe', 2431, 1, { height: 15, rotateX: -Math.PI / 2, collider: 'footing', footing: 4, tags: ['power-grid'] }],
+  ['buildings/tower_crane.glb', null, 'tower_crane', 2432, 1, { collider: 'footing', footing: 40, tags: ['port'] }],
+  ...[
+    ['Tree_Small_a_LOD0_12', 'tree_small_a'], ['Tree_Small_b_LOD0_15', 'tree_small_b'], ['Tree_Small_c_LOD0_5', 'tree_small_c'],
+    ['Tree_Small_d_LOD0_4', 'tree_small_d'], ['Tree_Small_e_LOD0]_21', 'tree_small_e'],
+    ['Tree_Big_a_LOD0_17', 'tree_big_a'], ['Tree_Big_b_LOD0_13', 'tree_big_b'], ['Tree_Big_c_LOD0_16', 'tree_big_c'],
+    ['Pine_Small_LOD0_9', 'pine_small'], ['Pine_Medium_LOD0_6', 'pine_medium'], ['Pine_Big_LOD0_7', 'pine_big'], ['Conifer_LOD0_8', 'conifer'],
+    ['Dead_Pine_LOD0_18', 'dead_pine'], ['Dead_Tree_LOD0_19', 'dead_tree'],
+  ].map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2440 + i, 1, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),
+  ...[['Bush_a_20', 'bush_a'], ['Bush_b_10', 'bush_b'], ['Bush_c_11', 'bush_c']]
+    .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2460 + i, 1, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }]),
+  ...[['Stone_Small_a_LOD0_24', 'stone_small_a'], ['Stone_Small_b_LOD0_22', 'stone_small_b'], ['Rock_Medium_a_LOD0_25', 'rock_medium_a'], ['Rock_Medium_b_LOD0_26', 'rock_medium_b'],
+    ['Rock_Medium_c_LOD0_27', 'rock_medium_c'], ['Rock_Big_a_LOD0_32', 'rock_big_a'], ['Rock_Big_b_LOD0_33', 'rock_big_b'], ['Rock_Big_c_LOD0_30', 'rock_big_c'], ['Cliff_a_LOD0_35', 'cliff_a'], ['Cliff_b_LOD0_36', 'cliff_b']]
+    .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2463 + i, 1, { collider: 'box', category: 'rock', tags: ['island-flora', 'rock'] }]),
+  ['nationals/banana_tree_low_poly.glb', null, 'banana_tree', 2473, 1, { height: 4.5, collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }],
 ];
 const sources = new Map();
 const hash = createHash('sha256').update(await fs.readFile(fileURLToPath(import.meta.url)));
@@ -30,7 +48,7 @@ try { if ((await fs.readFile(cacheFile,'utf8')) === signature && (await fs.stat(
 await fs.mkdir(outDir,{recursive:true});
 const definitions = [];
 const r = n => Math.round(n * 10000) / 10000;
-for (const [file, object, name, numericId, factor] of jobs) {
+for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const buf = sources.get(file), jsonLength = buf.readUInt32LE(12);
   const src = JSON.parse(buf.subarray(20,20+jsonLength));
   const bin = buf.subarray(28+jsonLength);
@@ -61,13 +79,15 @@ for (const [file, object, name, numericId, factor] of jobs) {
     for(let k=0;k<values.length;k+=3)box.expandByPoint(new Vector3(...values.slice(k,k+3)).applyMatrix4(worlds[i]));
   }
   const size=box.getSize(new Vector3()), center=box.getCenter(new Vector3());
-  const scale=numericId<2400 ? factor/size.z : name==='apartment' ? factor/size.y : factor;
+  const lift=new Matrix4().makeRotationX(opts.rotateX ?? 0);
+  if(opts.rotateX){box.applyMatrix4(lift);box.getSize(size);box.getCenter(center);}
+  const scale=opts.height ? opts.height/size.y : numericId<2400 ? factor/size.z : name==='apartment' ? factor/size.y : factor;
   // These two models have deep foundations below their entrance slab.
   // Align the entrance to terrain so the first step is within character step height.
   const foundation = name==='favela' ? 1.574 : name==='apartment' ? .55 : 0;
   // The Lada and Jeep sources face +Z while the authoritative driving frame faces -Z.
   // The quads and Grizzly already use the shared -Z forward axis.
-  const base=new Matrix4().makeRotationY(numericId===2300||numericId===2301?Math.PI:0).multiply(new Matrix4().makeTranslation(0,-foundation,0)).multiply(new Matrix4().makeScale(scale,scale,scale)).multiply(new Matrix4().makeTranslation(-center.x,-box.min.y,-center.z));
+  const base=new Matrix4().makeRotationY(numericId===2300||numericId===2301?Math.PI:0).multiply(new Matrix4().makeTranslation(0,-foundation,0)).multiply(new Matrix4().makeScale(scale,scale,scale)).multiply(new Matrix4().makeTranslation(-center.x,-box.min.y,-center.z)).multiply(lift);
   const dst={asset:{version:'2.0',generator:'ZION world asset preparation'},scene:0,scenes:[{nodes:[]}],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[{byteLength:0}],materials:[],textures:[],images:[],samplers:src.samplers??[]};
   const chunks=[];let length=0;
   function addView(data) { const padding=(4-length%4)%4;if(padding){chunks.push(Buffer.alloc(padding));length+=padding;}const id=dst.bufferViews.length;dst.bufferViews.push({buffer:0,byteOffset:length,byteLength:data.length});chunks.push(data);length+=data.length;return id; }
@@ -93,7 +113,7 @@ for (const [file, object, name, numericId, factor] of jobs) {
     async function remap(o){for(const [k,v]of Object.entries(o))if(v&&typeof v==='object'){if(k.endsWith('Texture')&&typeof v.index==='number')v.index=await texture(v.index);else await remap(v);}}
     await remap(mat);const id=dst.materials.length;dst.materials.push(mat);materialMap.set(index,id);return id;
   }
-  const colliders=new Map();
+  const colliders=new Map(), allPoints=[];
   for(const i of nodes) {
     const transform=base.clone().multiply(worlds[i]),normal=new Matrix3().getNormalMatrix(transform);
     const primitives=[],meshBounds=new Box3();
@@ -102,7 +122,7 @@ for (const [file, object, name, numericId, factor] of jobs) {
       for(const [key,index]of Object.entries(primitive.attributes)) {
         const {a,values,components}=accessor(index);
         if(key==='POSITION'||key==='NORMAL')for(let j=0;j<values.length;j+=3){const v=new Vector3(...values.slice(j,j+3));if(key==='POSITION')v.applyMatrix4(transform);else v.applyMatrix3(normal).normalize();values.splice(j,3,...v.toArray());}
-        if(key==='POSITION'){positions=values;for(let k=0;k<values.length;k+=3)meshBounds.expandByPoint(new Vector3(...values.slice(k,k+3)));}
+        if(key==='POSITION'){positions=values;for(let k=0;k<values.length;k+=3)allPoints.push(values.slice(k,k+3));for(let k=0;k<values.length;k+=3)meshBounds.expandByPoint(new Vector3(...values.slice(k,k+3)));}
         p.attributes[key]=addAccessor(values,a,components);
       }
       let indices=Array.from({length:positions.length/3},(_,j)=>j);
@@ -111,7 +131,7 @@ for (const [file, object, name, numericId, factor] of jobs) {
       primitives.push(p);
       // Axis-aligned architectural faces become thin boxes, preserving actual openings,
       // stair treads and upper floors instead of a solid bounding box around the house.
-      if(numericId>=2400)for(let j=0;j<indices.length;j+=3){
+      if(numericId>=2400&&(opts.collider??'faces')==='faces')for(let j=0;j<indices.length;j+=3){
         const verts=indices.slice(j,j+3).map(k=>new Vector3(...positions.slice(k*3,k*3+3)));
         const a=verts[1].clone().sub(verts[0]),b=verts[2].clone().sub(verts[0]),area=a.clone().cross(b).length()/2;
         if(area<.025)continue;
@@ -167,9 +187,19 @@ for (const [file, object, name, numericId, factor] of jobs) {
   const binaryHeader=Buffer.alloc(8);binaryHeader.writeUInt32LE(length);binaryHeader.writeUInt32LE(0x004e4942,4);
   const result=Buffer.concat([header,json,binaryHeader,...chunks]);await fs.writeFile(path.join(outDir,name+'.glb'),result);
   let faces=[...colliders.values()];
+  // Simple collider shapes for vegetation, rocks and lattice structures.
+  if(opts.collider&&opts.collider!=='faces'){
+    const all=new Box3();for(const p of allPoints)all.expandByPoint(new Vector3(...p));
+    const low=new Box3();for(const p of allPoints)if(p[1]<all.min.y+Math.min(2,(all.max.y-all.min.y)*.15))low.expandByPoint(new Vector3(...p));
+    const lc=low.getCenter(new Vector3()),ls=low.getSize(new Vector3()),ac=all.getCenter(new Vector3()),as=all.getSize(new Vector3());
+    if(opts.collider==='trunk')faces=[{type:'capsule',a:[r(lc.x),0,r(lc.z)],b:[r(lc.x),r(Math.max(1.2,as.y*.45)),r(lc.z)],radius:r(Math.min(.6,Math.max(.15,Math.min(ls.x,ls.z)*.35)))}];
+    else if(opts.collider==='box')faces=[{type:'box',center:[r(ac.x),r(ac.y),r(ac.z)],halfExtents:[r(Math.max(.05,as.x*.42)),r(Math.max(.05,as.y/2)),r(Math.max(.05,as.z*.42))]}];
+    else if(opts.collider==='footing'){const h=Math.min(as.y,opts.footing??4);faces=[{type:'box',center:[r(lc.x),r(h/2),r(lc.z)],halfExtents:[r(Math.max(.1,ls.x/2)),r(h/2),r(Math.max(.1,ls.z/2))]}];}
+    else faces=[];
+  }
   // Merge adjoining rectangles only when their two other dimensions match.
   // Doorways and stairwell holes are never filled by merging disconnected faces.
-  for(let pass=0;pass<2;pass++)for(let axis=0;axis<3;axis++){
+  if((opts.collider??"faces")==="faces")for(let pass=0;pass<2;pass++)for(let axis=0;axis<3;axis++){
     const groups=new Map();
     for(const f of faces){const key=[0,1,2].filter(i=>i!==axis).flatMap(i=>[f.center[i],f.halfExtents[i]]).map(v=>Math.round(v*200)).join(',');const list=groups.get(key)??[];list.push(f);groups.set(key,list);}
     faces=[];
@@ -179,7 +209,7 @@ for (const [file, object, name, numericId, factor] of jobs) {
       for(const f of group){if(current&&f.center[axis]-f.halfExtents[axis]<=current.center[axis]+current.halfExtents[axis]+.001){const low=current.center[axis]-current.halfExtents[axis],high=Math.max(current.center[axis]+current.halfExtents[axis],f.center[axis]+f.halfExtents[axis]);current.center[axis]=r((low+high)/2);current.halfExtents[axis]=r((high-low)/2);}else{current=structuredClone(f);faces.push(current);}}
     }
   }
-  definitions.push({id:'imported.'+name,numericId,name,category:'structure',model:{kind:'glb',path:'prepared/'+name+'.glb'},colliders:faces,collisionLayer:numericId<2400?'none':'static',bounds:{radius:r(Math.hypot(size.x,size.z)*scale/2),height:r(size.y*scale-foundation)},render:{maxDistance:numericId<2400?350:500},tags:[numericId<2400?'drivable':'imported-building']});
+  definitions.push({id:'imported.'+name,numericId,name,category:opts.category??'structure',model:{kind:'glb',path:'prepared/'+name+'.glb'},colliders:faces,collisionLayer:numericId<2400||opts.collider==='none'?'none':'static',bounds:{radius:r(Math.hypot(size.x,size.z)*scale/2),height:r(size.y*scale-foundation)},render:{maxDistance:numericId<2400?350:opts.category==='vegetation'?220:opts.category?420:opts.tags?.includes('power-grid')||name==='tower_crane'?1400:500,...(opts.category==='tree'||opts.category==='vegetation'?{sway:.1}:{})},tags:opts.tags??[numericId<2400?'drivable':'imported-building']});
   console.log(name,Math.round(result.length/1024)+' KB',colliders.size+' collision faces',size.clone().multiplyScalar(scale).toArray().map(r));
 }
 await fs.writeFile(sourceOut.replace(/\.ts$/,'.json'),JSON.stringify(definitions));

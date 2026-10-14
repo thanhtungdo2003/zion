@@ -16,7 +16,7 @@ import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, t
 import { QuestEngine, type QuestEvent } from './quests';
 import { battleStructures } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
-import { battlePlaneAt } from '@zion/shared';
+import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { doorColliders, stepAirborne } from '@zion/physics';
 import { type TeamService, TeamError } from './teams';
 import { TEAM_QUESTS } from '@zion/shared';
@@ -1139,7 +1139,7 @@ export class GameServer {
 
   handleMessage(session: ClientSession, msg: ClientMessage): void {
     const p = session.player;
-    if (this.battle && !['in', 'ping', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle'].includes(msg.t)) return;
+    if (this.battle && !['in', 'ping', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
     if (p && msg.t === 'tutorial') {
@@ -1226,6 +1226,10 @@ export class GameServer {
         return;
       case 'heal':
         this.onHeal(p, msg.uid);
+        return;
+      case 'jumppoint':
+        // Remembered until the player leaves the plane; a negative point clears it.
+        p.jumpPoint = msg.x < 0 || msg.z < 0 ? null : { x: msg.x, z: msg.z };
         return;
       case 'pickcoin':
         this.onPickupCoin(p, msg.id);
@@ -1481,9 +1485,14 @@ export class GameServer {
     }
     if (match.startedAt !== null && match.phase === 'running') {
       const plane = battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt);
+      const size = this.deps.world.generator.worldSize, start = battlePlaneAt(size, 0), end = battlePlaneAt(size, BATTLE_FLIGHT.durationMs);
+      const progress = 1 - plane.remainingMs / BATTLE_FLIGHT.durationMs;
       for (const p of this.players.values()) if (!p.dead && p.state.flight === 1) {
-        Object.assign(p.state, { x: plane.x, y: plane.y - 2, z: plane.z, vx: this.deps.world.generator.worldSize * .76 / 55, vy: 0, vz: this.deps.world.generator.worldSize * .44 / 55, grounded: false });
-        if (plane.remainingMs === 0) p.state.flight = 2;
+        Object.assign(p.state, { x: plane.x, y: plane.y - 2, z: plane.z, vx: size * .76 / 55, vy: 0, vz: size * .44 / 55, grounded: false });
+        // A marked jump point leaves the plane once it passes the point's projection on the path.
+        const mark = p.jumpPoint, dx = end.x - start.x, dz = end.z - start.z;
+        const target = mark ? ((mark.x - start.x) * dx + (mark.z - start.z) * dz) / (dx * dx + dz * dz) : Infinity;
+        if (plane.remainingMs === 0 || progress >= target) { p.state.flight = 2; p.jumpPoint = null; }
       }
     }
     if (this.bots) {

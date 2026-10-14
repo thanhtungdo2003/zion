@@ -4,6 +4,7 @@ import type { CampPart } from './camp';
 import type { WorldGenerator } from './generator';
 import type { Structure } from './structures';
 import { importedRoofAccess } from './imported-buildings';
+import { authoredWorld } from './maps/authored';
 
 const cache = new WeakMap<WorldGenerator, Structure[]>();
 /** Four kilometres of rolling valleys, ridgelines and mountain passes. */
@@ -19,7 +20,7 @@ export function battleTerrain(seed: number, size: number, sea: number, x: number
   return sea - 24 + (land - sea + 24) * smoothstep(-65, 130, inland);
 }
 
-function building(parts: CampPart[], x: number, z: number, floors: number, group: number, unfinished: boolean): void {
+export function modularBuilding(parts: CampPart[], x: number, z: number, floors: number, group: number, unfinished: boolean): void {
   const put = (asset: number, dx: number, y: number, dz: number, yaw = 0, scale = 1) => parts.push({ asset, x: x + dx, y, z: z + dz, yaw, scale, group });
   const floorHeight = 3.2;
   for (let level = 0; level <= floors; level++) {
@@ -95,6 +96,11 @@ const SITE_KINDS: { kind: Structure['kind']; count: number; radius: number }[] =
 ];
 
 export function battleStructures(gen: WorldGenerator): Structure[] {
+  // The battle royale island is authored by hand (maps/island.ts); seeded sites remain below for reference.
+  return authoredWorld(gen).structures();
+}
+
+export function seededBattleStructures(gen: WorldGenerator): Structure[] {
   const cached = cache.get(gen); if (cached) return cached;
   const rng = new Rng(hashCombine(gen.seed, 0xba771e));
   const result: Structure[] = [];
@@ -124,7 +130,7 @@ export function battleStructures(gen: WorldGenerator): Structure[] {
         const bx = column + (rng.next() - .5) * 3, bz = row + (rng.next() - .5) * 3;
         if (row === -22 && column === -54) parts.push({ asset: BUILDING_ASSET.apartment, x: -42, z: row, y: .08, yaw: 0, scale: 1, group });
         else if (group % 6 === 0) parts.push({ asset: group % 12 ? 2420 : 2403, x: bx, z: bz, y: .08, yaw: rng.next() > .5 ? 0 : Math.PI, scale: 1, group });
-        else building(parts, bx, bz, 1 + Math.floor(rng.next() * 3), group, false);
+        else modularBuilding(parts, bx, bz, 1 + Math.floor(rng.next() * 3), group, false);
         group++;
       }
       // One snapped tile grid: crossings share one tile instead of coplanar overlapping quads.
@@ -139,17 +145,17 @@ export function battleStructures(gen: WorldGenerator): Structure[] {
       for (const z of [-80, -36, 8, 52, 88]) parts.push({ asset: CAMP_ASSET['straight-lamp-post'], x: -7, z, y: 0, yaw: 0, scale: 1 });
     } else if (kind === 'factory') {
       // Linked single-storey workshop halls, with an administration building and loading yard.
-      for (let i = 0; i < 3; i++) building(parts, -14 + i * 14, -14, 1, i + 1, unfinished);
-      building(parts, -14, 14, 2, 4, unfinished);
+      for (let i = 0; i < 3; i++) modularBuilding(parts, -14 + i * 14, -14, 1, i + 1, unfinished);
+      modularBuilding(parts, -14, 14, 2, 4, unfinished);
       for (let i = 0; i < 5; i++) {
         parts.push({ asset: CAMP_ASSET['concrete-wall-panel'], x: 8 + i * 4, y: 0, z: 26, yaw: Math.PI / 2, scale: .5 });
         parts.push({ asset: CAMP_ASSET['rusty-oil-barrel'], x: 10 + i * 3, y: 0, z: 15, yaw: 0, scale: 1 });
       }
     } else if (kind === 'farm') {
-      building(parts, -22, -18, 2, 1, false);
+      modularBuilding(parts, -22, -18, 2, 1, false);
       parts.push({ asset: 2400, x: 22, z: -18, y: .08, yaw: 0, scale: 1, group: 2 });
       parts.push({ asset: 2401, x: -22, z: 10, y: .08, yaw: 0, scale: 1, group: 3 });
-      building(parts, 22, 10, 1, 4, true);
+      modularBuilding(parts, 22, 10, 1, 4, true);
       battleTower(parts, 0, -20, 5, true);
       for (let x = -24; x <= 24; x += 8) {
         parts.push({ asset: BATTLE_ASSET.farmBed, x, z: 36, y: .02, yaw: 0, scale: 1 });
@@ -159,14 +165,14 @@ export function battleStructures(gen: WorldGenerator): Structure[] {
     } else if (kind === 'watchtower' || kind === 'water_tower') {
       battleTower(parts, 0, 0, 1, kind === 'water_tower');
     } else if (kind === 'hamlet') {
-      building(parts, -18, -16, 2, 1, false);
+      modularBuilding(parts, -18, -16, 2, 1, false);
       for (const [i, [x, z]] of [[18,-16],[-18,16],[18,16]].entries()) parts.push({asset: [2420,2422,2423][i]!,x:x!,z:z!,y:.08,yaw:0,scale:1,group:i+2});
     } else if (kind === 'ruined_camp') {
-      building(parts, -12, 0, 1, 1, true);
+      modularBuilding(parts, -12, 0, 1, 1, true);
       battleTower(parts, 14, 5, 2, false);
       parts.push({ asset: CAMP_ASSET['field-tent'], x: 12, z: -12, y: 0, yaw: 0, scale: 1 });
     } else {
-      building(parts, 0, 0, 1, 1, false);
+      modularBuilding(parts, 0, 0, 1, 1, false);
     }
     result.push({ kind, x, z, y: battleTerrain(gen.seed, gen.worldSize, gen.seaLevel, x, z), yaw: rng.next() * Math.PI * 2, radius, parts: importedRoofAccess(parts), gid: index + 1 });
   }
