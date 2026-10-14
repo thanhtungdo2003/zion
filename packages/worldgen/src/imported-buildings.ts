@@ -1,3 +1,4 @@
+import { hash3 } from '@zion/shared';
 import { CAMP_ASSET, BATTLE_ASSET } from '@zion/assets';
 import type { CampPart } from './camp';
 import type { Structure } from './structures';
@@ -39,11 +40,23 @@ const INTERIOR_CRATES: Readonly<Record<number, ReadonlyArray<readonly [number, n
   2422: [[.43, .07, .42]],
   2423: [[-.07, .07, -.82]],
 };
-function interiorCrates(parts: CampPart[]): CampPart[] {
+/** Closed models with no usable interior: their crate (if any) stands outside, beside a wall. */
+const SOLID_HALF: Readonly<Record<number, readonly [number, number]>> = {
+  2401: [3.4, 3.3], 2402: [2.4, 4.4], 2405: [3.4, 1.4], 2406: [4.8, 2.4], 2408: [3, 1], 2409: [2.8, 1.2],
+};
+/** Deterministic 0…99 roll for one loot spot of one building. */
+function roll(part: CampPart, index: number): number {
+  return (hash3(0x10ad, Math.round(part.x * 10), Math.round(part.z * 10), part.asset * 16 + index) >>> 0) % 100;
+}
+function lootCrates(parts: CampPart[]): CampPart[] {
   const added: CampPart[] = [];
-  for (const part of parts) for (const [x, y, z] of INTERIOR_CRATES[part.asset] ?? []) {
+  for (const part of parts) {
     const c = Math.cos(part.yaw), s = Math.sin(part.yaw), k = part.scale;
-    added.push({ asset: CAMP_ASSET['military-wooden-crate'], x: part.x + (x * c + z * s) * k, z: part.z + (-x * s + z * c) * k, y: part.y + y * k, yaw: part.yaw, scale: 1, group: 0 });
+    const place = (x: number, y: number, z: number) => added.push({ asset: CAMP_ASSET['military-wooden-crate'], x: part.x + (x * c + z * s) * k, z: part.z + (-x * s + z * c) * k, y: part.y + y * k, yaw: part.yaw, scale: 1, group: 0 });
+    // Interior spots are filled by chance: not every house holds loot.
+    (INTERIOR_CRATES[part.asset] ?? []).forEach(([x, y, z], i) => { if (roll(part, i) < 55) place(x, y, z); });
+    const solid = SOLID_HALF[part.asset];
+    if (solid && roll(part, 9) < 50) place(solid[0] + .9, 0, 0);
   }
   return added;
 }
@@ -56,5 +69,5 @@ export function importedRoofAccess(parts: CampPart[]): CampPart[] {
     added.push({asset:BATTLE_ASSET.towerPost,x:part.x-4.85*c*part.scale,z:part.z+4.85*s*part.scale,y:part.y,yaw:part.yaw,scale:part.scale*.81,group:part.group});
     for (const y of [0,2,4,6]) added.push({asset:CAMP_ASSET['rusty-iron-wall-ladder'],x:part.x-4.98*c*part.scale,z:part.z+4.98*s*part.scale,y:part.y+y*part.scale,yaw:part.yaw-Math.PI/2,scale:part.scale*(y===6?.75:1),group:part.group});
   }
-  parts.push(...added, ...interiorCrates(parts)); return parts;
+  parts.push(...added, ...lootCrates(parts)); return parts;
 }

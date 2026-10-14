@@ -3,16 +3,17 @@ import { Surface } from '@zion/shared';
 
 /** Base ground colours (sRGB hex) per surface material. */
 const SURFACE_HEX: Record<Surface, number> = {
-  [Surface.Grass]: 0x5d8a3a,
-  [Surface.DryGrass]: 0xa39a5a,
-  [Surface.ForestFloor]: 0x4a4a2c,
-  [Surface.JungleFloor]: 0x3d6b28,
-  [Surface.Sand]: 0xd9c592,
-  [Surface.Sandstone]: 0xbf8a5b,
-  [Surface.Dirt]: 0x7a5e3f,
-  [Surface.Mud]: 0x4c4330,
-  [Surface.Gravel]: 0x8a857b,
-  [Surface.Rock]: 0x76726c,
+  // Muted, natural field tones: olive grass, umber earth, grey-buff sand and stone.
+  [Surface.Grass]: 0x5c7539,
+  [Surface.DryGrass]: 0x938a5c,
+  [Surface.ForestFloor]: 0x4b4431,
+  [Surface.JungleFloor]: 0x456b2e,
+  [Surface.Sand]: 0xc4b48c,
+  [Surface.Sandstone]: 0xa98260,
+  [Surface.Dirt]: 0x6b5843,
+  [Surface.Mud]: 0x463e30,
+  [Surface.Gravel]: 0x84807a,
+  [Surface.Rock]: 0x7a766f,
   [Surface.Snow]: 0xeef2f6,
   [Surface.Seabed]: 0x8a8264,
   [Surface.DirtRoad]: 0x80694c,
@@ -27,10 +28,10 @@ const SURFACE_HEX: Record<Surface, number> = {
 /** Linear-space copies (three.js lights in linear space). */
 const SURFACE_LINEAR: Color[] = Object.values(SURFACE_HEX).map((h) => new Color(h));
 
-const GRASS_DRY = new Color(0xb3a55e);
-const GRASS_LUSH = new Color(0x4f8f30);
-const GRASS_COLD = new Color(0x56755a);
-const GRASS_TROPIC = new Color(0x3b8a22);
+const GRASS_DRY = new Color(0x9e925f);
+const GRASS_LUSH = new Color(0x527236);
+const GRASS_COLD = new Color(0x58705a);
+const GRASS_TROPIC = new Color(0x48722e);
 const UNDERWATER = new Color(0x1f4d55);
 const tmp = new Color();
 const tmp2 = new Color();

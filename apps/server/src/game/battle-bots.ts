@@ -97,7 +97,7 @@ export interface BotHooks {
   /** A bot's bullet struck a player. */
   hitPlayer(bot: BattleBot, player: Player, damage: number, zone: string, x: number, y: number, z: number, now: number): void;
   /** A bot died; `by` names the killer or cause. */
-  died(bot: BattleBot, by: string, now: number): void;
+  died(bot: BattleBot, by: string, now: number, killerId: number | null): void;
   /** Lootable chests (and death crates) near a point. */
   chests(x: number, z: number, radius: number): Array<{ id: string; x: number; y: number; z: number }>;
   /** Takes the chosen items out of a chest; returns what was actually removed. */
@@ -165,7 +165,7 @@ export class BattleBotDirector {
   }
 
   /** Damage from players, other bots, blasts or the zone. */
-  hit(bot: BattleBot, amount: number, by: string, from: { x: number; z: number } | null, now: number, zone = 'torso'): void {
+  hit(bot: BattleBot, amount: number, by: string, from: { x: number; z: number } | null, now: number, zone = 'torso', killerId: number | null = null): void {
     if (bot.dead || amount <= 0) return;
     const taken = zone === 'red_zone' ? amount : Math.max(1, Math.round(amount * (1 - armorProtection(bot.armor))));
     bot.health = Math.max(0, bot.health - taken);
@@ -173,7 +173,7 @@ export class BattleBotDirector {
     if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
     if (bot.health > 0) return;
     bot.dead = true; bot.deadAt = now; bot.state.flight = 0; bot.state.prone = false;
-    this.hooks.died(bot, by, now);
+    this.hooks.died(bot, by, now, killerId);
   }
 
   step(now: number, tick: number, world: BotWorld, players: readonly Player[]): void {
@@ -434,7 +434,7 @@ export class BattleBotDirector {
       this.hooks.projectileEnd({ t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target, impact: !!hit.target || hit.t < length - 1e-4, normal: hit.normal });
       if (!hit.target || !hit.zone) continue;
       const damage = Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]);
-      if (hit.target instanceof BattleBot) this.hit(hit.target, damage, r.bot.name, { x: r.bot.state.x, z: r.bot.state.z }, now, hit.zone);
+      if (hit.target instanceof BattleBot) this.hit(hit.target, damage, r.bot.name, { x: r.bot.state.x, z: r.bot.state.z }, now, hit.zone, r.bot.id);
       else this.hooks.hitPlayer(r.bot, hit.target as Player, damage, hit.zone, r.x, r.y, r.z, now);
     }
   }

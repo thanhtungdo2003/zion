@@ -48,9 +48,10 @@ describe('world generation', () => {
         expect(l1.heights[heightIndex(n1, i, j)]).toBe(l0.heights[heightIndex(l0.verts, i * 2, j * 2)]);
       }
     }
-    // Props are LOD-independent (LOD 0 and 1 carry the same set); LOD 2 carries none.
+    // Props are LOD-independent: LOD 0–2 carry the same set (far trees stay on the hills); LOD 3 none.
     expect(l1.props).toEqual(l0.props);
-    expect(gen.generateChunk(25, 27, 2).props).toHaveLength(0);
+    expect(gen.generateChunk(25, 27, 2).props).toEqual(l0.props);
+    expect(gen.generateChunk(25, 27, 3).props).toHaveLength(0);
   });
 
   it('is an island: the world border is ocean', () => {

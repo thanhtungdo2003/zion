@@ -70,9 +70,11 @@ describe('isolated Battle Royale simulation', () => {
       player.state.x = 1; player.state.z = 1;
       harness.stepBattle(30_003);
       expect(player.health).toBe(99);
+      const scattered = harness.groundItems.size;
       harness.damage(a.player!.id, player, 1000, 'torso', 0, 0, 0, 30_004, 1);
       expect(player.dead).toBe(true); expect(player.downed).toBe(false); expect(player.inv.items).toEqual([]);
-      expect(harness.groundItems.size).toBe(0);
+      // Death drops nothing loose: the inventory goes into a crate (floor loot was there already).
+      expect(harness.groundItems.size).toBe(scattered);
       expect(harness.deathCrates.size).toBe(1);
       const crateId = [...harness.deathCrates.keys()][0]!;
       const loot = harness.battleChests.get(crateId)!;

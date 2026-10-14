@@ -69,6 +69,13 @@ export interface HudState {
   /** Last time one of our hits landed on an enemy (hit marker), and whether it was a head shot. */
   hitMarkAt: number;
   hitMarkHead: boolean;
+  /** Last confirmed kill (banner + streak within a short window). */
+  killAt: number;
+  killName: string;
+  killStreak: number;
+  /** Direction a hit came from, relative to the view (radians, 0 = ahead), and when. */
+  damageDirAt: number;
+  damageDir: number;
   hurtAmount: number;
   respawnIn: number;
   /** Magazine of the gun in hand (null when not holding a gun). */
@@ -138,6 +145,11 @@ export function initialHud(): HudState {
     hurtAt: 0,
     hitMarkAt: 0,
     hitMarkHead: false,
+    killAt: 0,
+    killName: '',
+    killStreak: 0,
+    damageDirAt: 0,
+    damageDir: 0,
     hurtAmount: 0,
     respawnIn: 0,
     ammo: null,

@@ -219,6 +219,9 @@ export class VegetationRenderer {
     this.centerX = Number.NaN;
   }
 
+  /** All ground cover around the player is built. */
+  get settled(): boolean { return !Number.isNaN(this.centerX); }
+
   /** Rebuilds the set of vegetated chunks when the player's chunk changes (or a chunk updates). */
   update(px: number, pz: number, force = false, deadline = Infinity): void {
     const cx = Math.floor(px / CHUNK_SIZE);

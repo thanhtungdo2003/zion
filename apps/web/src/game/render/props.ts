@@ -1,4 +1,5 @@
-import { ConeGeometry, CylinderGeometry, DynamicDrawUsage, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, MeshLambertMaterial, type BufferGeometry, type Material, type Scene } from 'three';
+import { DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, type BufferGeometry, type Material, type Scene } from 'three';
+import { farMaterial, simplifyAsset } from './far-lod';
 import { PROPS_MAX_LOD, propTransform, type ChunkData } from '@zion/shared';
 import type { AssetLibrary, AssetVisual } from './asset-library';
 
@@ -14,22 +15,13 @@ interface Batch {
   hidden: Uint8Array;
 }
 
-/** Trees farther than this (m, × draw distance) are drawn as simple low-poly stand-ins. */
+/** Beyond these distances (m, × draw distance) models switch to their simplified far form. */
 const TREE_LOD_DISTANCE = 70;
+const MODEL_LOD_DISTANCE = 170;
 
-/** A distant tree: trunk plus one coarse canopy shape, two flat colours, no shadows. */
+/** A far model: the asset's own silhouette, simplified and flat-coloured (see far-lod.ts). */
 interface Proxy { parts: Array<{ geometry: BufferGeometry; material: Material }> }
-const proxyMaterials = { trunk: new MeshLambertMaterial({ color: 0x4a3a2a }), broadleaf: new MeshLambertMaterial({ color: 0x3f5f2e }), conifer: new MeshLambertMaterial({ color: 0x2c4628 }), dead: new MeshLambertMaterial({ color: 0x5a4d3c }) };
-function makeProxy(v: AssetVisual): Proxy {
-  const h = v.def.bounds.height, r = v.def.bounds.radius, id = v.def.id;
-  const conifer = /pine|conifer|spruce/.test(id) && !/dead/.test(id), dead = /dead/.test(id);
-  const trunk = new CylinderGeometry(.12 + r * .03, .2 + r * .04, h * (dead ? .9 : .45), 5).translate(0, h * (dead ? .45 : .225), 0);
-  if (dead) return { parts: [{ geometry: trunk, material: proxyMaterials.dead }] };
-  const canopy = conifer
-    ? new ConeGeometry(r * .7, h * .82, 6).translate(0, h * .18 + h * .41, 0)
-    : new IcosahedronGeometry(1, 0).scale(r * .78, h * .36, r * .78).translate(0, h * .62, 0);
-  return { parts: [{ geometry: trunk, material: proxyMaterials.trunk }, { geometry: canopy, material: conifer ? proxyMaterials.conifer : proxyMaterials.broadleaf }] };
-}
+function makeProxy(v: AssetVisual): Proxy { return { parts: [{ geometry: simplifyAsset(v, v.def.category === 'tree' ? 7 : 9), material: farMaterial }] }; }
 
 /** How fast occluders fade out / back in (per second). */
 const FADE_SPEED = 6;
@@ -65,6 +57,9 @@ export class PropRenderer {
   private distanceScale = 1;
   /** Graphics setting: multiplies every asset's render distance. */
   setDistanceScale(scale: number): void { if (scale !== this.distanceScale) { this.distanceScale = scale; this.markDirty(); } }
+
+  /** Every model in range is loaded and placed (used to hold the loading screen). */
+  get settled(): boolean { return !this.rebuildJob && !this.dirty && this.pending.size === 0; }
 
   markDirty(): void {
     this.dirty = true;
@@ -130,9 +125,9 @@ export class PropRenderer {
         const t = propTransform(chunk, p);
         const max = v.def.render.maxDistance * this.distanceScale, d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
         if (d2 > max * max) continue;
-        // Distant trees keep their place but lose their detailed canopy (negative key = stand-in).
-        const lod = TREE_LOD_DISTANCE * Math.max(.6, this.distanceScale);
-        const b = this.batch(v.def.category === 'tree' && d2 > lod * lod ? -p.asset : p.asset);
+        // Distant models keep their place and shape, drawn simplified and flat (negative key).
+        const lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * Math.max(.6, this.distanceScale);
+        const b = this.batch(v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset);
         if ((b.count + 1) * 16 > b.matrices.length) {
           const grown = new Float32Array(b.matrices.length * 2);
           grown.set(b.matrices);

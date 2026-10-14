@@ -27,7 +27,7 @@ export interface StudioBackend {
   reset(): Promise<void>;
   /** Vehicle physics engine for every game server (Jolt or the built-in arcade model). */
   vehiclePhysics(): { jolt: boolean };
-  setVehiclePhysics(jolt: boolean): { jolt: boolean };
+  setVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }>;
 }
 
 const CAMP_IDS = new Set<number>(Object.values(CAMP_ASSET));

@@ -226,6 +226,7 @@ export class GameEngine {
   private healing: { uid: number; start: number } | null = null;
   /** Last hit that interrupts first aid (zone damage does not). */
   private healBreakAt = 0;
+  private wasAiming = false;
   /** ZCoin dropped by zombies (server-owned; we only show them and ask to pick up). */
   private readonly coinDrops = new Map<number, Object3D>();
   private readonly coinRingGeometry = new RingGeometry(0.28, 0.36, 28);
@@ -351,6 +352,8 @@ export class GameEngine {
   private battleFlight: BattleFlightRenderer | null = null;
   private powerCables: PowerCables | null = null;
   private vehiclePrediction: VehiclePrediction | null = null;
+  /** When the in-game loading phase began (0 = not loading). */
+  private loadingSince = 0;
   private planeReceivedAt = 0;
   private flightCamera = false;
   private recoilWeapon: number | null = null;
@@ -1273,7 +1276,21 @@ export class GameEngine {
         break;
       case 'hit':
         // Hit marker: one of our shots or blows connected with someone else.
-        if (m.attackerId === this.welcome?.playerId && m.targetId !== m.attackerId && m.damage > 0) this.hud.set({ hitMarkAt: performance.now(), hitMarkHead: m.zone === 'head' || m.zone === 'decapitation' });
+        if (m.attackerId === this.welcome?.playerId && m.targetId !== m.attackerId && m.damage > 0) {
+          const head = m.zone === 'head' || m.zone === 'decapitation';
+          this.hud.set({ hitMarkAt: performance.now(), hitMarkHead: head });
+          // A crisp tick on every hit, a bright ring on head shots (heard only by the shooter).
+          this.sounds?.play(head ? 'headshot' : 'hitmarker', { volume: head ? .55 : .7, rate: .95 + Math.random() * .1 });
+        }
+        if (m.targetId === this.welcome?.playerId && m.attackerId && m.attackerId !== m.targetId && this.local) {
+          // Damage direction: where the hit came from, relative to where we are looking.
+          const from = this.remotes.get(m.attackerId)?.entity.pose ?? this.zombies.get(m.attackerId)?.entity.pose;
+          if (from) {
+            const bearing = Math.atan2(-(from.x - this.local.state.x), -(from.z - this.local.state.z));
+            const relative = Math.atan2(Math.sin(bearing - this.input.yaw), Math.cos(bearing - this.input.yaw));
+            this.hud.set({ damageDirAt: performance.now(), damageDir: relative });
+          }
+        }
         if (m.zone === 'decapitation') this.zombies.get(m.targetId)?.avatar.severHead(m.kx ?? 0, m.kz ?? 1, m.force ?? 4);
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
         if (m.zone === 'fire') {
@@ -1294,6 +1311,13 @@ export class GameEngine {
         if (m.targetId === this.welcome?.playerId) { this.healBreakAt = performance.now(); this.hud.set({ hurtAt: this.healBreakAt, hurtAmount: Math.min(1, 0.35 + m.damage / 40) }); }
         break;
       case 'death':
+        if (m.killerId === this.welcome?.playerId && m.playerId !== m.killerId) {
+          // Kill confirmation: sound, banner and a streak that keeps counting for a few seconds.
+          const now = performance.now(), hud = this.hud.get();
+          const name = isZombieId(m.playerId) ? 'Zombie' : this.names.get(m.playerId) ?? 'Đối thủ';
+          this.hud.set({ killAt: now, killName: name, killStreak: now - hud.killAt < 6000 ? hud.killStreak + 1 : 1 });
+          this.sounds?.play(isZombieId(m.playerId) ? 'knockdown' : 'killConfirm', { volume: .8 });
+        }
         if (!isZombieId(m.playerId)) {
           // Players go limp and are thrown back by the killing hit.
           const av = m.playerId === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.playerId)?.avatar;
@@ -1869,6 +1893,8 @@ export class GameEngine {
     const equippedSpec = weaponSpec(weapon);
     this.aiming = equippedSpec?.kind === 'gun' && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
     this.scoped = this.aiming && equippedSpec?.kind === 'gun' && !!equippedSpec.scope;
+    // Raising and lowering the sights: a short cloth-and-metal shuffle.
+    if (this.aiming !== this.wasAiming) { this.sounds?.play(this.aiming ? 'aimIn' : 'aimOut', { volume: .35 }); this.wasAiming = this.aiming; }
     let moveX = mx;
     let moveZ = mz;
     if (this.aiming) { buttons |= Buttons.Aim; buttons &= ~Buttons.Sprint; }
@@ -2389,6 +2415,7 @@ export class GameEngine {
     if (ground) {
       // The server checks reach and room; its 'inv' / 'groundGone' messages follow.
       this.inventory.pickUpGround(ground.id);
+      this.sounds?.play(weaponSpec(WEAPON_BY_ITEM[ground.itemId] ?? 0) ? 'pickupWeapon' : 'pickup', { volume: .7 });
       return;
     }
     if (this.nearQuestNpc) {
@@ -2889,7 +2916,20 @@ export class GameEngine {
     let status = this.hud.get().status;
     if (status !== 'disconnected') {
       if (dead) status = 'dead';
-      else if (status === 'loading' && local.ready && lod0 >= Math.min(expectedLod0, 25)) status = 'playing';
+      else if (status === 'loading' && local.ready && lod0 >= Math.min(expectedLod0, 25)) {
+        // Join only once the whole view is in: every terrain ring, every model and the ground cover.
+        const ring = LOD_RINGS[LOD_RINGS.length - 1]!, size = this.welcome!.world.sizeChunks;
+        const pcx = Math.floor(px / CHUNK_SIZE), pcz = Math.floor(pz / CHUNK_SIZE);
+        let expected = 0, have = 0;
+        for (let cz = pcz - ring; cz <= pcz + ring; cz++) for (let cx = pcx - ring; cx <= pcx + ring; cx++) {
+          if (cx < 0 || cz < 0 || cx >= size || cz >= size) continue;
+          expected++; if (store.get(cx, cz)) have++;
+        }
+        this.loadingSince ||= now;
+        const complete = have >= expected * .98 && !!this.props?.settled && !!this.vegetation?.settled;
+        if (complete || now - this.loadingSince > 90_000) { status = 'playing'; this.loadingSince = 0; }
+        else this.hud.set({ statusDetail: { key: 'raw', vars: { text: `Đang tải bản đồ ${Math.round(have / Math.max(1, expected) * 100)}% · mô hình và cây cối…` } }, loadProgress: have / Math.max(1, expected) });
+      }
       else if (status === 'dead') status = 'playing';
     }
     this.hud.set({

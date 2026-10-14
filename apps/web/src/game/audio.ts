@@ -43,6 +43,15 @@ export const SOUND_FILES = {
   questAccept: '/sounds/quest-accept.wav',
   questComplete: '/sounds/quest-complete.wav',
   eat: '/sounds/eat-sound.mp3',
+  // Combat feedback (Kenney CC0 packs, see public/sounds/fx/LICENSE.txt).
+  hitmarker: '/sounds/fx/hitmarker.ogg',
+  headshot: '/sounds/fx/headshot.ogg',
+  killConfirm: '/sounds/fx/kill-confirm.ogg',
+  knockdown: '/sounds/fx/knockdown.ogg',
+  pickup: '/sounds/fx/pickup.ogg',
+  pickupWeapon: '/sounds/fx/pickup-weapon.ogg',
+  aimIn: '/sounds/fx/aim-in.ogg',
+  aimOut: '/sounds/fx/aim-out.ogg',
   // World sounds every nearby player hears (positional).
   footsteps: '/sounds/footsteps-in-soft-material.mp3',
 } as const;

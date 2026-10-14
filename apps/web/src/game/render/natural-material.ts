@@ -48,8 +48,11 @@ export function naturalMaterial<T extends Material>(material: T, surface: Natura
       diffuseColor.rgb *= 0.78 + broad * 0.24 + fine * 0.19 + strata * 0.09;
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.17, 1.08, 0.92), vein * 0.35);
     ` : `
-      diffuseColor.rgb *= 0.81 + broad * 0.21 + medium * 0.17 + fine * 0.12;
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.02, 0.87), medium * 0.35);
+      // Large tonal patches (tens of metres) break up uniform fields, like real worn ground.
+      float macro = naturalNoise(p * 0.018) * 0.65 + naturalNoise(p * 0.06) * 0.35;
+      diffuseColor.rgb *= 0.78 + broad * 0.18 + medium * 0.16 + fine * 0.12 + macro * 0.14;
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.02, 0.86), medium * 0.3);
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.06, 0.97, 0.84), smoothstep(0.45, 0.8, macro) * 0.45);
     `;
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       vec3 p = vNaturalPosition;
@@ -60,7 +63,7 @@ export function naturalMaterial<T extends Material>(material: T, surface: Natura
       float fine = mix(0.5, naturalNoise(p * 22.0), grainFade);
       ${detail}
       float naturalLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(naturalLuma), 0.12);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(naturalLuma), ${surface === 'ground' ? '0.2' : '0.12'});
     `);
     if (material instanceof MeshStandardMaterial) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
@@ -73,7 +76,7 @@ export function naturalMaterial<T extends Material>(material: T, surface: Natura
       `);
     }
   };
-  material.customProgramCacheKey = () => `${key()}|natural-${surface}-1`;
+  material.customProgramCacheKey = () => `${key()}|natural-${surface}-2`;
   return material;
 }
 

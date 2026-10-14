@@ -2544,3 +2544,13 @@ kbd {
 .hud-hitmark i:nth-child(4) { transform: rotate(315deg) translateX(-10px); }
 .hud-hitmark.head i { background: #ff4a4a; }
 @keyframes hud-hitmark { from { opacity: 1; transform: scale(1.25); } to { opacity: 0; transform: scale(1); } }
+
+/* Damage direction: a red wedge on a ring around the crosshair, pointing at the attacker. */
+.hud-damage-dir { position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px 0 0 -110px; pointer-events: none; animation: hud-damage-dir 1.1s ease-out forwards; }
+.hud-damage-dir i { position: absolute; left: 50%; top: 0; width: 70px; height: 18px; margin-left: -35px; border-top: 4px solid rgba(255, 44, 44, .9); border-radius: 50% 50% 0 0 / 100% 100% 0 0; filter: drop-shadow(0 0 4px rgba(255, 0, 0, .6)); }
+@keyframes hud-damage-dir { 0% { opacity: 1; } 70% { opacity: .8; } 100% { opacity: 0; } }
+/* Kill confirmation under the crosshair. */
+.hud-kill { position: absolute; left: 50%; top: calc(50% + 46px); transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; pointer-events: none; animation: hud-kill 1.8s ease-out forwards; }
+.hud-kill b { font: 700 15px var(--cond); letter-spacing: .22em; color: #ff4a4a; text-shadow: 0 1px 3px #000; }
+.hud-kill span { font: 600 11px var(--mono); color: var(--text); text-shadow: 0 1px 2px #000; }
+@keyframes hud-kill { 0% { opacity: 0; transform: translate(-50%, 6px) scale(1.15); } 12% { opacity: 1; transform: translate(-50%, 0) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }

@@ -14,7 +14,7 @@ import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCost, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
-import { battleStructures } from '@zion/worldgen';
+import { authoredWorld, battleStructures } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { doorColliders, stepAirborne } from '@zion/physics';
@@ -292,10 +292,11 @@ export class GameServer {
         this.damage(bot.id, player, damage, zone, x, y, z, now, bot.name);
         if (damage > 0 && !player.dead) this.knockback(player, player.state.x - bot.state.x, player.state.z - bot.state.z, now, .5);
       },
-      died: (bot, by, now) => this.botDied(bot, by, now),
+      died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
     }) : null;
+    if (this.battle) this.scatterGroundLoot();
     this.guards = new CampGuardDirector(gen.camp, this.collision, {
       shot: (message) => this.broadcastAt(message.ox, message.oz, message),
       projectile: (message) => this.broadcastAt(message.x, message.z, message),
@@ -1471,6 +1472,7 @@ export class GameServer {
       this.battle = new BattleRoyaleMatch(this.deps.world.generator.seed, this.deps.world.generator.worldSize);
       this.battleFlightStarted = false;
       this.bots?.clear(); this.nextBotAt = 0;
+      this.scatterGroundLoot();
       this.doorUsedAt.clear();
       this.vehicles.reset();
       for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); }
@@ -1523,6 +1525,17 @@ export class GameServer {
     }
   }
 
+  /** Loose weapons, ammunition, armour and kits lying on building floors for each new match. */
+  private scatterGroundLoot(): void {
+    const spots = authoredWorld(this.deps.world.generator).lootSpots();
+    for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spots[i], spots[j]] = [spots[j]!, spots[i]!]; }
+    for (const spot of spots.slice(0, Math.min(320, Math.floor(spots.length * .35)))) {
+      const pool = generateBattleLoot([]), item = pool[Math.floor(Math.random() * pool.length)]!;
+      const id = this.nextGroundId++;
+      this.groundItems.set(id, { itemId: item.itemId, count: item.count, mag: item.mag, x: +(spot.x + (Math.random() - .5) * 1.2).toFixed(2), y: +spot.y.toFixed(2), z: +(spot.z + (Math.random() - .5) * 1.2).toFixed(2), expiresAt: Infinity });
+    }
+  }
+
   /** While a match fills up, bots join one by one behind the human players (at most MAX_BATTLE_BOTS). */
   private joinBots(match: BattleRoyaleMatch, now: number): void {
     if (!this.bots || !match.accepting) return;
@@ -1538,9 +1551,9 @@ export class GameServer {
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
   }
 
-  private botDied(bot: BattleBot, by: string, now: number): void {
+  private botDied(bot: BattleBot, by: string, now: number, killerId: number | null = null): void {
     this.battle?.eliminate(bot.id);
-    this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId: null });
+    this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId });
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã bị loại bởi ${by}.` });
     if (!bot.items.length) return;
     const items = bot.items.map(item => ({ ...item, container: 'backpack' as const, x: 0, y: 0 }));
@@ -1804,6 +1817,7 @@ export class GameServer {
     input = { ...input, b: buttons };
     p.lastButtons = buttons;
     const wasRolling = p.state.rollTicks > 0;
+    const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
       { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) },
@@ -1811,6 +1825,8 @@ export class GameServer {
       this.stepInfo,
     );
     if (!wasRolling && p.state.rollTicks > 0) p.state.rollCooldown = Math.round(this.life.config.stamina.rollCooldown / TICK_DT);
+    // Fall damage: a hard landing (over ~11 m/s, about a 6 m drop) hurts, a long fall kills.
+    if (falling > 11 && s.grounded && !s.swimming) this.damage(null, p, Math.round((falling - 11) ** 2 * 1.2), 'fall', s.x, s.y, s.z, now, 'rơi từ trên cao');
     p.frozenTicks = info.frozen ? p.frozenTicks + 1 : 0;
     const dx = s.x - px;
     const dz = s.z - pz;
@@ -1972,7 +1988,7 @@ export class GameServer {
     else if (target instanceof BattleBot) {
       if (!this.battle?.canFight(attacker.id)) return;
       this.broadcastAt(x, z, { t: 'hit', attackerId: attacker.id, targetId: target.id, zone, damage: amount, x, y, z });
-      this.bots?.hit(target, amount, attacker.username, { x: attacker.state.x, z: attacker.state.z }, now, zone);
+      this.bots?.hit(target, amount, attacker.username, { x: attacker.state.x, z: attacker.state.z }, now, zone, attacker.id);
     }
     else {
       const t = target as Player;
@@ -2321,7 +2337,7 @@ export class GameServer {
     }
     for (const bot of this.bots?.near(x, z, radius) ?? []) {
       const d = Math.hypot(bot.state.x - x, bot.state.y + .9 - (y + .3), bot.state.z - z);
-      if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now);
+      if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now, 'blast', owner?.id ?? null);
     }
     if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
     // Livestock caught in the blast (credited to the thrower).

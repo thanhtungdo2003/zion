@@ -116,6 +116,15 @@ async function main(): Promise<void> {
     game.applyContent(parsed.content);
   }
 
+  // Studio switches persisted across restarts.
+  try {
+    const physics = await db.query<{ value: { jolt?: boolean } }>(`SELECT value FROM server_settings WHERE key = 'vehicle_physics'`);
+    const jolt = physics.rows[0]?.value.jolt;
+    if (typeof jolt === 'boolean') game.vehicleJolt = battleGame.vehicleJolt = jolt;
+  } catch (err) {
+    logger.error({ err }, 'failed to load server settings (using defaults)');
+  }
+
   let gateway: GameGateway | null = null;
   // Camp Studio: a saved camp layout replaces the generated one, live for everyone.
   const campLayouts = new CampLayoutRepository(db, config.WORLD_ID);
@@ -183,8 +192,10 @@ async function main(): Promise<void> {
         };
       },
       vehiclePhysics: () => ({ jolt: game.vehicleJolt }),
-      setVehiclePhysics: (jolt) => {
+      setVehiclePhysics: async (jolt) => {
         game.vehicleJolt = battleGame.vehicleJolt = jolt;
+        await db.query(`INSERT INTO server_settings (key, value) VALUES ('vehicle_physics', $1::jsonb)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ jolt })]);
         audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
         return { jolt };
       },

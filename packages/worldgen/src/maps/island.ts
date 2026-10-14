@@ -86,9 +86,9 @@ export const ISLAND: AuthoredMap = {
     // Main avenue: harbour gate → town high street → mountain pass → base.
     { paved: true, width: 5.67, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
     // East road: town → substation → power plant.
-    { paved: true, width: 5.13, points: [[2140, 2600], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
+    { paved: true, width: 5.13, points: [[2120, 2602], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
     // West road: town → airfield.
-    { paved: true, width: 4.86, points: [[1820, 2600], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
+    { paved: true, width: 4.86, points: [[1840, 2602], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
     // South coast road: port → fishing village → airfield.
     { paved: false, width: 3.78, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
     // North coast road: base → highland village → plant.
@@ -103,9 +103,9 @@ export const ISLAND: AuthoredMap = {
     { paved: true, width: 8.1, points: [[806, 1950], [900, 1950], [960, 2000]] },
     // Port quay road.
     { paved: true, width: 4.86, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
-    // Town street grid: 80 m blocks either side of the high street.
-    ...[2520, 2600, 2680, 2760, 2840].map(z => ({ paved: true, width: 4.05, points: [[1820, z], [1900, z], [1980, z], [2060, z], [2140, z]] as Point[] })),
-    ...[1820, 1900, 2060, 2140].map(x => ({ paved: true, width: 4.05, points: [[x, 2520], [x, 2600], [x, 2680], [x, 2760], [x, 2840]] as Point[] })),
+    // Town cross streets either side of the high street.
+    { paved: true, width: 4.05, points: [[1840, 2602], [1980, 2602], [2120, 2602]] },
+    { paved: true, width: 4.05, points: [[1840, 2760], [1980, 2760], [2120, 2760]] },
   ],
   power: [
     // Transmission line from the power station to the town substation.
@@ -115,7 +115,7 @@ export const ISLAND: AuthoredMap = {
     // West to the airfield.
     { kind: 'tower', spacing: 160, points: [[2210, 2320], [1900, 2380], [1600, 2340], [1300, 2180], [1000, 2010], [880, 1990]] },
     // Distribution poles through town and down to the harbour.
-    { kind: 'hframe', spacing: 60, points: [[2220, 2330], [2150, 2470], [2070, 2530], [2070, 2850], [2120, 3000], [2200, 3060]] },
+    { kind: 'hframe', spacing: 36, points: [[2220, 2330], [2120, 2440], [1990, 2490], [1990, 2880], [2040, 2960], [2120, 3010], [2200, 3060]] },
     { kind: 'hframe', spacing: 70, points: [[1880, 3060], [1700, 3140], [1500, 3200], [1260, 3240]] },
   ],
 };

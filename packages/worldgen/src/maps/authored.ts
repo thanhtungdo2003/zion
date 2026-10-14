@@ -27,7 +27,11 @@ export interface Pylon { x: number; z: number; yaw: number; kind: 'tower' | 'hfr
 export interface PowerCable { kind: 'tower' | 'hframe'; points: Array<[number, number, number]> }
 export interface MapArea { id: string; name: string; kind: MapZone['kind']; x: number; z: number; radius: number }
 
-interface Host { readonly worldSize: number; readonly seaLevel: number; readonly seed: number; heightAt(x: number, z: number): number }
+interface RoadProbe { roadDistance: number; roadHeight: number; roadAlong: number; roadHalfWidth?: number }
+interface Host {
+  readonly worldSize: number; readonly seaLevel: number; readonly seed: number; heightAt(x: number, z: number): number;
+  readonly roads?: { query(x: number, z: number, out: RoadProbe): void } | null;
+}
 
 type GroundStructure = Structure & { ground?: Surface };
 
@@ -122,6 +126,20 @@ export class AuthoredWorld {
     return height;
   }
 
+  /** Floor spots inside enterable buildings where loose loot may lie (world coordinates). */
+  lootSpots(): Array<{ x: number; y: number; z: number }> {
+    const out: Array<{ x: number; y: number; z: number }> = [];
+    for (const site of this.structures()) {
+      if (site.radius < 3) continue;
+      const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
+      site.parts.forEach((p, i) => {
+        if (p.asset !== BRIDGE_ASSET.woodenDeck || p.scale !== 1 || i % 3) return;
+        out.push({ x: site.x + p.x * c + p.z * s, y: site.y + p.y + .12, z: site.z - p.x * s + p.z * c });
+      });
+    }
+    return out;
+  }
+
   areas(): MapArea[] { return this.map.zones.map(({ id, name, kind, x, z, radius }) => ({ id, name, kind, x, z, radius })); }
 
   /* ---------------------------------------------------------------------------- the grid */
@@ -130,8 +148,9 @@ export class AuthoredWorld {
     if (this.pylonList) return this.pylonList;
     const out: Pylon[] = [];
     for (const line of this.map.power) {
-      for (const [x, z, dx, dz] of along(line.points, line.spacing)) {
+      for (const [x0, z0, dx, dz] of along(line.points, line.spacing)) {
         const yaw = Math.atan2(dx, dz);
+        const [x, z] = this.offRoad(x0, z0, -dz, dx);
         out.push({ x, z, yaw, kind: line.kind });
       }
     }
@@ -143,6 +162,16 @@ export class AuthoredWorld {
       list.push({ asset: def.asset, lx: quantizeLocal(p.x - cx * CHUNK_SIZE), lz: quantizeLocal(p.z - cz * CHUNK_SIZE), yq: quantizeHeight(y), rot: quantizeRotation(p.yaw), scale: quantizeScale(def.scale) });
     }
     return this.pylonList = out;
+  }
+
+  /** Moves a pylon sideways (along nx, nz) until it stands clear of every road and its verge. */
+  private offRoad(x: number, z: number, nx: number, nz: number): [number, number] {
+    const roads = this.host.roads, probe: RoadProbe = { roadDistance: Infinity, roadHeight: 0, roadAlong: 0 };
+    if (!roads) return [x, z];
+    const clear = (px: number, pz: number) => { roads.query(px, pz, probe); return probe.roadDistance - (probe.roadHalfWidth ?? 2.4) > 4; };
+    if (clear(x, z)) return [x, z];
+    for (let d = 2; d <= 30; d += 2) for (const side of [1, -1]) if (clear(x + nx * d * side, z + nz * d * side)) return [x + nx * d * side, z + nz * d * side];
+    return [x, z];
   }
 
   /** Three conductors per line, attached at each pylon's cross-arm. */
@@ -274,11 +303,13 @@ function along(points: readonly Point[], spacing: number): Array<[number, number
 class Kit {
   readonly parts: CampPart[] = [];
   private group = 1;
+  /** Seeds the per-building loot rolls. */
+  constructor(private readonly salt = 0) {}
   put(asset: number, x: number, z: number, y = 0, yaw = 0, scale = 1, group = 0): void { this.parts.push({ asset, x, y, z, yaw, scale, group }); }
   /** A building model with its own fade group. */
   house(asset: number, x: number, z: number, yaw = 0, scale = 1): void { this.put(asset, x, z, .08, yaw, scale, this.group++); }
   /** The enterable modular block (stairs, doors, loot crates), `floors` storeys above ground. */
-  block(x: number, z: number, floors: number, unfinished = false): void { modularBuilding(this.parts, x, z, floors, this.group++, unfinished); }
+  block(x: number, z: number, floors: number, unfinished = false, yaw = 0): void { modularBuilding(this.parts, x, z, floors, this.group++, unfinished, yaw, this.salt); }
   tower(x: number, z: number, water = false): void { guardTower(this.parts, x, z, this.group++, water); }
   /** A straight wall of 4 m concrete sections, leaving `gaps` (indices) open. */
   wall(ax: number, az: number, bx: number, bz: number, asset: number = CAMP_ASSET['concrete-wall'], step = 4, gaps: number[] = []): void {
@@ -360,39 +391,78 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     jetty(1990, 3335, 46, 6, 2.6, 'port'); jetty(2150, 3335, 46, 6, 2.6, 'port');
   }
 
-  /* --- Town: a 4 × 4 grid of 80 m blocks around the high street. */
+  /* --- Town: one high street with houses close together on both sides, a few lanes behind. */
   {
-    type Block = (k: Kit, flip: number) => void;
-    const apartment: Block = k => { k.house(BUILDING_ASSET.apartment, 0, -6); k.put(CAMP_ASSET['straight-lamp-post'], -20, 24); k.put(CAMP_ASSET['straight-lamp-post'], 20, 24); };
-    const flats: Block = (k, f) => { k.block(-17, -12 * f, 2); k.block(17, -12 * f, 1); k.house(BUILDING_ASSET.house, -18, 22 * f, Math.PI / 2); k.house(BUILDING_ASSET.houseSmall, 16, 22 * f); };
-    const favelas: Block = (k, f) => { k.house(BUILDING_ASSET.favela, -18, -16 * f, f > 0 ? 0 : Math.PI); k.house(BUILDING_ASSET.favela, 16, -16 * f, f > 0 ? 0 : Math.PI);
-      for (const x of [-24, -20.8, -17.6]) k.house(BUILDING_ASSET.slumRoom, x, 18 * f); k.house(BUILDING_ASSET.slumCorner, -14.4, 18 * f); k.block(16, 16 * f, 1); };
-    const houses: Block = (k, f) => { k.house(BUILDING_ASSET.houseLarge, -16, -14 * f); k.house(BUILDING_ASSET.houseLarge, 16, -14 * f, Math.PI);
-      k.house(BUILDING_ASSET.house, -20, 20 * f, Math.PI / 2); k.house(BUILDING_ASSET.houseSmall, 0, 22 * f); k.house(BUILDING_ASSET.houseSmall, 18, 20 * f, 1.2); };
-    const square: Block = k => { k.tower(-18, -16, true); k.block(18, -14, 2);
-      for (const [x, z] of [[-14, 10], [6, 10], [-14, 26], [6, 26]] as const) k.put(CAMP_ASSET['straight-lamp-post'], x, z);
-      k.house(BUILDING_ASSET.bench, -4, 12); k.house(BUILDING_ASSET.bench, -4, 24, Math.PI); k.house(BUILDING_ASSET.houseSmall, 22, 20); };
-    const market: Block = (k, f) => { for (let i = 0; i < 4; i++) k.put(i % 2 ? BATTLE_ASSET.containerGreen : BATTLE_ASSET.containerRed, -22 + i * 9, -18 * f, 0, Math.PI / 2);
-      k.house(BUILDING_ASSET.trailer, 18, -18 * f); k.block(-16, 16 * f, 2); k.house(BUILDING_ASSET.barrack, 18, 18 * f, 0, 1.3); };
-    const school: Block = k => { k.block(-16, -10, 3); k.block(16, -10, 3); k.house(BUILDING_ASSET.fence, 0, 26); k.house(BUILDING_ASSET.fence, -10, 26); k.house(BUILDING_ASSET.fence, 10, 26); };
-    const plan: Block[][] = [
-      [houses, flats, favelas, houses],
-      [favelas, apartment, square, flats],
-      [market, school, apartment, favelas],
-      [houses, flats, market, houses],
-    ];
-    // The whole town stands on one levelled platform: no steps between blocks and streets.
+    // The whole town stands on one levelled platform: no steps between plots and streets.
     const townLevel = Math.max(sea + 2, world.terrain(1980, 2680));
-    plan.forEach((row, j) => row.forEach((block, i) => {
-      const kit = new Kit(), x = 1860 + i * 80, z = 2560 + j * 80;
-      block(kit, j % 2 ? -1 : 1);
-      site('town', x, z, [40, 40], kit, { level: townLevel });
-    }));
+    sites.push({ kind: 'town', x: 1980, z: 2690, y: townLevel, yaw: 0, radius: Math.hypot(95, 205), halfX: 95, halfZ: 205, parts: [], gid: gid++ });
+    const street = 1980, rand = new Rng(0x70a1);
+    type Lot = 'block' | 'block2' | 'favela' | 'house' | 'houseLarge' | 'houseSmall' | 'slums' | 'shop' | 'apartment' | 'tower';
+    const pickLot = (): Lot => {
+      const r = rand.next();
+      return r < .26 ? 'block' : r < .38 ? 'block2' : r < .5 ? 'house' : r < .6 ? 'houseLarge' : r < .7 ? 'houseSmall' : r < .8 ? 'favela' : r < .9 ? 'slums' : r < .96 ? 'shop' : 'tower';
+    };
+    /** Footprint half-depth (towards the street) and half-width (along it), per lot kind. */
+    const size: Record<Lot, [number, number]> = { block: [11, 6.5], block2: [11, 6.5], favela: [4.5, 5], house: [4.5, 2.6], houseLarge: [5.5, 5.6], houseSmall: [2.4, 2.3], slums: [3.4, 5], shop: [3.2, 7], apartment: [10.5, 19.5], tower: [3.5, 3.5] };
+    const build = (lot: Lot, x: number, z: number, facing: number) => {
+      // Each plot is its own small site on the shared platform, turned to face the street.
+      const k = new Kit(gid * 31), turn = facing + (rand.next() - .5) * .16;
+      switch (lot) {
+        case 'block': k.block(0, 0, 1, false, turn); break;
+        case 'block2': k.block(0, 0, 2 + Math.floor(rand.next() * 2), false, turn); break;
+        case 'favela': k.house(BUILDING_ASSET.favela, 0, 0, turn); break;
+        case 'house': k.house(BUILDING_ASSET.house, 0, 0, turn + Math.PI / 2); break;
+        case 'houseLarge': k.house(BUILDING_ASSET.houseLarge, 0, 0, turn); break;
+        case 'houseSmall': k.house(BUILDING_ASSET.houseSmall, 0, 0, turn); break;
+        case 'slums': { const c = Math.cos(turn), s = Math.sin(turn); for (const d of [-3.2, 0, 3.2]) k.house(BUILDING_ASSET.slumRoom, d * s, d * c, turn); break; }
+        case 'shop': { const c = Math.cos(turn), s = Math.sin(turn); for (const d of [-3.5, 3.5]) k.put(rand.next() < .5 ? BATTLE_ASSET.containerRed : BATTLE_ASSET.containerGreen, d * s, d * c, 0, turn + Math.PI / 2); k.put(CAMP_ASSET['straight-lamp-post'], 4 * Math.cos(turn), -4 * Math.sin(turn)); break; }
+        case 'apartment': k.house(BUILDING_ASSET.apartment, 0, 0, turn + Math.PI / 2); break;
+        case 'tower': k.tower(0, 0, true); break;
+      }
+      const [depth, width] = size[lot];
+      site('town', x, z, Math.hypot(depth, width) + 1.5, k, { level: townLevel });
+    };
+    /** A row of plots along a street: ordered frontage with random gaps, sizes and setbacks. */
+    const row = (fromZ: number, toZ: number, side: 1 | -1, line: number, facing: number) => {
+      let z = fromZ;
+      while (z < toZ) {
+        const lot = pickLot(), [depth, width] = size[lot];
+        z += width + 1 + rand.next() * 3;
+        if (z + width > toZ) break;
+        // Setback from the street line, jittered so the frontage is not ruled.
+        const x = line + side * (depth + 1.5 + rand.next() * 2.5);
+        build(lot, x, z, facing);
+        z += width + 2 + rand.next() * 4;
+      }
+    };
+    const road = 5.67 + 3; // street half-width plus pavement
+    // High street, both sides; a gap at each cross street.
+    for (const [a, b] of [[2505, 2592], [2612, 2748], [2770, 2875]] as const) {
+      row(a, b, -1, street - road, -Math.PI / 2);
+      row(a, b, 1, street + road, Math.PI / 2);
+    }
+    // Apartment blocks and a square behind the frontage.
+    build('apartment', street - 52, 2660, -Math.PI / 2);
+    build('apartment', street + 52, 2820, Math.PI / 2);
+    const square = new Kit(gid * 31);
+    for (const [x, z] of [[-10, -10], [10, -10], [-10, 10], [10, 10]] as const) square.put(CAMP_ASSET['straight-lamp-post'], x, z);
+    square.house(BUILDING_ASSET.bench, 0, -8); square.house(BUILDING_ASSET.bench, 0, 8, Math.PI);
+    site('town', street + 40, 2660, 14, square, { level: townLevel });
+    // Back lanes: the cross streets carry a few houses each, set diagonally at the corners.
+    for (const z of [2602, 2760]) for (const side of [-1, 1] as const) {
+      let x = street + side * 18;
+      for (let i = 0; i < 4; i++) {
+        const lot = pickLot(), [, width] = size[lot];
+        x += side * (width + 4 + rand.next() * 4);
+        const corner = i === 0 ? side * .6 : 0;
+        build(lot, x, z + (i % 2 ? 14 : -14) + (rand.next() - .5) * 3, (i % 2 ? Math.PI : 0) + corner);
+        x += side * width;
+      }
+    }
     // Outskirts along the approach roads.
     const homes: Array<[number, number, number, number]> = [
       [BUILDING_ASSET.houseSmall, 1750, 2560, .4], [BUILDING_ASSET.house, 1700, 2500, .5], [BUILDING_ASSET.favela, 2200, 2470, 2.6],
-      [BUILDING_ASSET.houseLarge, 1950, 2905, 0], [BUILDING_ASSET.houseSmall, 2100, 2920, 3.1], [BUILDING_ASSET.house, 1780, 2880, 1.2],
-      [BUILDING_ASSET.houseLarge, 2200, 2700, 1.6], [BUILDING_ASSET.house, 1750, 2760, 1.6],
+      [BUILDING_ASSET.houseLarge, 1930, 2915, .3], [BUILDING_ASSET.houseSmall, 2040, 2930, 2.8], [BUILDING_ASSET.house, 1780, 2880, 1.2],
     ];
     for (const [asset, x, z, yaw] of homes) { const k = new Kit(); k.house(asset, 0, 0, yaw); site('house_small', x, z, 14, k); }
   }

@@ -20,7 +20,7 @@ export const INTERPOLATION_DELAY_MS = 100;
 /** Streaming rings (Chebyshev distance in chunks) per terrain LOD. */
 export const LOD_RINGS: readonly number[] = [3, 7, 14];
 /** Props (trees, rocks…) are sent for chunks at or below this LOD. */
-export const PROPS_MAX_LOD = 1;
+export const PROPS_MAX_LOD = 2;
 
 /** Entity interest radius in chunks. */
 export const ENTITY_INTEREST_RADIUS_CHUNKS = 5;

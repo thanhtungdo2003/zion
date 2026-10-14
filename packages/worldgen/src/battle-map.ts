@@ -20,8 +20,14 @@ export function battleTerrain(seed: number, size: number, sea: number, x: number
   return sea - 24 + (land - sea + 24) * smoothstep(-65, 130, inland);
 }
 
-export function modularBuilding(parts: CampPart[], x: number, z: number, floors: number, group: number, unfinished: boolean): void {
-  const put = (asset: number, dx: number, y: number, dz: number, yaw = 0, scale = 1) => parts.push({ asset, x: x + dx, y, z: z + dz, yaw, scale, group });
+/**
+ * Enterable block: floors, stairs, doors and balconies. `yaw` turns the whole building; loot
+ * crates appear on a floor only by chance (`salt` keeps that choice deterministic per building).
+ */
+export function modularBuilding(parts: CampPart[], x: number, z: number, floors: number, group: number, unfinished: boolean, yaw = 0, salt = 0): void {
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const put = (asset: number, dx: number, y: number, dz: number, partYaw = 0, scale = 1) => parts.push({ asset, x: x + dx * c + dz * sn, y, z: z - dx * sn + dz * c, yaw: partYaw + yaw, scale, group });
+  const chance = (level: number, slot: number) => (hashCombine(hashCombine(salt, group * 97 + level * 7 + slot), Math.round(x * 10) ^ Math.round(z * 10) << 12) >>> 0) % 100;
   const floorHeight = 3.2;
   for (let level = 0; level <= floors; level++) {
     const y = .24 + level * floorHeight;
@@ -61,8 +67,8 @@ export function modularBuilding(parts: CampPart[], x: number, z: number, floors:
     for (let step = 0; step < 16; step++) {
       put(BRIDGE_ASSET.woodenDeck, 5, y + (step + 1) * .2, -3.75 + step * .5, 0, .5);
     }
-    put(CAMP_ASSET['military-wooden-crate'], -3, y, -3);
-    put(CAMP_ASSET['old-wooden-crate'], -3, y, 3);
+    if (chance(level, 0) < 45) put(CAMP_ASSET['military-wooden-crate'], -3, y, -3);
+    if (chance(level, 1) < 30) put(CAMP_ASSET['old-wooden-crate'], -3, y, 3);
     if (unfinished) put(CAMP_ASSET['rusty-oil-barrel'], 1, y, -2);
   }
 }
