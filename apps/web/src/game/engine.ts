@@ -2138,6 +2138,8 @@ export class GameEngine {
     if (kind === EntityKind.Guard) return guardName(id);
     if (kind === EntityKind.Merchant) return MERCHANT_NAME;
     if (kind === EntityKind.Nurse) return NURSE_NAME;
+    // Battle royale hides who is who: no name tags over other players.
+    if (this.welcome?.mode === 'battle-royale') return '';
     return this.names.get(id) ?? `#${id}`;
   }
 

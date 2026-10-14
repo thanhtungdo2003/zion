@@ -217,7 +217,10 @@ export class Avatar {
       this.root.remove(this.label);
       this.label.material.map?.dispose();
       this.label.material.dispose();
+      this.label = null;
     }
+    // No name: no floating tag at all (e.g. other players in battle royale).
+    if (!name) return;
     this.label = labelSprite(name, rank, pvp);
     this.root.add(this.label);
   }
