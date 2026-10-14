@@ -2595,7 +2595,9 @@ kbd {
 
 /* Battle royale with a squad: launch together or play solo. */
 .menu-play-pair { display: grid; grid-template-columns: 1fr; gap: 6px; }
-.menu-play-pair .menu-play-solo { min-height: 0; padding-block: 10px; font-size: .8em; background: transparent; border: 1px solid currentColor; }
+.menu-play-pair .menu-play { height: 78px; font-size: 40px; }
+.menu-play-pair .menu-play-solo { height: 56px; font-size: 30px; background: #2a2f2c; color: var(--text); border: 1px solid rgba(255,255,255,.18); }
+.menu-play-pair .menu-play-solo:hover:not(:disabled) { background: var(--text); color: var(--accent-ink); }
 
 /* Teammates on the map: blue dot with a heading wedge. */
 .atlas-teammate { color: #3d9bff; }
