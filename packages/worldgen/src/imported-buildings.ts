@@ -31,18 +31,18 @@ export function importedSettlement(kind: Structure['kind'], radius: number, vari
  * walls and under a roof, so they never block a doorway or stand outdoors.
  */
 const INTERIOR_CRATES: Readonly<Record<number, ReadonlyArray<readonly [number, number, number]>>> = {
-  2400: [[2.8, 0, -2.05], [-2.7, 0, -3.3]],
-  2403: [[-2.5, 0, -3.97], [2, 0, 4.28]],
-  2404: [[-1.11, 0, 1.29]],
-  2407: [[-3.57, 0, -3.5], [-3.57, 0, .25]],
   2420: [[-3.8, .03, 1.74], [-.05, .03, 1.74], [-3.8, 3.17, 1.49], [-.05, 3.17, 1.49]],
   2421: [[-14.1, 0, 1.27], [13.9, 0, 1.27], [1.4, 3.21, 1.27], [-14.1, 3.21, 1.27], [1.4, 6.37, 1.27], [-14.1, 6.37, 1.27]],
   2422: [[.43, .07, .42]],
   2423: [[-.07, .07, -.82]],
 };
-/** Closed models with no usable interior: their crate (if any) stands outside, beside a wall. */
+/**
+ * The low-poly pack's buildings are closed shells (doors are painted on) and collide as solid
+ * blocks: their crate (if any) stands outside, beside a wall. Half footprint (x, z).
+ */
 const SOLID_HALF: Readonly<Record<number, readonly [number, number]>> = {
-  2401: [3.4, 3.3], 2402: [2.4, 4.4], 2405: [3.4, 1.4], 2406: [4.8, 2.4], 2408: [3, 1], 2409: [2.8, 1.2],
+  2400: [3.73, 5.09], 2401: [3.43, 3.29], 2402: [2.38, 4.35], 2403: [5.53, 5.24], 2404: [2.16, 2.25],
+  2405: [3.41, 1.39], 2406: [4.75, 2.44], 2407: [4.35, 4.3], 2408: [3.04, 1.04], 2409: [2.76, 1.16],
 };
 /** Deterministic 0…99 roll for one loot spot of one building. */
 function roll(part: CampPart, index: number): number {

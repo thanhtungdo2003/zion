@@ -403,7 +403,7 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
       return r < .26 ? 'block' : r < .38 ? 'block2' : r < .5 ? 'house' : r < .6 ? 'houseLarge' : r < .7 ? 'houseSmall' : r < .8 ? 'favela' : r < .9 ? 'slums' : r < .96 ? 'shop' : 'tower';
     };
     /** Footprint half-depth (towards the street) and half-width (along it), per lot kind. */
-    const size: Record<Lot, [number, number]> = { block: [11, 6.5], block2: [11, 6.5], favela: [4.5, 5], house: [4.5, 2.6], houseLarge: [5.5, 5.6], houseSmall: [2.4, 2.3], slums: [3.4, 5], shop: [3.2, 7], apartment: [10.5, 19.5], tower: [3.5, 3.5] };
+    const size: Record<Lot, [number, number]> = { block: [11, 6.5], block2: [11, 6.5], favela: [4.5, 5], house: [4.5, 2.6], houseLarge: [5.5, 5.6], houseSmall: [2.4, 2.3], slums: [3.4, 5], shop: [3.2, 7], apartment: [13.7, 25.4], tower: [3.5, 3.5] };
     const build = (lot: Lot, x: number, z: number, facing: number) => {
       // Each plot is its own small site on the shared platform, turned to face the street.
       const k = new Kit(gid * 31), turn = facing + (rand.next() - .5) * .16;
@@ -416,7 +416,8 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
         case 'houseSmall': k.house(BUILDING_ASSET.houseSmall, 0, 0, turn); break;
         case 'slums': { const c = Math.cos(turn), s = Math.sin(turn); for (const d of [-3.2, 0, 3.2]) k.house(BUILDING_ASSET.slumRoom, d * s, d * c, turn); break; }
         case 'shop': { const c = Math.cos(turn), s = Math.sin(turn); for (const d of [-3.5, 3.5]) k.put(rand.next() < .5 ? BATTLE_ASSET.containerRed : BATTLE_ASSET.containerGreen, d * s, d * c, 0, turn + Math.PI / 2); k.put(CAMP_ASSET['straight-lamp-post'], 4 * Math.cos(turn), -4 * Math.sin(turn)); break; }
-        case 'apartment': k.house(BUILDING_ASSET.apartment, 0, 0, turn + Math.PI / 2); break;
+        // Scaled up so its windows are tall enough to jump and climb through.
+        case 'apartment': k.house(BUILDING_ASSET.apartment, 0, 0, turn + Math.PI / 2, 1.3); break;
         case 'tower': k.tower(0, 0, true); break;
       }
       const [depth, width] = size[lot];

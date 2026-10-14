@@ -16,14 +16,16 @@ const jobs = [
   ['vehicles/military_jeep__jeep_pixel_style.glb', null, 'drive_jeep', 2301, 4.2],
   ['vehicles/quad_bike.glb', null, 'drive_quad', 2302, 2.3],
   ['vehicles/grizzly_quad_bike_700.glb', null, 'drive_grizzly', 2303, 2.4],
-  ...['barn01','barn03','house01','house02','house03','barrack01','barrack02','barrack04','container02','trailer01','generator01','watertank01','bench01','fence01'].map((n,i) => ['buildings/lowpoly_buildings.glb', n, n, 2400+i, n.startsWith('barrack') ? 1.3 : 1]),
+  // The low-poly pack's houses are closed shells (doors and windows are painted on): they collide
+  // as solid blocks shaped like their footprint and roof, so nothing walks, drives or shoots through.
+  ...['barn01','barn03','house01','house02','house03','barrack01','barrack02','barrack04','container02','trailer01','generator01','watertank01','bench01','fence01'].map((n,i) => ['buildings/lowpoly_buildings.glb', n, n, 2400+i, n.startsWith('barrack') ? 1.3 : 1, i < 10 ? { collider: 'solid' } : {}]),
   ['buildings/favela_house.glb', null, 'favela', 2420, 1.2],
   ['buildings/pubg_building__low_poly_building.glb', null, 'apartment', 2421, 13],
   ['buildings/modular_slums.glb', 'E5_10', 'slum_room', 2422, 1.6],
   ['buildings/modular_slums.glb', 'C5_20', 'slum_corner', 2423, 1.6],
   // Military island kit (battle royale). Options: height (target metres), rotateX (radians),
   // collider ('faces' | 'trunk' | 'box' | 'footing' | 'none'), category, layer, tags.
-  ['buildings/electric_tower.glb', null, 'pylon_tower', 2430, 1, { height: 30, collider: 'footing', footing: 6, tags: ['power-grid'] }],
+  ['buildings/electric_tower.glb', null, 'pylon_tower', 2430, 1, { height: 30, collider: 'legs', footing: 6, tags: ['power-grid'] }],
   ['buildings/tower_crane.glb', null, 'tower_crane', 2432, 1, { collider: 'footing', footing: 40, tags: ['port'] }],
   ...[
     ['Tree_Small_a_LOD0_12', 'tree_small_a'], ['Tree_Small_b_LOD0_15', 'tree_small_b'], ['Tree_Small_c_LOD0_5', 'tree_small_c'],
@@ -47,6 +49,26 @@ try { if ((await fs.readFile(cacheFile,'utf8')) === signature && (await fs.stat(
 await fs.mkdir(outDir,{recursive:true});
 const definitions = [];
 const r = n => Math.round(n * 10000) / 10000;
+/** Downward ray against one triangle: hit height, or -Infinity. */
+function downHit(x,z,[a,b,c]){
+  const d=(b[2]-c[2])*(a[0]-c[0])+(c[0]-b[0])*(a[2]-c[2]);if(Math.abs(d)<1e-9)return -Infinity;
+  const u=((b[2]-c[2])*(x-c[0])+(c[0]-b[0])*(z-c[2]))/d,v=((c[2]-a[2])*(x-c[0])+(a[0]-c[0])*(z-c[2]))/d,w=1-u-v;
+  return u<0||v<0||w<0?-Infinity:u*a[1]+v*b[1]+w*c[1];
+}
+/**
+ * Solid collision for a closed shell: a 0.5 m grid over the footprint, each cell a column up to the
+ * highest surface above it (roof), merged into as few boxes as possible.
+ */
+function solidColumns(tris){
+  const step=.5,box=new Box3();for(const t of tris)for(const p of t)box.expandByPoint(new Vector3(...p));
+  const nx=Math.ceil((box.max.x-box.min.x)/step),nz=Math.ceil((box.max.z-box.min.z)/step),height=new Float32Array(nx*nz);
+  for(let i=0;i<nx;i++)for(let k=0;k<nz;k++){const x=box.min.x+(i+.5)*step,z=box.min.z+(k+.5)*step;let top=-Infinity;for(const t of tris)top=Math.max(top,downHit(x,z,t));
+    height[i*nz+k]=top>box.min.y+.6?Math.floor((top-box.min.y)/.25)*.25:0;}
+  // Runs along z with one height, then identical runs merged along x.
+  const runs=[];for(let i=0;i<nx;i++){let k=0;while(k<nz){const h=height[i*nz+k];if(!h){k++;continue;}let e=k;while(e+1<nz&&height[i*nz+e+1]===h)e++;runs.push({i0:i,i1:i,k0:k,k1:e,h});k=e+1;}}
+  const merged=[];for(const run of runs){const prev=merged.find(m=>m.i1===run.i0-1&&m.k0===run.k0&&m.k1===run.k1&&m.h===run.h);if(prev)prev.i1=run.i1;else merged.push(run);}
+  return merged.map(m=>({type:'box',center:[r(box.min.x+(m.i0+m.i1+1)/2*step),r(box.min.y+m.h/2),r(box.min.z+(m.k0+m.k1+1)/2*step)],halfExtents:[r((m.i1-m.i0+1)*step/2),r(m.h/2),r((m.k1-m.k0+1)*step/2)]}));
+}
 for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const buf = sources.get(file), jsonLength = buf.readUInt32LE(12);
   const src = JSON.parse(buf.subarray(20,20+jsonLength));
@@ -112,7 +134,7 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     async function remap(o){for(const [k,v]of Object.entries(o))if(v&&typeof v==='object'){if(k.endsWith('Texture')&&typeof v.index==='number')v.index=await texture(v.index);else await remap(v);}}
     await remap(mat);const id=dst.materials.length;dst.materials.push(mat);materialMap.set(index,id);return id;
   }
-  const colliders=new Map(), allPoints=[];
+  const colliders=new Map(), allPoints=[], allTris=[];
   for(const i of nodes) {
     const transform=base.clone().multiply(worlds[i]),normal=new Matrix3().getNormalMatrix(transform);
     const primitives=[],meshBounds=new Box3();
@@ -126,6 +148,7 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
       }
       let indices=Array.from({length:positions.length/3},(_,j)=>j);
       if(primitive.indices!==undefined){const a=accessor(primitive.indices);indices=a.values;p.indices=addAccessor(a.values,a.a,1);}
+      for(let j=0;j+2<indices.length;j+=3)allTris.push(indices.slice(j,j+3).map(k=>positions.slice(k*3,k*3+3)));
       if(primitive.material!==undefined)p.material=await material(primitive.material);
       primitives.push(p);
       // Axis-aligned architectural faces become thin boxes, preserving actual openings,
@@ -193,6 +216,14 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     const lc=low.getCenter(new Vector3()),ls=low.getSize(new Vector3()),ac=all.getCenter(new Vector3()),as=all.getSize(new Vector3());
     if(opts.collider==='trunk')faces=[{type:'capsule',a:[r(lc.x),0,r(lc.z)],b:[r(lc.x),r(Math.max(1.2,as.y*.45)),r(lc.z)],radius:r(Math.min(.6,Math.max(.15,Math.min(ls.x,ls.z)*.35)))}];
     else if(opts.collider==='box')faces=[{type:'box',center:[r(ac.x),r(ac.y),r(ac.z)],halfExtents:[r(Math.max(.05,as.x*.42)),r(Math.max(.05,as.y/2)),r(Math.max(.05,as.z*.42))]}];
+    else if(opts.collider==='solid')faces=solidColumns(allTris);
+    else if(opts.collider==='legs'){
+      // Lattice tower: one box per corner leg (its lowest 2 m), open between the legs.
+      const h=Math.min(as.y,opts.footing??4);faces=[];
+      // Leg feet: low vertices clustered by proximity (legs may stand on the diagonals or the axes).
+      const feet=[];for(const p of allPoints)if(p[1]<all.min.y+.4){const f=feet.find(f=>Math.hypot(f.seed[0]-p[0],f.seed[2]-p[2])<1.5);if(f)f.box.expandByPoint(new Vector3(...p));else feet.push({seed:p,box:new Box3().setFromPoints([new Vector3(...p)])});}
+      for(const {box:b}of feet){const c=b.getCenter(new Vector3()),s=b.getSize(new Vector3());faces.push({type:'box',center:[r(c.x),r(h/2),r(c.z)],halfExtents:[r(Math.max(.25,s.x/2)),r(h/2),r(Math.max(.25,s.z/2))]});}
+    }
     else if(opts.collider==='footing'){const h=Math.min(as.y,opts.footing??4);faces=[{type:'box',center:[r(lc.x),r(h/2),r(lc.z)],halfExtents:[r(Math.max(.1,ls.x/2)),r(h/2),r(Math.max(.1,ls.z/2))]}];}
     else faces=[];
   }
