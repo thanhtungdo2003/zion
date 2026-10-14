@@ -2522,7 +2522,6 @@ kbd {
 .battle-warning { color: #ff5669; font-size: 14px; }
 .battle-result { z-index: 100; }
 .battle-result .overlay-card { display: grid; gap: 16px; }
-@media (max-width: 700px) { 
 .hud-vehicle { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); display: grid; gap: 6px; padding: 12px 18px; background: rgba(10,14,12,.9); border: 1px solid #81784d; color: #f4ead2; text-align: center; pointer-events: auto; }
 .hud-vehicle b { color: #ff4939; }
 .hud-vehicle button { padding: 7px 12px; color: inherit; background: #333b30; border: 1px solid #8c9668; cursor: pointer; }
