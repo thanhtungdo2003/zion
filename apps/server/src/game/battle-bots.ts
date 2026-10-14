@@ -57,6 +57,10 @@ export class BattleBot implements Combatant {
   healUntil = 0;
   jumpAt = 0;
   landing: { x: number; z: number } | null = null;
+  /** Bot squad in squad matches (squadmates never fight each other, they drop together). */
+  squad: string | null = null;
+  /** Run over by a vehicle: limp and flying until then. */
+  knockedUntil = 0;
   mode: Mode = 'idle';
   goal: { x: number; y: number; z: number; chest?: string } | null = null;
   /** Chests already emptied or checked by this bot. */
@@ -153,6 +157,9 @@ export class BattleBotDirector {
       bot.jumpAt = now + 6000 + Math.random() * (BATTLE_FLIGHT.durationMs - 14000);
       const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * circle.radius * .6;
       bot.landing = { x: circle.x + Math.cos(a) * r, z: circle.z + Math.sin(a) * r };
+      // Squadmates follow their first member out of the plane, landing a few metres apart.
+      const lead = bot.squad ? this.bots.find(b => b.squad === bot.squad && !b.dead && b.landing) : undefined;
+      if (lead && lead !== bot) { bot.jumpAt = lead.jumpAt + 300 + Math.random() * 600; bot.landing = { x: lead.landing!.x + (Math.random() - .5) * 16, z: lead.landing!.z + (Math.random() - .5) * 16 }; }
     }
   }
 
@@ -187,6 +194,8 @@ export class BattleBotDirector {
       if (s.flight) { this.fall(bot); continue; }
       bot.active = this.controller.canSimulateAt(s.x, s.z);
       if (!bot.active) continue;
+      // Thrown by a vehicle: no thinking, no steering, the body just flies and slides.
+      if (now < bot.knockedUntil) { this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: false }, TICK_DT); continue; }
       if (think) this.decide(bot, now, world, players);
       this.move(bot, now, world);
       if (bot.mode === 'fight') this.shoot(bot, now);
@@ -216,7 +225,7 @@ export class BattleBotDirector {
   private enemies(bot: BattleBot, players: readonly Player[]): Array<Combatant & { state: CharacterState; id: number }> {
     const list: Array<Combatant & { state: CharacterState; id: number }> = [];
     for (const p of players) if (!p.dead && !p.state.flight && p.active) list.push(p);
-    for (const other of this.bots) if (other !== bot && !other.dead && !other.state.flight) list.push(other);
+    for (const other of this.bots) if (other !== bot && !other.dead && !other.state.flight && (!bot.squad || other.squad !== bot.squad)) list.push(other);
     return list;
   }
 
@@ -434,6 +443,7 @@ export class BattleBotDirector {
       this.hooks.projectileEnd({ t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !!hit.target, impact: !!hit.target || hit.t < length - 1e-4, normal: hit.normal });
       if (!hit.target || !hit.zone) continue;
       const damage = Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]);
+      if (hit.target instanceof BattleBot && r.bot.squad && hit.target.squad === r.bot.squad) continue;
       if (hit.target instanceof BattleBot) this.hit(hit.target, damage, r.bot.name, { x: r.bot.state.x, z: r.bot.state.z }, now, hit.zone, r.bot.id);
       else this.hooks.hitPlayer(r.bot, hit.target as Player, damage, hit.zone, r.x, r.y, r.z, now);
     }
@@ -450,7 +460,8 @@ export class BattleBotDirector {
       const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.prone ? EntityFlags.Prone : 0) | (bot.dead ? EntityFlags.Dead : 0)
         | (s.flight === 1 ? EntityFlags.InPlane : s.flight === 2 ? EntityFlags.Freefall : s.flight === 3 ? EntityFlags.Parachute : 0)
         | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0)
-        | (Math.hypot(s.vx, s.vz) > 5 ? EntityFlags.Sprinting : 0);
+        | (Math.hypot(s.vx, s.vz) > 5 ? EntityFlags.Sprinting : 0)
+        | (now < bot.knockedUntil && !bot.dead ? EntityFlags.Knocked : 0);
       out.push({ id: bot.id, kind: EntityKind.Player, x: s.x, y: s.y, z: s.z, yaw: bot.yaw, pitch: bot.pitch, flags, health: bot.health, weapon: bot.dead ? 0 : bot.weapon, armor: packArmor(bot.armor) });
     }
   }

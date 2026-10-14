@@ -6,7 +6,9 @@ import type { PlayerStateRecord } from '../repositories/player-states';
 export class TeamError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
-export interface TeamPresence { entityId: number; x: number; y: number; z: number; health: number; downed: boolean }
+export interface TeamPresence { entityId: number; x: number; y: number; z: number; health: number; downed: boolean; yaw?: number }
+/** `limit`: members per team; `squad`: battle royale squads (in memory, the leader launches without a ready check). */
+export interface TeamOptions { limit?: number; squad?: boolean }
 type Persistence = (id: string, team: TeamRecord | null, player?: PlayerStateRecord) => Promise<void>;
 export const teamCycle = (now: number) => Math.floor(now / 86_400_000);
 
@@ -18,7 +20,9 @@ export class TeamService {
   private readonly positions = new Map<string, TeamPresence>();
   private writing: Promise<unknown> = Promise.resolve();
 
-  constructor(records: TeamRecord[], private readonly persist: Persistence) {
+  private readonly limit: number;
+  constructor(records: TeamRecord[], private readonly persist: Persistence, private readonly options: TeamOptions = {}) {
+    this.limit = options.limit ?? TEAM_LIMIT;
     for (const record of records) {
       const team = structuredClone(record);
       team.members.forEach((m) => { m.ready = false; this.membership.set(m.accountId, team.id); });
@@ -47,7 +51,7 @@ export class TeamService {
   }
   lobby(accountId: string): TeamLobby {
     this.heartbeat(accountId);
-    return { team: this.view(accountId), available: [...this.teams.values()].filter((t) => t.public && t.members.length < TEAM_LIMIT && t.members.some((m) => Date.now() - (this.seen.get(m.accountId) ?? 0) < 15_000)).slice(0, 50).map((t) => ({ id: t.id, name: t.name, count: t.members.length, leader: t.members.find((m) => m.accountId === t.leaderId)?.name ?? '' })) };
+    return { team: this.view(accountId), available: [...this.teams.values()].filter((t) => t.public && t.members.length < this.limit && t.members.some((m) => Date.now() - (this.seen.get(m.accountId) ?? 0) < 15_000)).slice(0, 50).map((t) => ({ id: t.id, name: t.name, count: t.members.length, leader: t.members.find((m) => m.accountId === t.leaderId)?.name ?? '' })) };
   }
 
   private async save(team: TeamRecord, player?: PlayerStateRecord): Promise<void> {
@@ -72,7 +76,7 @@ export class TeamService {
         if (current) throw new TeamError(409, 'Hãy rời đội hiện tại trước khi tham gia đội khác.');
         const existing = action.op === 'join' ? [...this.teams.values()].find((t) => t.code === action.code.toUpperCase()) : this.teams.get(action.id);
         if (!existing || (action.op === 'joinPublic' && !existing.public)) throw new TeamError(404, 'Không tìm thấy đội.');
-        if (existing.members.length >= TEAM_LIMIT) throw new TeamError(409, 'Đội đã đủ 5 người.');
+        if (existing.members.length >= this.limit) throw new TeamError(409, `Đội đã đủ ${this.limit} người.`);
         const team = structuredClone(existing);
         team.members.push({ accountId, name, ready: false });
         team.members.forEach((m) => { m.ready = false; });
@@ -97,7 +101,7 @@ export class TeamService {
         } else if (action.op === 'settings') { team.name = action.name; team.public = action.public; }
         else if (action.op === 'ready') member.ready = action.ready;
         else if (action.op === 'launch') {
-          if (team.members.some((m) => !m.ready || (Date.now() - (this.seen.get(m.accountId) ?? 0) > 15_000 && !this.positions.has(m.accountId)))) throw new TeamError(409, 'Mọi thành viên cần trực tuyến và sẵn sàng.');
+          if (team.members.some((m) => (!m.ready && !this.options.squad) || (Date.now() - (this.seen.get(m.accountId) ?? 0) > 15_000 && !this.positions.has(m.accountId)))) throw new TeamError(409, 'Mọi thành viên cần trực tuyến và sẵn sàng.');
           team.launchId = randomUUID(); team.launchedAt = Date.now();
           team.members.forEach((m) => { m.ready = false; });
         } else if (action.op === 'chat') {

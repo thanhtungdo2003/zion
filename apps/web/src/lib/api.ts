@@ -180,13 +180,15 @@ export async function getGameTicket(): Promise<TicketResponse> {
   return request<TicketResponse>('/api/game/ticket', { method: 'POST', auth: true, body: JSON.stringify({}) });
 }
 
-export async function getTeamLobby(): Promise<TeamLobby> {
+/** Survival teams and battle royale squads are separate lobbies, picked by mode. */
+const teamUrl = (mode: GameMode) => mode === 'battle-royale' ? '/api/teams?mode=battle-royale' : '/api/teams';
+export async function getTeamLobby(mode: GameMode = 'survival'): Promise<TeamLobby> {
   await ensureAccess();
-  return request<TeamLobby>('/api/teams', { auth: true });
+  return request<TeamLobby>(teamUrl(mode), { auth: true });
 }
-export async function teamAction(action: TeamAction): Promise<TeamLobby> {
+export async function teamAction(action: TeamAction, mode: GameMode = 'survival'): Promise<TeamLobby> {
   await ensureAccess();
-  return request<TeamLobby>('/api/teams', { method: 'POST', auth: true, body: JSON.stringify(action) });
+  return request<TeamLobby>(teamUrl(mode), { method: 'POST', auth: true, body: JSON.stringify(action) });
 }
 
 /** Renames the signed-in account; the new name is used from the next match on. */

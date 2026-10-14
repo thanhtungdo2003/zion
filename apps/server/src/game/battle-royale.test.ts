@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BattleRoyaleMatch, BATTLE_STAGES } from './battle-royale';
-import { BATTLE_FLIGHT } from '@zion/shared';
+import { BATTLE_FLIGHT, BATTLE_MAP } from '@zion/shared';
 
 function running() {
   const match = new BattleRoyaleMatch(123, 1024);
@@ -16,10 +16,10 @@ describe('Battle Royale match', () => {
     match.join(3, 'C'); match.tick(300); match.tick(30_300);
     expect(match.phase).toBe('running'); expect(match.join(4, 'D')).toBe(false);
   });
-  it('limits a match to 32 unique entrants and blocks combat before deployment', () => {
-    const match = new BattleRoyaleMatch(1, 1024);
-    for (let i = 0; i < 32; i++) expect(match.join(i, String(i))).toBe(true);
-    expect(match.join(0, 'duplicate')).toBe(false); expect(match.join(32, 'overflow')).toBe(false);
+  it('limits a match to its unique entrants and blocks combat before deployment', () => {
+    const match = new BattleRoyaleMatch(1, 1024), max = BATTLE_MAP.maxPlayers;
+    for (let i = 0; i < max; i++) expect(match.join(i, String(i))).toBe(true);
+    expect(match.join(0, 'duplicate')).toBe(false); expect(match.join(max, 'overflow')).toBe(false);
     expect(match.canFight(0)).toBe(false);
   });
   it('interpolates shrinking circles, keeps later circles nested and closes the final circle', () => {
@@ -49,5 +49,15 @@ describe('Battle Royale match', () => {
   it('handles everyone dying in the same tick without inventing a winner', () => {
     const match = running(); for (const id of [1, 2, 3]) match.eliminate(id);
     match.tick(31_000); expect(match.state(31_000).winner).toBeNull(); expect(match.phase).toBe('finished');
+  });
+  it('ends when one squad is left and ranks the whole squad first', () => {
+    const match = new BattleRoyaleMatch(5, 1024), red = { id: 'red', name: 'Đỏ', size: 2 };
+    match.join(1, 'A', red); match.join(2, 'B', red); match.join(3, 'C');
+    expect(match.squadSize).toBe(2); expect(match.allies(1, 2)).toBe(true); expect(match.allies(1, 3)).toBe(false);
+    match.tick(0); match.tick(30_000);
+    match.eliminate(1); match.tick(30_100); expect(match.phase).toBe('running');
+    match.eliminate(3); match.tick(30_200); expect(match.phase).toBe('finished');
+    expect(match.state(30_200, 1).placement).toBe(1); expect(match.state(30_200, 3).placement).toBe(2);
+    expect(match.state(30_200).winner).toMatchObject({ name: 'Đỏ', squad: 'red' });
   });
 });

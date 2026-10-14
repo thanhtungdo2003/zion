@@ -344,6 +344,8 @@ export class Avatar {
   }
 
   private ragdollTemp = false;
+  /** Direction and strength of the last blow, used when a knock-down starts the ragdoll. */
+  knockHint: { kx: number; kz: number; force: number } | null = null;
   /** Ground height lookup for ragdolls (set by the engine). */
   ground: ((x: number, z: number) => number) | null = null;
   private flightTilt = 0;
@@ -378,11 +380,18 @@ export class Avatar {
     // Down (bleeding out) or dead: limp. Starts here too when no hit started it (bites…).
     const limp = (flags & (EntityFlags.Dead | EntityFlags.Downed)) !== 0;
     if (limp && !this.ragdoll && this.ground) this.startRagdoll(0, 1, 1, this.ground);
+    // Run over: limp and thrown along the blow, back on the feet once the server lets go.
+    const knocked = (flags & EntityFlags.Knocked) !== 0;
+    if (knocked && !this.ragdoll && this.ground) {
+      const h = this.knockHint ?? { kx: 0, kz: 1, force: 4 };
+      this.startRagdoll(h.kx, h.kz, h.force, this.ground);
+      this.ragdollTemp = false;
+    }
     if (this.ragdoll) {
       const dead = limp;
       // A stagger turns into the death ragdoll if the hit was fatal.
       if (dead) this.ragdollTemp = false;
-      if (dead || (this.ragdollTemp && this.ragdoll.time < 0.85)) {
+      if (dead || knocked || (this.ragdollTemp && this.ragdoll.time < 0.85)) {
         this.ragdoll.step(dt);
         return;
       }

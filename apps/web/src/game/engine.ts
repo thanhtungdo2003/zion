@@ -102,6 +102,7 @@ import { GameConnection } from './net/connection';
 import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { BattleFlightRenderer } from './render/battle-flight';
+import { SquadMarkers } from './render/squad-markers';
 import { PowerCables } from './render/power-cables';
 import { doorColliders } from '@zion/physics';
 import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
@@ -194,6 +195,7 @@ export class GameEngine {
   private drivingYaw: number | null = null;
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
+  private readonly squadMarkers = new SquadMarkers(this.scene);
   private readonly camera = new PerspectiveCamera(40, 1, 0.5, 2600);
   private readonly registry: AssetRegistry = createDefaultRegistry();
   private readonly library = new AssetLibrary(this.registry);
@@ -609,6 +611,7 @@ export class GameEngine {
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
     this.powerCables?.dispose(); this.powerCables = null;
+    this.squadMarkers.dispose();
     this.zombieOutline?.dispose();
     if (this.disposed) return;
     this.disposed = true;
@@ -1113,6 +1116,10 @@ export class GameEngine {
     }
     // Remembered for the ragdoll if this hit turns out to be fatal.
     this.lastHits.set(m.targetId, { kx: m.kx ?? dx, kz: m.kz ?? dz, force: m.force ?? Math.min(6, 1 + m.damage / 12) });
+    if (m.force !== undefined && !isZombieId(m.targetId)) {
+      const av = m.targetId === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.targetId)?.avatar;
+      if (av) av.knockHint = { kx: m.kx ?? dx, kz: m.kz ?? dz, force: m.force };
+    }
     if (isZombieId(m.targetId)) {
       const zb = this.zombies.get(m.targetId);
       zb?.avatar.flinchFrom();
@@ -1659,6 +1666,15 @@ export class GameEngine {
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
+    // Battle royale squad: diamond + name over every living teammate, through walls; follows the
+    // rendered body when it is streamed in, else the last reported team position.
+    this.squadMarkers.update(this.welcome?.mode !== 'battle-royale' ? [] : (this.hud.get().team?.members ?? []).flatMap((m) => {
+      if (m.entityId === undefined || m.entityId === this.welcome?.playerId || !m.inGame || (m.health ?? 1) <= 0 || m.x === undefined) return [];
+      const body = this.remotes.get(m.entityId);
+      if (body && body.entity.pose.flags & EntityFlags.Dead) return [];
+      const at = body?.avatar.root.visible ? body.avatar.root.position : { x: m.x, y: m.y ?? 0, z: m.z! };
+      return [{ id: m.entityId, name: m.name, x: at.x, y: at.y + 2.35, z: at.z }];
+    }));
     const flightFlags = local.state.flight === 1 ? EntityFlags.InPlane : local.state.flight === 2 ? EntityFlags.Freefall : local.state.flight === 3 ? EntityFlags.Parachute : 0;
     this.localAvatar?.flightPose(flightFlags, (local.lastButtons & Buttons.Sprint) !== 0, Math.hypot(local.state.vx, local.state.vz) > 2, dt);
     this.localAvatar?.drivingPose(driving ? VEHICLES[driving.kind].quad : null, driving?.yaw ?? this.input.yaw,driving?.motion?.pitch,driving?.motion?.roll);
@@ -1757,7 +1773,7 @@ export class GameEngine {
       const teamIds = new Set(this.hud.get().team?.members.map((m) => m.entityId));
       const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.avatar.root.visible && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
-      const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).map((m) => ({ x: m.x!, z: m.z! }));
+      const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).filter((m) => (m.health ?? 1) > 0).map((m) => ({ x: m.x!, z: m.z!, yaw: m.yaw }));
       this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle());
     }
     this.updateSpeech(now);
@@ -1922,7 +1938,7 @@ export class GameEngine {
     let moveZ = mz;
     if (this.aiming) { buttons |= Buttons.Aim; buttons &= ~Buttons.Sprint; }
     // Down on the ground: no moving, no shooting (the server ignores it too).
-    if (this.hud.get().downed !== null) {
+    if (this.hud.get().downed !== null || this.local?.knocked) {
       moveX = 0;
       moveZ = 0;
       buttons = 0;

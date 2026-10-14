@@ -53,8 +53,11 @@ export class LocalPlayer {
   /** Advances prediction by one fixed tick and returns the message to send. */
   /** Armour and held-weapon movement multiplier (mirrors the server's). */
   speedMul = 1;
+  /** Thrown by a vehicle (server flag): no control, the body just flies. */
+  knocked = false;
 
   step(mx: number, mz: number, yaw: number, pitch: number, buttons: number, renderTime: number | undefined, weapon = 0): InputMessage {
+    if (this.knocked) { mx = 0; mz = 0; buttons = 0; }
     const pressedJump = !!(buttons & Buttons.Jump) && !(this.lastButtons & Buttons.Jump);
     this.lastButtons = buttons;
     copyCharacterState(this.state, this.prev);
@@ -84,6 +87,7 @@ export class LocalPlayer {
     this.lastServer = server;
     this.health = server.health;
     this.dead = (server.flags & EntityFlags.Dead) !== 0;
+    this.knocked = (server.flags & EntityFlags.Knocked) !== 0;
     while (this.pending.length > 0 && this.pending[0]!.seq <= ackSeq) this.pending.shift();
 
     const before = copyCharacterState(this.state, this.replayScratch);

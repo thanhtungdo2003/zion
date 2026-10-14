@@ -18,7 +18,7 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
     </div>
     {state.phase === 'finished' && <div className="overlay battle-result"><div className="overlay-card">
       <h2>{state.placement === 1 ? 'CHIẾN THẮNG!' : 'TRẬN ĐÃ KẾT THÚC'}</h2>
-      <p>{state.winner ? `${state.winner.name} là người sống sót cuối cùng.` : 'Không còn người sống sót.'}</p>
+      <p>{state.winner ? state.winner.squad ? `Tiểu đội ${state.winner.name} là đội sống sót cuối cùng.` : `${state.winner.name} là người sống sót cuối cùng.` : 'Không còn người sống sót.'}</p>
       {state.placement && <p>Thứ hạng của bạn: #{state.placement} / {state.total}</p>}
       <button className="btn btn-primary" onClick={onLeave}>Về sảnh</button>
       <small>Tự đóng trận sau {seconds}s</small>

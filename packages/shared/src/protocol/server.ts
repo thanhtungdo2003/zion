@@ -337,6 +337,8 @@ export const EntityFlags = {
   InPlane: 1 << 13,
   Freefall: 1 << 14,
   Parachute: 1 << 15,
+  /** Thrown by a vehicle: limp ragdoll, no control until it wears off. */
+  Knocked: 1 << 16,
 } as const;
 
 export interface SelfState {
@@ -397,7 +399,7 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
   const me = s.self;
   // Self state is sent at full float precision: client-side reconciliation replays inputs from it.
   w.f32(me.x).f32(me.y).f32(me.z).f32(me.vx).f32(me.vy).f32(me.vz);
-  w.u16(me.flags).u8(me.health).u8(Math.min(255, me.stuckTicks));
+  w.u32(me.flags).u8(me.health).u8(Math.min(255, me.stuckTicks));
   w.u8(Math.min(255, me.rollTicks)).u8(Math.min(255, me.rollCooldown)).f32(me.rollYaw);
   const count = Math.min(s.entities.length, MAX_SNAPSHOT_ENTITIES);
   w.u16(count);
@@ -405,7 +407,7 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
     const e = s.entities[i]!;
     w.u32(e.id).u8(e.kind).f32(e.x).f32(e.y).f32(e.z);
     w.i16(quantAngle(e.yaw)).i16(quantAngle(e.pitch));
-    w.u16(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0);
+    w.u32(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0);
   }
   return w.finish();
 }
@@ -424,7 +426,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
     vx: r.f32(),
     vy: r.f32(),
     vz: r.f32(),
-    flags: r.u16(),
+    flags: r.u32(),
     health: r.u8(),
     stuckTicks: r.u8(),
     rollTicks: r.u8(),
@@ -443,7 +445,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
       z: r.f32(),
       yaw: r.i16() / ANGLE_SCALE,
       pitch: r.i16() / ANGLE_SCALE,
-      flags: r.u16(),
+      flags: r.u32(),
       health: r.u8(),
       weapon: r.u8(),
       back: r.u8(),

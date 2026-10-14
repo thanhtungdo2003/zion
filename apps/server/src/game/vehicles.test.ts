@@ -108,4 +108,15 @@ describe('authoritative vehicles',()=>{
     expect(w.raycast(40,seatY+1.37,seatZ,1,0,0,head!.t,Mask.LineOfSight,hit)).toBe(false);
     expect(w.raycast(40,30.5,48,1,0,0,15,Mask.LineOfSight,hit)).toBe(true);
   });
+  it('runs over a body standing in front of a moving vehicle, harder the faster it goes',()=>{
+    const hits:number[]=[];
+    for(const speed of [6,18]){
+      const s=system(world()),v={...vehicle(),speed};s.states.set(v.id,v);
+      // Body just ahead of the bonnet (yaw 0 drives towards -Z).
+      const body={state:createCharacterState(48,30,48-VEHICLES.car.halfZ-.2)};
+      s.strike(1000,()=>[body],(b)=>b.state,80,(_t,_v,damage)=>hits.push(damage));
+    }
+    expect(hits.length).toBe(2);expect(hits[1]).toBeGreaterThan(hits[0]!*3);
+  });
 });
+

@@ -1,5 +1,5 @@
 import type { LifeWorld } from './game/base-life';
-import { BATTLE_MAP, STARTING_ZCOIN, validateContent } from '@zion/shared';
+import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -101,7 +101,9 @@ async function main(): Promise<void> {
 
   const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale' }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger);
   await battleWorld.start();
-  const battleGame = new GameServer({ config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+  // Battle royale squads are separate from survival teams: three players, kept in memory.
+  const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
+  const battleGame = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
   const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
@@ -150,6 +152,7 @@ async function main(): Promise<void> {
     atlas: mode => mode === 'battle-royale' ? battleAtlas() : survivalAtlas(),
     atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : survivalTiles(x, z),
     teams,
+    battleTeams,
     config,
     logger,
     auth,

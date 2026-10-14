@@ -19,17 +19,18 @@ const actionSchema = z.discriminatedUnion('op', [
 ]);
 
 export function registerTeamRoutes(app: FastifyInstance, deps: HttpDeps): void {
-  const teams = deps.teams;
-  if (!teams) return;
+  if (!deps.teams) return;
+  /** `?mode=battle-royale` selects the squad lobby; anything else the survival teams. */
+  const pick = (query: unknown) => ((query as { mode?: string } | undefined)?.mode === 'battle-royale' ? deps.battleTeams : undefined) ?? deps.teams!;
   app.get('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
-    const lobby = teams.lobby(req.claims!.sub);
+    const lobby = pick(req.query).lobby(req.claims!.sub);
     return deps.progression ? deps.progression.lobbyRanks(lobby) : lobby;
   });
   app.post('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     const action = actionSchema.parse(req.body);
     try {
-      const lobby = await teams.action(req.claims!.sub, req.claims!.name, action, await deps.progression?.title(req.claims!.sub));
+      const lobby = await pick(req.query).action(req.claims!.sub, req.claims!.name, action, await deps.progression?.title(req.claims!.sub));
       return deps.progression ? deps.progression.lobbyRanks(lobby) : lobby;
     }
     catch (err) { if (err instanceof TeamError) return reply.code(err.status).send({ error: 'team_error', message: err.message }); throw err; }

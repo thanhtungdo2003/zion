@@ -1,5 +1,5 @@
 export type GameMode = 'survival' | 'battle-royale';
-export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ', seed: 'zion-red-valley-02', sizeChunks: 128, maxPlayers: 32, minPlayers: 2 } as const;
+export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ', seed: 'zion-red-valley-02', sizeChunks: 128, maxPlayers: 48, minPlayers: 2 } as const;
 export interface BattleCircle { x: number; z: number; radius: number }
 /** Fixed battle royale clock (14:00) as a fraction of the day. */
 export const BATTLE_TIME_OF_DAY = 14 / 24;
@@ -21,7 +21,8 @@ export interface BattleState {
   circle: BattleCircle;
   nextCircle: BattleCircle;
   damagePerSecond: number;
-  winner: { id: number; name: string } | null;
+  /** Last player standing, or the surviving squad (`squad` names it). */
+  winner: { id: number; name: string; squad?: string } | null;
   placement?: number;
   drop?: { phase: 'boarding' | 'falling' | 'parachute' | 'landed'; altitude: number; parachuteOpen: boolean; deployIn?: number; speed?: number; heading?: number };
   plane?: BattlePlane;

@@ -43,6 +43,8 @@ export class ClientSession {
   readonly pingBucket = new TokenBucket(2, 5);
   lastChat = '';
   lastChatAt = 0;
+  /** Battle royale: joined with the squad ("Tiểu đội xuất phát") rather than solo. */
+  squad = false;
 
   constructor(
     readonly id: number,

@@ -28,6 +28,8 @@ export interface HttpDeps {
   logger: Logger;
   auth: AuthService;
   teams?: TeamService;
+  /** Battle royale squads (separate lobby, max 3). */
+  battleTeams?: TeamService;
   atlas?: (mode?: GameMode) => Promise<WorldAtlas>;
   atlasTile?: (x: number, z: number, mode?: GameMode) => Promise<AtlasTile>;
   tokens: TokenService;

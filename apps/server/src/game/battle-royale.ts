@@ -15,6 +15,11 @@ export class BattleRoyaleMatch {
   phase: BattleState['phase'] = 'waiting';
   readonly entrants = new Map<number, string>();
   readonly eliminated = new Map<number, number>();
+  /** Squad of each entrant who dropped in with a team (team id → name in `squadNames`). */
+  readonly squads = new Map<number, string>();
+  readonly squadNames = new Map<string, string>();
+  /** Players per squad in this match: 1 solo, 2 or 3 once a squad of that size drops in. */
+  squadSize = 1;
   circle: BattleCircle;
   nextCircle: BattleCircle;
   private from: BattleCircle;
@@ -36,17 +41,27 @@ export class BattleRoyaleMatch {
   }
   get accepting(): boolean { return (this.phase === 'waiting' || this.phase === 'countdown') && this.entrants.size < BATTLE_MAP.maxPlayers; }
   get alive(): number { return this.entrants.size - this.eliminated.size; }
-  join(id: number, name: string): boolean {
+  /** Sides still in the fight: each squad counts once, solo players on their own. */
+  get aliveSides(): number {
+    const sides = new Set<string | number>();
+    for (const id of this.entrants.keys()) if (!this.eliminated.has(id)) sides.add(this.squads.get(id) ?? id);
+    return sides.size;
+  }
+  allies(a: number, b: number): boolean { const s = this.squads.get(a); return a !== b && s !== undefined && s === this.squads.get(b); }
+  join(id: number, name: string, squad?: { id: string; name: string; size?: number }): boolean {
     if (!this.accepting || this.entrants.has(id)) return false;
-    this.entrants.set(id, name); return true;
+    this.entrants.set(id, name);
+    if (squad) { this.squads.set(id, squad.id); this.squadNames.set(squad.id, squad.name); this.squadSize = Math.max(this.squadSize, Math.min(3, squad.size ?? 1)); }
+    return true;
   }
   leave(id: number): void {
     if (this.phase === 'running') this.eliminate(id);
-    else if (this.phase !== 'finished') this.entrants.delete(id);
+    else if (this.phase !== 'finished') { this.entrants.delete(id); this.squads.delete(id); }
   }
   eliminate(id: number): void {
     if (this.phase !== 'running' || !this.entrants.has(id) || this.eliminated.has(id)) return;
-    this.eliminated.set(id, this.alive);
+    // Placement counts sides: a squad member out while the squad still fights shares its fate.
+    this.eliminated.set(id, this.aliveSides);
   }
   canFight(id: number): boolean { return this.phase === 'running' && this.entrants.has(id) && !this.eliminated.has(id); }
   private plan(now: number): void {
@@ -83,9 +98,10 @@ export class BattleRoyaleMatch {
       else if (now >= this.deadline) { this.phase = 'running'; this.startedAt = now; this.plan(now + BATTLE_FLIGHT.durationMs); }
     }
     if (this.phase !== 'running') return;
-    if (this.alive <= 1) {
+    if (this.aliveSides <= 1) {
       const survivor = [...this.entrants].find(([id]) => !this.eliminated.has(id));
-      this.winner = survivor ? { id: survivor[0], name: survivor[1] } : null;
+      const squad = survivor ? this.squads.get(survivor[0]) : undefined;
+      this.winner = survivor ? { id: survivor[0], name: squad ? this.squadNames.get(squad) ?? survivor[1] : survivor[1], ...(squad ? { squad } : {}) } : null;
       this.phase = 'finished'; this.deadline = now + 30_000; return;
     }
     if (!this.shrinking && now >= this.deadline) {
@@ -99,6 +115,6 @@ export class BattleRoyaleMatch {
   }
   outside(x: number, z: number): boolean { return Math.hypot(x - this.circle.x, z - this.circle.z) >= this.circle.radius; }
   state(now: number, id?: number): BattleState {
-    return { t: 'battle', phase: this.phase, map: BATTLE_MAP.name, alive: this.alive, total: this.entrants.size, stage: this.stage + 1, shrinking: this.shrinking, remainingMs: Math.max(0, this.deadline - now), circle: { ...this.circle }, nextCircle: { ...this.nextCircle }, damagePerSecond: BATTLE_STAGES[this.stage]!.damage, winner: this.winner, placement: id === this.winner?.id ? 1 : id === undefined ? undefined : this.eliminated.get(id), plane: this.startedAt !== null && now - this.startedAt < BATTLE_FLIGHT.durationMs && this.phase === 'running' ? battlePlaneAt(this.size, now - this.startedAt) : undefined };
+    return { t: 'battle', phase: this.phase, map: BATTLE_MAP.name, alive: this.alive, total: this.entrants.size, stage: this.stage + 1, shrinking: this.shrinking, remainingMs: Math.max(0, this.deadline - now), circle: { ...this.circle }, nextCircle: { ...this.nextCircle }, damagePerSecond: BATTLE_STAGES[this.stage]!.damage, winner: this.winner, placement: id !== undefined && (id === this.winner?.id || (this.winner?.squad !== undefined && this.squads.get(id) === this.winner.squad)) ? 1 : id === undefined ? undefined : this.eliminated.get(id), plane: this.startedAt !== null && now - this.startedAt < BATTLE_FLIGHT.durationMs && this.phase === 'running' ? battlePlaneAt(this.size, now - this.startedAt) : undefined };
   }
 }

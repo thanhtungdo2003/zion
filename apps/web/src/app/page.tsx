@@ -19,7 +19,7 @@ import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
 import { LeaderboardModal } from '@/components/LeaderboardModal';
 import { InstallAppButton } from '@/components/InstallAppButton';
-import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
+import { SQUAD_LIMIT, TEAM_LIMIT, type TeamAction, type TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
@@ -70,6 +70,9 @@ export default function MainMenu() {
   const [teamError, setTeamError] = useState<string | null>(null);
   const [entryIntent, setEntryIntent] = useState<'play' | 'team'>('play');
   const teamVersion = useRef(0);
+  /** Last squad launch seen, so members follow their leader into the match exactly once. */
+  const seenLaunch = useRef<string | null | undefined>(undefined);
+  const battleMode = gameMode === 'battle-royale';
   const teamWorking = useRef(false);
   const team = lobby?.team;
 
@@ -85,7 +88,7 @@ export default function MainMenu() {
       const version = teamVersion.current;
       try {
         if (!teamWorking.current) {
-          const next = await getTeamLobby();
+          const next = await getTeamLobby(gameMode);
           if (active && version === teamVersion.current) { applyLobby(next); setTeamError(null); }
         }
       } catch (err) { if (active) setTeamError(err instanceof Error ? err.message : 'Không kết nối được sảnh đội.'); }
@@ -93,12 +96,24 @@ export default function MainMenu() {
     };
     void poll();
     return () => { active = false; clearTimeout(timer); };
-  }, [session, applyLobby]);
+  }, [session, applyLobby, gameMode]);
+  // Survival teams and battle royale squads are separate lobbies: switch with the mode.
+  useEffect(() => { teamVersion.current++; seenLaunch.current = undefined; setLobby(null); }, [gameMode]);
+  // The squad leader pressed "Tiểu đội xuất phát": everyone in the squad drops in with them.
+  useEffect(() => {
+    if (!battleMode || !lobby) return;
+    const launch = lobby.team?.launchId ?? null;
+    if (seenLaunch.current === undefined) { seenLaunch.current = launch; return; }
+    if (launch && launch !== seenLaunch.current) {
+      seenLaunch.current = launch;
+      if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) { setBusy(true); router.push('/play?mode=battle-royale&squad=1'); }
+    } else seenLaunch.current = launch;
+  }, [lobby, battleMode, router]);
 
   const manageTeam = async (action: TeamAction) => {
     if (teamWorking.current) return;
     teamWorking.current = true; teamVersion.current++; setTeamBusy(true); setTeamError(null);
-    try { applyLobby(await teamAction(action)); }
+    try { applyLobby(await teamAction(action, gameMode)); }
     catch (err) { setTeamError(err instanceof Error ? err.message : 'Không cập nhật được đội.'); }
     finally { teamWorking.current = false; setTeamBusy(false); }
   };
@@ -148,12 +163,12 @@ export default function MainMenu() {
     return () => window.removeEventListener('keydown', onKey);
   }, [nameOpen, busy]);
 
-  const run = async (fn: () => Promise<unknown>) => {
+  const run = async (fn: () => Promise<unknown>, squad = false) => {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      router.push(gameMode === 'battle-royale' ? '/play?mode=battle-royale' : '/play');
+      router.push(gameMode === 'battle-royale' ? `/play?mode=battle-royale${squad ? '&squad=1' : ''}` : '/play');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('menu.server_error'));
       setBusy(false);
@@ -161,6 +176,18 @@ export default function MainMenu() {
   };
 
   // Returning players resume; first-time guests choose their name before account creation.
+  /** Squad leader: launch the whole squad into the battle royale queue together. */
+  const playSquad = async () => {
+    if (!team || teamWorking.current) return;
+    if (team.leaderId !== currentAccount()?.id) return;
+    teamWorking.current = true; setTeamBusy(true); setTeamError(null);
+    try {
+      const next = await teamAction({ op: 'launch' }, 'battle-royale');
+      seenLaunch.current = next.team?.launchId ?? null; applyLobby(next);
+      void run(() => Promise.resolve(), true);
+    } catch (err) { setTeamError(err instanceof Error ? err.message : 'Không xuất phát được.'); }
+    finally { teamWorking.current = false; setTeamBusy(false); }
+  };
   const play = () => {
     if (session) void run(() => Promise.resolve());
     else { setEntryIntent('play'); setError(null); setAuthOpen(true); }
@@ -235,7 +262,7 @@ export default function MainMenu() {
       <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
         if (!session) { setEntryIntent('team'); setAuthOpen(true); }
         else setTeamOpen(!teamOpen);
-      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/5 · ${team.name}` : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>
+      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>
 
       {authOpen && (
         <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
@@ -300,7 +327,7 @@ export default function MainMenu() {
         </section>
       )}
 
-      {session && teamOpen && <TeamLobby lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
+      {session && teamOpen && <TeamLobby battle={battleMode} lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
 
       <div className="menu-launch">
         <a
@@ -345,9 +372,15 @@ export default function MainMenu() {
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
           <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>
         </button>
-        <button className="menu-play" disabled={busy || !sessionReady} onClick={play}>
+        {battleMode && session && team ? <div className="menu-play-pair">
+          <button className="menu-play" disabled={busy || teamBusy || !sessionReady || team.leaderId !== currentAccount()?.id} onClick={() => { void playSquad(); }} title={team.leaderId === currentAccount()?.id ? `Cả tiểu đội ${team.members.length} người cùng vào trận` : 'Chờ đội trưởng cho tiểu đội xuất phát'}>
+            {busy ? <><Spinner /> {t('menu.deploying')}</> : team.leaderId === currentAccount()?.id ? 'TIỂU ĐỘI XUẤT PHÁT' : 'CHỜ ĐỘI TRƯỞNG'}
+          </button>
+          <button className="menu-play menu-play-solo" disabled={busy || !sessionReady} onClick={play}>CHƠI ĐƠN</button>
+        </div> : <button className="menu-play" disabled={busy || !sessionReady} onClick={play}>
           {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}
-        </button>
+        </button>}
+        {battleMode && session && !team && <p className="menu-squad-hint"><Icon name="lucide:users" /> Tạo hoặc vào tiểu đội để chơi theo đội (2–3 người)</p>}
         {teamError && !teamOpen && <p className="error">{teamError}</p>}
         {error && <p className="error">{error}</p>}
       </div>

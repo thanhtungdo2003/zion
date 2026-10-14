@@ -177,7 +177,7 @@ export class Minimap {
     npcs: ReadonlyArray<{ role: string; x: number; z: number; quest?: boolean }> = [],
     /** The spawn camp: always shown, pinned to the map edge (pointing at it) when far away. */
     spawn: { x: number; z: number } | null = null,
-    teammates: ReadonlyArray<{ x: number; z: number }> = [],
+    teammates: ReadonlyArray<{ x: number; z: number; yaw?: number }> = [],
     locations?: ReadonlyArray<MapLocation>,
     arrows = true,
     battle: BattleState | null = null,
@@ -294,12 +294,15 @@ export class Minimap {
     teammates.forEach((mate, i) => {
       const { x, y, off } = mapMarker((mate.x - px) * scale, (mate.z - pz) * scale, upYaw, W / 2 - 10);
       ctx.save(); ctx.translate(W / 2 + x, W / 2 + y);
-      ctx.fillStyle = '#5fe089'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
+      // Teammate: blue dot with a wedge showing where they look (same frame as the player arrow).
+      ctx.fillStyle = '#3d9bff'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
       if (off) {
         ctx.save(); ctx.rotate(Math.atan2(y, x)); ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(4, -4); ctx.lineTo(4, 4); ctx.closePath(); ctx.fill(); ctx.restore();
+      } else if (mate.yaw !== undefined) {
+        ctx.save(); ctx.rotate(upYaw - mate.yaw); ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(4.5, -3); ctx.lineTo(-4.5, -3); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
       }
-      ctx.beginPath(); ctx.arc(0, 0, off ? 5 : 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#092414'; ctx.fillText(String(i + 1), 0, 0);
+      ctx.beginPath(); ctx.arc(0, 0, off ? 5 : 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.font = 'bold 7px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#04182c'; ctx.fillText(String(i + 1), 0, 0);
       ctx.restore();
     });
   }

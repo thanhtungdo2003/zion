@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
-import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
+import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -17,7 +17,7 @@ import { QuestEngine, type QuestEvent } from './quests';
 import { authoredWorld, battleStructures } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
-import { doorColliders, stepAirborne } from '@zion/physics';
+import { doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
 import { type TeamService, TeamError } from './teams';
 import { TEAM_QUESTS } from '@zion/shared';
 import { chooseMissionStructure } from './mission-locations';
@@ -165,6 +165,22 @@ export interface GameServerDeps {
  * real-time budget, integrates movement with the shared character controller against the server
  * collision world, resolves combat, streams chunks and sends interest-filtered snapshots.
  */
+/**
+ * A hard vehicle hit (above ~25 km/h closing speed) throws the body along the blow: heavier and
+ * faster vehicles throw further and keep it limp longer. Returns when control comes back (0: no throw).
+ */
+function throwBody(s: CharacterState, v: { kind: keyof typeof VEHICLES }, dx: number, dz: number, impulse: number, now: number): number {
+  const closing = impulse / .55, weight = Math.min(1.5, VEHICLES[v.kind].mass / 900);
+  if (closing <= 7) return 0;
+  const throwSpeed = (1.6 + closing * .5) * Math.sqrt(weight);
+  s.vx = dx * throwSpeed; s.vz = dz * throwSpeed; s.vy = 2 + closing * .15 * weight;
+  s.grounded = false; s.prone = false; s.rollTicks = 0; s.climbing = false;
+  return now + Math.min(4000, 900 + closing * 140 * weight);
+}
+
+/** Names of the bot squads in squad matches. */
+const BOT_SQUAD_NAMES = ['Sói Xám', 'Bão Cát', 'Rắn Hổ'];
+
 export class GameServer {
   readonly vehicles: Vehicles;
   private readonly vegetation: VegetationDamage;
@@ -464,10 +480,13 @@ export class GameServer {
     finally { this.finishQuestMutation(p); }
   }
 
-  private allied(a: Player, b: Player): boolean { return this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+  private allied(a: Player, b: Player): boolean { return this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+  /** Battle royale: only players who dropped in with their squad see and share the team. */
+  private squadOf(p: Player) { return this.battle && !p.session.squad ? undefined : this.deps.teams?.forAccount(p.accountId); }
 
   private sendTeam(p: Player): void {
-    p.session.sendJson({ t: 'teamState', team: this.deps.teams?.view(p.accountId) ?? null, quests: this.deps.teams?.questViews(p.accountId) ?? [] });
+    const team = this.squadOf(p) ? this.deps.teams?.view(p.accountId) ?? null : null;
+    p.session.sendJson({ t: 'teamState', team, quests: this.battle ? [] : this.deps.teams?.questViews(p.accountId) ?? [] });
   }
 
   private async onTeamQuest(p: Player, msg: Extract<ClientMessage, { t: 'quest' }>): Promise<void> {
@@ -1073,7 +1092,11 @@ export class GameServer {
     this.players.set(player.id, player);
     this.byAccount.set(acc.accountId, player);
     this.grid.update(player);
-    if (this.battle) { this.battle.join(player.id, player.username); this.battleWasOccupied = true; }
+    if (this.battle) {
+      const squad = session.squad ? this.deps.teams?.forAccount(acc.accountId) : undefined;
+      this.battle.join(player.id, player.username, squad ? { id: squad.id, name: squad.name, size: squad.members.length } : undefined);
+      this.battleWasOccupied = true;
+    }
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
@@ -1541,12 +1564,16 @@ export class GameServer {
   private joinBots(match: BattleRoyaleMatch, now: number): void {
     if (!this.bots || !match.accepting) return;
     const humans = [...this.players.values()].filter(p => !p.dead);
-    if (!humans.length || this.bots.bots.length >= MAX_BATTLE_BOTS) return;
+    // Squad matches: three bot squads of the match's squad size; solo: up to MAX_BATTLE_BOTS.
+    const size = match.squadSize, limit = size > 1 ? size * 3 : MAX_BATTLE_BOTS;
+    if (!humans.length || this.bots.bots.length >= limit) return;
     if (!this.nextBotAt) { this.nextBotAt = now + 800; return; }
     if (now < this.nextBotAt) return;
     const near = humans[Math.floor(Math.random() * humans.length)]!;
     const bot = this.bots.spawn(near.state.x, near.state.y, near.state.z);
-    if (!match.join(bot.id, bot.name)) { this.bots.bots.pop(); return; }
+    const index = this.bots.bots.length - 1, squad = size > 1 ? `bot-squad-${Math.floor(index / size)}` : null;
+    if (!match.join(bot.id, bot.name, squad ? { id: squad, name: BOT_SQUAD_NAMES[Math.floor(index / size) % BOT_SQUAD_NAMES.length]!, size } : undefined)) { this.bots.bots.pop(); return; }
+    bot.squad = squad;
     this.nextBotAt = now + 800 + Math.random() * 1400;
     this.broadcastPlayerList();
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
@@ -1627,7 +1654,7 @@ export class GameServer {
       if (retry !== undefined && Date.now() >= retry) { void this.receiveStudioCurrency(p.accountId); continue; }
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
       if (p.dead) {
-        this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
+        if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
         if (this.tick % TICK_RATE === 0) this.sendTeam(p);
         // Dead players' inputs are acknowledged but ignored.
         const last = p.inputs[p.inputs.length - 1];
@@ -1670,7 +1697,9 @@ export class GameServer {
       p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone, !!p.vehicleId);
       this.grid.update(p);
       p.streamer.setCenter(p.chunkX, p.chunkZ);
-      this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed });
+      if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed, yaw: p.yaw });
+      // Squads in battle royale track each other on the map several times a second.
+      if (this.battle && this.tick % 6 === 0 && this.tick % TICK_RATE !== 0) this.sendTeam(p);
       if (this.tick % TICK_RATE === 0) {
         this.sendTeam(p);
         void this.deps.teams?.progress(p.accountId).catch((err: unknown) => this.log.error({ err }, 'team rally progress failed'));
@@ -1686,9 +1715,23 @@ export class GameServer {
       (z, v, amount, dx, dz, impulse) => this.hitZombie(v.driver ? this.players.get(v.driver) ?? null : null, z, amount, 'vehicle', z.state.x, z.state.y + 0.8, z.state.z, dx, dz, impulse, now));
     this.vehicles.strike(now, (v, r) => [...this.players.values()].filter((p) => !p.dead && !p.vehicleId && Math.hypot(p.state.x - v.x, p.state.z - v.z) < r), (p) => p.state, 80,
       (p, v, amount, dx, dz, impulse) => {
-        this.damage(v.driver, p, amount, 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now, 'xe tông', { kx: dx, kz: dz, force: +impulse.toFixed(2) });
+        // Being run over always hurts; the driver is only credited where they may attack this player.
+        const driver = v.driver ? this.players.get(v.driver) : undefined;
+        const by = driver && driver !== p && this.playerAttackAllowed(driver, p, now) ? driver.id : null;
+        this.damage(by, p, amount, 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now, 'xe tông', { kx: dx, kz: dz, force: +impulse.toFixed(2) });
+        const until = p.dead ? 0 : throwBody(p.state, v, dx, dz, impulse, now);
+        if (until) { p.knockedUntil = p.stunUntil = until; p.aiming = false; p.strike = null; p.dirty = true; }
         // A hard hit kills outright instead of leaving the victim downed.
-        if (amount >= 140 && p.downed && !p.dead) this.killPlayer(p, v.driver, now, 'xe tông');
+        if (amount >= 140 && p.downed && !p.dead) this.killPlayer(p, by, now, 'xe tông');
+      });
+    // Battle royale bots are run over like players.
+    if (this.bots) this.vehicles.strike(now, (v, r) => this.bots!.near(v.x, v.z, r).filter((b) => !b.state.flight), (b) => b.state, 80,
+      (bot, v, amount, dx, dz, impulse) => {
+        const driver = v.driver ? this.players.get(v.driver) : undefined;
+        this.broadcastAt(bot.state.x, bot.state.z, { t: 'hit', attackerId: v.driver ?? 0, targetId: bot.id, zone: 'torso', damage: amount, x: bot.state.x, y: bot.state.y + 1, z: bot.state.z, kx: dx, kz: dz, force: +impulse.toFixed(2) });
+        this.bots!.hit(bot, amount, driver?.username ?? 'xe', { x: v.x, z: v.z }, now, 'torso', driver?.id ?? null);
+        const until = bot.dead ? 0 : throwBody(bot.state, v, dx, dz, impulse, now);
+        if (until) { bot.knockedUntil = until; bot.target = null; }
       });
     // Vehicle movement is integrated once per tick, independent of input packet count.
     for (const p of this.players.values()) if (p.vehicleId) {
@@ -1816,6 +1859,8 @@ export class GameServer {
     if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    // Thrown by a vehicle: limp, nothing works until the body comes to rest.
+    if (now < p.knockedUntil) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     // Staggered by a hit: no steering until it lands.
     if (now < p.stunUntil) { input = { ...input, mx: 0, mz: 0 }; buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump); }
     if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT * this.effort(p))) buttons &= ~Buttons.Sprint;
@@ -2917,6 +2962,7 @@ export class GameServer {
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.downed) f |= EntityFlags.Downed;
     if (p.reviving) f |= EntityFlags.Reviving;
+    if (now < p.knockedUntil && !p.dead) f |= EntityFlags.Knocked;
     return f;
   }
 

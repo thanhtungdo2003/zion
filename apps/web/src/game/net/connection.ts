@@ -55,7 +55,11 @@ export class GameConnection {
     }
     if (this.closedByUser) return;
     const url = new URL(t.wsUrl);
-    if (this.mode === 'battle-royale') url.searchParams.set('mode', this.mode);
+    if (this.mode === 'battle-royale') {
+      url.searchParams.set('mode', this.mode);
+      // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('squad') === '1') url.searchParams.set('squad', '1');
+    }
     const ws = new WebSocket(url.toString());
     ws.binaryType = 'arraybuffer';
     this.ws = ws;

@@ -88,15 +88,16 @@ export class GameGateway {
     if (!this.upgradeLimiter.hit(ip)) return this.reject(socket, 429, 'upgrade_rate');
     if (this.sessions.size >= this.config.MAX_CONNECTIONS) return this.reject(socket, 503, 'capacity');
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
-    const mode = new URL(url, 'http://localhost').searchParams.get('mode');
+    const query = new URL(url, 'http://localhost').searchParams, mode = query.get('mode'), squad = mode === 'battle-royale' && query.get('squad') === '1';
     if (mode && mode !== 'survival' && mode !== 'battle-royale') return this.reject(socket, 400, 'mode');
     if (mode === 'battle-royale' && !this.battleGame) return this.reject(socket, 503, 'mode_unavailable');
     const game = mode === 'battle-royale' ? this.battleGame! : this.game;
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, game));
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, game, squad));
   }
 
-  private onConnection(ws: WebSocket, ip: string, game = this.game): void {
+  private onConnection(ws: WebSocket, ip: string, game = this.game, squad = false): void {
     const session = new ClientSession(this.nextSessionId++, ws, ip, this.metrics);
+    session.squad = squad;
     this.sessionGames.set(session, game);
     this.sessions.add(session);
     this.perIp.inc(ip);

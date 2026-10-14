@@ -2,6 +2,8 @@ import type { RankTitle } from './ranks';
 import type { QuestStateMessage } from './protocol/server';
 
 export const TEAM_LIMIT = 5;
+/** Battle royale squads: up to three players. */
+export const SQUAD_LIMIT = 3;
 export interface TeamMember { accountId: string; name: string; ready: boolean }
 export interface TeamChatLine { id: string; from: string; text: string; at: number; rank?: RankTitle }
 export interface TeamQuestRun {
@@ -16,7 +18,7 @@ export interface TeamRecord {
   launchId: string | null; launchedAt: number;
 }
 export interface TeamView extends TeamRecord {
-  members: Array<TeamMember & { online: boolean; inGame: boolean; entityId?: number; x?: number; y?: number; z?: number; health?: number; downed?: boolean; rank?: RankTitle }>;
+  members: Array<TeamMember & { online: boolean; inGame: boolean; entityId?: number; x?: number; y?: number; z?: number; health?: number; downed?: boolean; yaw?: number; rank?: RankTitle }>;
 }
 export interface TeamLobby { team: TeamView | null; available: Array<{ id: string; name: string; count: number; leader: string }> }
 export type TeamAction =

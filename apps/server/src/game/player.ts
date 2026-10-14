@@ -105,6 +105,8 @@ export class Player {
   onLeaveSaved: (() => void) | null = null;
   /** Knocked back by a shot: movement input ignored until then (ms). */
   stunUntil = 0;
+  /** Run over: flying limp, no control until then. */
+  knockedUntil = 0;
   /** Knocked down: bleeding out (bleed 100 → 0) until revived or dead. */
   downed = false;
   bleed = 0;
