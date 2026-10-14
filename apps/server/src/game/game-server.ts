@@ -1508,17 +1508,17 @@ export class GameServer {
     }
   }
 
-  /** While a match fills up, bots join one by one behind the human players (at most five). */
+  /** While a match fills up, bots join one by one behind the human players (at most MAX_BATTLE_BOTS). */
   private joinBots(match: BattleRoyaleMatch, now: number): void {
     if (!this.bots || !match.accepting) return;
     const humans = [...this.players.values()].filter(p => !p.dead);
     if (!humans.length || this.bots.bots.length >= MAX_BATTLE_BOTS) return;
-    if (!this.nextBotAt) { this.nextBotAt = now + 2500; return; }
+    if (!this.nextBotAt) { this.nextBotAt = now + 800; return; }
     if (now < this.nextBotAt) return;
     const near = humans[Math.floor(Math.random() * humans.length)]!;
     const bot = this.bots.spawn(near.state.x, near.state.y, near.state.z);
     if (!match.join(bot.id, bot.name)) { this.bots.bots.pop(); return; }
-    this.nextBotAt = now + 3000 + Math.random() * 4000;
+    this.nextBotAt = now + 800 + Math.random() * 1400;
     this.broadcastPlayerList();
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
   }
@@ -2895,7 +2895,7 @@ export class GameServer {
 
   private broadcastPlayerList(): void {
     const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled }));
-    for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Bot' }, pvp: false });
+    for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' }, pvp: false });
     this.broadcast({ t: 'players', players });
   }
 

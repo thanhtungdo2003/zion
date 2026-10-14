@@ -14,8 +14,24 @@ import { NavigationState, ZombieNavigation } from './navigation';
 
 /** Bot ids sit in the NPC range, clear of the camp NPCs. */
 export const BOT_ID_BASE = NPC_ID_BASE + 0x1000;
-export const MAX_BATTLE_BOTS = 5;
-const BOT_NAMES = ['Sói Xám', 'Bóng Đêm', 'Hổ Mang', 'Đại Bàng', 'Rắn Lục', 'Kền Kền', 'Cáo Đỏ', 'Báo Đen', 'Ưng Sắt', 'Gấu Nâu'];
+export const MAX_BATTLE_BOTS = 10;
+const NAME_HEADS = ['tung', 'minh', 'hieu', 'nam', 'khanh', 'duc', 'long', 'phong', 'quan', 'huy', 'linh', 'trang', 'vy', 'an', 'bao', 'dat', 'son', 'thanh', 'kiet', 'tuan', 'shadow', 'ghost', 'sniper', 'wolf', 'reaper', 'noob', 'pro', 'dark', 'killer', 'zero', 'lucky', 'toxic', 'chill', 'blaze', 'viper'];
+const NAME_TAILS = ['', '', '_vn', 'pro', 'gaming', 'x', 'zz', '_99', 'boy', 'dz', 'tv', '2k', 'vip', '_hn', '_sg', 'ne'];
+/** Usernames in the style real players pick: lowercase handles, numbers, the odd capital. */
+function playerLikeName(taken: ReadonlySet<string>): string {
+  const pick = <T>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)]!;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    let name = pick(NAME_HEADS);
+    if (Math.random() < .35) name += pick(NAME_HEADS);
+    name += pick(NAME_TAILS);
+    if (Math.random() < .6) name += Math.random() < .5 ? String(Math.floor(Math.random() * 100)) : String(1990 + Math.floor(Math.random() * 20));
+    if (Math.random() < .3) name = name[0]!.toUpperCase() + name.slice(1);
+    if (Math.random() < .15) name = `x${name}x`;
+    name = name.slice(0, 16);
+    if (name.length >= 3 && !taken.has(name)) return name;
+  }
+  return `player${Math.floor(Math.random() * 10_000)}`;
+}
 /** How far bots see (m), and the field of view when not already alerted. */
 const SIGHT = 70, FOV = Math.cos(65 * Math.PI / 180);
 
@@ -120,10 +136,9 @@ export class BattleBotDirector {
 
   /** Adds a bot next to a point (the joining player); returns it so the match can enrol it. */
   spawn(x: number, y: number, z: number): BattleBot {
-    const used = new Set(this.bots.map(b => b.name));
-    const name = BOT_NAMES.find(n => !used.has(n)) ?? `Bot ${this.serial + 1}`;
+    const name = playerLikeName(new Set(this.bots.map(b => b.name)));
     const angle = Math.random() * Math.PI * 2;
-    const bot = new BattleBot(BOT_ID_BASE + (this.serial++ % 0x1000), `[BOT] ${name}`, x + Math.cos(angle) * 3, y + .1, z + Math.sin(angle) * 3);
+    const bot = new BattleBot(BOT_ID_BASE + (this.serial++ % 0x1000), name, x + Math.cos(angle) * 3, y + .1, z + Math.sin(angle) * 3);
     this.bots.push(bot);
     return bot;
   }
