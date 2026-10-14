@@ -72,6 +72,8 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
 export interface CharacterState {
   /** 0 ground movement, 1 aboard aircraft, 2 freefall, 3 open parachute. */
   flight?: 0 | 1 | 2 | 3;
+  /** Seconds spent in freefall (the parachute only opens after BATTLE_FLIGHT.deployDelayMs). */
+  freefall?: number;
   prone: boolean;
   /** Feet position. */
   x: number;
@@ -131,6 +133,7 @@ export function characterEyeHeight(state: Pick<CharacterState, 'prone'>): number
 
 export function copyCharacterState(src: CharacterState, dst: CharacterState): CharacterState {
   dst.flight = src.flight;
+  dst.freefall = src.freefall;
   dst.x = src.x;
   dst.y = src.y;
   dst.z = src.z;

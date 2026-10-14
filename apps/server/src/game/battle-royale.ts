@@ -27,7 +27,8 @@ export class BattleRoyaleMatch {
   private readonly initialRadius: number;
   startedAt: number | null = null;
 
-  constructor(seed: number, private readonly size: number) {
+  /** `isLand`: dry-ground test; safe circles are drawn at random over land. */
+  constructor(seed: number, private readonly size: number, private readonly isLand: (x: number, z: number) => boolean = () => true) {
     this.rng = new Rng(seed);
     this.initialRadius = size * .68;
     this.circle = { x: size / 2, z: size / 2, radius: this.initialRadius };
@@ -51,11 +52,29 @@ export class BattleRoyaleMatch {
   private plan(now: number): void {
     const settings = BATTLE_STAGES[this.stage]!;
     const radius = this.initialRadius * settings.ratio;
-    const angle = this.rng.next() * Math.PI * 2;
-    // All later safe circles stay on dry central land and inside their predecessor.
-    const travel = Math.min(this.circle.radius - radius, this.initialRadius * .12) * Math.sqrt(this.rng.next());
-    this.nextCircle = { x: clamp(this.circle.x + Math.cos(angle) * travel, this.size * .3, this.size * .7), z: clamp(this.circle.z + Math.sin(angle) * travel, this.size * .3, this.size * .7), radius };
+    // Random spot inside the current circle; of a few candidates keep the one with the most land
+    // (centre on land first), so the zone ends up anywhere on the island, never out at sea.
+    const room = Math.max(0, this.circle.radius - radius);
+    let best: BattleCircle | null = null, bestScore = -1;
+    for (let i = 0; i < 24; i++) {
+      const angle = this.rng.next() * Math.PI * 2, travel = room * Math.sqrt(this.rng.next());
+      const edge = Math.min(radius, this.size * .45);
+      const x = clamp(this.circle.x + Math.cos(angle) * travel, edge, this.size - edge), z = clamp(this.circle.z + Math.sin(angle) * travel, edge, this.size - edge);
+      const score = this.landShare(x, z, radius) + (this.isLand(x, z) ? 1 : 0);
+      if (score > bestScore) { best = { x, z, radius }; bestScore = score; }
+      if (score >= 1.85) break;
+    }
+    this.nextCircle = best!;
     this.from = { ...this.circle }; this.shrinking = false; this.deadline = now + settings.wait;
+  }
+  /** Fraction of sample points within the circle that are on land. */
+  private landShare(x: number, z: number, radius: number): number {
+    let land = 0, total = 0;
+    for (const r of [0, .35, .7]) for (let k = 0; k < (r ? 8 : 1); k++) {
+      const a = k / 8 * Math.PI * 2; total++;
+      if (this.isLand(x + Math.cos(a) * r * radius, z + Math.sin(a) * r * radius)) land++;
+    }
+    return land / total;
   }
   tick(now: number): void {
     if (this.phase === 'waiting' && this.alive >= BATTLE_MAP.minPlayers) { this.phase = 'countdown'; this.deadline = now + 30_000; }

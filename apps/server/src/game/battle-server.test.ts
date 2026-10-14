@@ -63,7 +63,10 @@ describe('isolated Battle Royale simulation', () => {
       const input = (s: number, b: number): InputMessage => ({ t: 'in', s, mx: 0, mz: 0, yaw: 0, pitch: 0, b });
       harness.applyInput(a.player!, input(1, Buttons.Jump), 30_004); expect(a.player!.state.flight).toBe(2);
       harness.applyInput(a.player!, input(2, 0), 30_005);
-      harness.applyInput(a.player!, input(3, Buttons.Jump), 30_006); expect(a.player!.state.flight).toBe(3);
+      harness.applyInput(a.player!, input(3, Buttons.Jump), 30_006); expect(a.player!.state.flight).toBe(2); // too soon to deploy
+      a.player!.state.freefall = 10;
+      harness.applyInput(a.player!, input(4, 0), 30_007);
+      harness.applyInput(a.player!, input(5, Buttons.Jump), 30_008); expect(a.player!.state.flight).toBe(3);
       harness.stepBattle(85_001); expect(player.state.flight).toBe(2);
       // Simulate having jumped and landed before exercising ground combat/zone rules.
       player.state.flight = 0; a.player!.state.flight = 0;

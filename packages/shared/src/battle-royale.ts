@@ -3,7 +3,7 @@ export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ
 export interface BattleCircle { x: number; z: number; radius: number }
 /** Fixed battle royale clock (14:00) as a fraction of the day. */
 export const BATTLE_TIME_OF_DAY = 14 / 24;
-export const BATTLE_FLIGHT = { altitude: 650, durationMs: 55_000, autoDeployHeight: 120 } as const;
+export const BATTLE_FLIGHT = { altitude: 650, durationMs: 55_000, autoDeployHeight: 120, deployDelayMs: 10_000 } as const;
 export interface BattlePlane { x: number; y: number; z: number; yaw: number; remainingMs: number }
 export function battlePlaneAt(size: number, elapsedMs: number): BattlePlane {
   const t = Math.max(0, Math.min(1, elapsedMs / BATTLE_FLIGHT.durationMs));
@@ -23,7 +23,7 @@ export interface BattleState {
   damagePerSecond: number;
   winner: { id: number; name: string } | null;
   placement?: number;
-  drop?: { phase: 'boarding' | 'falling' | 'parachute' | 'landed'; altitude: number; parachuteOpen: boolean; speed?: number; heading?: number };
+  drop?: { phase: 'boarding' | 'falling' | 'parachute' | 'landed'; altitude: number; parachuteOpen: boolean; deployIn?: number; speed?: number; heading?: number };
   plane?: BattlePlane;
 }
 

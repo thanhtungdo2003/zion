@@ -22,6 +22,9 @@ describe('Battle Royale airborne movement', () => {
   it('opens manually with Space and automatically 120 metres above elevated terrain', () => {
     const w = world(80), manual = createCharacterState(40, 600, 40), auto = createCharacterState(40, 199, 40);
     manual.flight = auto.flight = 2;
+    // Space does nothing in the first 10 s of freefall, then opens the canopy.
+    stepAirborne(manual, { ...idle, jump: true }, w, 1 / 30); expect(manual.flight).toBe(2);
+    manual.y = 600; manual.freefall = 10;
     stepAirborne(manual, { ...idle, jump: true }, w, 1 / 30); expect(manual.flight).toBe(3);
     stepAirborne(auto, idle, w, 1 / 30); expect(auto.flight).toBe(3);
     for (let i = 0; i < 90; i++) stepAirborne(manual, idle, w, 1 / 30);

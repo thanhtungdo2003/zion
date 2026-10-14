@@ -7,13 +7,17 @@ import { makeRayHit } from './shapes';
 const hit = makeRayHit();
 /** Deterministic insertion movement shared by the authoritative server and prediction. */
 export function stepAirborne(s: CharacterState, input: CharacterInput, world: CollisionWorld, dt: number): void {
-  if (!s.flight || s.flight === 1) return;
+  if (!s.flight || s.flight === 1) { s.freefall = 0; return; }
+  if (s.flight === 2) s.freefall = (s.freefall ?? 0) + dt;
   // High up, keep flying over terrain that is not streamed in yet (stopping here made prediction
   // freeze and snap back, felt as lag); only near the ground wait for the landing area.
   const ground = world.terrainHeight(s.x, s.z);
   if (!Number.isFinite(ground) && s.y - world.seaLevel < 250) return;
   const altitude = Number.isFinite(ground) ? s.y - ground : Infinity;
-  if (s.flight === 2 && (input.jump || altitude <= BATTLE_FLIGHT.autoDeployHeight)) s.flight = 3;
+  // The canopy can only be pulled after a few seconds clear of the plane; the low-altitude auto
+  // deploy stays as a safety.
+  const canDeploy = (s.freefall ?? 0) * 1000 >= BATTLE_FLIGHT.deployDelayMs;
+  if (s.flight === 2 && ((input.jump && canDeploy) || altitude <= BATTLE_FLIGHT.autoDeployHeight)) s.flight = 3;
   const canopy = s.flight === 3, dive = input.sprint && !canopy;
   const length = Math.max(1, Math.hypot(input.mx, input.mz));
   const speed = canopy ? 18 : dive ? 24 : 32;

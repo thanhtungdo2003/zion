@@ -93,7 +93,7 @@ function tipRows(t: Tip, tr: Tr): Array<[string, string]> {
     rows.push([L('tip.max_throw'), `${spec.maxRange} m`]);
   }
   if (t.equipped) rows.push([L('tip.status'), L('tip.in_hand')]);
-  const price = buyPrice(def.id);
+  const price = hidePrices ? null : buyPrice(def.id);
   if (price !== null) {
     rows.push([L('tip.price'), `${price} ZC`]);
     rows.push([L('tip.sell'), t.issued ? L('tip.issued') : `${sellPrice(def.id, maxCount(def) && t.count !== undefined ? t.count / maxCount(def)! : 1)} ZC`]);
@@ -366,7 +366,11 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 }
 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
-export function InventoryPanel({ state, store, coins, side }: { state: InventoryState; store: InventoryStore; coins: number; side?: React.ReactNode }) {
+/** Battle royale has no economy: prices and ZCoin stay hidden there. */
+let hidePrices = false;
+export function InventoryPanel({ state, store, coins: shownCoins, side }: { state: InventoryState; store: InventoryStore; coins: number | null; side?: React.ReactNode }) {
+  hidePrices = shownCoins === null;
+  const coins = shownCoins ?? 0;
   const wrap = useRef<HTMLDivElement>(null);
   const [panelScale, setPanelScale] = useState(1);
   useEffect(() => {
@@ -445,7 +449,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
       <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
         <div className="inv-title">
           <h2>{t(state.station === 'shop' ? 'shop.title' : 'inv.title')}</h2>
-          <Coins n={coins} />
+          {!hidePrices && <Coins n={coins} />}
           <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.setOpen(false)}><Icon name="lucide:x" /></button>
           {touchControls && state.held && <div className="inv-touch-actions" onMouseUp={(e) => e.stopPropagation()}>
             <button type="button" className="inv-close" aria-label={t('inv.rotate')} onClick={() => store.rotateHeld()}><Icon name="lucide:rotate-cw" /></button>
@@ -454,7 +458,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
             {heldDef?.category === 'food'  && <button type="button" className="inv-close" aria-label={t('inv.use')} onClick={() => { const uid = state.held!.uid; store.returnHeld(); if (store.onEat?.(uid)) store.setOpen(false); }}><Icon name="lucide:utensils" /></button>}
             <button type="button" className="inv-close" aria-label={t('inv.close')} onClick={() => store.returnHeld()}><Icon name="lucide:undo-2" /></button>
           </div>}
-          {process.env.NODE_ENV !== 'production' && (
+          {process.env.NODE_ENV !== 'production' && !hidePrices && (
             <button className="btn inv-dev-coins" title={t('inv.dev_coins')} onClick={() => store.onDevCoins?.()}>
               +
             </button>
@@ -487,7 +491,7 @@ export function InventoryPanel({ state, store, coins, side }: { state: Inventory
           </div>
           {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
-          {state.station === 'chest' && <ChestPanel state={state} store={store} />}
+          {state.station === 'chest' && <ChestPanel state={state} store={store} grid={hidePrices} />}
           {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && state.station !== 'chest' && (
             <section className="inv-box inv-cache">
               <header>

@@ -233,14 +233,15 @@ export class GameServer {
   private battleFlightStarted = false;
 
   constructor(private readonly deps: GameServerDeps) {
-    if (deps.mode === 'battle-royale') this.battle = new BattleRoyaleMatch(deps.world.generator.seed, deps.world.generator.worldSize);
+    if (deps.mode === 'battle-royale') this.battle = this.newBattleMatch();
     if (this.battle) for (const site of battleStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
       const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
       this.battleDoors.set(site.gid * 10000 + i, { x: site.x + part.x * c + part.z * s, y: site.y + part.y, z: site.z - part.x * s + part.z * c, yaw: site.yaw + part.yaw, open: false });
     }
     this.chests = new SharedChests({
       near: (p, id) => this.chestNear(p, id),
-      load: (id) => this.battle ? Promise.resolve(this.battleChests.get(id) ?? null) : deps.playerStates.loadChest(id),
+      // Battle chests come pre-filled (an open container grid, no search step).
+      load: (id) => this.battle ? Promise.resolve(this.battleChests.get(id) ?? { items: generateBattleLoot([]), searched: true, revision: 0, day: 0 }) : deps.playerStates.loadChest(id),
       commit: (id, data, p, inventory) => {
         if (this.battle) { this.battleChests.set(id, structuredClone(data)); return Promise.resolve(); }
         return deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined);
@@ -1469,7 +1470,7 @@ export class GameServer {
     if (!this.players.size && !this.joiningAccounts.size && this.battleWasOccupied) {
       this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear();
       this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
-      this.battle = new BattleRoyaleMatch(this.deps.world.generator.seed, this.deps.world.generator.worldSize);
+      this.battle = this.newBattleMatch();
       this.battleFlightStarted = false;
       this.bots?.clear(); this.nextBotAt = 0;
       this.scatterGroundLoot();
@@ -1551,6 +1552,11 @@ export class GameServer {
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
   }
 
+  /** Every match draws its own zone sequence over land. */
+  private newBattleMatch(): BattleRoyaleMatch {
+    const gen = this.deps.world.generator;
+    return new BattleRoyaleMatch((Math.random() * 0x7fffffff) | 0, gen.worldSize, (x, z) => gen.heightAt(x, z) > gen.seaLevel + .5);
+  }
   private botDied(bot: BattleBot, by: string, now: number, killerId: number | null = null): void {
     this.battle?.eliminate(bot.id);
     this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId });

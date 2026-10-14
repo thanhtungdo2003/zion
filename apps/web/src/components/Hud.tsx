@@ -247,7 +247,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               <span>Sinh cảnh</span><em>{state.biome} · {state.surface}</em>
             </div>
           )}
-          <Coins n={state.coins} className="hud-coins" />
+          {state.mode !== 'battle-royale' && <Coins n={state.coins} className="hud-coins" />}
           {state.guides.map((g, i) => (
             <div key={`${g.role}${i}`} className="hud-guide" style={{ left: g.x, top: g.y }}>
               <i className="hud-guide-arrow" style={{ transform: `rotate(${g.angle}rad)` }} />

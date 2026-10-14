@@ -138,7 +138,7 @@ export default function GameView() {
       {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => router.push('/')} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
-      {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
+      {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
       {inWorld && hud.mapOpen && <WorldMap store={worldMap} hud={hud} onClose={() => engineRef.current?.setMapOpen(false)} />}
     </div>
   );

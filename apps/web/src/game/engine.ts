@@ -2962,7 +2962,7 @@ export class GameEngine {
         return v ? { name: VEHICLES[v.kind].name, driving: v.driver === this.welcome!.playerId, speed: Math.round(Math.abs(v.speed) * 3.6), health: Math.ceil(v.health / VEHICLES[v.kind].health * 100), exploding: v.health <= 0 && !v.exploded } : null;
       })(),
       status,
-      ...(this.hud.get().battle && local.state.flight ? { battle: { ...this.hud.get().battle!, drop: { phase: local.state.flight === 1 ? 'boarding' as const : local.state.flight === 2 ? 'falling' as const : 'parachute' as const, altitude: Math.max(0, py - (store.collision.terrainHeight(px, pz) || 0)), parachuteOpen: local.state.flight === 3, speed: Math.hypot(local.state.vx, local.state.vy, local.state.vz) * 3.6, heading: ((this.input.yaw * 180 / Math.PI) % 360 + 360) % 360 } } } : {}),
+      ...(this.hud.get().battle && local.state.flight ? { battle: { ...this.hud.get().battle!, drop: { phase: local.state.flight === 1 ? 'boarding' as const : local.state.flight === 2 ? 'falling' as const : 'parachute' as const, altitude: Math.max(0, py - (store.collision.terrainHeight(px, pz) || 0)), parachuteOpen: local.state.flight === 3, deployIn: Math.max(0, BATTLE_FLIGHT.deployDelayMs / 1000 - (local.state.freefall ?? 0)), speed: Math.hypot(local.state.vx, local.state.vy, local.state.vz) * 3.6, heading: ((this.input.yaw * 180 / Math.PI) % 360 + 360) % 360 } } } : {}),
       loadProgress: Math.min(1, lod0 / expectedLod0),
       fps: this.fps,
       pingMs: Math.round(this.clock.rttMs),

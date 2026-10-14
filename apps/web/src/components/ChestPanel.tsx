@@ -19,7 +19,8 @@ function tierOf(id: string): Tier {
 /** Identification time per item: better loot keeps the player in suspense longer. */
 const REVEAL_MS: Record<Tier, number> = { common: 550, rare: 1100, epic: 1500, legendary: 2000 };
 
-export function ChestPanel({ state, store }: { state: InventoryState; store: InventoryStore }) {
+/** `grid`: battle royale crates — an open slot grid, no search, no prices. */
+export function ChestPanel({ state, store, grid = false }: { state: InventoryState; store: InventoryStore; grid?: boolean }) {
   const c = state.chest;
   const { item } = useSettings();
   const [remaining, setRemaining] = useState(0);
@@ -53,7 +54,7 @@ export function ChestPanel({ state, store }: { state: InventoryState; store: Inv
   const revealing = hidden.length > 0;
   /** Shop buy-back value; 0 when the merchant won't take it. */
   const price = (i: PlacedItem) => {
-    if (i.issued || i.quest) return 0;
+    if (grid || i.issued || i.quest) return 0;
     const max = maxCount(ITEMS[i.itemId]!);
     return sellPrice(i.itemId, max && i.count !== undefined ? i.count / max : 1);
   };
@@ -62,16 +63,26 @@ export function ChestPanel({ state, store }: { state: InventoryState; store: Inv
     return src ? <img src={src} alt="" draggable={false} /> : <Icon name="game-icons:cardboard-box" />;
   };
   return <section className="inv-box shared-chest">
-    <header><span><Icon name="game-icons:locked-chest" /> Hòm gỗ</span><small>{c.items.length}/{c.capacity}</small></header>
+    <header><span><Icon name="game-icons:locked-chest" /> {grid ? 'Hòm vũ khí' : 'Hòm gỗ'}</span><small>{c.items.length}/{c.capacity}</small></header>
     {c.error && <p className="chest-error" role="alert">{c.error}</p>}
-    {c.field && <div className="chest-search">
+    {grid && <div className="chest-grid" style={{ ['--slots' as string]: Math.min(6, c.capacity) }}>
+      {Array.from({ length: c.capacity }, (_, n) => {
+        const i = c.items[n];
+        if (!i) return <div className="chest-slot empty" key={`e${n}`} />;
+        const amount = i.mag !== undefined ? `${i.mag}` : i.count !== undefined ? `x${i.count}` : '';
+        return <button type="button" className={`chest-slot t-${tierOf(i.itemId)}`} key={`${c.id}:${i.uid}`} title={`${item(i.itemId)} — bấm để lấy`} disabled={locked || !!state.held} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestTake', i.uid)}>
+          {art(i)}<span>{item(i.itemId)}</span>{amount && <small>{amount}</small>}
+        </button>;
+      })}
+    </div>}
+    {!grid && c.field && <div className="chest-search">
       <button className="btn btn-primary" disabled={locked || c.searched || c.items.length >= c.capacity} onClick={() => store.chestAction('chestSearch')}>
         <Icon name="lucide:search" /> {c.busy ? '...' : c.searchRemainingMs > 0 ? `${(remaining / 1000).toFixed(1)}s` : c.searched ? 'Đã Search' : 'Search'}
       </button>
       {c.searchRemainingMs > 0 && <div className="chest-search-track"><div style={{ width: `${100 * (1 - remaining / CHEST_SEARCH_MS)}%` }} /></div>}
     </div>}
     
-    <div className="chest-items">
+    {!grid && <div className="chest-items">
       {c.items.map((i) => {
         const tier = tierOf(i.itemId);
         const pending = hidden.indexOf(i.uid);
@@ -84,7 +95,7 @@ export function ChestPanel({ state, store }: { state: InventoryState; store: Inv
         </div>;
       })}
       {!c.items.length && <div className="chest-empty"><Icon name="game-icons:open-chest" />Trống</div>}
-    </div>
+    </div>}
     <h4>Cất vào</h4>
     <div className="chest-deposit">
       {state.items.filter((i) => !isStash(i.container)).map((i) => <button className="chest-put" key={i.uid} disabled={locked || !!state.held || c.items.length >= c.capacity} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestPut', i.uid)}>

@@ -2581,3 +2581,14 @@ kbd {
 .hud-interact { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 0; background: rgba(8, 10, 9, .78); border-left: 2px solid var(--accent); font: 600 13px var(--sans); letter-spacing: .02em; }
 .hud-interact kbd { min-width: 22px; text-align: center; padding: 2px 6px; background: var(--text); color: #0b0c0d; border: 0; font-weight: 700; }
 @media (max-width: 720px) { .hud-ammo { bottom: 150px; } .hud-ammo-count b { font-size: 26px; } }
+
+/* Battle royale crate: an open slot grid like the inventory, click a slot to take it. */
+.chest-grid { display: grid; grid-template-columns: repeat(var(--slots, 6), 58px); gap: 4px; margin: 6px 0 10px; }
+.chest-slot { position: relative; width: 58px; height: 58px; padding: 4px; display: grid; place-items: center; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); color: var(--text); cursor: pointer; }
+.chest-slot.empty { cursor: default; background: rgba(0,0,0,.25); border-style: dashed; border-color: rgba(255,255,255,.07); }
+.chest-slot img, .chest-slot svg { width: 40px; height: 40px; object-fit: contain; }
+.chest-slot span { position: absolute; left: 3px; right: 3px; top: 2px; font: 600 8px var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .75; }
+.chest-slot small { position: absolute; right: 3px; bottom: 2px; font: 700 10px var(--mono); text-shadow: 0 1px 2px #000; }
+.chest-slot:not(.empty):hover:not(:disabled) { border-color: var(--accent); background: rgba(255,255,255,.09); }
+.chest-slot.t-rare { box-shadow: inset 0 -2px 0 #4a9eff; } .chest-slot.t-epic { box-shadow: inset 0 -2px 0 #b06bff; } .chest-slot.t-legendary { box-shadow: inset 0 -2px 0 #ffb000; }
+.battle-drop-wait { opacity: .7; font-variant-numeric: tabular-nums; }
