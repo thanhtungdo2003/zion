@@ -1,12 +1,13 @@
 import { BATTLE_MAP, BATTLE_FLIGHT, battlePlaneAt, Rng, clamp, type BattleCircle, type BattleState } from '@zion/shared';
 
+// Long enough to land, loot a house or two and move before the first circle closes.
 export const BATTLE_STAGES = [
-  { ratio: .72, wait: 60_000, shrink: 60_000, damage: 1 },
-  { ratio: .48, wait: 45_000, shrink: 50_000, damage: 2 },
-  { ratio: .29, wait: 35_000, shrink: 45_000, damage: 4 },
-  { ratio: .15, wait: 25_000, shrink: 40_000, damage: 7 },
-  { ratio: .06, wait: 20_000, shrink: 35_000, damage: 12 },
-  { ratio: 0, wait: 10_000, shrink: 30_000, damage: 20 },
+  { ratio: .72, wait: 180_000, shrink: 120_000, damage: 1 },
+  { ratio: .48, wait: 120_000, shrink: 90_000, damage: 2 },
+  { ratio: .29, wait: 90_000, shrink: 75_000, damage: 4 },
+  { ratio: .15, wait: 75_000, shrink: 60_000, damage: 7 },
+  { ratio: .06, wait: 60_000, shrink: 50_000, damage: 12 },
+  { ratio: 0, wait: 45_000, shrink: 40_000, damage: 20 },
 ] as const;
 
 /** Match clock and elimination rules, independent of physics and persistent survival characters. */

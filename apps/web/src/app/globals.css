@@ -2493,8 +2493,6 @@ kbd {
   .leaderboard-table th, .leaderboard-table td { padding: 10px 8px; font-size: 12px; }
   .leaderboard-footer { padding: 12px; }
 }
-.battle-status { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; max-width: min(580px, 75vw); padding: 12px 20px; text-align: center; color: #fff; background: rgba(20, 8, 12, .85); border-top: 3px solid #ff263d; pointer-events: none; z-index: 15; }
-.battle-status b { color: #ff6474; font-size: 14px; letter-spacing: .08em; }
 .battle-altimeter { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); z-index: 18; display: grid; justify-items: center; gap: 4px; width: 92px; padding: 10px 8px; font: 11px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent); pointer-events: none; }
 .battle-altimeter-title { font: 600 10px var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
 .battle-altimeter-scale { position: relative; height: min(240px, 34vh); width: 100%; margin: 8px 0 6px; }
@@ -2514,13 +2512,17 @@ kbd {
 .battle-drop-strip span { display: inline-flex; align-items: center; gap: 6px; }
 .battle-drop-strip small { color: var(--muted); font-size: 11px; }
 @media (max-width: 720px) { .battle-drop-strip { flex-wrap: wrap; justify-content: center; white-space: normal; } .battle-altimeter { width: 76px; } }
-.battle-status span { font-size: 13px; }
-.battle-status small { font-size: 11px; color: #c2b5b8; }
+.battle-zone-info { position: absolute; top: 186px; right: 16px; z-index: 15; display: grid; gap: 3px; width: 162px; box-sizing: border-box; padding: 6px 8px; font: 11px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid #ff263d; pointer-events: none; }
+.touch-mode .battle-zone-info { top: calc(26px + clamp(64px, 18dvh, 88px)); }
+.battle-zone-info > div { display: flex; justify-content: space-between; gap: 6px; }
+.battle-zone-info span { font: 600 10px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.battle-zone-info b { font-weight: 700; }
+.battle-zone-info b.shrinking { color: #ff5669; }
+.battle-zone-info strong { color: #ff5669; font-size: 11px; }
 .battle-warning { color: #ff5669; font-size: 14px; }
 .battle-result { z-index: 100; }
 .battle-result .overlay-card { display: grid; gap: 16px; }
-@media (max-width: 700px) { .battle-status { top: 8px; padding: 8px 10px; max-width: 60vw; } .battle-status b, .battle-status span { font-size: 11px; } }
-
+@media (max-width: 700px) { 
 .hud-vehicle { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); display: grid; gap: 6px; padding: 12px 18px; background: rgba(10,14,12,.9); border: 1px solid #81784d; color: #f4ead2; text-align: center; pointer-events: auto; }
 .hud-vehicle b { color: #ff4939; }
 .hud-vehicle button { padding: 7px 12px; color: inherit; background: #333b30; border: 1px solid #8c9668; cursor: pointer; }

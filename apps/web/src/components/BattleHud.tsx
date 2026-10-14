@@ -6,13 +6,15 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
   const seconds = Math.ceil(state.remainingMs / 1000);
   return <>
     {state.phase === 'running' && !state.placement && state.drop && state.drop.phase !== 'landed' && <DropHud state={state} drop={state.drop} />}
-    <div className="battle-status" role="status">
-      <b>BATTLE ROYALE · {state.map}</b>
-      <span>{state.phase === 'waiting' ? `Đang chờ người chơi · ${state.total}/32 · cần ít nhất 2 người` : state.phase === 'countdown' ? `Bắt đầu sau ${seconds}s · Tìm vị trí xuất phát` : `${state.alive} sống sót / ${state.total} · Bo ${state.stage}`}</span>
-      {state.phase === 'running' && <span>{state.shrinking ? 'Bo đỏ đang thu hẹp' : 'Bo đỏ thu hẹp sau'} · {seconds}s</span>}
-      {(state.phase === 'waiting' || state.phase === 'countdown') && <small>Bắt đầu tay không · Nhặt súng và giáp khi trận bắt đầu · Không hồi sinh</small>}
-      {state.phase === 'running' && outside && !state.placement && <strong className="battle-warning">NGOÀI BO ĐỎ · Mất {state.damagePerSecond} máu/giây</strong>}
-      {state.placement && state.phase !== 'finished' && <span>Bạn đã bị loại · Hạng #{state.placement}</span>}
+    <div className="battle-zone-info" role="status">
+      {state.phase === 'waiting' && <><b>Chờ người chơi</b><span>{state.total}/32 · cần ≥ 2</span></>}
+      {state.phase === 'countdown' && <><b>Bắt đầu sau</b><span>{seconds}s · {state.total} người</span></>}
+      {state.phase === 'running' && <>
+        <div><span>Còn sống</span><b>{state.alive}/{state.total}</b></div>
+        <div><span>Bo {state.stage}</span><b className={state.shrinking ? 'shrinking' : undefined}>{state.shrinking ? 'Đang thu' : 'Thu sau'} {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</b></div>
+        {outside && !state.placement && <strong>Ngoài bo · −{state.damagePerSecond} máu/s</strong>}
+        {state.placement && state.phase === 'running' && <span>Đã bị loại · #{state.placement}</span>}
+      </>}
     </div>
     {state.phase === 'finished' && <div className="overlay battle-result"><div className="overlay-card">
       <h2>{state.placement === 1 ? 'CHIẾN THẮNG!' : 'TRẬN ĐÃ KẾT THÚC'}</h2>
