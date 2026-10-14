@@ -226,6 +226,23 @@ export class GameEngine {
   /** Last hit that interrupts first aid (zone damage does not). */
   private healBreakAt = 0;
   private wasAiming = false;
+  /**
+   * Bullet crack: someone else's round passing close to our head. Plays when the round reaches
+   * its closest point, positioned there, so the stereo pan says which side it went past.
+   */
+  private bulletWhiz(m: { x: number; y: number; z: number; vx: number; vy: number; vz: number; maxFlightSec?: number }): void {
+    const s = this.local?.state;
+    if (!s || this.local?.dead || !this.sounds) return;
+    const hx = s.x - m.x, hy = s.y + 1.6 - m.y, hz = s.z - m.z, v2 = m.vx * m.vx + m.vy * m.vy + m.vz * m.vz;
+    if (v2 < 1) return;
+    const t = (hx * m.vx + hy * m.vy + hz * m.vz) / v2;
+    if (t <= .005 || t > (m.maxFlightSec ?? 3)) return;
+    const px = m.x + m.vx * t, py = m.y + m.vy * t, pz = m.z + m.vz * t;
+    const miss = Math.hypot(px - s.x, py - s.y - 1.6, pz - s.z);
+    if (miss > 4 || miss < .25) return;
+    const name = `bulletPass${1 + Math.floor(Math.random() * 7)}` as SoundName;
+    window.setTimeout(() => this.sounds?.play(name, { at: { x: px, y: py, z: pz }, refDistance: 1, maxDistance: 12, volume: 1 - miss / 5, rate: .94 + Math.random() * .12 }), t * 1000);
+  }
   /** Crosshair bloom from recent shots (0…1), decaying every frame. */
   private shotBloom = 0;
   private crosshairSpread = -1;
@@ -543,7 +560,7 @@ export class GameEngine {
       this.sounds = new SoundBank(() => {
         const s = this.local?.state;
         return s ? this.listenerPos.set(s.x, s.y + 1.6, s.z) : this.camera.position;
-      });
+      }, () => (this.mouseLook ? this.input.yaw : CAM_YAW));
       await this.sounds.load((p) => this.hud.set({ loadProgress: 0.85 + p * 0.15 }));
       if (this.disposed) return;
       // Reloads last exactly as long as their sound.
@@ -1286,7 +1303,8 @@ export class GameEngine {
           const head = m.zone === 'head' || m.zone === 'decapitation';
           this.hud.set({ hitMarkAt: performance.now(), hitMarkHead: head });
           // A crisp tick on every hit, a bright ring on head shots (heard only by the shooter).
-          this.sounds?.play(head ? 'headshot' : 'hitmarker', { volume: head ? .55 : .7, rate: .95 + Math.random() * .1 });
+          this.sounds?.play('bulletHit', { volume: .75, rate: .96 + Math.random() * .08 });
+          if (head) this.sounds?.play('headshot', { volume: .45 });
         }
         if (m.targetId === this.welcome?.playerId && m.attackerId && m.attackerId !== m.targetId && this.local) {
           // Damage direction: where the hit came from, relative to where we are looking.
@@ -1385,6 +1403,7 @@ export class GameEngine {
         break;
       case 'proj': {
         this.effects?.launch(m);
+        if (m.kind === 'bullet' && m.ownerId !== this.welcome?.playerId) this.bulletWhiz(m);
         // Someone else's launcher: their muzzle blast and launch sound (ours played on the trigger).
         if (m.kind !== 'bullet' && m.ownerId !== this.welcome?.playerId) {
           const shooter = this.remotes.get(m.ownerId)?.avatar;

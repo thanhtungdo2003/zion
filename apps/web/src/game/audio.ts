@@ -53,6 +53,14 @@ export const SOUND_FILES = {
   eat: '/sounds/eat-sound.mp3',
   // Combat feedback (Kenney CC0 packs, see public/sounds/fx/LICENSE.txt).
   hitmarker: '/sounds/fx/hitmarker.ogg',
+  bulletHit: '/sounds/bullet-hit.mp3',
+  bulletPass1: '/sounds/bullet-pass-1.mp3',
+  bulletPass2: '/sounds/bullet-pass-2.mp3',
+  bulletPass3: '/sounds/bullet-pass-3.mp3',
+  bulletPass4: '/sounds/bullet-pass-4.mp3',
+  bulletPass5: '/sounds/bullet-pass-5.mp3',
+  bulletPass6: '/sounds/bullet-pass-6.mp3',
+  bulletPass7: '/sounds/bullet-pass-7.mp3',
   headshot: '/sounds/fx/headshot.ogg',
   killConfirm: '/sounds/fx/kill-confirm.ogg',
   knockdown: '/sounds/fx/knockdown.ogg',
@@ -95,7 +103,21 @@ export class SoundBank {
   private readonly channels = new WeakMap<object, Set<{ src: AudioBufferSourceNode; gain: GainNode }>>();
   private readonly releaseVolume: () => void;
 
-  constructor(private readonly listener: () => Vector3) {
+  /**
+   * Stereo position relative to where the listener faces: fully to one side for sounds beside
+   * the head, centred ahead/behind, and stronger the closer the source is.
+   */
+  private panFor(dx: number, dz: number): number {
+    const yaw = this.facing?.();
+    if (yaw === undefined) return Math.max(-0.8, Math.min(0.8, (dx - dz) * 0.05));
+    const d = Math.hypot(dx, dz);
+    if (d < .01) return 0;
+    // The listener's right is (cos yaw, −sin yaw) for a yaw that faces −Z at 0.
+    const side = (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / d;
+    return Math.max(-.9, Math.min(.9, side * (.55 + .4 * Math.max(0, 1 - d / 40))));
+  }
+
+  constructor(private readonly listener: () => Vector3, private readonly facing?: () => number) {
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
     this.releaseVolume = bindVolume(this.master.gain);
@@ -203,7 +225,7 @@ export class SoundBank {
       const k = Math.max(0, Math.min(1, (d - ref) / (max - ref)));
       volume *= (1 - k) * (1 - k);
       muffle = k;
-      pan = Math.max(-0.8, Math.min(0.8, (dx - dz) * 0.05));
+      pan = this.panFor(dx, dz);
     }
     if (volume < 0.005) return length;
     const src = this.ctx.createBufferSource();
@@ -254,7 +276,7 @@ export class SoundBank {
       const k = Math.max(0, Math.min(1, (d - ref) / (max - ref)));
       volume *= d >= max ? 0 : (1 - k) * (1 - k);
       muffle = k;
-      pan = Math.max(-0.8, Math.min(0.8, (dx - dz) * 0.05));
+      pan = this.panFor(dx, dz);
     }
     let loop = this.loops.get(key);
     if (volume < 0.005 || !buffer) {
