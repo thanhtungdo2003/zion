@@ -6,6 +6,7 @@ import { ContentEditor } from './ContentEditor';
 import { StudioPlayerCount } from './StudioPlayerCount';
 import { StudioCurrency } from './StudioCurrency';
 import { NewsEditor } from './NewsEditor';
+import { StudioVehiclePhysics } from './StudioVehiclePhysics';
 import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAMP_ASSETS } from '@zion/assets';
@@ -524,6 +525,7 @@ export default function StudioView() {
         <StudioCurrency />
         <ContentEditor />
         <NewsEditor />
+        <StudioVehiclePhysics />
         <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Bố trí tùy chỉnh' : 'Bố trí mặc định'}</span>
         {dirty && <span className="studio-badge unsaved">Thay đổi chưa lưu</span>}
         <div className="studio-spacer" />

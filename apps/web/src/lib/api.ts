@@ -311,6 +311,8 @@ export function studioSaveContent(content: GameContent): Promise<GameContent> {
 }
 
 export interface PlayerProgress { id: string; username: string; journal: Record<string, { status: string; stage: number; progress: number }> }
+export function studioVehiclePhysics(): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics'); }
+export function studioSetVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics', { method: 'POST', body: JSON.stringify({ jolt }) }); }
 export function studioPlayers(): Promise<PlayerProgress[]> { return studioRequest('/api/studio/players'); }
 export function studioPlayerCounts(): Promise<{ online: number; total: number }> { return studioRequest('/api/studio/player-counts'); }
 export function studioCurrencyPlayers(search = ''): Promise<StudioCurrencyPlayer[]> { return studioRequest(`/api/studio/currency/players?search=${encodeURIComponent(search)}`); }

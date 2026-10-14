@@ -1,4 +1,4 @@
-import { CHEST_CAPACITY, CHEST_SEARCH_MS, InventoryModel, generateChestLoot, isStash, type ChestData, type ChestStateMessage, type InventoryData, type InvMessage } from '@zion/shared';
+import { CHEST_CAPACITY, CHEST_SEARCH_MS, InventoryModel, generateChestLoot, isStash, type ChestData, type ChestStateMessage, type InventoryData, type InvMessage, type PlacedItem } from '@zion/shared';
 import type { Player } from './player';
 
 type ChestRequest = Extract<InvMessage, { op: 'chestOpen' | 'chestClose' | 'chestSearch' | 'chestPut' | 'chestTake' }>;
@@ -20,6 +20,23 @@ export class SharedChests {
   private readonly loading = new Map<string, Promise<LiveChest>>();
   private readonly viewers = new Map<Player, string>();
   constructor(private readonly hooks: ChestHooks, private readonly clock: () => number, private readonly day: () => number = () => 0) {}
+
+  /**
+   * Takes items out of a chest that is loaded here (someone opened it), notifying its viewers.
+   * Null when the chest is not loaded; empty while it is busy or still being searched.
+   */
+  takeLive(id: string, choose: (items: readonly PlacedItem[]) => number[]): PlacedItem[] | null {
+    const c = this.chests.get(id);
+    if (!c) return null;
+    if (c.busy || c.search) return [];
+    const take = new Set(choose(c.data.items));
+    const taken = c.data.items.filter(i => take.has(i.uid));
+    if (!taken.length) return taken;
+    c.data = { ...c.data, items: c.data.items.filter(i => !take.has(i.uid)), revision: c.data.revision + 1 };
+    this.notify(c);
+    void this.hooks.commit(id, c.data).catch((err: unknown) => this.hooks.error(err));
+    return taken;
+  }
 
   reset(): void { this.chests.clear(); this.loading.clear(); this.viewers.clear(); }
 

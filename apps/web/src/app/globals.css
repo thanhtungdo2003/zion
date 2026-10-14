@@ -522,9 +522,13 @@ button {
   background: var(--panel-solid);
 }
 
+.mode-art { display: block; flex: none; width: 96px; height: 58px; border: 1px solid var(--line); }
+.menu-mode .mode-art { width: 40px; height: 24px; align-self: center; }
+.menu-modes button > span { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .menu-modes button {
   display: flex;
-  flex-direction: column;
+  gap: 12px;
+  align-items: center;
   width: 100%;
   padding: 10px 14px;
   border: 0;
@@ -1732,6 +1736,7 @@ kbd {
 }
 .studio-gate { display: grid; place-items: center; grid-template-columns: 1fr; grid-template-rows: 1fr; grid-template-areas: none; }
 .studio-gate .overlay-card { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.studio-jolt.on { border-color: var(--accent); color: var(--accent); }
 .studio-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel-solid); }
 .studio-bar h1 { font: 700 18px var(--cond); letter-spacing: 0.06em; text-transform: uppercase; margin: 0 6px 0 0; }
 .studio-back { color: var(--muted); text-decoration: none; font-size: 20px; padding: 0 6px; }

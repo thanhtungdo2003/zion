@@ -1,7 +1,8 @@
 import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
-import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, type ChestData, type GameMode } from '@zion/shared';
+import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
+import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -222,6 +223,9 @@ export class GameServer {
   private persisting: Promise<void> | null = null;
   private battle: BattleRoyaleMatch | null = null;
   private readonly battleChests = new Map<string, ChestData>();
+  /** Battle royale bots (null in survival). */
+  private readonly bots: BattleBotDirector | null;
+  private nextBotAt = 0;
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private readonly battleDoors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
   private readonly doorUsedAt = new Map<number, number>();
@@ -280,6 +284,18 @@ export class GameServer {
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now),
     });
+    this.bots = this.battle ? new BattleBotDirector(this.collision, {
+      shot: (e) => this.broadcastAt(e.ox, e.oz, e),
+      projectile: (e) => this.broadcastAt(e.x, e.z, e),
+      projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
+      hitPlayer: (bot, player, damage, zone, x, y, z, now) => {
+        this.damage(bot.id, player, damage, zone, x, y, z, now, bot.name);
+        if (damage > 0 && !player.dead) this.knockback(player, player.state.x - bot.state.x, player.state.z - bot.state.z, now, .5);
+      },
+      died: (bot, by, now) => this.botDied(bot, by, now),
+      chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
+      loot: (id, choose) => this.botLoot(id, choose),
+    }) : null;
     this.guards = new CampGuardDirector(gen.camp, this.collision, {
       shot: (message) => this.broadcastAt(message.ox, message.oz, message),
       projectile: (message) => this.broadcastAt(message.x, message.z, message),
@@ -884,6 +900,9 @@ export class GameServer {
     return performance.now() - this.epoch;
   }
 
+  get vehicleJolt(): boolean { return this.vehicles.jolt; }
+  set vehicleJolt(on: boolean) { this.vehicles.jolt = on; }
+
   get dayLengthMs(): number {
     return this.deps.config.DAY_LENGTH_MINUTES * 60_000;
   }
@@ -1447,15 +1466,18 @@ export class GameServer {
       this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
       this.battle = new BattleRoyaleMatch(this.deps.world.generator.seed, this.deps.world.generator.worldSize);
       this.battleFlightStarted = false;
+      this.bots?.clear(); this.nextBotAt = 0;
       this.doorUsedAt.clear();
       this.vehicles.reset();
       for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); }
       this.battleWasOccupied = false; return;
     }
+    this.joinBots(match, now);
     match.tick(now);
     if (match.startedAt !== null && !this.battleFlightStarted) {
       this.battleFlightStarted = true;
       for (const p of this.players.values()) { p.state.flight = 1; p.state.grounded = false; p.inputs.length = 0; }
+      this.bots?.board(now, match.circle);
     }
     if (match.startedAt !== null && match.phase === 'running') {
       const plane = battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt);
@@ -1464,16 +1486,83 @@ export class GameServer {
         if (plane.remainingMs === 0) p.state.flight = 2;
       }
     }
+    if (this.bots) {
+      const state = match.state(now);
+      this.bots.step(now, this.tick, {
+        phase: state.phase, circle: state.circle, nextCircle: state.nextCircle, shrinking: state.shrinking, remainingMs: state.remainingMs,
+        plane: match.startedAt !== null && state.phase === 'running' ? battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt) : null,
+      }, [...this.players.values()]);
+    }
     if (this.tick % TICK_RATE !== 0) return;
     if (match.phase === 'running') {
       for (const p of this.players.values()) if (!p.dead && match.outside(p.state.x, p.state.z)) {
         this.damage(null, p, match.state(now).damagePerSecond, 'red_zone', p.state.x, p.state.y + 1, p.state.z, now);
+      }
+      for (const bot of this.bots?.bots ?? []) if (!bot.dead && !bot.state.flight && match.outside(bot.state.x, bot.state.z)) {
+        this.bots!.hit(bot, match.state(now).damagePerSecond, 'vòng bo đỏ', null, now, 'red_zone');
       }
     }
     for (const p of this.players.values()) p.session.sendJson({ ...match.state(now, p.id), drop: { phase: p.state.flight === 1 ? 'boarding' : p.state.flight === 2 ? 'falling' : p.state.flight === 3 ? 'parachute' : 'landed', altitude: Math.max(0, p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)), parachuteOpen: p.state.flight === 3 } });
     if (match.phase === 'finished' && match.state(now).remainingMs === 0) {
       for (const p of [...this.players.values()]) { this.leave(p.session, 'battle finished'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
     }
+  }
+
+  /** While a match fills up, bots join one by one behind the human players (at most five). */
+  private joinBots(match: BattleRoyaleMatch, now: number): void {
+    if (!this.bots || !match.accepting) return;
+    const humans = [...this.players.values()].filter(p => !p.dead);
+    if (!humans.length || this.bots.bots.length >= MAX_BATTLE_BOTS) return;
+    if (!this.nextBotAt) { this.nextBotAt = now + 2500; return; }
+    if (now < this.nextBotAt) return;
+    const near = humans[Math.floor(Math.random() * humans.length)]!;
+    const bot = this.bots.spawn(near.state.x, near.state.y, near.state.z);
+    if (!match.join(bot.id, bot.name)) { this.bots.bots.pop(); return; }
+    this.nextBotAt = now + 3000 + Math.random() * 4000;
+    this.broadcastPlayerList();
+    this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
+  }
+
+  private botDied(bot: BattleBot, by: string, now: number): void {
+    this.battle?.eliminate(bot.id);
+    this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId: null });
+    this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã bị loại bởi ${by}.` });
+    if (!bot.items.length) return;
+    const items = bot.items.map(item => ({ ...item, container: 'backpack' as const, x: 0, y: 0 }));
+    const id = `9999:${bot.id}:${Math.round(now)}:0`;
+    this.battleChests.set(id, { items, searched: true, revision: 0, capacity: Math.max(24, items.length) });
+    this.deathCrates.set(id, { id, x: bot.state.x, y: bot.state.y, z: bot.state.z });
+    bot.items = [];
+    this.broadcast({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
+  }
+
+  /** Battle chests and death crates around a point, for the bots. */
+  private battleChestsNear(x: number, z: number, radius: number): Array<{ id: string; x: number; y: number; z: number }> {
+    const out: Array<{ id: string; x: number; y: number; z: number }> = [];
+    for (const crate of this.deathCrates.values()) if (Math.hypot(crate.x - x, crate.z - z) <= radius) out.push(crate);
+    const r = Math.ceil(radius / CHUNK_SIZE), cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      const chunk = this.deps.world.peek(cx + dx, cz + dz, 0)?.data;
+      if (!chunk) continue;
+      for (const prop of chunk.props) {
+        if (!CHEST_ASSETS.has(prop.asset)) continue;
+        const t = propTransform(chunk, prop);
+        if (Math.hypot(t.x - x, t.z - z) <= radius) out.push({ id: chestKey(prop.asset, t.x, t.y, t.z), x: t.x, y: t.y, z: t.z });
+      }
+    }
+    return out;
+  }
+
+  /** A bot empties what it wants from a chest, generating its battle loot first if nobody has. */
+  private botLoot(id: string, choose: (items: readonly PlacedItem[]) => number[]): PlacedItem[] {
+    const live = this.chests.takeLive(id, choose);
+    if (live) return live;
+    const data = this.battleChests.get(id) ?? { items: [], searched: false, revision: 0 };
+    if (!data.searched) { data.items = generateBattleLoot(data.items); data.searched = true; }
+    const take = new Set(choose(data.items));
+    const taken = data.items.filter(i => take.has(i.uid));
+    this.battleChests.set(id, { ...data, items: data.items.filter(i => !take.has(i.uid)), revision: data.revision + 1 });
+    return taken;
   }
 
   private step(): void {
@@ -1578,6 +1667,7 @@ export class GameServer {
       const centers: Array<[number, number]> = [];
       for (const p of this.players.values()) centers.push([p.chunkX, p.chunkZ]);
       for (const c of this.joining.values()) centers.push(c);
+      if (this.bots) centers.push(...this.bots.centers());
       this.physics.update(centers);
     }
 
@@ -1805,7 +1895,7 @@ export class GameServer {
 
   private resolveStrike(p: Player, now: number, renderTime: number | undefined, blade?: MeleeSpec): void {
     const range = blade?.range ?? MELEE.range;
-    const candidates: Combatant[] = [...this.grid.query(p.chunkX, p.chunkZ, 1, this.scratch).filter((t) => !this.allied(p, t)), ...this.zombies.near(p.state.x, p.state.z, range + 2), ...this.animals.values()];
+    const candidates: Combatant[] = [...this.grid.query(p.chunkX, p.chunkZ, 1, this.scratch).filter((t) => !this.allied(p, t)), ...this.zombies.near(p.state.x, p.state.z, range + 2), ...this.animals.values(), ...(this.bots?.near(p.state.x, p.state.z, range + 2) ?? [])];
     {
       const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
       const npc = this.peacefulNpcs().find((n) => {
@@ -1863,6 +1953,11 @@ export class GameServer {
   private hitTarget(attacker: Player, target: Combatant, amount: number, zone: string, x: number, y: number, z: number, dirX: number, dirZ: number, impulse: number, now: number, knockbackMultiplier = 1, weapon = attacker.weapon): void {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
+    else if (target instanceof BattleBot) {
+      if (!this.battle?.canFight(attacker.id)) return;
+      this.broadcastAt(x, z, { t: 'hit', attackerId: attacker.id, targetId: target.id, zone, damage: amount, x, y, z });
+      this.bots?.hit(target, amount, attacker.username, { x: attacker.state.x, z: attacker.state.z }, now, zone);
+    }
     else {
       const t = target as Player;
       if (!this.playerAttackAllowed(attacker, t, now) || (!this.battle && tutorialProtected(t, this.serverTime))) return;
@@ -2208,6 +2303,10 @@ export class GameServer {
       if (d > 0.3 && this.collision.raycast(x, y + 0.3, z, tx / d, ty / d, tz / d, d, Mask.LineOfSight, this.blastHit)) continue;
       this.damage(owner?.id ?? null, t, Math.round(damage * (1 - d / radius)), 'blast', t.state.x, t.state.y + 0.9, t.state.z, now, kind === 'grenade' ? 'lựu đạn' : kind === 'rocket' ? 'rocket' : 'lựu đạn 40 mm');
     }
+    for (const bot of this.bots?.near(x, z, radius) ?? []) {
+      const d = Math.hypot(bot.state.x - x, bot.state.y + .9 - (y + .3), bot.state.z - z);
+      if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now);
+    }
     if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
     // Livestock caught in the blast (credited to the thrower).
     if (liveOwner) for (const animal of this.animals.values()) {
@@ -2271,6 +2370,7 @@ export class GameServer {
         ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), Math.ceil((len + 3) / CHUNK_SIZE), this.scratch).filter((t) => !this.allied(r.owner, t)),
         ...this.zombies.near(r.x, r.z, len + 3),
         ...this.animals.values(),
+        ...(this.bots?.near(r.x, r.z, len + 3) ?? []),
       ];
       const hit = castCombatRay(r.owner, candidates, this.collision, now, undefined, r.x, r.y, r.z, dx, dy, dz, len);
       const npcHit = this.npcOnRay(r.x, r.y, r.z, dx, dy, dz, hit.t);
@@ -2739,6 +2839,7 @@ export class GameServer {
         });
       }
       this.guards.entitiesFor(p, entities);
+      this.bots?.entitiesFor(p, now, entities);
       for (const [key, entity] of this.questNpcs) {
         const start = entities.length;
         entity.entitiesFor(p, entities);
@@ -2794,6 +2895,7 @@ export class GameServer {
 
   private broadcastPlayerList(): void {
     const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled }));
+    for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Bot' }, pvp: false });
     this.broadcast({ t: 'players', players });
   }
 

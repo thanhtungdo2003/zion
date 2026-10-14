@@ -1,5 +1,5 @@
 import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
-import { damageVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
+import { damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 import type { WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 import { JoltVehicles } from './jolt-vehicles';
@@ -12,6 +12,8 @@ export class Vehicles {
   private readonly spawns = new Map<number, { x: number; y: number; z: number; yaw: number }>();
   private readonly struck = new WeakMap<object, Map<number, number>>();
   private readonly physics: JoltVehicles;
+  /** Jolt rigid bodies (default) or the built-in arcade model; switchable live from the Studio. */
+  jolt = true;
   constructor(private readonly world: CollisionWorld, gen: WorldGenerator) {
     this.physics = new JoltVehicles(world);
     const kinds: VehicleKind[] = ['car', 'jeep', 'quad', 'grizzly'];
@@ -123,6 +125,7 @@ export class Vehicles {
         this.install(v);
       }
     }
+    if (!this.jolt) { this.stepLegacy(now, dt, players, impact); return; }
     // One Jolt step for every vehicle together, so they also collide with each other.
     const impacts = this.physics.step(this.states.values(), (v) => {
       const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) : undefined;
@@ -130,6 +133,21 @@ export class Vehicles {
     }, dt, now);
     for (const [id, speed] of impacts) {
       const v = this.states.get(id)!, p = v.driver ? players.get(v.driver) : undefined;
+      this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
+      if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
+    }
+  }
+  private stepLegacy(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
+    for (const v of this.states.values()) {
+      if (v.exploded) continue;
+      const p = v.driver ? players.get(v.driver) : undefined;
+      if (!v.driver && Math.abs(v.speed) < .01 && Math.abs(v.motion?.lateral ?? 0) < .01 && v.motion?.grounded && Math.abs(v.motion.vy) < .03) continue;
+      this.world.removeOwnerColliders(vehicleOwner(v.id));
+      const input = this.controls.get(v.id), fresh = p && input && now - input.at < 250;
+      const speed = stepVehicle(v, fresh ? input.throttle : 0, fresh ? input.steer : 0, this.world, dt, now, (id) => {
+        const other = this.states.get(id);
+        return other && !other.exploded ? other : undefined;
+      });
       this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
       if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
     }

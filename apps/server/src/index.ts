@@ -182,6 +182,12 @@ async function main(): Promise<void> {
           updatedAt: campUpdatedAt,
         };
       },
+      vehiclePhysics: () => ({ jolt: game.vehicleJolt }),
+      setVehiclePhysics: (jolt) => {
+        game.vehicleJolt = battleGame.vehicleJolt = jolt;
+        audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
+        return { jolt };
+      },
       terrain: () => {
         const gen = world.generator;
         const camp = gen.camp;

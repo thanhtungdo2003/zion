@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
+import { ModeArt } from '@/components/ModeArt';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
@@ -23,6 +24,7 @@ import type { TeamAction, TeamLobby as Lobby } from '@zion/shared';
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
 
+const MODE_KEY = 'zion.gameMode';
 const GAME_MODES = [{ id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub' }, { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub' }] as const;
 
 export default function MainMenu() {
@@ -40,7 +42,15 @@ export default function MainMenu() {
   const doneLoading = useCallback(() => setLoading(false), []);
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
-  const [gameMode, setGameMode] = useState<(typeof GAME_MODES)[number]['id']>('survival');
+  const [gameMode, setGameModeState] = useState<(typeof GAME_MODES)[number]['id']>('survival');
+  // The chosen mode is remembered between visits.
+  useEffect(() => {
+    try { const saved = localStorage.getItem(MODE_KEY); if (GAME_MODES.some(m => m.id === saved)) setGameModeState(saved as (typeof GAME_MODES)[number]['id']); } catch { /* storage unavailable */ }
+  }, []);
+  const setGameMode = (mode: (typeof GAME_MODES)[number]['id']) => {
+    setGameModeState(mode);
+    try { localStorage.setItem(MODE_KEY, mode); } catch { /* storage unavailable */ }
+  };
   const [authOpen, setAuthOpen] = useState(false);
   const [legacyLogin, setLegacyLogin] = useState(false);
   const [providers, setProviders] = useState<Record<SocialProvider, boolean>>({ google: false, facebook: false });
@@ -321,14 +331,16 @@ export default function MainMenu() {
                     setModeOpen(false);
                   }}
                 >
-                  <b>{t(m.name)}</b>
-                  <small>{t(m.sub)}</small>
+                  <ModeArt mode={m.id} />
+                  <span><b>{t(m.name)}</b>
+                  <small>{t(m.sub)}</small></span>
                 </button>
               </li>
             ))}
           </ul>
         )}
         <button className="menu-mode" onClick={() => setModeOpen((v) => !v)} aria-expanded={modeOpen}>
+          <ModeArt mode={gameMode} />
           <small>{t('menu.mode')}</small>
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
           <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>

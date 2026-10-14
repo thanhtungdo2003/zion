@@ -25,6 +25,9 @@ export interface StudioBackend {
   /** Ground heights around the camp (relative to the camp floor), row-major `size × size`. */
   terrain(): { size: number; step: number; origin: number; heights: number[]; water: number } | null;
   reset(): Promise<void>;
+  /** Vehicle physics engine for every game server (Jolt or the built-in arcade model). */
+  vehiclePhysics(): { jolt: boolean };
+  setVehiclePhysics(jolt: boolean): { jolt: boolean };
 }
 
 const CAMP_IDS = new Set<number>(Object.values(CAMP_ASSET));
@@ -198,6 +201,9 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     reply.header('cache-control', 'private, max-age=300');
     return t;
   });
+
+  app.get('/api/studio/vehicle-physics', { preHandler: guard }, async () => studio.vehiclePhysics());
+  app.post('/api/studio/vehicle-physics', { preHandler: guard }, async (req) => studio.setVehiclePhysics(z.object({ jolt: z.boolean() }).strict().parse(req.body).jolt));
 
   app.post('/api/studio/reset', { preHandler: guard, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async () => {
     await studio.reset();
