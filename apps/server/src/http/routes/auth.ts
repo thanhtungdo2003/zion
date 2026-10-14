@@ -84,6 +84,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
     return reply.code(204).send();
   });
 
+  app.post('/api/account/name', { preHandler: app.requireAuth, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const body = guestSchema.parse(req.body);
+    reply.header('cache-control', 'no-store');
+    return reply.send(await auth.rename(req.claims!.sub, body.username, ctx(req)));
+  });
+
   app.get('/api/me', { preHandler: app.requireAuth }, async (req) => {
     const c = req.claims!;
     return { id: c.sub, username: c.name, role: c.role, guest: c.guest };

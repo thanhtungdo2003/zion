@@ -102,7 +102,7 @@ import { ServerClock } from './net/clock';
 import { LocalPlayer } from './prediction';
 import { BattleFlightRenderer } from './render/battle-flight';
 import { doorColliders } from '@zion/physics';
-import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
+import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
 import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
@@ -221,6 +221,8 @@ export class GameEngine {
   private readonly guideTmp = new Vector3();
   /** First aid kit being applied: which one and when it started (ms). */
   private healing: { uid: number; start: number } | null = null;
+  /** Last hit that interrupts first aid (zone damage does not). */
+  private healBreakAt = 0;
   /** ZCoin dropped by zombies (server-owned; we only show them and ask to pick up). */
   private readonly coinDrops = new Map<number, Object3D>();
   private readonly coinRingGeometry = new RingGeometry(0.28, 0.36, 28);
@@ -1182,7 +1184,6 @@ export class GameEngine {
       case 'battle':
         this.hud.set({ battle: m });
         this.planeReceivedAt = performance.now();
-        this.battleZone?.update(m);
         if (m.phase === 'finished') this.input.release();
         break;
       case 'door': {
@@ -1263,11 +1264,16 @@ export class GameEngine {
           if (zb) zb.burnUntil = performance.now() + 700;
           const animal = this.remotes.get(m.targetId);
           if (animal?.entity.kind === EntityKind.Animal) animal.burnUntil = performance.now() + 700;
-          if (m.targetId === this.welcome?.playerId) this.hud.set({ hurtAt: performance.now(), hurtAmount: 0.4 });
+          if (m.targetId === this.welcome?.playerId) { this.healBreakAt = performance.now(); this.hud.set({ hurtAt: this.healBreakAt, hurtAmount: 0.4 }); }
+          break;
+        }
+        if (m.zone === 'red_zone') {
+          // The zone burns steadily: a faint flash, no blood, and first aid keeps going.
+          if (m.targetId === this.welcome?.playerId) this.hud.set({ hurtAt: performance.now(), hurtAmount: 0.25 });
           break;
         }
         this.bloodAt(m);
-        if (m.targetId === this.welcome?.playerId) this.hud.set({ hurtAt: performance.now(), hurtAmount: Math.min(1, 0.35 + m.damage / 40) });
+        if (m.targetId === this.welcome?.playerId) { this.healBreakAt = performance.now(); this.hud.set({ hurtAt: this.healBreakAt, hurtAmount: Math.min(1, 0.35 + m.damage / 40) }); }
         break;
       case 'death':
         if (!isZombieId(m.playerId)) {
@@ -1592,6 +1598,8 @@ export class GameEngine {
     this.viewModel?.setVisible(!driving);
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
     const battle = this.hud.get().battle;
+    const live = this.liveBattle();
+    if (live) this.battleZone?.update(live);
     const plane = battle?.plane ? battlePlaneAt(this.welcome!.world.sizeChunks * CHUNK_SIZE, BATTLE_FLIGHT.durationMs - battle.plane.remainingMs + performance.now() - this.planeReceivedAt) : undefined;
     this.battleFlight?.update(dt, this.elapsed, px, pz, plane && plane.remainingMs > 0 ? plane : undefined);
     this.battleFlight?.retainPlayers(new Set([this.welcome!.playerId, ...this.remotes.keys()]));
@@ -1614,7 +1622,7 @@ export class GameEngine {
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
-    const tod = (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
+    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
@@ -1680,7 +1688,7 @@ export class GameEngine {
       const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.avatar.root.visible && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
       const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).map((m) => ({ x: m.x!, z: m.z! }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.hud.get().battle);
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle());
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
@@ -1911,6 +1919,12 @@ export class GameEngine {
     this.conn.sendInput(msg);
   }
 
+  /** The last battle snapshot with its safe circle advanced to now (snapshots arrive at 1 Hz). */
+  private liveBattle(): BattleState | null {
+    const battle = this.hud.get().battle;
+    return battle ? { ...battle, circle: battleCircleAt(battle, performance.now() - this.planeReceivedAt) } : null;
+  }
+
   /** Current daylight as a CSS colour for the minimap (white noon, warm dusk, blue night). */
   private minimapTint(): string {
     const sky = this.sky;
@@ -2039,10 +2053,11 @@ export class GameEngine {
     if (this.localAvatar) this.localAvatar.healing = !!h;
     if (!h) return;
     const kitGone = !this.inventory.get().items.some((i) => i.uid === h.uid);
-    // Moving (or rolling/jumping) or taking damage interrupts first aid; the kit is not used up.
+    // Moving (or rolling/jumping) or taking a hit interrupts first aid; the kit is not used up.
+    // Red-zone damage does not, so a kit can be used to outlast the zone.
     const a = this.input.axes();
     const moving = a.mx !== 0 || a.mz !== 0 || (this.input.buttons() & (Buttons.Jump | Buttons.Roll)) !== 0;
-    if (this.local?.dead || kitGone || moving || this.hud.get().hurtAt > h.start) {
+    if (this.local?.dead || kitGone || moving || this.healBreakAt > h.start) {
       if (!kitGone && !this.local?.dead) this.toast({ key: 'toast.heal_interrupted' });
       this.healing = null;
       this.hud.set({ healing: null });

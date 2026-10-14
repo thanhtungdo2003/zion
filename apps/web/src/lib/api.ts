@@ -189,6 +189,16 @@ export async function teamAction(action: TeamAction): Promise<TeamLobby> {
   return request<TeamLobby>('/api/teams', { method: 'POST', auth: true, body: JSON.stringify(action) });
 }
 
+/** Renames the signed-in account; the new name is used from the next match on. */
+export async function renameAccount(username: string): Promise<AccountInfo> {
+  await ensureAccess();
+  const s = await request<Omit<SessionResponse, 'refreshToken'>>('/api/account/name', { method: 'POST', auth: true, body: JSON.stringify({ username }) });
+  accessToken = s.accessToken;
+  accessExpiresAt = Date.now() + s.expiresIn * 1000;
+  account = s.account;
+  return s.account;
+}
+
 export function currentAccount(): AccountInfo | null {
   return account;
 }

@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Line, LineBasicMaterial, Mesh, MeshLambertMaterial, DoubleSide, type Scene } from 'three';
+import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, LineSegments, LineBasicMaterial, Mesh, MeshLambertMaterial, DoubleSide, type Scene } from 'three';
 import { EntityFlags, type BattlePlane, type DoorStateEvent } from '@zion/shared';
 import { BB_UNITS_PER_METER, loadCharacterModel, sampleTrack, type CharacterTemplate } from './character-model';
 import { ResourceDisposer } from './resources';
@@ -13,7 +13,26 @@ export class BattleFlightRenderer {
   private plane: Group | null = null;
   private disposed = false;
   private readonly vec: [number, number, number] = [0, 0, 0];
-  constructor(private readonly scene: Scene) {}
+  // One shared canopy kit: deploying used to allocate 36 geometries and materials (and compile
+  // their shaders) in the frame the chute opened, which stalled the game at that moment.
+  private readonly panel = new BoxGeometry(.54, .22, 2.5);
+  private readonly cloth = new MeshLambertMaterial({ color: '#d8e4e6', side: DoubleSide });
+  private readonly stripe = new MeshLambertMaterial({ color: '#db293e', side: DoubleSide });
+  private readonly cord = new LineBasicMaterial({ color: '#d5d0ba' });
+  private readonly cords: BufferGeometry;
+  private readonly pool: Group[] = [];
+  private warm: Group | null = null;
+  constructor(private readonly scene: Scene) {
+    const lines: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const x = (i - 5.5) * .52, y = 4.8 - Math.pow(x / 3.3, 2) * .8;
+      for (const z of [-.9, .9]) lines.push(x, y, z, Math.sign(x) * .35, 1.3, z * .2);
+    }
+    this.cords = new BufferGeometry(); this.cords.setAttribute('position', new Float32BufferAttribute(lines, 3));
+    // Warm-up canopy: drawn once out of sight so its shaders compile before anyone deploys.
+    const warm = this.warm = this.makeCanopy(); warm.position.set(0, -2000, 0); warm.traverse(o => { o.frustumCulled = false; }); scene.add(warm);
+    setTimeout(() => { if (!this.disposed && this.warm) { scene.remove(warm); this.warm = null; warm.traverse(o => { o.frustumCulled = true; }); this.pool.push(warm); } }, 1500);
+  }
   async load(): Promise<void> {
     const templates = await Promise.all([loadCharacterModel('/models/dists/wooden-door.bbmodel'), loadCharacterModel('/models/dists/heavy-transport-plane.bbmodel')]);
     [this.doorTemplate, this.planeTemplate] = templates;
@@ -45,14 +64,14 @@ export class BattleFlightRenderer {
   }
   player(id: number, x: number, y: number, z: number, yaw: number, flags: number, dt: number): void {
     let canopy = this.canopies.get(id);
-    if (!(flags & EntityFlags.Parachute)) { if (canopy) { this.scene.remove(canopy.root); this.release(canopy.root); this.canopies.delete(id); } return; }
-    if (!canopy) { canopy = { root: this.makeCanopy(), age: 0 }; this.canopies.set(id, canopy); this.scene.add(canopy.root); }
+    if (!(flags & EntityFlags.Parachute)) { if (canopy) { this.scene.remove(canopy.root); this.pool.push(canopy.root); this.canopies.delete(id); } return; }
+    if (!canopy) { canopy = { root: this.pool.pop() ?? this.makeCanopy(), age: 0 }; this.canopies.set(id, canopy); this.scene.add(canopy.root); }
     canopy.age += dt;
     const t = Math.min(1, canopy.age / .9), open = 1 - Math.pow(1 - t, 3);
     canopy.root.position.set(x, y, z); canopy.root.rotation.y = yaw;
     canopy.root.scale.set(Math.max(.04, open), .4 + open * .6, Math.max(.04, open));
   }
-  retainPlayers(ids: Set<number>): void { for (const [id, c] of this.canopies) if (!ids.has(id)) { this.scene.remove(c.root); this.release(c.root); this.canopies.delete(id); } }
+  retainPlayers(ids: Set<number>): void { for (const [id, c] of this.canopies) if (!ids.has(id)) { this.scene.remove(c.root); this.pool.push(c.root); this.canopies.delete(id); } }
   private animate(root: Group, template: CharacterTemplate, name: string, time: number): void {
     for (const [bone, tracks] of template.clips.get(name)?.bones ?? []) {
       const node = root.getObjectByName(bone); if (!node || !tracks.rotation) continue;
@@ -60,23 +79,21 @@ export class BattleFlightRenderer {
     }
   }
   private makeCanopy(): Group {
-    const root = new Group(), panels = 12;
-    for (let i = 0; i < panels; i++) {
-      const x = (i - (panels - 1) / 2) * .52;
-      const mesh = new Mesh(new BoxGeometry(.54, .22, 2.5), new MeshLambertMaterial({ color: i % 3 ? '#d8e4e6' : '#db293e', side: DoubleSide }));
+    const root = new Group();
+    for (let i = 0; i < 12; i++) {
+      const x = (i - 5.5) * .52, mesh = new Mesh(this.panel, i % 3 ? this.cloth : this.stripe);
       mesh.position.set(x, 4.8 - Math.pow(x / 3.3, 2) * .8, 0); mesh.rotation.z = -x * .11; root.add(mesh);
-      for (const z of [-.9, .9]) {
-        const g = new BufferGeometry(); g.setAttribute('position', new Float32BufferAttribute([x, mesh.position.y, z, Math.sign(x) * .35, 1.3, z * .2], 3));
-        root.add(new Line(g, new LineBasicMaterial({ color: '#d5d0ba' })));
-      }
     }
+    root.add(new LineSegments(this.cords, this.cord));
     return root;
   }
   private release(root: Group): void { new ResourceDisposer().object(root); }
   dispose(): void {
     this.disposed = true;
     for (const d of this.doors.values()) this.scene.remove(d.root); this.doors.clear();
-    for (const c of this.canopies.values()) { this.scene.remove(c.root); this.release(c.root); } this.canopies.clear();
+    for (const c of this.canopies.values()) this.scene.remove(c.root); this.canopies.clear(); this.pool.length = 0;
+    if (this.warm) { this.scene.remove(this.warm); this.warm = null; }
+    this.panel.dispose(); this.cloth.dispose(); this.stripe.dispose(); this.cord.dispose(); this.cords.dispose();
     if (this.plane) this.scene.remove(this.plane);
     if (this.doorTemplate) this.release(this.doorTemplate.root);
     if (this.planeTemplate) this.release(this.planeTemplate.root);

@@ -1,7 +1,7 @@
 import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
-import { BATTLE_MAP, generateBattleLoot, vehicleOwner, type ChestData, type GameMode } from '@zion/shared';
+import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, type ChestData, type GameMode } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -889,6 +889,8 @@ export class GameServer {
   }
 
   timeOfDay(): number {
+    // Battle royale is always played at 14:00: steady daylight, no night.
+    if (this.battle) return BATTLE_TIME_OF_DAY;
     const t = this.worldTimeMs / this.dayLengthMs + 0.3;
     return t - Math.floor(t);
   }
@@ -1467,7 +1469,6 @@ export class GameServer {
       for (const p of this.players.values()) if (!p.dead && match.outside(p.state.x, p.state.z)) {
         this.damage(null, p, match.state(now).damagePerSecond, 'red_zone', p.state.x, p.state.y + 1, p.state.z, now);
       }
-      match.tick(now);
     }
     for (const p of this.players.values()) p.session.sendJson({ ...match.state(now, p.id), drop: { phase: p.state.flight === 1 ? 'boarding' : p.state.flight === 2 ? 'falling' : p.state.flight === 3 ? 'parachute' : 'landed', altitude: Math.max(0, p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)), parachuteOpen: p.state.flight === 3 } });
     if (match.phase === 'finished' && match.state(now).remainingMs === 0) {

@@ -263,6 +263,23 @@ export class Minimap {
     ctx.restore();
     ctx.restore();
     if (spawn && !locations) this.drawSpawn(ctx, W, (spawn.x - px) * scale, (spawn.z - pz) * scale, upYaw);
+    if (battle?.phase === 'running') {
+      // The zone is far larger than this map: point at the next safe circle while outside it.
+      const target = battle.nextCircle, gap = Math.hypot(target.x - px, target.z - pz) - target.radius;
+      if (gap > 0) {
+        const { x, y } = mapMarker((target.x - px) * scale, (target.z - pz) * scale, upYaw, W / 2 - 10);
+        const sx = W / 2 + x, sy = W / 2 + y, angle = Math.atan2(y, x);
+        ctx.save(); ctx.translate(sx, sy); ctx.rotate(angle);
+        ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-3, -6); ctx.lineTo(-3, 6); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.restore();
+        const label = gap >= 1000 ? `${(gap / 1000).toFixed(1)}km` : `${Math.round(gap)}m`;
+        ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const lx = sx - Math.cos(angle) * 18, ly = sy - Math.sin(angle) * 14;
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.strokeText(label, lx, ly);
+        ctx.fillStyle = '#ffffff'; ctx.fillText(label, lx, ly);
+      }
+    }
     const mapLocations = locations ? [...locations, ...npcs.filter((n) => n.role === 'target').map((n, i) => ({ ...n, id: `mission:${i}`, icon: 'lucide:crosshair', guide: true }))] : [];
     for (const location of mapLocations) {
       const { x, y, off } = mapMarker((location.x - px) * scale, (location.z - pz) * scale, upYaw, W / 2 - 12);

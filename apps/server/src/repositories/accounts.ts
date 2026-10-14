@@ -100,6 +100,17 @@ export class AccountRepository {
     return rows[0] ? map(rows[0]) : null;
   }
 
+  /** Changes the display/login name. Returns null if another account already uses it. */
+  async rename(id: string, username: string): Promise<Account | null> {
+    try {
+      const { rows } = await this.db.query<AccountRow>(`UPDATE accounts SET username = $2 WHERE id = $1 RETURNING ${COLUMNS}`, [id, username]);
+      return rows[0] ? map(rows[0]) : null;
+    } catch (err) {
+      if ((err as { code?: string }).code === '23505') return null;
+      throw err;
+    }
+  }
+
   async recordLoginSuccess(id: string): Promise<void> {
     await this.db.query(
       'UPDATE accounts SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1',

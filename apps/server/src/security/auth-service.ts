@@ -177,6 +177,21 @@ export class AuthService {
     };
   }
 
+  /** Renames an account; the new access token carries the new name (the refresh token is unchanged). */
+  async rename(accountId: string, username: string, ctx: RequestContext): Promise<Omit<Session, 'refreshToken'>> {
+    const current = await this.accounts.findById(accountId);
+    if (!current) throw new AuthError('invalid_token', 401, 'account no longer exists');
+    this.assertNotBanned(current, ctx);
+    const acc = current.username === username ? current : await this.accounts.rename(accountId, username);
+    if (!acc) throw new AuthError('username_taken', 409, 'Tên này đã có người dùng.');
+    this.audit.record({ event: 'account.rename', accountId, ip: ctx.ip, details: { from: current.username, to: username } });
+    return {
+      accessToken: await this.tokens.signAccess(this.claims(acc)),
+      expiresIn: this.tokens.accessTtl,
+      account: { id: acc.id, username: acc.username, guest: acc.isGuest, role: acc.role },
+    };
+  }
+
   async logout(refreshToken: string | undefined): Promise<void> {
     if (refreshToken && /^[A-Za-z0-9_-]{43}$/.test(refreshToken)) await this.refreshTokens.revokeByHash(sha256(refreshToken));
   }

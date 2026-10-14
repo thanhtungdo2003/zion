@@ -32,8 +32,11 @@ describe('Battle Royale airborne movement', () => {
     w.setOwnerColliders(1, [{ shape: makeBox(40, 9.8, 40, 5, .2, 5), layer: Layer.Static }]);
     for (let i = 0; i < 150 && s.flight; i++) stepAirborne(s, idle, w, 1 / 30);
     expect(s.flight).toBe(0); expect(s.grounded).toBe(true); expect(s.y).toBeCloseTo(10.02, 1);
-    const unloaded = new CollisionWorld({ worldSize: 96, seaLevel: -50 }), waiting = createCharacterState(40, 600, 40); waiting.flight = 2;
-    stepAirborne(waiting, idle, unloaded, 1 / 30); expect(waiting.y).toBe(600);
+    const unloaded = new CollisionWorld({ worldSize: 96, seaLevel: -50 }), waiting = createCharacterState(40, 150, 40); waiting.flight = 2;
+    stepAirborne(waiting, idle, unloaded, 1 / 30); expect(waiting.y).toBe(150);
+    // High above unstreamed ground the fall continues (prediction must not freeze up there).
+    const high = createCharacterState(40, 600, 40); high.flight = 2;
+    stepAirborne(high, idle, unloaded, 1 / 30); expect(high.y).toBeLessThan(600);
   });
 });
 describe('interactive door clearance', () => {

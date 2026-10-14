@@ -1,17 +1,11 @@
 'use client';
-import type { BattleState } from '@zion/shared';
+import { BATTLE_FLIGHT, type BattleState } from '@zion/shared';
 
 export function BattleHud({ state, position, onLeave }: { state: BattleState; position: readonly number[]; onLeave(): void }) {
   const outside = Math.hypot(position[0]! - state.circle.x, position[2]! - state.circle.z) >= state.circle.radius;
   const seconds = Math.ceil(state.remainingMs / 1000);
   return <>
-    {state.phase === 'running' && !state.placement && state.drop && state.drop.phase !== 'landed' && <div className="battle-drop" role="status">
-      <b>{state.drop.phase === 'boarding' ? 'TRÊN MÁY BAY VẬN TẢI' : state.drop.phase === 'falling' ? 'ĐANG RƠI TỰ DO' : 'ĐANG HẠ CÁNH BẰNG DÙ'}</b>
-      <strong>{Math.round(state.drop.altitude)} m</strong>
-      <small>ĐỘ CAO SO VỚI MẶT ĐẤT · {Math.round(state.drop.speed ?? 0)} km/h · Hướng {Math.round(state.drop.heading ?? 0)}°</small>
-      <progress max={650} value={Math.min(650, state.drop.altitude)} aria-label="Độ cao còn lại" />
-      <span>{state.drop.phase === 'boarding' ? <><kbd>Space</kbd> · Nhảy khỏi máy bay · Tự nhảy sau {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</> : state.drop.phase === 'falling' ? <>WASD · Lướt khi rơi<br/><kbd>Shift</kbd> · Lao nhanh xuống · <kbd>Space</kbd> · Bung dù<br/>Dù tự bung ở độ cao 120 m</> : <>WASD · Điều khiển dù lượn · Tự thu dù khi chạm đất</>}</span>
-    </div>}
+    {state.phase === 'running' && !state.placement && state.drop && state.drop.phase !== 'landed' && <DropHud state={state} drop={state.drop} />}
     <div className="battle-status" role="status">
       <b>BATTLE ROYALE · {state.map}</b>
       <span>{state.phase === 'waiting' ? `Đang chờ người chơi · ${state.total}/32 · cần ít nhất 2 người` : state.phase === 'countdown' ? `Bắt đầu sau ${seconds}s · Tìm vị trí xuất phát` : `${state.alive} sống sót / ${state.total} · Bo ${state.stage}`}</span>
@@ -27,5 +21,35 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
       <button className="btn btn-primary" onClick={onLeave}>Về sảnh</button>
       <small>Tự đóng trận sau {seconds}s</small>
     </div></div>}
+  </>;
+}
+
+/** Altitude marks on the vertical gauge (metres above ground). */
+const ALTITUDE_MARKS = [600, 500, 400, 300, 200, BATTLE_FLIGHT.autoDeployHeight, 0];
+
+/** Insertion HUD: a slim vertical altimeter on the right edge and one compact control strip at the bottom. */
+function DropHud({ state, drop }: { state: BattleState; drop: NonNullable<BattleState['drop']> }) {
+  const top = BATTLE_FLIGHT.altitude, altitude = Math.max(0, Math.min(top, drop.altitude)), level = altitude / top;
+  const label = drop.phase === 'boarding' ? 'Trên máy bay' : drop.phase === 'falling' ? 'Rơi tự do' : 'Đang bung dù';
+  return <>
+    <div className={`battle-altimeter ${drop.phase}`} role="status" aria-label={`Độ cao ${Math.round(altitude)} mét`}>
+      <span className="battle-altimeter-title">Độ cao</span>
+      <div className="battle-altimeter-scale">
+        <div className="battle-altimeter-track">
+          <div className="battle-altimeter-fill" style={{ height: `${level * 100}%` }} />
+          {ALTITUDE_MARKS.map(mark => <i key={mark} className={mark === BATTLE_FLIGHT.autoDeployHeight ? 'deploy' : undefined} style={{ bottom: `${mark / top * 100}%` }}><small>{mark === BATTLE_FLIGHT.autoDeployHeight ? `${mark} · DÙ` : mark}</small></i>)}
+          <b className="battle-altimeter-marker" style={{ bottom: `${level * 100}%` }} />
+        </div>
+      </div>
+      <strong>{Math.round(altitude)}<small>m</small></strong>
+      <span>{Math.round(drop.speed ?? 0)} km/h</span>
+      <span>{Math.round(drop.heading ?? 0)}°</span>
+    </div>
+    <div className="battle-drop-strip" role="note">
+      <b>{label}</b>
+      {drop.phase === 'boarding' && <><span><kbd>Space</kbd> Nhảy</span><small>Tự nhảy sau {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</small></>}
+      {drop.phase === 'falling' && <><span><kbd>WASD</kbd> Lướt</span><span><kbd>Shift</kbd> Lao nhanh</span><span><kbd>Space</kbd> Bung dù</span><small>Tự bung ở {BATTLE_FLIGHT.autoDeployHeight} m</small></>}
+      {drop.phase === 'parachute' && <><span><kbd>WASD</kbd> Lượn dù</span><small>Tự thu dù khi chạm đất</small></>}
+    </div>
   </>;
 }

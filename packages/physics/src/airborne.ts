@@ -8,10 +8,11 @@ const hit = makeRayHit();
 /** Deterministic insertion movement shared by the authoritative server and prediction. */
 export function stepAirborne(s: CharacterState, input: CharacterInput, world: CollisionWorld, dt: number): void {
   if (!s.flight || s.flight === 1) return;
-  // Wait for the landing area rather than allowing a fall through unloaded terrain.
+  // High up, keep flying over terrain that is not streamed in yet (stopping here made prediction
+  // freeze and snap back, felt as lag); only near the ground wait for the landing area.
   const ground = world.terrainHeight(s.x, s.z);
-  if (!Number.isFinite(ground)) return;
-  const altitude = s.y - ground;
+  if (!Number.isFinite(ground) && s.y - world.seaLevel < 250) return;
+  const altitude = Number.isFinite(ground) ? s.y - ground : Infinity;
   if (s.flight === 2 && (input.jump || altitude <= BATTLE_FLIGHT.autoDeployHeight)) s.flight = 3;
   const canopy = s.flight === 3, dive = input.sprint && !canopy;
   const length = Math.max(1, Math.hypot(input.mx, input.mz));

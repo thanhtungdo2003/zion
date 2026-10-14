@@ -140,11 +140,11 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
             {state.mode !== 'battle-royale' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
               <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
             </button>}
-            <div className="hud-clock">
+            {state.mode !== 'battle-royale' && <div className="hud-clock">
               <b>{clock(state.timeOfDay)}</b>
               <span>{t(phase(state.timeOfDay))}</span>
-            </div>
-            {process.env.NODE_ENV !== 'production' && <div className="hud-times">
+            </div>}
+            {process.env.NODE_ENV !== 'production' && state.mode !== 'battle-royale' && <div className="hud-times">
               {TIME_PRESETS.map(([label, tod]) => (
                 <button key={label} className="hud-time-btn" onClick={() => onSetTime(tod)} title={t('time.jump', { label: t(label) })}>
                   {t(label)}

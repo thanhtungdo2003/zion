@@ -2412,6 +2412,11 @@ kbd {
 .menu-social > span { display: inline-grid; place-items: center; width: 22px; height: 22px; font: 800 21px/1 var(--sans); }
 .menu-social.facebook { border-color: #345b96; background: #163458; color: #fff; }
 .menu-social.google { background: #ecebe6; color: #202124; }
+.menu-profile-name { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.menu-profile-name h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-profile-form { display: grid; gap: 10px; }
+.menu-profile-actions { display: flex; gap: 8px; }
+.menu-profile-actions .btn { flex: 1; }
 .menu-auth-legacy { border: 0; padding: 8px 0; background: none; color: var(--muted); font: 12px/1.5 var(--sans); text-decoration: underline; cursor: pointer; }
 .menu-auth-legacy:disabled { opacity: .45; cursor: default; }
 .menu-auth form { display: grid; gap: 10px; }
@@ -2485,11 +2490,25 @@ kbd {
 }
 .battle-status { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); display: grid; gap: 6px; max-width: min(580px, 75vw); padding: 12px 20px; text-align: center; color: #fff; background: rgba(20, 8, 12, .85); border-top: 3px solid #ff263d; pointer-events: none; z-index: 15; }
 .battle-status b { color: #ff6474; font-size: 14px; letter-spacing: .08em; }
-.battle-drop { position: absolute; left: 50%; top: 60%; transform: translate(-50%, -50%); display: grid; gap: 8px; width: min(420px, 86vw); padding: 16px 22px; text-align: center; color: #fff; background: rgba(10, 17, 28, .78); border: 1px solid #79b9ff; border-radius: 12px; pointer-events: none; z-index: 18; }
-.battle-drop progress { width: 100%; height: 6px; accent-color: #8dccff; }
-.battle-drop strong { font-size: 34px; color: #8dccff; }
-.battle-drop span { font-size: 13px; }
-.battle-drop kbd { padding: 2px 5px; background: #27374e; border-radius: 3px; }
+.battle-altimeter { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); z-index: 18; display: grid; justify-items: center; gap: 4px; width: 92px; padding: 10px 8px; font: 11px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--accent); pointer-events: none; }
+.battle-altimeter-title { font: 600 10px var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.battle-altimeter-scale { position: relative; height: min(240px, 34vh); width: 100%; margin: 8px 0 6px; }
+.battle-altimeter-track { position: absolute; left: 14px; top: 0; bottom: 0; width: 6px; background: #0b0c0d; border: 1px solid var(--line); }
+.battle-altimeter-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--text); opacity: .55; transition: height .12s linear; }
+.battle-altimeter-track i { position: absolute; left: -4px; width: 12px; height: 1px; background: var(--muted); }
+.battle-altimeter-track i small { position: absolute; left: 18px; top: -6px; font-size: 9px; line-height: 12px; color: var(--muted); white-space: nowrap; }
+.battle-altimeter-track i.deploy { background: var(--accent); }
+.battle-altimeter-track i.deploy small { color: var(--accent); }
+.battle-altimeter-marker { position: absolute; left: -7px; width: 0; height: 0; margin-bottom: -5px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid var(--accent); transition: bottom .12s linear; }
+.battle-altimeter strong { font: 700 22px var(--mono); color: var(--text); }
+.battle-altimeter strong small { margin-left: 2px; font-size: 11px; color: var(--muted); }
+.battle-altimeter > span:not(.battle-altimeter-title) { color: var(--muted); }
+.battle-altimeter.parachute .battle-altimeter-fill { background: var(--accent); opacity: .7; }
+.battle-drop-strip { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 18; display: flex; align-items: center; gap: 14px; max-width: calc(100vw - 32px); padding: 7px 12px; font: 12px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); white-space: nowrap; pointer-events: none; }
+.battle-drop-strip b { font: 600 11px var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+.battle-drop-strip span { display: inline-flex; align-items: center; gap: 6px; }
+.battle-drop-strip small { color: var(--muted); font-size: 11px; }
+@media (max-width: 720px) { .battle-drop-strip { flex-wrap: wrap; justify-content: center; white-space: normal; } .battle-altimeter { width: 76px; } }
 .battle-status span { font-size: 13px; }
 .battle-status small { font-size: 11px; color: #c2b5b8; }
 .battle-warning { color: #ff5669; font-size: 14px; }

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
-import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, type SocialProvider } from '@/lib/api';
+import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
 import { getTeamLobby, teamAction } from '@/lib/api';
@@ -51,6 +51,8 @@ export default function MainMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [username, setUsername] = useState('');
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [nameNotice, setNameNotice] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [teamOpen, setTeamOpen] = useState(false);
   const [lobby, setLobby] = useState<Lobby | null>(null);
@@ -227,7 +229,28 @@ export default function MainMenu() {
 
       {authOpen && (
         <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
-          <h2>{session ? currentAccount()?.username : 'Đăng nhập / Đăng ký'}</h2>
+          {session && nameDraft === null && <div className="menu-profile-name">
+            <h2>{currentAccount()?.username}</h2>
+            <button type="button" className="menu-account icon" aria-label="Đổi tên" title="Đổi tên" disabled={busy} onClick={() => { setNameDraft(currentAccount()?.username ?? ''); setNameNotice(null); }}><Icon name="lucide:pencil" /></button>
+          </div>}
+          {session && nameDraft !== null && <form className="menu-profile-form" onSubmit={(e) => {
+            e.preventDefault();
+            setBusy(true); setNameNotice(null);
+            void renameAccount(nameDraft.trim()).then(() => { setNameDraft(null); setNameNotice('Đã đổi tên. Tên mới áp dụng từ trận tiếp theo.'); })
+              .catch(err => setNameNotice(err instanceof ApiError && err.code === 'username_taken' ? t('menu.name_taken') : err instanceof ApiError && err.status === 400 ? 'Tên cần 3–20 ký tự: chữ, số, khoảng trắng, _ hoặc -.' : err instanceof Error ? err.message : t('menu.server_error')))
+              .finally(() => setBusy(false));
+          }}>
+            <label className="field">
+              <span>Tên hiển thị</span>
+              <input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} minLength={3} maxLength={20} autoFocus required />
+            </label>
+            <div className="menu-profile-actions">
+              <button className="btn btn-primary" type="submit" disabled={busy || nameDraft.trim() === currentAccount()?.username}>Lưu</button>
+              <button className="btn" type="button" disabled={busy} onClick={() => { setNameDraft(null); setNameNotice(null); }}>Huỷ</button>
+            </div>
+          </form>}
+          {session && nameNotice && <p className="menu-auth-notice" role="status">{nameNotice}</p>}
+          {!session && <h2>Đăng nhập / Đăng ký</h2>}
           <p>{session ? linked.length ? 'Tiến độ đã gắn với tài khoản của bạn. Bạn có thể liên kết thêm một phương thức đăng nhập.' : 'Liên kết Google hoặc Facebook để giữ nhân vật, đồ đạc và tiến độ khi đổi thiết bị hoặc mất phiên trình duyệt.' : 'Dùng Google hoặc Facebook để tạo tài khoản mới và lưu tiến độ.'}</p>
           {accountNotice && <p className="menu-auth-notice" role="status">{accountNotice}</p>}
           <div className="menu-social-buttons">
