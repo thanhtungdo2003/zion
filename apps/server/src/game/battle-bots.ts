@@ -456,7 +456,7 @@ export class BattleBotDirector {
     for (const bot of this.bots) {
       const s = bot.state;
       if (bot.dead && now - bot.deadAt > 15_000) continue;
-      if (Math.hypot(s.x - player.state.x, s.z - player.state.z) > range) continue;
+      if (Math.hypot(s.x - player.viewX, s.z - player.viewZ) > range) continue;
       const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.prone ? EntityFlags.Prone : 0) | (bot.dead ? EntityFlags.Dead : 0)
         | (s.flight === 1 ? EntityFlags.InPlane : s.flight === 2 ? EntityFlags.Freefall : s.flight === 3 ? EntityFlags.Parachute : 0)
         | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0)

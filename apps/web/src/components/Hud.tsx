@@ -364,7 +364,14 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         </div>
       )}
 
-      {state.status === 'dead' && (
+      {state.status === 'dead' && state.mode === 'battle-royale' && state.spectating && (
+        <div className="hud-spectate" role="status">
+          <span>Bạn đã bị loại · Đang theo dõi đồng đội</span>
+          <b>{state.spectating}</b>
+          <button className="btn" onClick={onLeave}>Về sảnh</button>
+        </div>
+      )}
+      {state.status === 'dead' && !(state.mode === 'battle-royale' && state.spectating) && (
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>

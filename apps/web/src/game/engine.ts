@@ -856,6 +856,8 @@ export class GameEngine {
     if (!s) return null;
     for (const [id, r] of this.remotes) {
       if (r.entity.kind !== EntityKind.Player || !(r.entity.pose.flags & EntityFlags.Downed)) continue;
+      // Battle royale: only squadmates can be revived.
+      if (this.welcome?.mode === 'battle-royale' && !this.hud.get().team?.members.some((m) => m.entityId === id)) continue;
       const p = r.avatar.root.position;
       if (Math.hypot(p.x - s.x, p.z - s.z) <= 2.4) return { id };
     }
@@ -1712,7 +1714,7 @@ export class GameEngine {
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
-    this.updateCamera(px, py, pz, dt);
+    if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
     if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
     this.updateShoulderAim(px, py, pz);
     if (this.firstPerson && this.viewModel) {
@@ -2768,6 +2770,30 @@ export class GameEngine {
     this.camera.near = mouseLook ? 0.05 : 0.5;
     this.camera.updateProjectionMatrix();
     this.camFocusInit = false;
+  }
+
+  /**
+   * Battle royale, eliminated: follow a living squadmate from behind (their body when streamed in,
+   * else their reported position). False when there is nobody to watch.
+   */
+  private spectate(dt: number): boolean {
+    const local = this.local;
+    let watching: string | null = null;
+    if (local?.dead && this.welcome?.mode === 'battle-royale') {
+      const mate = (this.hud.get().team?.members ?? []).find((m) => m.entityId !== undefined && m.entityId !== this.welcome?.playerId && m.inGame && (m.health ?? 0) > 0 && m.x !== undefined);
+      if (mate) {
+        const body = this.remotes.get(mate.entityId!);
+        const x = body ? body.entity.pose.x : mate.x!, z = body ? body.entity.pose.z : mate.z!;
+        const y = body ? body.entity.pose.y : mate.y ?? this.groundY(x, z);
+        const yaw = body ? body.entity.pose.yaw : mate.yaw ?? this.input.yaw;
+        const f = this.camFocus, k = this.camFocusInit && (f.x - x) ** 2 + (f.z - z) ** 2 < 400 ? 1 - Math.exp(-dt * 10) : 1;
+        f.lerp(this.focus.set(x, y + 1.6, z), k); this.camFocusInit = true;
+        this.thirdPersonCamera.update(this.camera, f, yaw, -.18, dt, this.store?.collision, false);
+        watching = mate.name;
+      }
+    }
+    if (this.hud.get().spectating !== watching) this.hud.set({ spectating: watching });
+    return watching !== null;
   }
 
   private updateCamera(px: number, py: number, pz: number, dt: number): void {

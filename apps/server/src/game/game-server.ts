@@ -307,7 +307,6 @@ export class GameServer {
       projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
       hitPlayer: (bot, player, damage, zone, x, y, z, now) => {
         this.damage(bot.id, player, damage, zone, x, y, z, now, bot.name);
-        if (damage > 0 && !player.dead) this.knockback(player, player.state.x - bot.state.x, player.state.z - bot.state.z, now, .5);
       },
       died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
@@ -1237,7 +1236,7 @@ export class GameServer {
         return;
       case 'revive': {
         const t = this.players.get(msg.id);
-        if (!t || t === p || !t.downed || p.dead || p.downed) return;
+        if (!t || t === p || !t.downed || p.dead || p.downed || (this.battle && !this.battle.allies(p.id, t.id))) return;
         // Client and server positions differ by up to a tick of movement plus interpolation delay.
         if (Math.hypot(p.state.x - t.state.x, p.state.z - t.state.z) > REVIVE_REACH) { this.reply(p, 'Lại gần hơn để cấp cứu.'); return; }
         p.reviving = { target: t, until: this.serverTime + 5000, x: p.state.x, z: p.state.z };
@@ -1655,7 +1654,13 @@ export class GameServer {
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
       if (p.dead) {
         if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
-        if (this.tick % TICK_RATE === 0) this.sendTeam(p);
+        if (this.battle && this.tick % 6 === 0) {
+          // Eliminated: the world streams around the teammate being spectated.
+          const mate = [...this.players.values()].find((q) => q !== p && !q.dead && this.battle!.allies(p.id, q.id));
+          p.viewFrom = mate ? { x: mate.state.x, z: mate.state.z } : null;
+          this.grid.update(p); p.streamer.setCenter(p.chunkX, p.chunkZ);
+          this.sendTeam(p);
+        } else if (this.tick % TICK_RATE === 0) this.sendTeam(p);
         // Dead players' inputs are acknowledged but ignored.
         const last = p.inputs[p.inputs.length - 1];
         if (last) p.lastProcessedSeq = last.s;
@@ -2045,7 +2050,9 @@ export class GameServer {
       const t = target as Player;
       if (!this.playerAttackAllowed(attacker, t, now) || (!this.battle && tutorialProtected(t, this.serverTime))) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now, weapon);
-      if (amount > 0 && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
+      // Bullets do not shove the target: the server-only push and stun fought the victim's own
+      // prediction and made them rubber-band while under fire. Melee and blasts still knock back.
+      if (amount > 0 && weaponSpec(weapon)?.kind !== 'gun' && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
     }
   }
 
@@ -2114,7 +2121,7 @@ export class GameServer {
       // Hitting someone who is down drains what is left of their bleed-out.
       t.bleed -= amount;
       this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z });
-      if (t.bleed <= 0 || zone === 'suicide') this.killPlayer(t, attackerId, now, weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined));
+      if (t.bleed <= 0 || zone === 'suicide') this.killPlayer(t, attackerId ?? t.downedBy, now, weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined));
       return;
     }
     // Safe zone: no player-caused damage (guns, melee, grenades) to players inside the camp.
@@ -2135,9 +2142,24 @@ export class GameServer {
     t.dirty = true;
     this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z, ...knock });
     if (t.health <= 0) {
-      if (this.battle || zone === 'suicide') this.killPlayer(t, attackerId, now, weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined));
-      else this.knockDown(t, now);
+      const cause = weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined);
+      // Battle royale: a squad member with a teammate still standing goes down and waits for a revive.
+      if (zone === 'suicide' || (this.battle && !this.standingAlly(t))) this.killPlayer(t, attackerId, now, cause);
+      else { this.knockDown(t, now); t.downedBy = attackerId; }
+      this.squadWipe(t, now);
     }
+  }
+
+  /** A teammate of `t` (battle royale squad) who is alive and on their feet. */
+  private standingAlly(t: Player): Player | undefined {
+    if (!this.battle) return undefined;
+    for (const q of this.players.values()) if (q !== t && !q.dead && !q.downed && this.battle.allies(t.id, q.id)) return q;
+    return undefined;
+  }
+  /** Battle royale: once nobody in a squad stands, its downed members cannot be saved. */
+  private squadWipe(t: Player, now: number): void {
+    if (!this.battle || this.standingAlly(t) || (!t.dead && !t.downed)) return;
+    for (const q of [...this.players.values()]) if (q.downed && !q.dead && this.battle.allies(t.id, q.id)) this.killPlayer(q, q.downedBy, now);
   }
 
   /** Out of health: down on the ground, bleeding out (100 over 60 s) until revived or dead. */
@@ -2169,6 +2191,7 @@ export class GameServer {
     t.killerId = attackerId;
     if (this.battle) {
       this.battle.eliminate(t.id);
+      this.squadWipe(t, now);
       const killer = attackerId === null ? undefined : this.players.get(attackerId);
       const weapon = cause ?? killer?.weapon ?? 0;
       const itemId = typeof weapon === 'number' ? Object.keys(WEAPON_BY_ITEM).find(id => WEAPON_BY_ITEM[id] === weapon) : undefined;
@@ -2220,7 +2243,7 @@ export class GameServer {
     for (const p of this.players.values()) {
       if (p.downed && !tutorialProtected(p, now)) {
         p.bleed -= (100 / 60) * TICK_DT;
-        if (p.bleed <= 0) this.killPlayer(p, null, now);
+        if (p.bleed <= 0) this.killPlayer(p, p.downedBy, now);
       }
       const r = p.reviving;
       if (!r) continue;
@@ -2238,6 +2261,7 @@ export class GameServer {
       p.reviving = null;
       p.session.sendJson({ t: 'reviving', target: 0, durationMs: 0 });
       t.downed = false;
+      t.downedBy = null;
       t.bleed = 0;
       t.health = 30;
       t.dirty = true;

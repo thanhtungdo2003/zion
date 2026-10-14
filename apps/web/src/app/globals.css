@@ -2606,3 +2606,8 @@ kbd {
 .atlas-teammate span { color: #cfe6ff; }
 .menu-squad-hint { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font: 600 12px var(--sans); color: var(--muted); }
 .menu-squad-hint svg { width: 14px; height: 14px; }
+
+/* Battle royale: eliminated, spectating a squadmate. */
+.hud-spectate { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: grid; justify-items: center; gap: 4px; padding: 10px 18px; background: rgba(8, 10, 9, .78); border-top: 2px solid #3d9bff; pointer-events: auto; }
+.hud-spectate span { font: 600 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.hud-spectate b { font: 700 20px var(--sans); color: #cfe6ff; }

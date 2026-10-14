@@ -124,6 +124,10 @@ export class Player {
   dead = false;
   deadAt = 0;
   killerId: number | null = null;
+  /** Who knocked this player down (credited if they bleed out). */
+  downedBy: number | null = null;
+  /** Battle royale spectating a teammate after death: streaming and interest follow this point. */
+  viewFrom: { x: number; z: number } | null = null;
   /** Spawned and inside loaded physics. */
   active = false;
 
@@ -182,11 +186,14 @@ export class Player {
     return this.state.z;
   }
 
+  get viewX(): number { return this.viewFrom?.x ?? this.state.x; }
+  get viewZ(): number { return this.viewFrom?.z ?? this.state.z; }
+
   get chunkX(): number {
-    return Math.floor(this.state.x / CHUNK_SIZE);
+    return Math.floor(this.viewX / CHUNK_SIZE);
   }
 
   get chunkZ(): number {
-    return Math.floor(this.state.z / CHUNK_SIZE);
+    return Math.floor(this.viewZ / CHUNK_SIZE);
   }
 }

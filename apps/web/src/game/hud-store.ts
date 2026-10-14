@@ -39,6 +39,8 @@ export interface HudState {
   plot: string | null;
   /** Knocked down: bleed-out left (0…100), or null when standing. */
   downed: number | null;
+  /** Battle royale: eliminated, watching this teammate. */
+  spectating: string | null;
   /** Reviving someone: progress window (performance.now ms). */
   reviving: { start: number; end: number } | null;
   status: 'connecting' | 'loading' | 'playing' | 'dead' | 'disconnected';
@@ -118,6 +120,7 @@ export function initialHud(): HudState {
     debug: null,
     plot: null,
     downed: null,
+    spectating: null,
     reviving: null,
     status: 'connecting',
     statusDetail: { key: 'status.requesting' },
