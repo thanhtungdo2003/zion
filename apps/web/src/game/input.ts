@@ -62,7 +62,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: () => void; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean };
+  private readonly handlers: { openInventory: () => void; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -77,6 +77,9 @@ export class InputController {
       heal: () => void;
       /** Esc pressed in game: return true when something (a dialogue) used it. */
       escape?: () => boolean;
+      /** Open the attachment screen for the gun in hand (true when it opened). */
+      attachments?: () => boolean;
+      nightVision?: () => boolean;
     },
   ) {
     this.onChat = handlers.openChat;
@@ -115,6 +118,14 @@ export class InputController {
         return;
       }
       if (e.code === settingsStore.get().proneKey && !e.repeat) this.toggleProne();
+      // Attachment screen for the gun in hand (Alt by default; keep the browser menu bar shut).
+      if (e.code === settingsStore.get().attachKey || (settingsStore.get().attachKey === 'AltLeft' && e.code === 'AltRight')) {
+        e.preventDefault();
+        if (!e.repeat && this.handlers.attachments?.()) { this.keys.clear(); this.mouseButtons = 0; }
+        return;
+      }
+      // Night vision on a non-default key (M is handled with the map shortcut).
+      if (e.code === settingsStore.get().nvKey && e.code !== 'KeyM' && !e.repeat) this.handlers.nightVision?.();
       if (e.code === 'KeyR' && !e.repeat) this.handlers.reload();
       if (e.code === 'KeyH' && !e.repeat) this.handlers.heal();
       const digit = /^Digit([1-9])$/.exec(e.code);

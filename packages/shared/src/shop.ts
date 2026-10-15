@@ -23,7 +23,7 @@ export const DEV_COIN_GRANT = 1000;
 
 import { ARMOR_SPECS, armorPrice } from './armor';
 
-export type ShopCategory = 'guns' | 'heavy' | 'melee' | 'explosives' | 'ammo' | 'medical' | 'armor' | 'tools';
+export type ShopCategory = 'guns' | 'heavy' | 'melee' | 'explosives' | 'ammo' | 'medical' | 'armor' | 'tools' | 'attachments';
 
 export interface ShopEntry {
   item: string;
@@ -42,13 +42,21 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
   { item: 'flashlight', price: 150, category: 'tools' },
   { item: 'gl18', price: 120, category: 'guns' },
   { item: 'revolver', price: 220, category: 'guns' },
+  { item: 'deagle', price: 300, category: 'guns' },
+  { item: 'uzi', price: 340, category: 'guns' },
+  { item: 'vector', price: 460, category: 'guns' },
+  { item: 'p90', price: 520, category: 'guns' },
   { item: 'mp5', price: 380, category: 'guns' },
   { item: 'shotgun', price: 340, category: 'guns' },
   { item: 'double_barrel', price: 300, category: 'guns' },
   { item: 'saiga12', price: 620, category: 'guns' },
   { item: 'ak47', price: 520, category: 'guns' },
   { item: 'm4a1', price: 600, category: 'guns' },
+  { item: 'scar_l', price: 620, category: 'guns' },
   { item: 'aug', price: 640, category: 'guns' },
+  { item: 'mini14', price: 700, category: 'guns' },
+  { item: 'scar_h', price: 760, category: 'guns' },
+  { item: 'kar98k', price: 950, category: 'guns' },
   { item: 'svd', price: 900, category: 'guns' },
   { item: 'awm', price: 1200, category: 'guns' },
   { item: 'crossbow', price: 450, category: 'heavy' },
@@ -60,6 +68,9 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
   { item: 'ammo_50bmg', price: 180, category: 'ammo' },
   { item: 'fire_axe', price: 300, category: 'melee' },
   { item: 'ammo_pkm', price: 150, category: 'ammo' },
+  { item: 'machete', price: 180, category: 'melee' },
+  { item: 'baseball_bat', price: 160, category: 'melee' },
+  { item: 'crowbar', price: 220, category: 'melee' },
   { item: 'katana', price: 260, category: 'melee' },
   { item: 'shovel', price: 140, category: 'melee' },
   { item: 'long_sledgehammer', price: 420, category: 'melee' },
@@ -75,6 +86,18 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
   { item: 'ammo_762', price: 45, category: 'ammo' },
   { item: 'ammo_556', price: 45, category: 'ammo' },
   { item: 'ammo_762x54', price: 60, category: 'ammo' },
+  { item: 'ammo_762x51', price: 55, category: 'ammo' },
+  { item: 'ammo_57x28', price: 65, category: 'ammo' },
+  // Attachments: every gun is sold bare; optics and suppressors are bought separately.
+  { item: 'red_dot', price: 140, category: 'attachments' },
+  { item: 'holo_sight', price: 180, category: 'attachments' },
+  { item: 'scope_2x', price: 200, category: 'attachments' },
+  { item: 'scope_4x', price: 320, category: 'attachments' },
+  { item: 'nv_scope_6x', price: 780, category: 'attachments' },
+  { item: 'scope_8x', price: 520, category: 'attachments' },
+  { item: 'scope_10x', price: 680, category: 'attachments' },
+  { item: 'suppressor_pistol', price: 220, category: 'attachments' },
+  { item: 'suppressor_rifle', price: 300, category: 'attachments' },
   { item: 'ammo_300wm', price: 80, category: 'ammo' },
   { item: 'bolts', price: 40, category: 'ammo' },
   { item: 'fuel_tank', price: 120, category: 'ammo' },

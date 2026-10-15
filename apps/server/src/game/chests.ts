@@ -108,6 +108,7 @@ export class SharedChests {
         if (item.mag !== undefined) added.mag = item.mag;
         if (item.quest) added.quest = item.quest;
         if (item.chargeId !== undefined) added.chargeId = item.chargeId;
+        if (item.attachments) added.attachments = { ...item.attachments };
         next.items = next.items.filter((i) => i.uid !== msg.uid);
       }
       next.revision++;

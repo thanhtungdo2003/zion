@@ -86,6 +86,8 @@ export interface ShotEvent {
   oy: number;
   oz: number;
   ends: number[];
+  /** Fired through a suppressor: quieter, no muzzle flash. */
+  sup?: 1;
 }
 
 /** A grenade left someone's hand; clients replay its flight with the shared projectile step. */
@@ -195,7 +197,7 @@ export interface ArmorHitEvent {
 /** The player's own inventory (only ever sent to that player). */
 export interface InventoryEvent {
   t: 'inv';
-  items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean }>;
+  items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean; attachments?: import('../attachments').Attachments }>;
   equipped: number | null;
   /** Ammo-cache draws left this world day. */
   cacheLeft?: number;
@@ -339,6 +341,8 @@ export const EntityFlags = {
   Parachute: 1 << 15,
   /** Thrown by a vehicle: limp ragdoll, no control until it wears off. */
   Knocked: 1 << 16,
+  /** Applying a first aid kit. */
+  Healing: 1 << 17,
 } as const;
 
 export interface SelfState {
@@ -372,6 +376,8 @@ export interface EntityState {
   back?: number;
   /** Worn armour, packed (see `packArmor`; players only; 0 = none). */
   armor?: number;
+  /** Attachments on the gun in hand, packed (see `packAttachments`; 0 = none). */
+  att?: number;
 }
 
 export interface Snapshot {
@@ -407,7 +413,7 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
     const e = s.entities[i]!;
     w.u32(e.id).u8(e.kind).f32(e.x).f32(e.y).f32(e.z);
     w.i16(quantAngle(e.yaw)).i16(quantAngle(e.pitch));
-    w.u32(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0);
+    w.u32(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0).u8(e.att ?? 0);
   }
   return w.finish();
 }
@@ -450,6 +456,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
       weapon: r.u8(),
       back: r.u8(),
       armor: r.u32(),
+      att: r.u8(),
     };
   }
   return { tick, serverTime, timeOfDay, ackSeq, self, entities };

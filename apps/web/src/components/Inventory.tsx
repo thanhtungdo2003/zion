@@ -3,7 +3,7 @@ import { Icon } from './Icon';
 import { ChestPanel } from './ChestPanel';
 import ModelPreview from './ModelPreview';
 
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   CONTAINERS,
   canPlace,
@@ -14,10 +14,12 @@ import {
   type InventoryStore,
   type PlacedItem,
 } from '@/game/inventory/inventory';
-import { itemIcons } from '@/game/inventory/icons';
+import { itemIconFor, itemIconVersion, itemIcons, subscribeItemIcons } from '@/game/inventory/icons';
 import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
-import { ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
+import { AttachmentPanel } from './AttachmentPanel';
+import { AttachGuide } from './WeaponGuides';
+import { ATTACHMENTS, acceptsAttachments, compatibleSlot, gunsFor, WEAPON_ATTACHMENTS, ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type Attachments, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { itemDescription } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
@@ -124,9 +126,11 @@ function Tooltip({ tip, x, y }: { tip: Tip; x: number; y: number }) {
 }
 
 /** The item's real 3D model, pre-rendered at load; items without a model fall back to a silhouette. */
-function ItemArt({ def }: { def: ItemDef }) {
+export function ItemArt({ def, attachments }: { def: ItemDef; attachments?: Attachments }) {
   const { item } = useSettings();
-  const src = itemIcons.get(def.id);
+  // Re-render when icons (including a gun's dressed icon) finish rendering.
+  useSyncExternalStore(subscribeItemIcons, itemIconVersion, () => 0);
+  const src = itemIconFor(def.id, attachments);
   if (src) return <img src={src} alt={item(def.id)} className="inv-sil" draggable={false} />;
   return <Silhouette def={def} />;
 }
@@ -186,7 +190,7 @@ function Silhouette({ def }: { def: ItemDef }) {
   }
 }
 
-function ItemTile({ def, rotated, count, style, className }: { def: ItemDef; rotated: boolean; count?: number; style?: React.CSSProperties; className?: string }) {
+function ItemTile({ def, rotated, count, style, className, attachments }: { def: ItemDef; rotated: boolean; count?: number; style?: React.CSSProperties; className?: string; attachments?: Attachments }) {
   const { w, h } = footprint(def, rotated);
   const { item } = useSettings();
   return (
@@ -195,7 +199,7 @@ function ItemTile({ def, rotated, count, style, className }: { def: ItemDef; rot
         className="inv-item-art"
         style={{ position: 'absolute', left: '50%', top: '50%', width: def.w * CELL - 4, height: def.h * CELL - 4, transform: `translate(-50%, -50%) rotate(${rotated ? 90 : 0}deg)` }}
       >
-        <ItemArt def={def} />
+        <ItemArt def={def} attachments={attachments} />
       </div>
       {w * h >= 4 && <span className="inv-item-name">{item(def.id)}</span>}
       {def.armor && (
@@ -338,7 +342,9 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
           });
           // Started first aid: close the inventory so the bandaging can be seen.
-          if (under && ITEMS[under.itemId]?.category === 'melee') store.rotateItem(under.uid);
+          // Guns that take attachments open their attachment screen.
+          if (under && acceptsAttachments(under.itemId)) store.openAttachments(under.uid);
+          else if (under && ITEMS[under.itemId]?.category === 'melee') store.rotateItem(under.uid);
           else if (under?.itemId === 'medkit' && store.onUseMedkit?.(under.uid)) store.setOpen(false);
           else if (under?.itemId === 'coal_carton' && store.onUseCoal?.(under.uid)) store.setOpen(false);
           else if (under) store.onEat?.(under.uid);
@@ -350,6 +356,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             def={ITEMS[i.itemId]!}
             rotated={i.rotated}
             count={i.count}
+            attachments={i.attachments}
             className={`${state.equipped === i.uid ? 'inv-equipped' : ''} ${i.quest ? 'inv-quest' : ''}`}
             style={{ position: 'absolute', left: i.x * CELL + 2, top: i.y * CELL + 2 }}
           />
@@ -439,12 +446,16 @@ export function InventoryPanel({ state, store, coins: shownCoins, side }: { stat
   const heldDef = state.held ? ITEMS[state.held.itemId]! : null;
   const fp = heldDef ? footprint(heldDef, state.held!.rotated) : null;
 
+  // The attachment screen replaces the inventory: the gun alone on screen, its slots around it.
+  if (state.attachGun != null) return <AttachmentPanel state={state} store={store} />;
+
   return (
     <div className="inv-overlay" onContextMenu={(e) => {
       e.preventDefault();
       if (state.held && ITEMS[state.held.itemId]?.category === 'melee') store.rotateHeld();
     }}>
       <div ref={wrap} className={`inv-wrap${state.station === 'shop' && merchantTab === 'shop' ? ' merchant-wrap' : ''}`} style={{ transform: `translate(-50%, -50%) scale(${panelScale})` }}>
+      {state.station !== 'shop' && state.items.some((i) => ITEMS[i.itemId]?.category === 'attachment') && state.items.some((i) => acceptsAttachments(i.itemId)) && <div className="inv-attach-hint"><AttachGuide /></div>}
       {state.station !== 'shop' && side}
       <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
         <div className="inv-title">
@@ -582,7 +593,7 @@ function EquipmentPanel({ state, store, grid }: { state: InventoryState; store: 
   );
 }
 
-const SHOP_TABS: ShopCategory[] = ['guns', 'heavy', 'melee', 'explosives', 'ammo', 'armor', 'tools'];
+const SHOP_TABS: ShopCategory[] = ['guns', 'heavy', 'melee', 'explosives', 'ammo', 'attachments', 'armor', 'tools'];
 
 /** The ZCoin gold coin (its 3D model, pre-rendered), with the amount. */
 export function Coins({ n, className }: { n: number; className?: string }) {
@@ -671,8 +682,11 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [tab, setTab] = useState<ShopCategory>('guns');
   const [selected, setSelected] = useState<string | number>('');
+  /** Attachments tab narrowed to one gun ("View attachments" on a gun listing). */
+  const [fitFor, setFitFor] = useState<string | null>(null);
+  const fitting = fitFor ? new Set(Object.values(WEAPON_ATTACHMENTS[fitFor] ?? {}).flat()) : null;
   const products = mode === 'buy'
-    ? SHOP_STOCK.filter(e => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food')
+    ? SHOP_STOCK.filter(e => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food' && (tab !== 'attachments' || !fitting || fitting.has(e.item)))
       .map(e => ({ key: e.item, id: e.item, price: e.price, count: undefined as number | undefined, issued: false }))
     : state.items.flatMap(i => {
       const def = ITEMS[i.itemId];
@@ -685,12 +699,20 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
   const spec = selection ? weaponSpec(WEAPON_BY_ITEM[selection.id] ?? 0) : undefined;
   const gun = spec?.kind === 'gun' ? spec : undefined;
   const ammo = def ? Object.values(ITEMS).filter(d => d.ammo?.guns.includes(def.id)) : [];
+  // Attachments are previewed mounted: on a compatible gun the player carries, else on the first gun that takes it.
+  const mountedOn = def?.category === 'attachment' ? (() => {
+    const own = [state.items.find(i => i.uid === state.equipped), ...state.items].find(i => i && compatibleSlot(i.itemId, def.id));
+    if (own) return { itemId: own.itemId, attachments: own.attachments, owned: true };
+    const sample = gunsFor(def.id)[0];
+    return sample ? { itemId: sample, attachments: undefined, owned: false } : null;
+  })() : null;
   return <section className="merchant-shop">
     <header className="merchant-shop-head"><div className="shop-modes">
       <button className={mode === 'buy' ? 'on' : ''} onClick={() => { setMode('buy'); setSelected(''); }}>{t('shop.buy')}</button>
       <button className={mode === 'sell' ? 'on' : ''} onClick={() => { setMode('sell'); setSelected(''); }}>{t('shop.sell')}</button>
     </div><Coins n={coins} /></header>
-    {mode === 'buy' && <div className="shop-tabs">{SHOP_TABS.map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); }}>{t(`shop.cat.${c}`)}</button>)}</div>}
+    {mode === 'buy' && <div className="shop-tabs">{SHOP_TABS.map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); setFitFor(null); }}>{t(`shop.cat.${c}`)}</button>)}{tab === 'attachments' && <div className="shop-attach-guide"><AttachGuide /></div>}</div>}
+    {mode === 'buy' && tab === 'attachments' && fitFor && <div className="shop-fit-filter"><Icon name="lucide:filter" /> Phụ kiện lắp được cho <b>{item(fitFor)}</b><button type="button" aria-label="Bỏ lọc" onClick={() => setFitFor(null)}><Icon name="lucide:x" /></button></div>}
     <div className="shop-browser"><div className="shop-catalog">
       {!products.length && <div className="shop-empty">{t('shop.nothing')}</div>}
       {products.map(p => {
@@ -706,10 +728,14 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
       })}
     </div>{def && <aside className="shop-detail">
       <h3>{item(def.id)}</h3>
-      {gun ? <ModelPreview key={def.id} model={{ item: def.id }} title={item(def.id)} /> : <div className="shop-detail-art"><ItemArt def={def} /></div>}
+      {gun ? <ModelPreview key={def.id} model={{ item: def.id }} title={item(def.id)} />
+        : def.category === 'attachment' && mountedOn ? <><ModelPreview key={`${def.id}@${mountedOn.itemId}`} model={{ item: mountedOn.itemId }} attachments={{ ...mountedOn.attachments, [ATTACHMENTS[def.id]!.slot]: def.id }} title={item(def.id)} /><p className="shop-mount-note">Xem trước trên {mountedOn.owned ? 'khẩu' : 'mẫu'} <b>{item(mountedOn.itemId)}</b>{mountedOn.owned ? ' của bạn' : ''}</p></>
+        : <div className="shop-detail-art"><ItemArt def={def} /></div>}
       <p>{itemInfo(tr, def)}</p>
+      {def.category === 'attachment' && <><h4>Lắp được cho</h4><div className="shop-compatible">{gunsFor(def.id).map(g => <button key={g} onClick={() => { setMode('buy'); setTab(SHOP_STOCK.find(e => e.item === g)?.category ?? 'guns'); setSelected(g); setFitFor(null); }}><span className="shop-ammo-art"><ItemArt def={ITEMS[g]!} /></span><span>{item(g)}</span><Icon name="lucide:arrow-right" /></button>)}</div></>}
       {spec && <dl className="shop-stats"><div><dt>{t('tip.weight')}</dt><dd>{spec.weight} kg</dd></div><div><dt>Tốc độ khi cầm</dt><dd>{Math.round(weaponSpeedFactor(WEAPON_BY_ITEM[def.id] ?? 0) * 100)}%</dd></div><div><dt>Hao thể lực vũ khí</dt><dd>+{Math.round((weaponStaminaFactor(WEAPON_BY_ITEM[def.id] ?? 0) - 1) * 100)}%</dd></div>{spec.kind === 'melee' && !!spec.decapitationChance && <div><dt>{t('tip.decapitation')}</dt><dd>{Math.round(spec.decapitationChance * 100)}%</dd></div>}{gun?.scope && <div><dt>Ống ngắm</dt><dd>{gun.scope}×</dd></div>}</dl>}
       {gun && <><dl className="shop-stats"><div><dt>Sát thương</dt><dd>{gun.damage}{gun.pellets > 1 ? ` × ${gun.pellets}` : ''}</dd></div><div><dt>Băng đạn</dt><dd>{gun.magazine} viên</dd></div><div><dt>Tầm bắn</dt><dd>{gun.range} m</dd></div><div><dt>Nạp đạn</dt><dd>{gun.reloadMs / 1000} s</dd></div></dl>
+        {WEAPON_ATTACHMENTS[def.id] && <button type="button" className="btn shop-view-attachments" onClick={() => { setMode('buy'); setTab('attachments'); setFitFor(def.id); setSelected(''); }}><Icon name="lucide:scan-eye" /> Xem phụ kiện lắp được</button>}
         <h4>Đạn tương thích</h4><div className="shop-compatible">{ammo.map(d => <button key={d.id} onClick={() => { setMode('buy'); setTab('ammo'); setSelected(d.id); }}><span className="shop-ammo-art"><ItemArt def={d} /></span><span>{item(d.id)}<small>{d.ammo!.capacity} viên / hộp</small></span><Icon name="lucide:arrow-right" /></button>)}{!ammo.length && <p>Chưa có hộp đạn tương thích.</p>}</div>
       </>}
     </aside>}</div>
@@ -773,7 +799,7 @@ export function Hotbar({ state, ammo, onSelect, touchVisible }: { state: Invento
         return <button key={entry.uid} type="button" className="touch-weapon-slot" aria-label={item(def.id)} aria-pressed={active}
           onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (e.pointerType !== 'mouse' || e.button === 0) onSelect?.(slot); }}
           onClick={(e) => { if (e.detail === 0) onSelect?.(slot); }}>
-          <ItemArt def={def} />
+          <ItemArt def={def} attachments={entry.attachments} />
           <span>{item(def.id)}</span>
           {active && ammo && <small>{ammo.reload !== null ? t('inv.reloading') : `${ammo.mag}/${ammo.max} · ${ammo.reserve}`}</small>}
         </button>;
@@ -800,7 +826,7 @@ export function Hotbar({ state, ammo, onSelect, touchVisible }: { state: Invento
               style={{ left: i.x * HB_CELL, top: i.y * HB_CELL, width: f.w * HB_CELL, height: f.h * HB_CELL }}
               title={item(def.id)}
             >
-              <ItemArt def={def} />
+              <ItemArt def={def} attachments={i.attachments} />
               <span className="hb-key">{keyOf.get(i.uid)}</span>
               {active && ammo && (
                 <span className="hb-count">

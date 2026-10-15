@@ -61,6 +61,8 @@ export default function GameView() {
       if ((e.code !== 'KeyM' && !(e.code === 'Escape' && state.mapOpen)) || e.repeat) return;
       if (e.code !== 'Escape' && ((e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]')) || chatOpen)) return;
       if (state.status !== 'playing' && state.status !== 'dead') return;
+      // Looking through a night-vision scope, M switches night vision instead of opening the map.
+      if (e.code === 'KeyM' && !state.mapOpen && engineRef.current?.toggleNightVision()) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (!state.mapOpen && (inventory.get().open || state.dialogue || tutorialBlocked)) return;
       e.preventDefault(); e.stopImmediatePropagation(); engineRef.current?.setMapOpen(!state.mapOpen);
     };

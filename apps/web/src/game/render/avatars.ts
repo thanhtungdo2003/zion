@@ -1,9 +1,9 @@
 import { Ragdoll } from './ragdoll';
 import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
-import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type RankTitle } from '@zion/shared';
+import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
-import type { WeaponLibrary, WeaponVisual } from './weapons';
+import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { armorPieces } from './armor-models';
 import { RifleGrip } from './rifle-grip';
@@ -142,6 +142,7 @@ export class Avatar {
   private swimLift = 0;
   private aimPitch = 0;
   private aimBlend = 0;
+  private weaponKey: string | null = null;
   private readonly weaponObjects = new Map<string, { obj: Object3D; visual: WeaponVisual; bones: Map<string, Bone & { restScale: Vector3 }> }>();
   private weaponAnim: { clip: CharacterClip; time: number; rate: number } | null = null;
   private airborne = 0;
@@ -428,9 +429,12 @@ export class Avatar {
     } else {
       // Head tracks the aim; the body only turns once the head would exceed its range.
       let diff = wrapAngle(yaw - this.bodyYaw);
-      const turn = diff > MAX_HEAD_YAW ? diff - MAX_HEAD_YAW : diff < -MAX_HEAD_YAW ? diff + MAX_HEAD_YAW : 0;
+      // On the move the whole body squares up to where the player looks (strafing and
+      // backpedalling included); standing still, only the head follows until it runs out of range.
+      const moving = speed > .6 && !rolling;
+      const turn = moving ? diff : diff > MAX_HEAD_YAW ? diff - MAX_HEAD_YAW : diff < -MAX_HEAD_YAW ? diff + MAX_HEAD_YAW : 0;
       // Turning back toward the aim after a sideways/backward roll must not snap the body.
-      const maxTurn = this.recoveringFromRoll ? 8 * dt : Infinity;
+      const maxTurn = this.recoveringFromRoll ? 8 * dt : moving ? 12 * dt : Infinity;
       this.bodyYaw = wrapAngle(this.bodyYaw + Math.max(-maxTurn, Math.min(maxTurn, turn)));
       if (Math.abs(turn) <= maxTurn) this.recoveringFromRoll = false;
       diff = wrapAngle(yaw - this.bodyYaw);
@@ -472,7 +476,7 @@ export class Avatar {
     const head = this.bones.get('head');
     const body = this.bones.get('body');
     // Raise/lower the arms (and the gun with them) to the aim elevation.
-    const held = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
     const treating = this.healing || (flags & EntityFlags.Reviving) !== 0;
     const aiming = !limp && !rolling && !treating && (flags & EntityFlags.Aiming) !== 0;
     this.aimBlend += ((aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-dt * 14));
@@ -592,20 +596,23 @@ export class Avatar {
   }
 
   /** Shows the given weapon in the right hand (null = empty hands). */
-  setWeapon(itemId: string | null, weapons: WeaponLibrary | null): void {
-    if (itemId === this.weaponId) return;
-    if (this.weaponId) {
-      const old = this.weaponObjects.get(this.weaponId);
+  setWeapon(itemId: string | null, weapons: WeaponLibrary | null, attachments?: Attachments): void {
+    // Each attachment combination is its own dressed copy of the gun.
+    const key = itemId ? `${itemId}|${attachments?.optic ?? ''}|${attachments?.muzzle ?? ''}` : null;
+    if (key === this.weaponKey) return;
+    if (this.weaponKey) {
+      const old = this.weaponObjects.get(this.weaponKey);
       if (old) {
         old.obj.visible = false;
         this.resetWeaponPose(old.bones);
       }
     }
     this.weaponAnim = null;
-    const visual = itemId ? weapons?.get(itemId) : undefined;
+    const visual = itemId ? dressWeapon(weapons, itemId, attachments) : undefined;
     this.weaponId = visual ? itemId : null;
-    if (!visual || !itemId) return;
-    let entry = this.weaponObjects.get(itemId);
+    this.weaponKey = visual ? key : null;
+    if (!visual || !itemId || !key) return;
+    let entry = this.weaponObjects.get(key);
     if (!entry) {
       const hand = this.bones.get('hand_right')?.node;
       if (!hand) return;
@@ -619,7 +626,7 @@ export class Avatar {
       });
       hand.add(obj);
       entry = { obj, visual, bones };
-      this.weaponObjects.set(itemId, entry);
+      this.weaponObjects.set(key, entry);
     }
     entry.obj.visible = true;
   }
@@ -689,7 +696,7 @@ export class Avatar {
 
   /** Plays the held weapon's own clip (e.g. reload), stretched to `seconds`. */
   playWeaponAnim(name: string, seconds: number): void {
-    const entry = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
+    const entry = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
     const clip = entry?.visual.clips.get(name);
     if (!clip) return;
     this.weaponAnim = { clip, time: 0, rate: clip.length / Math.max(0.05, seconds) };
@@ -697,7 +704,7 @@ export class Avatar {
 
   /** World position of the held weapon's muzzle / ejection port (false if none). */
   weaponPoint(kind: 'muzzle' | 'eject', out: Vector3): boolean {
-    const entry = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
+    const entry = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
     const p = entry?.visual[kind];
     if (!entry || !p) return false;
     entry.obj.updateWorldMatrix(true, false);
@@ -715,7 +722,7 @@ export class Avatar {
 
   private updateWeaponAnim(dt: number): void {
     const anim = this.weaponAnim;
-    const entry = this.weaponId ? this.weaponObjects.get(this.weaponId) : undefined;
+    const entry = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
     if (!anim || !entry) return;
     anim.time += dt * anim.rate;
     if (anim.time >= anim.clip.length) {

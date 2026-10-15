@@ -12,9 +12,11 @@ export const Buttons = {
   Prone: 1 << 4,
   ThrowC4: 1 << 5,
   Aim: 1 << 6,
+  /** Applying a first aid kit (so others see the bandage animation). */
+  Heal: 1 << 7,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();
@@ -121,6 +123,9 @@ export const invMessageSchema = z.discriminatedUnion('op', [
   z.object({ t: z.literal('inv'), op: z.literal('drop'), uid: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('pickup'), id: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('cache'), item: itemId }).strict(),
+  // Attachments: install item `uid` on gun `gun`, or take the attachment in `slot` off it.
+  z.object({ t: z.literal('inv'), op: z.literal('attach'), gun: u32, uid: u32 }).strict(),
+  z.object({ t: z.literal('inv'), op: z.literal('detach'), gun: u32, slot: z.enum(['optic', 'muzzle']) }).strict(),
 ]);
 
 /** Reload the gun in hand (the server moves rounds from ammo boxes into its magazine). */

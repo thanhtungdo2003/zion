@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ARMOR_BY_ITEM, CHEST_SEARCH_MS, ITEMS, isStash, maxCount, sellPrice, type PlacedItem } from '@zion/shared';
 import type { InventoryState, InventoryStore } from '@/game/inventory/inventory';
-import { itemIcons } from '@/game/inventory/icons';
+import { itemIconFor } from '@/game/inventory/icons';
 import { useSettings } from '@/lib/settings';
 import { Icon } from './Icon';
 
@@ -59,7 +59,7 @@ export function ChestPanel({ state, store, grid = false }: { state: InventorySta
     return sellPrice(i.itemId, max && i.count !== undefined ? i.count / max : 1);
   };
   const art = (i: PlacedItem) => {
-    const src = itemIcons.get(i.itemId);
+    const src = itemIconFor(i.itemId, i.attachments);
     return src ? <img src={src} alt="" draggable={false} /> : <Icon name="game-icons:cardboard-box" />;
   };
   return <section className="inv-box shared-chest">

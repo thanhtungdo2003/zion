@@ -5,13 +5,16 @@ import { AmbientLight, Box3, DirectionalLight, GridHelper, Group, OrthographicCa
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HandbookEntry } from '@zion/shared';
+import type { Attachments } from '@zion/shared';
 import { loadCharacterModel } from '@/game/render/character-model';
 import { loadItemDisplayModel } from '@/game/render/weapons';
 import { ResourceDisposer } from '@/game/render/resources';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
-export default function ModelPreview({ model, title }: { model: HandbookEntry['model']; title: string }) {
+/** `attachments`: show a gun dressed with these attachments (attachment screen, shop preview). */
+export default function ModelPreview({ model, title, attachments }: { model: HandbookEntry['model']; title: string; attachments?: Attachments }) {
+  const dress = attachments ? `${attachments.optic ?? ''}|${attachments.muzzle ?? ''}` : '';
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<{ reset(): void; zoom(amount: number): void; rotate(value: boolean): void } | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
@@ -65,7 +68,7 @@ export default function ModelPreview({ model, title }: { model: HandbookEntry['m
       zoom: amount => { camera.zoom = Math.max(.6, Math.min(3, camera.zoom * amount)); camera.updateProjectionMatrix(); render(); },
       rotate: value => { controls.autoRotate = value; if (value) start(); },
     };
-    const load = itemId ? loadItemDisplayModel(itemId) : url?.endsWith('.glb') || url?.endsWith('.gltf')
+    const load = itemId ? loadItemDisplayModel(itemId, attachments) : url?.endsWith('.glb') || url?.endsWith('.gltf')
       ? new GLTFLoader().loadAsync(url!).then(gltf => gltf.scene)
       : loadCharacterModel(url!).then(template => template.root);
     void load.then(root => {
@@ -83,7 +86,8 @@ export default function ModelPreview({ model, title }: { model: HandbookEntry['m
       document.removeEventListener('visibilitychange', start); renderer.domElement.removeEventListener('webglcontextlost', lost);
       controls.dispose(); resources.object(scene); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
     };
-  }, [itemId, url, attempt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `dress` stands for `attachments`.
+  }, [itemId, url, attempt, dress]);
   return <div className="model-preview" role="group" aria-label={`Mô hình 3D: ${title}`}>
     <div className="model-preview-canvas" ref={host} />
     {state === 'loading' && <div className="model-preview-state" role="status"><Spinner /> Đang tải mô hình 3D…</div>}

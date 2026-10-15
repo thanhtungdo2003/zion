@@ -19,6 +19,11 @@ export const SOUND_FILES = {
   shotgunPump: '/sounds/weapons/shotgun-pump.wav',
   pkmShot: '/sounds/machine-gun.mp3',
   barrettShot: '/sounds/barrett.mp3',
+  // Provided recordings: sniper shot, 9x19 pistol/SMG shot, Desert Eagle shot, bolt rechamber.
+  sniperRifleShot: '/sounds/gun-shot-sniper.mp3',
+  pistol9mmShot: '/sounds/pistol.mp3',
+  magnumShot: '/sounds/desert-eagle-gunshot.mp3',
+  rechamber: '/sounds/rechamber.mp3',
   akReload: '/sounds/ak47-reload.mp3',
   shotgunShot: '/sounds/shotgun-shot.mp3',
   shotgunReload: '/sounds/shotgun-reload.mp3',

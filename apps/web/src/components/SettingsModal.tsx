@@ -1,7 +1,7 @@
 'use client';
 import { Icon } from './Icon';
 
-import { GRAPHICS_PRESETS, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
+import { ATTACH_KEYS, NV_KEYS, keyLabel, GRAPHICS_PRESETS, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isRollKey, isProneKey, PRONE_KEYS, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
@@ -22,7 +22,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
   const settings = useSettings();
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, renderScale, shadows, drawDistance, grassDensity, t } = settings;
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, t } = settings;
   const preset = graphicsPreset(settings);
 
   useEffect(() => {
@@ -199,6 +199,18 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
             <span>{t('settings.prone_key')}</span>
             <select value={proneKey} onChange={e => { if (isProneKey(e.target.value)) settingsStore.set({ proneKey: e.target.value }); }}>
               {PRONE_KEYS.map(code => <option key={code} value={code} disabled={code === rollKey}>{rollKeyLabel(code)}</option>)}
+            </select>
+          </label>
+          <label className="set-keybind">
+            <span>Phụ kiện súng</span>
+            <select value={attachKey} onChange={e => { const v = ATTACH_KEYS.find(k => k === e.target.value); if (v) settingsStore.set({ attachKey: v }); }}>
+              {ATTACH_KEYS.map(code => <option key={code} value={code} disabled={code === rollKey || code === proneKey}>{keyLabel(code)}</option>)}
+            </select>
+          </label>
+          <label className="set-keybind">
+            <span>Nhìn đêm (trong ống ngắm)</span>
+            <select value={nvKey} onChange={e => { const v = NV_KEYS.find(k => k === e.target.value); if (v) settingsStore.set({ nvKey: v }); }}>
+              {NV_KEYS.map(code => <option key={code} value={code} disabled={code === rollKey || code === proneKey || code === attachKey}>{keyLabel(code)}</option>)}
             </select>
           </label>
           <label className="set-slider" style={{ marginBottom: 12 }}>

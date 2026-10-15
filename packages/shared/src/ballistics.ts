@@ -20,9 +20,27 @@ export function advanceBallistic(s: BallisticState, gravity: number, drag: numbe
 /** Ballistic ammunition; existing effective ranges and damage remain weapon-specific. */
 export function bulletSpec(weapon: number, gun: GunSpec): ProjectileSpec {
   const speed = gun.pellets > 1 ? 330
-    : [WeaponId.GL18, WeaponId.Revolver, WeaponId.MP5].some(id => id === weapon) ? 360
-    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD].some(id => id === weapon) ? 850 : 620;
+    : [WeaponId.GL18, WeaponId.Revolver, WeaponId.MP5, WeaponId.Uzi, WeaponId.Deagle].some(id => id === weapon) ? 360
+    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD, WeaponId.Kar98k].some(id => id === weapon) ? 850 : 620;
   return { kind: 'bullet', speed, gravity: 9.81, drag: .12, maxFlightSec: gun.range / speed * 1.5, maxRange: gun.range };
+}
+
+/**
+ * Zeroing: the round leaves the body at muzzle height, the sight line runs at eye height. Tilt the
+ * shot so it crosses the sight line at `distance` metres, including the drop over that distance,
+ * so the reticle / front sight is exact at the zero and close everywhere a fight happens.
+ */
+export function zeroedDirection(ax: number, ay: number, az: number, muzzleY: number, eyeY: number, distance: number, speed: number, gravity: number): [number, number, number] {
+  const tx = ax * distance, ty = eyeY - muzzleY + ay * distance, tz = az * distance;
+  const flat = Math.hypot(tx, tz) || 1e-6;
+  const pitch = Math.atan2(ty, flat) + Math.atan(gravity * distance / (2 * speed * speed));
+  const c = Math.cos(pitch);
+  return [tx / flat * c, Math.sin(pitch), tz / flat * c];
+}
+
+/** Zero range: 100 m through an optic (capped by the gun's reach), 50 m on iron sights. */
+export function zeroDistance(gun: GunSpec, optic: boolean): number {
+  return Math.max(10, Math.min(gun.range * .8, optic ? 100 : 50));
 }
 
 /** ADS settles over time; walking and sustained fire widen the cone, prone steadies it. */

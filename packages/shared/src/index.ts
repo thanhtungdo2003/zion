@@ -7,6 +7,7 @@ export * from './constants';
 export * from './protocol/client';
 export * from './protocol/server';
 export * from './weapons';
+export * from './attachments';
 export * from './ballistics';
 export * from './zombies';
 export * from './npcs';

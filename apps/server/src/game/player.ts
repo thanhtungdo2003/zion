@@ -107,6 +107,10 @@ export class Player {
   stunUntil = 0;
   /** Run over: flying limp, no control until then. */
   knockedUntil = 0;
+  /** Bandaging (client-reported, cosmetic: drives the animation others see). */
+  bandaging = false;
+  /** Aims through the first-person camera (eye-level sight line): shots are zeroed to it. */
+  eyeAim = false;
   /** Knocked down: bleeding out (bleed 100 → 0) until revived or dead. */
   downed = false;
   bleed = 0;

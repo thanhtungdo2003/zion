@@ -1,4 +1,4 @@
-import { weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
+import { acceptsAttachments, attachmentModifier, opticOf, unpackAttachments, weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
 import { VEHICLES } from '@zion/shared';
@@ -210,7 +210,7 @@ export class GameEngine {
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
-  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; attacking?: boolean; armor?: number; burnUntil?: number }>();
+  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; att?: number; attacking?: boolean; armor?: number; burnUntil?: number }>();
   /** Shop trades waiting for the server's wallet answer: request id → what to do on success. */
   private readonly trades = new Map<number, { buy?: string; sellUid?: number; heal?: boolean }>();
   private nextTrade = 1;
@@ -368,6 +368,7 @@ export class GameEngine {
   private cameraMode: CameraMode = 'top-down';
   private zombieOutline: ZombieOutline | null = null;
   private readonly outlinedZombies: Object3D[] = [];
+  private readonly whiteOutlines = new Set<Object3D>();
   private readonly targetVisibility = new TargetVisibility();
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private lootCrateRenderer: BaseLifeRenderer | null = null;
@@ -435,9 +436,12 @@ export class GameEngine {
         if (active) this.sounds?.unlock();
       },
       openInventory: () => this.onInteract(),
+      attachments: () => this.openAttachments(),
+      nightVision: () => this.toggleNightVision(),
       vehicle: () => this.useVehicle(),
       hotbar: (slot) => this.inventory.selectSlot(slot),
-      cycleHotbar: (dir) => this.inventory.cycle(dir),
+      // Through a night-vision scope the wheel switches night vision instead of weapons.
+      cycleHotbar: (dir) => { if (!this.toggleNightVision()) this.inventory.cycle(dir); },
       reload: () => this.weaponCtl.reload(performance.now(), this.equippedWeapon()),
       heal: () => void this.useMedkit(),
       escape: () => {
@@ -1076,6 +1080,7 @@ export class GameEngine {
       r.entity.push(s.serverTime, e);
       r.weapon = e.weapon;
       r.back = e.back ?? 0;
+      r.att = e.att ?? 0;
       if ((e.armor ?? 0) !== r.armor) {
         r.armor = e.armor ?? 0;
         this.dressAvatar(r.avatar, unpackArmor(r.armor));
@@ -1394,7 +1399,7 @@ export class GameEngine {
         const dir = m.ends.length >= 3
           ? this.tmpB.set(m.ends[0]! - m.ox, m.ends[1]! - m.oy, m.ends[2]! - m.oz).normalize()
           : this.tmpB.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-        this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject: null, right: null, ends: m.ends });
+        this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject: null, right: null, ends: m.ends, suppressed: m.sup === 1 });
         if (weaponSpec(m.w)?.kind === 'gun' && (weaponSpec(m.w) as { fire?: string }).fire !== 'flame') shooter?.kick(heavyKick(m.w) ? 0.35 : 0.12);
         break;
       }
@@ -1555,7 +1560,7 @@ export class GameEngine {
     const equipped = this.inventory.get().equipped;
     if (equipped !== this.recoilWeapon) { this.recoil.reset(); this.recoilWeapon = equipped; }
     // Equip before firing ticks so a swap cannot clear the first shot's recoil.
-    this.viewModel?.set(this.inventory.equippedItemId(), this.weapons);
+    this.viewModel?.set(this.inventory.equippedItemId(), this.weapons, this.inventory.equippedAttachments());
     const offhand = this.inventory.get().items.find(i => i.container === 'offhand')?.itemId ?? null;
     this.viewModel?.setOffhand(offhand, this.weapons);
     if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
@@ -1596,23 +1601,32 @@ export class GameEngine {
     // Detection uses this frame's eye position and facing, before rendering any target.
     this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.outlinedZombies.length = 0;
+    this.whiteOutlines.clear();
     for (const r of this.remotes.values()) {
       const pose = r.entity.sample(renderTime);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
-      r.avatar.setWeapon(this.vehicles?.rider(r.entity.id) ? null : itemId, this.weapons);
+      r.avatar.setWeapon(this.vehicles?.rider(r.entity.id) ? null : itemId, this.weapons, r.att ? unpackAttachments(r.att) : undefined);
       r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
       r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
       r.avatar.setAimPitch(pose.pitch);
+      r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
       r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride?.yaw ?? pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
       const target = r.entity.kind === EntityKind.Player || r.entity.kind === EntityKind.Animal || r.entity.kind === EntityKind.Guard;
+      // Visibility is recomputed every frame: once hidden by the vision cone, a body must come back
+      // as soon as it is seen again (it used to stay hidden while its shots were still visible).
+      r.avatar.root.visible = !(pose.flags & EntityFlags.InPlane);
       if (target && this.cameraMode === 'top-down') {
         r.avatar.root.visible &&= this.targetVisibility.visible(r.entity.id, this.vision?.canSee(pose.x, pose.y + .9, pose.z, this.store?.collision) ?? false, now);
-        if (r.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) this.outlinedZombies.push(r.avatar.root);
+        if (r.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) {
+          this.outlinedZombies.push(r.avatar.root);
+          // Players are outlined white, red only while they have PvP switched on.
+          if (r.entity.kind === EntityKind.Player && !this.pvpNames.has(r.entity.id)) this.whiteOutlines.add(r.avatar.root);
+        }
       }
       if (r.burnUntil && r.burnUntil > now && r.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       this.battleFlight?.player(r.entity.id, pose.x, pose.y, pose.z, pose.yaw, r.avatar.root.visible ? pose.flags : 0, dt);
@@ -1663,7 +1677,7 @@ export class GameEngine {
       if (objects.length) void this.privateQuestRenderer?.update(objects).catch(() => undefined);
     }
     this.localAvatar?.setStance(this.inventory.stance());
-    this.localAvatar?.setWeapon(driving ? null : this.inventory.equippedItemId(), this.weapons);
+    this.localAvatar?.setWeapon(driving ? null : this.inventory.equippedItemId(), this.weapons, this.inventory.equippedAttachments());
     this.localAvatar?.setOffhand(offhand, this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
@@ -1728,10 +1742,19 @@ export class GameEngine {
     this.updateFlashlights();
     for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
-    const scopeSpec = weaponSpec(this.equippedWeapon());
-    const scopeMagnification = this.scoped && scopeSpec?.kind === 'gun' ? scopeSpec.scope ?? 1 : 1;
-    if (this.hud.get().aiming !== this.aiming || this.hud.get().scoped !== this.scoped || this.hud.get().scopeMagnification !== scopeMagnification) {
-      this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification });
+    const optic = opticOf(this.inventory.equippedAttachments());
+    const scopeMagnification = this.scoped ? optic?.magnification ?? 1 : 1;
+    // Red dot: the reticle is drawn on the aiming ray once the sight is up to the eye.
+    const reticle = this.scoped ? optic?.reticle ?? null : (optic?.reticle === 'dot' || optic?.reticle === 'holo') && this.aiming && this.firstPerson && (this.viewModel?.aimed ?? 0) > .82 ? optic!.reticle! : null;
+    const nightVision = this.scoped && !!optic?.nightVision && this.nightVision;
+    const nvScope = this.scoped && !!optic?.nightVision;
+    const hud = this.hud.get();
+    // Night vision amplifies the light inside the lens (everything else is the scope housing),
+    // so dark scenes read clearly without seeing through anything that blocks the view.
+    const exposure = settingsStore.get().brightness * (nightVision ? 3.2 : 1);
+    if (Math.abs(this.renderer.toneMappingExposure - exposure) > 1e-3) this.renderer.toneMappingExposure = exposure;
+    if (hud.aiming !== this.aiming || hud.scoped !== this.scoped || hud.scopeMagnification !== scopeMagnification || hud.reticle !== reticle || hud.nightVision !== nightVision || hud.nvScope !== nvScope) {
+      this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification, reticle, nightVision, nvScope });
     }
     this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
@@ -1763,7 +1786,7 @@ export class GameEngine {
 
     if (this.outlinedZombies.length) {
       this.zombieOutline ??= new ZombieOutline();
-      this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies);
+      this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
     } else this.renderer.render(this.scene, this.camera);
 
     if (now - this.lastPing > PING_INTERVAL_MS) {
@@ -1933,7 +1956,8 @@ export class GameEngine {
     // Aim is separate from the trigger and available with iron sights as well as optics.
     const equippedSpec = weaponSpec(weapon);
     this.aiming = equippedSpec?.kind === 'gun' && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
-    this.scoped = this.aiming && equippedSpec?.kind === 'gun' && !!equippedSpec.scope;
+    // Magnified optics take over the view; iron sights and red dots aim through the gun itself.
+    this.scoped = this.aiming && equippedSpec?.kind === 'gun' && (opticOf(this.inventory.equippedAttachments())?.magnification ?? 1) > 1;
     // Raising and lowering the sights: a short cloth-and-metal shuffle.
     if (this.aiming !== this.wasAiming) { this.sounds?.play(this.aiming ? 'aimIn' : 'aimOut', { volume: .35 }); this.wasAiming = this.aiming; }
     let moveX = mx;
@@ -1966,6 +1990,7 @@ export class GameEngine {
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
     else if (action !== 'none') buttons |= Buttons.Attack;
+    if (this.healing) buttons |= Buttons.Heal;
     const spec = weaponSpec(weapon);
     if (action === 'shot') {
       this.localShot(weapon);
@@ -2050,7 +2075,9 @@ export class GameEngine {
     const spec = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>];
     const local = this.local;
     if (spec?.kind !== 'gun' || !local) return;
-    const kick = weaponRecoil(weapon) * (this.aiming ? .65 : 1) * (.85 + Math.random() * .3);
+    const attachments = this.inventory.equippedAttachments();
+    const kick = weaponRecoil(weapon) * attachmentModifier(attachments, 'recoil') * (this.aiming ? .65 : 1) * (.85 + Math.random() * .3);
+    const suppressed = attachmentModifier(attachments, 'flash') === 0;
     this.viewModel?.kick(Math.min(1.8, kick * 28));
     if (this.mouseLook) this.recoil.kick(kick);
     this.shotBloom = Math.min(1, this.shotBloom + .22 + kick * .4);
@@ -2072,9 +2099,27 @@ export class GameEngine {
         : this.tmpA.set(ox + fx * 0.6, oy, oz + fz * 0.6);
       const eject = this.localWeaponPoint('eject', this.tmpB) ? this.tmpB : null;
       const id = this.welcome?.playerId ?? 0;
-      this.effects?.shot(id, { weapon, muzzle, dir, eject, right: new Vector3(-fz, 0, fx), ends });
+      this.effects?.shot(id, { weapon, muzzle, dir, eject, right: new Vector3(-fz, 0, fx), ends, suppressed });
     });
     av?.kick(heavy ? 0.35 : 0.12);
+  }
+
+  /** Alt: the attachment screen for the gun in hand. */
+  private openAttachments(): boolean {
+    const gun = this.inventory.equippedItem();
+    if (!gun || !acceptsAttachments(gun.itemId) || this.local?.dead) return false;
+    this.inventory.openAttachments(gun.uid, true);
+    return true;
+  }
+
+  /** Night-vision mode of a night-vision scope (kept while switching guns). */
+  private nightVision = false;
+  /** M / mouse wheel while looking through a night-vision scope; false when nothing to switch. */
+  toggleNightVision(): boolean {
+    if (!this.scoped || !opticOf(this.inventory.equippedAttachments())?.nightVision) return false;
+    this.nightVision = !this.nightVision;
+    this.sounds?.play('aimIn', { volume: .5, rate: this.nightVision ? 1.4 : 1.1 });
+    return true;
   }
 
   private readonly shotRayObj = new Ray();
@@ -2519,6 +2564,7 @@ export class GameEngine {
     this.sounds?.play(sound, { at, rate });
     const visual = this.weapons?.get(ITEM_BY_WEAPON[weapon] ?? '');
     if (visual?.reloadClip) this.localAvatar?.playWeaponAnim(visual.reloadClip, ms / 1000);
+    this.viewModel?.reload(ms / 1000);
   }
 
   private updateAmmoHud(now: number): void {
@@ -2846,7 +2892,9 @@ export class GameEngine {
       }
       this.scopeZoom += ((this.aiming ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
       const spec = weaponSpec(this.equippedWeapon());
-      const magnification = spec?.kind === 'gun' ? spec.scope ?? (this.firstPerson ? 1.25 : 1.35) : 1;
+      // The optic's own power; iron sights and red dots get a slight focus zoom.
+      const opticPower = opticOf(this.inventory.equippedAttachments())?.magnification ?? 1;
+      const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.firstPerson ? 1.25 : 1.35 : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
       const fov = scopeFov(FP_FOV, zoom);
       this.input.lookScale = 1 / zoom;
@@ -3041,7 +3089,8 @@ export class GameEngine {
 /** Guns with a big kick (recoil animation strength). */
 function heavyKick(weapon: number): boolean {
   return weapon === WeaponId.Shotgun || weapon === WeaponId.Saiga12 || weapon === WeaponId.DoubleBarrel || weapon === WeaponId.AWM || weapon === WeaponId.SVD
-    || weapon === WeaponId.RocketLauncher || weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.Revolver || weapon === WeaponId.PKM || weapon === WeaponId.Barrett;
+    || weapon === WeaponId.RocketLauncher || weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.Revolver || weapon === WeaponId.PKM || weapon === WeaponId.Barrett
+    || weapon === WeaponId.Deagle || weapon === WeaponId.Kar98k;
 }
 
 /** Reload sound (and playback rate) for each gun. */
@@ -3072,6 +3121,23 @@ function reloadSound(weapon: number): [SoundName, number] {
       return ['rocketReload', 1];
     case WeaponId.Crossbow:
       return ['glockReload', 1.5];
+    // Added guns share the existing recordings of their closest relatives.
+    case WeaponId.Deagle:
+      return ['pistolReload', 0.95];
+    case WeaponId.Uzi:
+      return ['rifleReload', 1.15];
+    case WeaponId.ScarH:
+      return ['akReload', 0.95];
+    case WeaponId.Mini14:
+      return ['rifleReload', 1];
+    case WeaponId.ScarL:
+      return ['rifleReload', 1];
+    case WeaponId.Vector:
+      return ['rifleReload', 1.1];
+    case WeaponId.P90:
+      return ['rifleReload', .95];
+    case WeaponId.Kar98k:
+      return ['rifleReload', 0.92];
     default:
       return ['pistolReload', 1];
   }

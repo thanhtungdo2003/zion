@@ -88,6 +88,11 @@ export interface HudState {
   scoped: boolean;
   aiming: boolean;
   scopeMagnification: number;
+  /** Reticle to draw: optic reticle while scoped, or a red dot while aimed through one. */
+  reticle: 'dot' | 'holo' | 'duplex' | 'mildot' | null;
+  /** Looking through a night-vision scope, and whether night vision is on. */
+  nvScope: boolean;
+  nightVision: boolean;
   /** ZCoin balance (server wallet). */
   coins: number;
   /** First aid kit being applied: progress 0…1, or null. */
@@ -160,6 +165,9 @@ export function initialHud(): HudState {
     scoped: false,
     aiming: false,
     scopeMagnification: 1,
+    reticle: null,
+    nvScope: false,
+    nightVision: false,
     coins: 0,
     healing: null,
     guides: [],

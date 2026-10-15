@@ -38,6 +38,8 @@ export interface HeldItem {
   rotated: boolean;
   count?: number;
   issued?: boolean;
+  mag?: number;
+  attachments?: PlacedItem['attachments'];
   /** Where it was picked up from, so Esc / closing can put it back. */
   from: { container: ContainerId; x: number; y: number; rotated: boolean };
 }
@@ -53,6 +55,8 @@ export interface InventoryState {
   station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null;
   /** Ammo-cache draws left this world day (server-reported). */
   cacheLeft: number;
+  /** Gun (uid) whose attachment screen is open, or null. */
+  attachGun?: number | null;
 }
 
 /**
@@ -68,6 +72,22 @@ export class InventoryStore {
   send: ((msg: InvMessage) => void) | null = null;
 
   get = (): InventoryState => this.state;
+
+  /** Opens the attachment screen for a gun (and the inventory around it). */
+  openAttachments(uid: number, fromGame = false): void {
+    this.returnHeld();
+    this.attachFromGame = fromGame;
+    this.set({ open: true, attachGun: uid });
+  }
+  /** Back to where it was opened from: the game (Alt) or the inventory (right-click). */
+  closeAttachments(): void {
+    if (this.attachFromGame) this.setOpen(false);
+    else this.set({ attachGun: null });
+  }
+  private attachFromGame = false;
+  /** Installs an attachment item on a gun (the server answers with the new inventory). */
+  attach(gun: number, uid: number): void { this.send?.({ t: 'inv', op: 'attach', gun, uid }); }
+  detach(gun: number, slot: 'optic' | 'muzzle'): void { this.send?.({ t: 'inv', op: 'detach', gun, slot }); }
 
   subscribe = (fn: () => void): (() => void) => {
     this.listeners.add(fn);
@@ -113,7 +133,7 @@ export class InventoryStore {
   setOpen(open: boolean, station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null = null): void {
     if (!open) this.returnHeld();
     if ((!open || station !== 'chest') && this.chestId) { this.chestId = null; this.send?.({ t: 'inv', op: 'chestClose' }); this.set({ chest: null }); }
-    this.set({ open, station: open ? station : null });
+    this.set({ open, station: open ? station : null, ...(open ? {} : { attachGun: null }) });
   }
 
   toggle(): void {
@@ -188,7 +208,7 @@ export class InventoryStore {
     if (!it) return;
     this.set({
       items: this.state.items.filter((i) => i.uid !== uid),
-      held: { uid, itemId: it.itemId, rotated: it.rotated, count: it.count, issued: it.issued, from: { container: it.container, x: it.x, y: it.y, rotated: it.rotated } },
+      held: { uid, itemId: it.itemId, rotated: it.rotated, count: it.count, issued: it.issued, mag: it.mag, attachments: it.attachments, from: { container: it.container, x: it.x, y: it.y, rotated: it.rotated } },
     });
   }
 
@@ -203,7 +223,7 @@ export class InventoryStore {
   }
 
   private placedFromHeld(h: HeldItem, container: ContainerId, x: number, y: number, rotated: boolean): PlacedItem {
-    return { uid: h.uid, itemId: h.itemId, container, x, y, rotated, count: h.count, issued: h.issued };
+    return { uid: h.uid, itemId: h.itemId, container, x, y, rotated, count: h.count, issued: h.issued, mag: h.mag, ...(h.attachments ? { attachments: h.attachments } : {}) };
   }
 
   rotateHeld(): void {
@@ -266,6 +286,11 @@ export class InventoryStore {
   /** The item in hand. */
   equippedItem(): PlacedItem | undefined {
     return this.state.items.find((i) => i.uid === this.state.equipped);
+  }
+
+  /** Attachments mounted on the gun in hand. */
+  equippedAttachments(): PlacedItem['attachments'] {
+    return this.equippedItem()?.attachments;
   }
 
   /** Catalog id of the item in hand, or null. */

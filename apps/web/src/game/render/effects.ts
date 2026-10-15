@@ -47,6 +47,8 @@ export interface ShotInfo {
   right: Vector3 | null;
   /** Pellet end points, flattened xyz. */
   ends: ArrayLike<number>;
+  /** Suppressed: no flash, a short muffled report heard only nearby. */
+  suppressed?: boolean;
 }
 
 /**
@@ -118,37 +120,53 @@ export class CombatEffects {
     if (spec?.kind === 'gun' && spec.fire === 'flame') return this.flame(shooterId, m, d, spec.range);
     if (spec?.kind === 'gun' && spec.fire === 'projectile') return this.launchFlash(info.weapon, m, d);
     const heavy = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel || info.weapon === WeaponId.AWM || info.weapon === WeaponId.Barrett || info.weapon === WeaponId.SVD;
-    ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, heavy);
+    if (!info.suppressed) ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, heavy);
     if (info.eject && info.right) ParticleFX.shellEject(this.particles, info.eject.x, info.eject.y, info.eject.z, info.right.x, info.right.z);
     const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
     light.position.copy(m);
-    light.intensity = heavy ? 14 : 9;
+    light.intensity = info.suppressed ? 0 : heavy ? 14 : 9;
     const h = this.heat.get(shooterId) ?? { h: 0, at: new Vector3() };
     h.h = Math.min(1, h.h + (heavy ? 0.35 : 0.09));
     h.at.copy(m);
     this.heat.set(shooterId, h);
-    this.gunSound(info.weapon, m);
+    this.gunSound(info.weapon, m, !!info.suppressed);
   }
 
   /** Per-gun voice: shared recordings pitched and levelled to the calibre. */
-  private gunSound(weapon: number, at: Vector3): void {
-    const s = this.sounds;
-    if (!s) return;
+  private gunSound(weapon: number, at: Vector3, suppressed = false): void {
+    const bank = this.sounds;
+    if (!bank) return;
+    // A suppressor keeps the gun's voice but muffles it: quieter, thinner, heard only nearby.
+    const s = { play: (name: Parameters<SoundBank['play']>[0], o: { at: Vector3; rate?: number; volume?: number; maxDistance?: number }) => bank.play(name, suppressed ? { ...o, rate: (o.rate ?? 1) * 1.18, volume: (o.volume ?? 1) * .4, maxDistance: (o.maxDistance ?? 90) * .3 } : o) };
     switch (weapon) {
       case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
       case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); break;
       case WeaponId.Saiga12: s.play('shotgunShot', { at, rate: 1.12, volume: 0.95, maxDistance: 90 }); break;
       case WeaponId.DoubleBarrel: s.play('shotgunShot', { at, rate: 0.88, volume: 1.15, maxDistance: 100 }); break;
-      case WeaponId.AWM: s.play('sniperShot', { at, volume: 1.25, maxDistance: 180 }); break;
+      case WeaponId.AWM: s.play('sniperRifleShot', { at, volume: 1.25, maxDistance: 180 }); this.rechamber(at, 1.15); break;
       case WeaponId.Barrett: s.play('barrettShot', { at, volume: 1.3, maxDistance: 180 }); break;
-      case WeaponId.SVD: s.play('rifleShot', { at, rate: .92, volume: 1.15, maxDistance: 150 }); break;
-      case WeaponId.GL18: s.play('pistolShot', { at, volume: 0.75, maxDistance: 70 }); break;
-      case WeaponId.Revolver: s.play('pistolShot', { at, rate: 0.85, volume: 1.05, maxDistance: 90 }); break;
-      case WeaponId.MP5: s.play('pistolShot', { at, rate: 1.12, volume: 0.65, maxDistance: 60 }); break;
+      case WeaponId.SVD: s.play('sniperRifleShot', { at, rate: 1.05, volume: 1.1, maxDistance: 160 }); break;
+      case WeaponId.GL18: s.play('pistol9mmShot', { at, volume: 0.8, maxDistance: 70 }); break;
+      case WeaponId.Revolver: s.play('magnumShot', { at, rate: 0.95, volume: 1.05, maxDistance: 90 }); break;
+      case WeaponId.MP5: s.play('pistol9mmShot', { at, rate: 1.05, volume: 0.7, maxDistance: 60 }); break;
+      case WeaponId.Deagle: s.play('magnumShot', { at, volume: 1.1, maxDistance: 100 }); break;
+      case WeaponId.Uzi: s.play('pistol9mmShot', { at, rate: 1.1, volume: 0.7, maxDistance: 60 }); break;
+      case WeaponId.ScarH: s.play('akShot', { at, rate: .9, volume: 1, maxDistance: 120 }); break;
+      case WeaponId.Kar98k: s.play('sniperRifleShot', { at, rate: .95, volume: 1.2, maxDistance: 170 }); this.rechamber(at, 1.15); break;
+      case WeaponId.Mini14: s.play('rifleShot', { at, rate: 1.02, volume: 0.95, maxDistance: 120 }); break;
+      case WeaponId.Vector: s.play('pistol9mmShot', { at, rate: 1.15, volume: 0.65, maxDistance: 60 }); break;
+      case WeaponId.P90: s.play('pistol9mmShot', { at, rate: 1.25, volume: 0.7, maxDistance: 65 }); break;
+      case WeaponId.ScarL: s.play('rifleShot', { at, rate: 1.04, volume: 0.9, maxDistance: 100 }); break;
       case WeaponId.M4A1: s.play('rifleShot', { at, rate: 1.06, volume: 0.85, maxDistance: 100 }); break;
       case WeaponId.AUG: s.play('rifleShot', { at, rate: 1.03, volume: 0.85, maxDistance: 100 }); break;
       default: s.play('akShot', { at, volume: 0.9, maxDistance: 90 });
     }
+  }
+
+  /** Bolt-action rifles: the bolt is worked and the case ejected just after each shot. */
+  private rechamber(at: Vector3, rate: number): void {
+    const where = at.clone();
+    setTimeout(() => this.sounds?.play('rechamber', { at: where, rate, volume: .8, maxDistance: 40 }), 220);
   }
 
   /** Launchers: muzzle blast and launch sound (the round itself arrives as a 'proj' event). */

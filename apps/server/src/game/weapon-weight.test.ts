@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CharacterController, CollisionWorld, Heightfield } from '@zion/physics';
-import { armorSpeedFactor, armorStaminaFactor, Buttons, DEFAULT_BASE_LIFE, TICK_DT, weaponSpeedFactor, weaponStaminaFactor, WeaponId, WEAPON_SPECS, type GunSpec, type InputMessage } from '@zion/shared';
+import { armorSpeedFactor, armorStaminaFactor, Buttons, DEFAULT_BASE_LIFE, TICK_DT, weaponSpeedFactor, weaponStaminaFactor, WeaponId, WEAPON_SPECS, WEAPON_ATTACHMENTS, type GunSpec, type InputMessage } from '@zion/shared';
 import { LocalPlayer } from '../../../web/src/game/prediction';
 import { GameServer } from './game-server';
 import { BaseLife } from './base-life';
@@ -79,7 +79,8 @@ describe('held weapon burden', () => {
     expect(barrett.damage).toBeGreaterThan(awm.damage);
     expect(barrett.weight).toBeGreaterThan(awm.weight);
     expect(barrett.damage * (barrett.knockback ?? 1)).toBeGreaterThan(awm.damage * (awm.knockback ?? 1));
-    expect(barrett.scope).toBe(10);
+    expect(barrett.scope).toBeUndefined(); // optics are attachments now
+    expect(WEAPON_ATTACHMENTS.barrett?.optic).toContain('scope_10x');
     expect(barrett.magazine).toBe(10);
   });
   it('charges held weight on attacks and refuses the attack when stamina cannot cover it', () => {

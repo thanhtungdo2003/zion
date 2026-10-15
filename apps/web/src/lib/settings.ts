@@ -12,6 +12,12 @@ export type ProneKey = typeof PRONE_KEYS[number];
 export function isProneKey(code: unknown): code is ProneKey { return PRONE_KEYS.some(key => key === code); }
 export function isRollKey(code: unknown): code is RollKey { return ROLL_KEYS.some(key => key === code); }
 export function rollKeyLabel(code: RollKey | ProneKey): string { return code.slice(3); }
+/** Attachment screen and night-vision switch: Alt / M by default, or a free letter key. */
+export const ATTACH_KEYS = ['AltLeft', 'KeyB', 'KeyN', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
+export type AttachKey = typeof ATTACH_KEYS[number];
+export const NV_KEYS = ['KeyM', 'KeyN', 'KeyB', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
+export type NvKey = typeof NV_KEYS[number];
+export function keyLabel(code: string): string { return code === 'AltLeft' ? 'Alt' : code.replace(/^Key/, ''); }
 export function cycleCameraMode(): void {
   const modes: CameraMode[] = ['top-down', 'third-person', 'first-person'];
   settingsStore.set({ cameraMode: modes[(modes.indexOf(settingsStore.get().cameraMode) + 1) % modes.length]! });
@@ -30,6 +36,8 @@ export interface SettingsState {
   mouseSens: number;
   rollKey: RollKey;
   proneKey: ProneKey;
+  attachKey: AttachKey;
+  nvKey: NvKey;
   /** Graphics: internal resolution 0.5…1, shadow quality, draw distance 0.4…1, grass 0…1. */
   renderScale: number;
   shadows: ShadowQuality;
@@ -50,7 +58,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', ...GRAPHICS_PRESETS.high };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', ...GRAPHICS_PRESETS.high };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
@@ -61,6 +69,8 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     const state: SettingsState = { ...defaults };
     if (isRollKey(saved.rollKey)) state.rollKey = saved.rollKey;
     if (isProneKey(saved.proneKey) && saved.proneKey !== state.rollKey) state.proneKey = saved.proneKey;
+    if (ATTACH_KEYS.some((k) => k === saved.attachKey)) state.attachKey = saved.attachKey!;
+    if (NV_KEYS.some((k) => k === saved.nvKey)) state.nvKey = saved.nvKey!;
     // The playable UI and server-authored content currently ship in Vietnamese.
     // Migrate the old English default so returning players also see one language.
     state.lang = 'vi';

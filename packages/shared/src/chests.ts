@@ -1,3 +1,4 @@
+import { WEAPON_ATTACHMENTS } from './attachments';
 import { ARMOR_SPECS } from './armor';
 import { ITEMS, maxCount } from './items';
 import { magazineOf, type PlacedItem } from './inventory';
@@ -16,12 +17,12 @@ export interface ChestStateMessage extends ChestData {
   t: 'chest'; id: string; field: boolean; capacity: number;
   searchRemainingMs: number; busy: boolean; closed?: boolean; error?: string;
 }
-const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'bolts'];
+const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'ammo_762x51', 'ammo_57x28', 'bolts'];
 const supplies = ['medkit', 'potato_cooked', 'cooked_mutton', 'cooked_porkchop', 'potato', 'grenade'];
-const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank'];
-const guns = ['gl18', 'revolver', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer'];
+const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol'];
+const guns = ['gl18', 'revolver', 'deagle', 'uzi', 'vector', 'p90', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar'];
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
-const elite = ['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
+const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 
 /** Per-slot odds: ammo 52%, supplies 30%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
 export function rollChestItem(random: () => number = Math.random): string {
@@ -59,15 +60,18 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
     const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
     items.push(item);
   };
-  const gun = pick(['gl18', 'mp5', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
+  const gun = pick(['gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
   add(gun);
   add(Object.values(ITEMS).find(item => item.ammo?.guns.includes(gun))!.id);
   add(pick(ARMOR_SPECS.map(a => a.item)));
+  // Guns are bare: a compatible attachment turns up in about half of the crates.
+  const fits = Object.values(WEAPON_ATTACHMENTS[gun] ?? {}).flat();
+  if (fits.length && random() < .5) add(pick(fits));
   // A melee weapon in most crates, for fights up close or when ammunition runs out.
-  if (random() < .7) add(pick(['katana', 'quam', 'shovel', 'fire_axe', 'long_sledgehammer']));
+  if (random() < .7) add(pick(['katana', 'quam', 'shovel', 'fire_axe', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar']));
   for (let i = 0, n = 2 + Math.floor(random() * 3); i < n; i++) {
     const roll = random();
-    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .9 ? 'grenade' : pick(ARMOR_SPECS.map(a => a.item)));
+    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .9 ? 'grenade' : pick(ARMOR_SPECS.map(a => a.item)));
   }
   return items;
 }

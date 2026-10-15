@@ -2,6 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
+import { attachmentModifier, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
@@ -17,7 +18,7 @@ import { QuestEngine, type QuestEvent } from './quests';
 import { authoredWorld, battleStructures } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
-import { doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
+import { characterEyeHeight, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
 import { type TeamService, TeamError } from './teams';
 import { TEAM_QUESTS } from '@zion/shared';
 import { chooseMissionStructure } from './mission-locations';
@@ -225,7 +226,7 @@ export class GameServer {
   private readonly blastHit = makeRayHit();
   /** ZCoin lying on the ground, waiting to be picked up. */
   /** Items players dropped on the ground (visible to everyone, pick-up by anyone). */
-  private readonly groundItems = new Map<number, { itemId: string; count?: number; mag?: number; issued?: boolean; x: number; y: number; z: number; expiresAt: number; livestock?: boolean; quest?: string }>();
+  private readonly groundItems = new Map<number, { itemId: string; count?: number; mag?: number; issued?: boolean; attachments?: Attachments; x: number; y: number; z: number; expiresAt: number; livestock?: boolean; quest?: string }>();
   private nextGroundId = 1;
   private readonly coinDrops = new Map<number, { x: number; y: number; z: number; amount: number; expiresAt: number }>();
   private nextCoinId = 1;
@@ -1842,6 +1843,8 @@ export class GameServer {
     }
     p.yaw = input.aimYaw ?? input.yaw;
     p.pitch = input.pitch;
+    p.bandaging = (input.b & Buttons.Heal) !== 0 && !p.downed;
+    p.eyeAim = input.aimYaw !== undefined;
     // What is in hand / on the back comes from the server's inventory, not the client's claim.
     const held = p.inv.equippedItem();
     const weapon = held ? (WEAPON_BY_ITEM[held.itemId] ?? 0) : 0;
@@ -2280,13 +2283,15 @@ export class GameServer {
     const ox = s.x;
     const oy = s.y + muzzleHeight(s.prone);
     const oz = s.z;
-    const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
+    let [ax, ay, az] = aimDirection(p.yaw, p.pitch);
+    const attachments = p.inv.equippedItem()?.attachments;
     p.gunHeat = Math.max(0, p.gunHeat - (now - p.lastGunShotAt) / 700);
-    const spread = gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone, p.gunHeat);
+    const spread = gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone, p.gunHeat) * attachmentModifier(attachments, 'spread');
     p.gunHeat = Math.min(1.5, p.gunHeat + .22);
     p.lastGunShotAt = now;
     const proj = bulletSpec(p.weapon, spec);
-    this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [] });
+    if (p.eyeAim) [ax, ay, az] = zeroedDirection(ax, ay, az, oy, s.y + characterEyeHeight(s), zeroDistance(spec, !!opticOf(attachments)), proj.speed, proj.gravity);
+    this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [], ...(attachmentModifier(attachments, 'flash') === 0 ? { sup: 1 as const } : {}) });
     for (let i = 0; i < spec.pellets; i++) {
       const [dx, dy, dz] = spreadDirection(ax, ay, az, spread, Math.random);
       const id = this.nextGrenadeId++;
@@ -2686,6 +2691,14 @@ export class GameServer {
         }
         break;
       }
+      case 'attach':
+        changed = p.inv.attach(msg.gun, msg.uid);
+        if (!changed) this.reply(p, 'Phụ kiện này không lắp được lên súng đó.');
+        break;
+      case 'detach':
+        changed = p.inv.detach(msg.gun, msg.slot);
+        if (!changed) this.reply(p, 'Túi đồ không đủ chỗ để tháo phụ kiện.');
+        break;
       case 'pickup': {
         const g = this.groundItems.get(msg.id);
         if (!g || Math.hypot(p.state.x - g.x, p.state.z - g.z) > GROUND_PICKUP_REACH || Math.abs(p.state.y - g.y) > 2.5) break;
@@ -2696,6 +2709,7 @@ export class GameServer {
         }
         if (g.mag !== undefined) added.mag = g.mag;
         if (g.quest) added.quest = g.quest;
+        if (g.attachments) added.attachments = { ...g.attachments };
         if (g.livestock) this.queueQuestEvent(p, { type: 'collect', target: g.itemId, quantity: g.count ?? 1 });
         this.groundItems.delete(msg.id);
         this.broadcast({ t: 'groundGone', id: msg.id });
@@ -2772,7 +2786,7 @@ export class GameServer {
     return !!camp && !!s && !p.dead && Math.abs(p.state.y - camp.y) < 4 && Math.hypot(p.state.x - camp.x - s.x, p.state.z - camp.z - s.z) <= s.radius;
   }
 
-  private dropGroundItem(p: Player, it: { itemId: string; count?: number; mag?: number; issued?: boolean; quest?: string }): void {
+  private dropGroundItem(p: Player, it: { itemId: string; count?: number; mag?: number; issued?: boolean; quest?: string; attachments?: Attachments }): void {
     const id = this.nextGroundId++;
     const a = p.yaw + (Math.random() - 0.5) * 0.8;
     const d = 0.9 + Math.random() * 0.5;
@@ -2780,7 +2794,7 @@ export class GameServer {
     const z = p.state.z - Math.cos(a) * d;
     const ground = this.collision.terrainHeight(x, z);
     const y = Number.isFinite(ground) && Math.abs(ground - p.state.y) < 1.5 ? ground : p.state.y;
-    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
+    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, ...(it.attachments ? { attachments: { ...it.attachments } } : {}), x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
     this.groundItems.set(id, g);
     this.broadcast({ t: 'ground', items: [{ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z }] });
   }
@@ -2908,7 +2922,8 @@ export class GameServer {
     const it = p.inv.carriedItem(uid);
     const def = it ? ITEMS[it.itemId] : undefined;
     const max = def ? maxCount(def) : undefined;
-    const price = it && def && !it.issued && !it.quest ? sellPrice(it.itemId, max ? (it.count ?? max) / max : 1) : 0;
+    const price = it && def && !it.issued && !it.quest ? sellPrice(it.itemId, max ? (it.count ?? max) / max : 1)
+      + Object.values(it.attachments ?? {}).reduce((sum, id) => sum + sellPrice(id, 1), 0) : 0;
     if (!it || price <= 0) return this.addCoins(p, 0, { req, ok: false, reason: 'item' });
     if (p.dead || !(this.merchant.inReach(p, MERCHANT_REACH + 1) || this.nurse.inReach(p, MERCHANT_REACH + 1))) return this.addCoins(p, 0, { req, ok: false, reason: 'range' });
     const item = it.itemId;
@@ -2943,6 +2958,7 @@ export class GameServer {
           weapon: o.weapon,
           back: o.backWeapon,
           armor: packArmor(o.armor),
+          att: packAttachments(o.inv.equippedItem()?.attachments),
         });
       }
       this.guards.entitiesFor(p, entities);
@@ -2987,6 +3003,7 @@ export class GameServer {
     if (p.downed) f |= EntityFlags.Downed;
     if (p.reviving) f |= EntityFlags.Reviving;
     if (now < p.knockedUntil && !p.dead) f |= EntityFlags.Knocked;
+    if (p.bandaging && !p.dead && !p.vehicleId) f |= EntityFlags.Healing;
     return f;
   }
 

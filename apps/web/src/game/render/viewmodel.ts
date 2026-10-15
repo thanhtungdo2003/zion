@@ -1,5 +1,7 @@
-import { Group, Matrix4, Mesh, Quaternion, Vector3, type Camera } from 'three';
-import type { WeaponLibrary } from './weapons';
+import { Euler, Group, Matrix4, Mesh, Quaternion, Vector3, type Camera, type Object3D } from 'three';
+import { attachmentModifier, opticOf, type Attachments } from '@zion/shared';
+import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
+import { WeaponMechanics } from './weapon-mechanics';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
 import { aimOffhandLight, offhandLightPose } from './offhand-light';
@@ -14,7 +16,18 @@ export class ViewModel {
   private readonly root = new Group();
   private readonly pivot = new Group();
   private readonly models = new Map<string, Group>();
+  /** Per dressed model: its sight line and moving parts. */
+  private readonly rigs = new Map<string, { visual: WeaponVisual; mechanics: WeaponMechanics }>();
   private current: string | null = null;
+  /** ADS speed and eye relief of the current setup. */
+  private adsSpeed = 1;
+  private eyeRelief = .3;
+  private readonly hipQuat = new Quaternion();
+  private readonly adsQuat = new Quaternion();
+  private readonly adsPos = new Vector3();
+  private readonly rear = new Vector3();
+  private readonly front = new Vector3();
+  private readonly euler = new Euler();
   private offhandId: string | null = null;
   private offhandModel: Group | null = null;
   private readonly offhandBase = new Matrix4();
@@ -48,18 +61,25 @@ export class ViewModel {
     camera.add(this.root);
   }
 
-  set(itemId: string | null, weapons: WeaponLibrary | null): void {
+  set(itemId: string | null, weapons: WeaponLibrary | null, attachments?: Attachments): void {
     if (itemId === 'c4') itemId = 'c4_detonator';
-    if (itemId === this.current) return;
+    // Each attachment combination is its own dressed model (cached).
+    const key = itemId ? `${itemId}|${attachments?.optic ?? ''}|${attachments?.muzzle ?? ''}` : null;
+    if (key === this.current) return;
+    this.rig()?.mechanics.cancel();
+    this.adsSpeed = attachmentModifier(attachments, 'adsSpeed');
+    const optic = opticOf(attachments);
+    this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
     this.strikeAxes = null;
     this.meleeEdge.reset();
     this.aimBlend = 0;
     this.recoil.reset();
-    const display = itemId ? weapons?.get(itemId)?.display : undefined;
-    if (!itemId || !display) return;
-    let model = this.models.get(itemId);
+    const visual = itemId ? dressWeapon(weapons, itemId, attachments) : undefined;
+    const display = visual?.display;
+    if (!itemId || !key || !display || !visual) return;
+    let model = this.models.get(key);
     if (!model) {
       model = display.clone(true);
       // Muzzle (+X) → camera forward (−Z).
@@ -68,30 +88,28 @@ export class ViewModel {
         if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; }
       });
       this.pivot.add(model);
-      this.models.set(itemId, model);
+      this.models.set(key, model);
+      this.rigs.set(key, { visual, mechanics: new WeaponMechanics(model, visual, itemId === 'kar98k' || itemId === 'awm') });
       const support = weapons?.get(itemId)?.firstPersonSupport;
+      const trigger = weapons?.get(itemId)?.firstPersonTrigger;
+      const pistol = ITEM_PISTOLS.has(itemId);
       if (support) {
-        const arm = support.arm.clone(true);
-        arm.name = 'first-person-arm-left';
-        arm.position.set(0, 0, 0); arm.rotation.set(0, 0, 0); arm.scale.setScalar(1);
-        const hand = arm.getObjectByName('hand_left');
-        if (hand) {
-          const handLocal = hand.position.clone();
-          // Display-model -Z points left once the weapon faces camera-forward.
-          const shoulder = new Vector3(-.13, -.18, -.4);
-          const direction = shoulder.sub(support.contact);
-          arm.quaternion.setFromUnitVectors(handLocal.clone().negate().normalize(), direction.clone().normalize());
-          arm.scale.setScalar(direction.length() / handLocal.length());
-          arm.position.copy(support.contact).sub(handLocal.multiplyScalar(arm.scale.x).applyQuaternion(arm.quaternion));
+        // Support hand: under the handguard (rifles) or wrapped round the firing hand (pistols).
+        const arm = firstPersonArm(support.arm, 'hand_left', support.contact, pistol ? new Vector3(-.3, -.22, -.12) : new Vector3(-.35, -.13, -.16));
+        if (arm) {
           const holder = new Group();
           holder.name = 'first-person-support'; holder.add(arm); model.add(holder);
-          holder.traverse(o => { if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
-          this.supportArms.set(itemId, holder);
+          this.supportArms.set(key, holder);
         }
+      }
+      if (trigger) {
+        // Firing hand on the grip, its forearm going back and down to the right.
+        const arm = firstPersonArm(trigger.arm, 'hand_right', new Vector3(-.005, -.02, 0), new Vector3(-.34, -.24, .16));
+        if (arm) { arm.name = 'first-person-arm-right'; model.add(arm); }
       }
     }
     model.visible = true;
-    this.current = itemId;
+    this.current = key;
     this.strikeAxes = weapons?.get(itemId)?.melee?.display ?? null;
   }
 
@@ -129,10 +147,21 @@ export class ViewModel {
     return offhandLightPose(this.offhandModel, origin, direction);
   }
 
-  /** A shot: kicks the gun back and up. */
+  /** A shot: kicks the gun back and up and works its action. */
   kick(strength = 1): void {
     this.recoil.kick(strength * .065);
+    this.rig()?.mechanics.fire();
   }
+
+  /** A reload began: magazine / clip animation over its whole length. */
+  reload(seconds: number): void {
+    this.rig()?.mechanics.reload(seconds);
+  }
+
+  /** Aimed through sights that line up with the screen centre (red dot / iron sights). */
+  get aimed(): number { return this.aimBlend; }
+
+  private rig() { return this.current ? this.rigs.get(this.current) : undefined; }
 
   weaponPoint(point: 'muzzle' | 'eject', out: Vector3): boolean {
     const marker = this.current ? this.models.get(this.current)?.getObjectByName(`weapon-${point}`) : null;
@@ -144,6 +173,8 @@ export class ViewModel {
   /** Converge the actual barrel on the crosshair, including camera rotation and tumble. */
   aimAt(worldTarget: Vector3): void {
     if (!this.current || this.aimBlend < 0.001) return;
+    // Guns with a sight line are aimed by lining the sights up with the eye instead (update()).
+    if (this.rig()?.visual.sight) return;
     this.root.worldToLocal(this.target.copy(worldTarget));
     this.direction.copy(this.target).normalize();
     this.aimRotation.setFromUnitVectors(this.forward, this.direction);
@@ -179,7 +210,9 @@ export class ViewModel {
   update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean }): void {
     this.root.visible = s.visible && (this.current !== null || this.offhandId !== null);
     const aiming = !s.reloading && !s.sprint && s.aiming ? 1 : 0;
-    this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 18 : 12)));
+    this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 14 * this.adsSpeed : 12)));
+    const rig = this.rig();
+    rig?.mechanics.update(dt);
     // Look sway: the gun lags slightly behind fast turns.
     let dyaw = s.yaw - this.lastYaw;
     dyaw -= Math.PI * 2 * Math.round(dyaw / (Math.PI * 2));
@@ -241,11 +274,32 @@ export class ViewModel {
     if (hidden) this.root.visible = false;
 
     const relaxed = 1 - this.aimBlend;
-    this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay, -0.25 - this.aimBlend * .18 + this.recoil.offset * .6 + az);
+    const cant = rig?.mechanics.cant ?? 0, lift = rig?.mechanics.lift ?? 0;
     const supportArm = this.current ? this.supportArms.get(this.current) : null;
     if (supportArm) supportArm.visible = !s.reloading && !this.offhandId;
-    this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz);
     const model = this.current ? this.models.get(this.current) : null;
+    const sight = rig?.visual.sight;
+    if (sight && model) {
+      // Hip pose, then the sight picture: rotate so the rear→front sight line runs straight down
+      // the view axis and move the rear sight (or the optic's eyepiece) onto the eye.
+      model.updateMatrix();
+      this.root.position.set(0.2 + this.swayX + bx + ax, -0.27 + this.swayY + by - this.dip * 0.12 + ay + lift, -0.25 + this.recoil.offset * .6 + az);
+      this.hipQuat.setFromEuler(this.euler.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant));
+      this.rear.copy(sight.rear).applyMatrix4(model.matrix);
+      this.front.copy(sight.front).applyMatrix4(model.matrix);
+      this.adsQuat.setFromUnitVectors(this.direction.subVectors(this.front, this.rear).normalize(), this.forward);
+      this.adsPos.copy(this.rear).applyQuaternion(this.adsQuat).negate();
+      this.adsPos.z -= this.eyeRelief;
+      // Recoil still shows through the sights: a little climb and push back, then recovery.
+      this.adsPos.z += this.recoil.offset * .35; this.adsPos.y += lift;
+      this.adsQuat.premultiply(this.kickRotation.setFromAxisAngle(this.right, this.recoil.offset * .6));
+      if (cant) this.adsQuat.premultiply(this.kickRotation.setFromAxisAngle(this.forward, -cant));
+      this.root.position.lerp(this.adsPos, this.aimBlend);
+      this.pivot.quaternion.copy(this.hipQuat).slerp(this.adsQuat, this.aimBlend);
+    } else {
+      this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay + lift, -0.25 - this.aimBlend * .18 + this.recoil.offset * .6 + az);
+      this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant);
+    }
     if (model && this.strikeAxes) {
       model.rotation.set(0, Math.PI / 2, 0);
       if (this.swingT >= 0) this.meleeEdge.pose(model, this.strikeAxes, this.root.parent!);
@@ -257,6 +311,31 @@ export class ViewModel {
     this.root.removeFromParent();
   }
 }
+
+/** Scale of the character's chunky arm in the first-person view (its fist ≈ a real hand). */
+const FP_ARM_SCALE = .5;
+
+/**
+ * One first-person arm: the character's arm at reduced, natural proportions (never stretched),
+ * oriented along `back` (from the hand toward an off-screen shoulder) with the centre of its fist
+ * at `fist`, so fingers lie along the gun instead of reaching over it.
+ */
+function firstPersonArm(source: Object3D, handName: string, fist: Vector3, back: Vector3): Group | null {
+  const arm = source.clone(true) as Group;
+  const hand = arm.getObjectByName(handName);
+  if (!hand) return null;
+  arm.position.set(0, 0, 0); arm.rotation.set(0, 0, 0); arm.scale.setScalar(FP_ARM_SCALE);
+  const toHand = hand.position.clone();
+  // The fist is the bottom of the arm mesh: centred about one fist-width above the hand locator.
+  const fistLocal = toHand.clone().add(toHand.clone().normalize().multiplyScalar(-.1));
+  arm.quaternion.setFromUnitVectors(toHand.clone().negate().normalize(), back.clone().normalize());
+  arm.position.copy(fist).sub(fistLocal.multiplyScalar(FP_ARM_SCALE).applyQuaternion(arm.quaternion));
+  arm.traverse((o) => { if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; } });
+  return arm;
+}
+
+/** Handguns sit a little further from the eye. */
+const ITEM_PISTOLS = new Set(['gl18', 'deagle', 'revolver']);
 
 function ease(t: number): number {
   const x = Math.min(1, Math.max(0, t));

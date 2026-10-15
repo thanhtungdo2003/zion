@@ -8,6 +8,8 @@ export class ZombieOutline {
   private readonly world = new WebGLRenderTarget(1, 1, { type: HalfFloatType });
   private readonly mask = new WebGLRenderTarget(1, 1);
   private readonly white = new MeshBasicMaterial({ color: 0xffffff, fog: false, toneMapped: false });
+  /** Mask colour of hostile targets: red channel only (white outline targets write all channels). */
+  private readonly red = new MeshBasicMaterial({ color: 0xff0000, fog: false, toneMapped: false });
   private readonly screen = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly size = new Vector2();
@@ -27,15 +29,18 @@ export class ZombieOutline {
       }
       void main() {
         float body = texture2D(maskMap,uvScreen).r;
-        float edge=0.; float glow=0.;
+        float edge=0.; float glow=0.; float whiteness=0.;
         for(int i=0;i<12;i++) {
           float a=float(i)*6.2831853/12.; vec2 dir=vec2(cos(a),sin(a))*pixel;
-          edge=max(edge,texture2D(maskMap,uvScreen+dir*1.6).r);
+          vec4 m=texture2D(maskMap,uvScreen+dir*1.6);
+          edge=max(edge,m.r); whiteness=max(whiteness,m.g);
           glow+=hidden(uvScreen+dir*4.5)/12.;
         }
         float alpha=(1.-body)*min(0.9,edge*0.85+glow*0.23);
         vec3 base=texture2D(colorMap,uvScreen).rgb;
-        gl_FragColor=vec4(mix(base,vec3(1.,0.025,0.015),alpha),1.);
+        // Players outline white; hostiles (zombies, players in PvP) red.
+        vec3 tint=mix(vec3(1.,0.025,0.015),vec3(1.),whiteness);
+        gl_FragColor=vec4(mix(base,tint,alpha),1.);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
@@ -52,7 +57,8 @@ export class ZombieOutline {
     this.screen.add(this.quad);
   }
 
-  render(renderer: WebGLRenderer, scene: Scene, camera: Camera, selected: readonly Object3D[]): void {
+  /** `white`: roots outlined white instead of red. */
+  render(renderer: WebGLRenderer, scene: Scene, camera: Camera, selected: readonly Object3D[], white: ReadonlySet<Object3D> = new Set()): void {
     if (!selected.length) { renderer.render(scene, camera); return; }
     renderer.getDrawingBufferSize(this.size);
     if (this.world.width !== this.size.x || this.world.height !== this.size.y) {
@@ -68,19 +74,22 @@ export class ZombieOutline {
     const clearColor = renderer.getClearColor(new Color());
     const clearAlpha = renderer.getClearAlpha();
     const shadowUpdate = renderer.shadowMap.autoUpdate;
-    const changed: Array<[Object3D, number]> = [];
+    const changed: Array<[Mesh, number, Mesh['material']]> = [];
     try {
       renderer.autoClear = true;
       renderer.setRenderTarget(this.world); renderer.render(scene, camera);
       renderer.shadowMap.autoUpdate = false;
-      for (const root of selected) root.traverse((node) => {
-        if (node instanceof Mesh) { changed.push([node, node.layers.mask]); node.layers.enable(MASK_LAYER); }
-      });
-      camera.layers.set(MASK_LAYER); scene.overrideMaterial = this.white; scene.background = this.black;
+      for (const root of selected) {
+        const mat = white.has(root) ? this.white : this.red;
+        root.traverse((node) => {
+          if (node instanceof Mesh) { changed.push([node, node.layers.mask, node.material]); node.layers.enable(MASK_LAYER); node.material = mat; }
+        });
+      }
+      camera.layers.set(MASK_LAYER); scene.overrideMaterial = null; scene.background = this.black;
       renderer.setClearColor(0, 1); renderer.setRenderTarget(this.mask); renderer.render(scene, camera);
       renderer.setRenderTarget(target); renderer.render(this.screen, this.camera);
     } finally {
-      for (const [node, mask] of changed) node.layers.mask = mask;
+      for (const [node, mask, material] of changed) { node.layers.mask = mask; node.material = material; }
       camera.layers.mask = layers; scene.overrideMaterial = override; scene.background = background;
       renderer.autoClear = autoClear; renderer.shadowMap.autoUpdate = shadowUpdate;
       renderer.setClearColor(clearColor, clearAlpha); renderer.setRenderTarget(target);
@@ -88,7 +97,7 @@ export class ZombieOutline {
   }
 
   dispose(): void {
-    this.world.dispose(); this.mask.dispose(); this.white.dispose();
+    this.world.dispose(); this.mask.dispose(); this.white.dispose(); this.red.dispose();
     this.quad.geometry.dispose(); this.material.dispose();
   }
 }

@@ -2611,3 +2611,82 @@ kbd {
 .hud-spectate { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: grid; justify-items: center; gap: 4px; padding: 10px 18px; background: rgba(8, 10, 9, .78); border-top: 2px solid #3d9bff; pointer-events: auto; }
 .hud-spectate span { font: 600 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .hud-spectate b { font: 700 20px var(--sans); color: #cfe6ff; }
+
+/* ---- Optics: calibrated reticles, red dot, night vision (confined to the lens). */
+.fp-scope-mil { fill: #0a0b0c; stroke: none; }
+.fp-scope-post { stroke-width: 2.2; }
+.fp-scope-label { fill: #0a0b0c; stroke: none; font: 600 3.2px var(--mono); }
+.fp-scope-lens.nv { backdrop-filter: grayscale(1) brightness(2.6) contrast(1.4) sepia(1) hue-rotate(58deg) saturate(3.2); }
+.fp-scope-lens.nv::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(circle, transparent 55%, rgba(0, 20, 0, .55) 100%), repeating-linear-gradient(0deg, rgba(0, 0, 0, .08) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
+.fp-scope-lens.nv .fp-scope-etching, .fp-scope-lens.nv .fp-scope-mil, .fp-scope-lens.nv .fp-scope-label { stroke: #b6ff9a; fill: #b6ff9a; }
+.fp-scope-lens.nv .fp-scope-etching path { fill: none; }
+.fp-nv-hint { opacity: .85; }
+.fp-nv-hint rect, .fp-nv-hint path, .fp-nv-eye { fill: rgba(10, 14, 10, .55); stroke: #e8f6e0; stroke-width: .8; }
+.fp-nv-hint path { fill: none; }
+.fp-nv-hint text { fill: #e8f6e0; font: 700 8px var(--mono); stroke: none; }
+.fp-nv-hint .fp-nv-or { font-size: 7px; opacity: .7; }
+.fp-nv-hint .fp-nv-wheel { fill: #ffb000; stroke: none; animation: fp-nv-wheel 1.2s ease-in-out infinite; }
+.fp-nv-hint .fp-nv-pupil { fill: #e8f6e0; }
+.fp-nv-hint.on .fp-nv-eye { fill: rgba(60, 200, 60, .55); }
+.fp-nv-hint.on .fp-nv-pupil { fill: #7dff5a; }
+@keyframes fp-nv-wheel { 50% { transform: translateY(1.6px); } }
+.fp-reddot { position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 1; }
+.fp-reddot i { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: #ff2a1a; box-shadow: 0 0 4px 1px rgba(255, 40, 20, .8), 0 0 10px 2px rgba(255, 40, 20, .35); }
+
+/* ---- Attachment screen (Alt / right-click a gun): the gun over the game, slots around it. */
+.att-screen { position: fixed; inset: 0; z-index: 60; background: transparent; pointer-events: auto; }
+.att-close { position: absolute; top: 18px; right: 18px; z-index: 3; width: 38px; height: 38px; display: grid; place-items: center; background: rgba(9, 11, 10, .72); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.att-stage { position: absolute; left: 50%; top: 50%; width: min(78vw, 980px); height: min(56vh, 560px); transform: translate(-50%, -50%); }
+.gun-stage { position: absolute; inset: 0; }
+.gun-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .55)); }
+.att-leaders { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.att-leaders line { stroke: rgba(255, 176, 0, .75); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.att-leaders circle { fill: var(--accent); }
+.att-slot { position: absolute; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 4px; z-index: 2; }
+.att-slot-box { width: 64px; height: 64px; display: grid; place-items: center; background: rgba(9, 11, 10, .78); border: 1.5px dashed rgba(255, 255, 255, .45); color: var(--text); cursor: pointer; padding: 6px; }
+.att-slot-box svg { width: 22px; height: 22px; }
+.att-slot-box img { max-width: 100%; max-height: 100%; }
+.att-slot.filled .att-slot-box { border: 1.5px solid var(--accent); }
+.att-slot-box:hover, .att-slot.open .att-slot-box { border-color: var(--accent); background: rgba(30, 26, 14, .85); }
+.att-slot-label { font: 600 11px var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--text); text-shadow: 0 1px 3px #000; white-space: nowrap; }
+.att-menu { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); min-width: 220px; display: grid; gap: 2px; padding: 6px; background: rgba(9, 11, 10, .94); border: 1px solid var(--line); }
+.att-menu button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: none; border: 1px solid transparent; color: var(--text); text-align: left; cursor: pointer; font: 600 12px var(--sans); }
+.att-menu button:hover:not(:disabled) { border-color: var(--accent); }
+.att-menu button.misfit { opacity: .4; cursor: not-allowed; }
+.att-menu button svg:last-child { margin-left: auto; }
+.att-menu .att-remove { color: #ff8a6a; }
+.att-menu p { margin: 4px; color: var(--muted); font-size: 12px; }
+.att-art { display: grid; place-items: center; width: 34px; height: 24px; flex: none; }
+.att-art img { max-width: 100%; max-height: 100%; }
+.att-nv { position: absolute; top: calc(100% + 18px); width: 190px; padding: 4px 6px; background: rgba(9, 11, 10, .75); }
+.shop-fit-filter { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin: 0 0 8px; border: 1px solid var(--accent); font-size: 12px; }
+.shop-fit-filter button { margin-left: auto; background: none; border: 0; color: var(--text); cursor: pointer; }
+.shop-view-attachments { width: 100%; margin: 8px 0; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.shop-mount-note { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+
+/* ---- Picture guides (attachments, night vision). */
+.wg-guide { margin: 6px 0; }
+.wg-guide svg { width: 100%; height: auto; display: block; }
+.wg-panel { fill: rgba(255,255,255,.03); stroke: var(--line); stroke-width: 1; }
+.wg-gun path { fill: #4a5048; stroke: var(--text); stroke-width: 1; }
+.wg-cell { fill: none; stroke: rgba(255,255,255,.14); stroke-width: .8; }
+.wg-item { fill: #6a5a3a; stroke: var(--accent); stroke-width: 1.2; }
+.wg-key, .wg-mouse rect, .wg-mouse path { fill: rgba(10,12,11,.6); stroke: var(--text); stroke-width: 1.4; }
+.wg-mouse path { fill: none; }
+.wg-guide .wg-hot { fill: var(--accent); stroke: none; }
+.wg-wheel { animation: fp-nv-wheel 1.2s ease-in-out infinite; }
+.wg-guide text { fill: var(--text); font: 700 14px var(--mono); }
+.wg-or { font-size: 16px !important; opacity: .7; }
+.wg-arrow { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.wg-lens { fill: #0c2a0c; stroke: var(--text); stroke-width: 1.6; }
+.wg-lens-glow { fill: rgba(125, 255, 90, .25); }
+.wg-ret { fill: none; stroke: #b6ff9a; stroke-width: 1; }
+.wg-ret-dot { fill: #b6ff9a; }
+.inv-attach-hint { position: absolute; right: 8px; bottom: -112px; width: 300px; padding: 4px 8px; background: rgba(9,11,10,.92); border: 1px solid var(--line); pointer-events: none; }
+.fp-reddot.holo i { left: -1.5px; top: -1.5px; width: 3px; height: 3px; }
+.fp-reddot.holo b { position: absolute; left: -26px; top: -26px; width: 52px; height: 52px; border-radius: 50%; border: 1.5px solid rgba(255, 50, 30, .9); box-shadow: 0 0 6px rgba(255, 40, 20, .55); }
+
+.shop-attach-guide { margin-left: auto; width: 170px; align-self: center; opacity: .85; }
+.shop-attach-guide .wg-guide { margin: 0; }
+.fp-nv-hint { animation: fp-nv-hint 3s ease-out forwards; }
+@keyframes fp-nv-hint { 0%, 80% { opacity: .85; } 100% { opacity: 0; } }

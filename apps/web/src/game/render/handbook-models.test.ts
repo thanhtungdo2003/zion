@@ -6,9 +6,11 @@ import { buildHandbook } from '@zion/shared';
 import { loadItemDisplayModel } from './weapons';
 import { loadCharacterModel } from './character-model';
 import { ResourceDisposer } from './resources';
+import { untexturedGlb } from './test-glb';
 
 vi.mock('@/lib/preload', () => ({ cachedFetch: async (url: string) => {
   const file = fileURLToPath(new URL(`../../../public${url}`, import.meta.url));
+  if (url.endsWith('.glb')) return new Response(untexturedGlb(await readFile(file)));
   const raw = JSON.parse(await readFile(file, 'utf8'));
   // Decode geometry in Node; texture decoding is performed by the actual WebGL viewer.
   raw.textures = [];

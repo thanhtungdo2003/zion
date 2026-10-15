@@ -2,7 +2,7 @@
 import { Icon } from './Icon';
 import { RankBadge } from './RankBadge';
 import { RankPromotion } from './RankPromotion';
-import { ScopeOverlay } from './ScopeOverlay';
+import { RedDotReticle, ScopeOverlay } from './ScopeOverlay';
 
 import { itemIcons } from '@/game/inventory/icons';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -119,8 +119,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
   return (
     <>
     {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && (
-      <ScopeOverlay magnification={state.scopeMagnification} />
+      <ScopeOverlay magnification={state.scopeMagnification} reticle={state.reticle} nightVision={state.nightVision} nvScope={state.nvScope} />
     )}
+    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (state.reticle === 'dot' || state.reticle === 'holo') && <RedDotReticle holo={state.reticle === 'holo'} />}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">
       {state.vehicle && <div className={`hud-vehicle${state.vehicle.driving ? ' driving' : ''}`} role="status">
@@ -350,7 +351,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         )}
       </SettingsModal>
 
-      {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (
+      {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && state.reticle !== 'dot' && state.reticle !== 'holo' && (
         <div className={`fp-crosshair${state.aiming ? ' is-aiming' : ''}`} aria-hidden>
           <i /><i /><i /><i />
         </div>

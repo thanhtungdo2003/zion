@@ -1,6 +1,7 @@
 import { ARMOR_BY_ID, ARMOR_SLOTS, NO_ARMOR, type ArmorLoadout, type ArmorSlot } from './armor';
 import { ITEMS, maxCount, type ItemCategory, type ItemDef } from './items';
 import { WEAPON_BY_ITEM, weaponSpec } from './weapons';
+import { compatibleSlot, sanitizeAttachments, type AttachmentSlot, type Attachments } from './attachments';
 
 /**
  * Grid inventory rules, shared by the server (which owns every player's inventory) and the client
@@ -63,6 +64,8 @@ export interface PlacedItem {
   quest?: string;
   /** Deployed C4 paired with this remote; distinct from reusable inventory UIDs. */
   chargeId?: number;
+  /** Guns: installed attachments (item ids) by slot. */
+  attachments?: Attachments;
 }
 
 /** What the server persists and sends to its player. */
@@ -154,6 +157,8 @@ export class InventoryModel {
       else delete i.mag;
       // Spent boxes / kits are gone; broken armour stays (0 durability).
       if (max && i.count === 0 && !def.armor) continue;
+      const attachments = sanitizeAttachments(i.itemId, i.attachments);
+      if (attachments) i.attachments = attachments; else delete i.attachments;
       valid.push(i);
     }
     this.items = valid;
@@ -162,7 +167,7 @@ export class InventoryModel {
   }
 
   toJSON(): InventoryData {
-    return { items: this.items.map((i) => ({ ...i })), equipped: this.equipped };
+    return { items: this.items.map((i) => ({ ...i, ...(i.attachments ? { attachments: { ...i.attachments } } : {}) })), equipped: this.equipped };
   }
 
   private nextUid(): number {
@@ -219,6 +224,45 @@ export class InventoryModel {
     this.items.push(item);
     if (this.equipped === null && hotbar(this.items).some((i) => i.uid === item.uid)) this.equipped = item.uid;
     return item;
+  }
+
+  /**
+   * Installs an attachment item onto a gun. The attachment leaves the inventory; whatever occupied
+   * the slot comes back as an item in the accessory's place, so nothing is duplicated or lost.
+   */
+  attach(gunUid: number, attachmentUid: number): boolean {
+    const gun = this.get(gunUid), part = this.get(attachmentUid);
+    if (!gun || !part || gun === part) return false;
+    const slot = compatibleSlot(gun.itemId, part.itemId);
+    if (!slot) return false;
+    const previous = gun.attachments?.[slot];
+    this.items = this.items.filter((i) => i !== part);
+    if (previous) {
+      // The old attachment takes the freed cells if it fits there, else any free spot.
+      const back: PlacedItem = { uid: part.uid, itemId: previous, container: part.container, x: part.x, y: part.y, rotated: part.rotated };
+      if (canPlace(this.items, back.container, previous, back.x, back.y, back.rotated)) this.items.push(back);
+      else {
+        const spot = findSpot(this.items, previous, ['backpack']);
+        if (!spot) { this.items.push(part); return false; }
+        this.items.push({ ...back, ...spot });
+      }
+    }
+    gun.attachments = { ...gun.attachments, [slot]: part.itemId };
+    this.fixEquipped();
+    return true;
+  }
+
+  /** Takes an attachment off a gun back into the backpack (false when there is no room). */
+  detach(gunUid: number, slot: AttachmentSlot): boolean {
+    const gun = this.get(gunUid), id = gun?.attachments?.[slot];
+    if (!gun || !id) return false;
+    const spot = findSpot(this.items, id, ['backpack']);
+    if (!spot) return false;
+    this.items.push({ uid: this.nextUid(), itemId: id, ...spot });
+    const rest = { ...gun.attachments };
+    delete rest[slot];
+    if (Object.keys(rest).length) gun.attachments = rest; else delete gun.attachments;
+    return true;
   }
 
   remove(uid: number): PlacedItem | null {
