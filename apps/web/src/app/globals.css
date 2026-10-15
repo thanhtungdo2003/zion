@@ -2690,3 +2690,98 @@ kbd {
 .shop-attach-guide .wg-guide { margin: 0; }
 .fp-nv-hint { animation: fp-nv-hint 3s ease-out forwards; }
 @keyframes fp-nv-hint { 0%, 80% { opacity: .85; } 100% { opacity: 0; } }
+
+/* ---- Studio: weapon manager. */
+.ws-panel { max-width: 860px; width: min(860px, 94vw); }
+.ws-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ws-head h2 { margin: 0 auto 0 0; display: flex; align-items: center; gap: 8px; font-size: 18px; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.ws-name { font: inherit; background: transparent; border: 0; border-bottom: 1px dashed var(--line); color: var(--text); width: 16em; }
+.ws-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ws-table th, .ws-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.ws-table td small { display: block; color: var(--muted); font-size: 11px; }
+.ws-row-tools { display: flex; gap: 6px; justify-content: flex-end; }
+.ws-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 12px; }
+.ws-kind label { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--line); cursor: pointer; }
+.ws-kind label.on { border-color: var(--accent); background: rgba(255, 176, 0, .08); }
+.ws-kind input { display: none; }
+.ws-kind small { color: var(--muted); font-size: 11px; }
+.ws-editor { height: 100%; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.ws-editor > .ws-body { flex: 1 1 auto; }
+.ws-page .btn { width: auto; flex: none; }
+.ws-viewer { height: 100%; }
+.ws-tabs { display: flex; gap: 4px; }
+.ws-error { margin: 0 0 8px; }
+.ws-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; min-height: 0; }
+.ws-viewer { position: relative; min-height: 360px; border: 1px solid var(--line); overflow: hidden; }
+.ws-viewer canvas { width: 100%; height: 100%; display: block; }
+.ws-viewer-state, .ws-viewer-hint { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; align-items: center; padding: 4px 8px; background: rgba(9, 11, 10, .8); font-size: 12px; pointer-events: none; }
+.ws-side { overflow: auto; display: grid; gap: 8px; align-content: start; }
+.ws-axes { display: grid; gap: 4px; }
+.ws-points { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.ws-points li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 6px; padding: 3px 4px; border: 1px solid transparent; }
+.ws-xyz { display: flex; gap: 2px; }
+.ws-xyz input { width: 54px; padding: 2px 4px; font: 11px var(--mono); background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text); }
+.ws-points li.on { border-color: var(--accent); }
+.ws-points li > button:first-child { display: flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--text); text-align: left; cursor: pointer; font: 600 12px var(--sans); }
+.ws-points i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #000; }
+.ws-points small { color: var(--muted); font: 11px var(--mono); }
+.ws-clear { background: none; border: 0; color: var(--muted); cursor: pointer; }
+.ws-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; overflow: auto; align-content: start; }
+.ws-stats fieldset { border: 1px solid var(--line); padding: 8px 10px; display: grid; gap: 4px; margin: 0; }
+.ws-stats legend { font: 700 12px var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.ws-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 12px; }
+.ws-dps { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.ws-fp .ws-crosshair { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px #000; pointer-events: none; }
+@media (max-width: 900px) { .ws-body { grid-template-columns: 1fr; } }
+
+/* Weapon manager page (/studio/weapons). */
+.ws-page { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; background: var(--bg); color: var(--text); }
+.ws-bar { grid-area: auto; gap: 10px; min-height: 52px; flex-wrap: wrap; }
+.ws-bar h1 { margin: 0 auto 0 0; white-space: nowrap; }
+.ws-bar .btn, .ws-tabs .btn { white-space: nowrap; }
+.ws-search { width: 200px; padding: 6px 8px; background: rgba(255,255,255,.05); border: 1px solid var(--line); color: var(--text); }
+.ws-layout { display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
+.ws-list { overflow: auto; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 2px; padding: 6px; }
+.ws-item { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 8px; padding: 7px 8px; background: none; border: 1px solid transparent; color: var(--text); text-align: left; cursor: pointer; }
+.ws-item:hover { background: rgba(255,255,255,.04); }
+.ws-item.on { border-color: var(--accent); background: rgba(255,176,0,.07); }
+.ws-item b { display: block; font: 600 13px var(--sans); }
+.ws-item small { display: block; color: var(--muted); font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-badge { font: 600 10px var(--cond); letter-spacing: .08em; text-transform: uppercase; font-style: normal; padding: 2px 5px; border: 1px solid var(--line); color: var(--muted); }
+.ws-badge.edited { color: var(--accent); border-color: var(--accent); }
+.ws-badge.custom { color: #7fd36b; border-color: #7fd36b; }
+.ws-main { min-height: 0; min-width: 0; overflow: hidden; padding: 10px 12px; }
+.ws-empty { height: 100%; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); text-align: center; }
+.ws-empty svg { width: 48px; height: 48px; opacity: .5; }
+@media (max-width: 900px) { .ws-layout { grid-template-columns: 1fr; grid-template-rows: 220px 1fr; } .ws-list { border-right: 0; border-bottom: 1px solid var(--line); } }
+.ws-stats .studio-field-inline, .ws-side .studio-field-inline { display: grid; grid-template-columns: 1fr 150px; align-items: center; gap: 8px; margin: 0; }
+.ws-stats .studio-field-inline input, .ws-stats .studio-field-inline select, .ws-side .studio-field-inline input, .ws-side .studio-field-inline select { width: 100%; }
+.ws-stats .studio-field-inline input[type=checkbox] { width: auto; justify-self: start; }
+.ws-checks { align-content: start; }
+
+.ws-picker { grid-column: 1 / -1; display: grid; gap: 4px; padding: 4px 0 2px 16px; }
+.ws-picker.off { opacity: .5; }
+.ws-picker small { font-size: 11px; color: var(--muted); }
+.ws-picker-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ws-picker-chips button { padding: 3px 7px; font: 600 11px var(--sans); background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+.ws-picker-chips button.on { border-color: var(--accent); color: var(--text); background: rgba(255,176,0,.14); }
+.ws-picker-tools { display: flex; gap: 8px; }
+.ws-picker-tools button { background: none; border: 0; padding: 0; font-size: 11px; color: var(--accent); cursor: pointer; }
+.ws-swap { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ws-picker-preview { display: grid; gap: 4px; margin-top: 4px; }
+.ws-picker-preview label { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.ws-picker-preview select { width: 100%; }
+.ws-part-scale { display: flex; gap: 4px; align-items: center; }
+.ws-part-scale input { flex: 1; }
+.ws-part-scale button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; }
+
+/* Confirmation dialog (replaces window.confirm). */
+.confirm-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .6); pointer-events: auto; }
+.confirm-dialog { width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 20px; background: #16181b; border: 1px solid #2c3036; border-top: 3px solid var(--danger); color: #e8e8e8; box-shadow: 0 18px 50px rgba(0, 0, 0, .55); }
+.confirm-dialog h2 { margin: 0; font-size: 18px; }
+.confirm-message { font-size: 14px; line-height: 1.5; color: #c4c7cc; }
+.confirm-dialog input { padding: 9px 10px; background: #0d0f11; border: 1px solid #343941; color: inherit; font: inherit; }
+.confirm-error { margin: 0; color: #ff8a80; font-size: 13px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn.confirm-danger, .btn.ws-reset { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.confirm-danger:hover:not(:disabled), .btn.ws-reset:hover:not(:disabled) { background: #e2342a; }

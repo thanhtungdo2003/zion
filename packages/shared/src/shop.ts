@@ -107,6 +107,19 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
 
 const PRICE = new Map(SHOP_STOCK.map((e) => [e.item, e.price]));
 
+/** Adds, replaces or (with `remove`) drops a listing at runtime (Studio-made weapons). */
+export function registerShopEntry(entry: ShopEntry, remove = false): void {
+  const stock = SHOP_STOCK as ShopEntry[];
+  const at = stock.findIndex((e) => e.item === entry.item);
+  if (at >= 0) stock.splice(at, 1);
+  PRICE.delete(entry.item);
+  if (remove) return;
+  // Before the armour block, after the built-in entries of its category.
+  const last = stock.map((e) => e.category).lastIndexOf(entry.category);
+  stock.splice(last >= 0 ? last + 1 : stock.length, 0, entry);
+  PRICE.set(entry.item, entry.price);
+}
+
 export function vendorOf(item: string): 'weapons' | 'medic' | null {
   const e = SHOP_STOCK.find((s) => s.item === item);
   return e ? (e.vendor ?? 'weapons') : null;

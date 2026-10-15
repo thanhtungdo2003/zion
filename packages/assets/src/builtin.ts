@@ -3,6 +3,7 @@ import { BRIDGE_ASSETS } from './bridge-assets';
 import { BATTLE_ASSETS } from './battle-assets';
 import { VEHICLE_ASSETS } from './vehicle-assets';
 import { IMPORTED_ASSETS } from './imported-assets';
+import { GRID_ASSETS } from './grid-assets';
 import { Biome } from '@zion/shared';
 import { AssetRegistry } from './registry';
 import type { AssetDefinitionInput } from './schema';
@@ -20,6 +21,7 @@ export const BUILTIN_ASSETS: readonly AssetDefinitionInput[] = [
   ...BATTLE_ASSETS,
   ...VEHICLE_ASSETS,
   ...IMPORTED_ASSETS,
+  ...GRID_ASSETS,
   {
     id: 'nature.tree.spruce',
     numericId: 1,

@@ -37,6 +37,7 @@ export const PROCEDURAL_GENERATORS = [
   'slab',
   'bridge_block',
   'water_tank',
+  'ivy',
 ] as const;
 
 export const modelSourceSchema = z.discriminatedUnion('kind', [
@@ -65,6 +66,8 @@ export const modelSourceSchema = z.discriminatedUnion('kind', [
       /** Correct authored vehicle proportions before the final metre-space offset. */
       axisScale: z.tuple([positive, positive, positive]).default([1, 1, 1]),
       offset: vec3.default([0, 0, 0]),
+      /** Euler XYZ (radians) turning the model about its origin, before `offset`. */
+      rotation: vec3.optional(),
     })
     .strict(),
 ]);

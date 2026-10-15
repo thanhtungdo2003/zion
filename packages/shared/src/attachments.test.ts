@@ -7,7 +7,7 @@ import { WEAPON_SPECS } from './weapons';
 
 function inv(): InventoryModel {
   const m = new InventoryModel({ items: [], equipped: null });
-  m.add('m4a1'); m.add('red_dot'); m.add('scope_4x'); m.add('suppressor_pistol'); m.add('suppressor_rifle');
+  m.add('ak47'); m.add('red_dot'); m.add('scope_4x'); m.add('suppressor_pistol'); m.add('suppressor_rifle');
   return m;
 }
 const uid = (m: InventoryModel, id: string) => m.items.find((i) => i.itemId === id)!.uid;
@@ -29,7 +29,7 @@ describe('weapon attachments', () => {
   });
 
   it('installs, swaps and removes without duplicating or losing items', () => {
-    const m = inv(), gun = uid(m, 'm4a1');
+    const m = inv(), gun = uid(m, 'ak47');
     const count = () => m.items.length + Object.keys(m.get(gun)!.attachments ?? {}).length;
     const total = count();
     expect(m.attach(gun, uid(m, 'red_dot'))).toBe(true);
@@ -49,8 +49,8 @@ describe('weapon attachments', () => {
   });
 
   it('rejects incompatible attachments and non-guns', () => {
-    const m = inv(), gun = uid(m, 'm4a1');
-    expect(compatibleSlot('m4a1', 'suppressor_pistol')).toBeNull();
+    const m = inv(), gun = uid(m, 'ak47');
+    expect(compatibleSlot('ak47', 'suppressor_pistol')).toBeNull();
     expect(m.attach(gun, uid(m, 'suppressor_pistol'))).toBe(false);
     expect(m.get(gun)!.attachments).toBeUndefined();
     expect(m.attach(uid(m, 'red_dot'), uid(m, 'scope_4x'))).toBe(false);
@@ -58,7 +58,7 @@ describe('weapon attachments', () => {
   });
 
   it('cannot take an attachment off into a full backpack', () => {
-    const m = inv(), gun = uid(m, 'm4a1');
+    const m = inv(), gun = uid(m, 'ak47');
     m.attach(gun, uid(m, 'scope_4x'));
     while (m.add('medkit')) { /* fill every free cell */ }
     expect(m.detach(gun, 'optic')).toBe(false);
@@ -66,11 +66,11 @@ describe('weapon attachments', () => {
   });
 
   it('persists through save/load and drops tampered entries', () => {
-    const m = inv(), gun = uid(m, 'm4a1');
+    const m = inv(), gun = uid(m, 'ak47');
     m.attach(gun, uid(m, 'red_dot'));
     const loaded = new InventoryModel(m.toJSON());
     expect(loaded.get(gun)!.attachments).toEqual({ optic: 'red_dot' });
-    expect(sanitizeAttachments('m4a1', { optic: 'scope_10x', muzzle: 'suppressor_rifle', junk: 'x' })).toEqual({ muzzle: 'suppressor_rifle' });
+    expect(sanitizeAttachments('ak47', { optic: 'scope_10x', muzzle: 'suppressor_rifle', junk: 'x' })).toEqual({ muzzle: 'suppressor_rifle' });
     expect(new InventoryModel({ items: [{ ...m.get(gun)!, attachments: { optic: 'nope' } }], equipped: null }).items[0]!.attachments).toBeUndefined();
   });
 

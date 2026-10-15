@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-15T05:36:04.640Z",
+  "generatedAt": "2026-10-15T17:17:08.846Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1257,15 +1257,15 @@
       "kind": "bbmodel"
     },
     "weapons/awm-sniper-4x.bbmodel": {
-      "url": "/assets/models/weapons_awm-sniper-4x.b0d219165345.bbmodel",
-      "sha256": "b0d219165345daf7f0b3fa5548ed0f5048936a4a6ff79ec1f23417fd55572585",
-      "bytes": 12900,
+      "url": "/assets/models/weapons_awm-sniper-4x.2ee5d91a6719.bbmodel",
+      "sha256": "2ee5d91a6719987349c76dd21ba6cd92decc100d0a01f1451fff00fa46fcafb5",
+      "bytes": 23139,
       "kind": "bbmodel"
     },
     "weapons/barrett-m82.bbmodel": {
-      "url": "/assets/models/weapons_barrett-m82.a4823265fcae.bbmodel",
-      "sha256": "a4823265fcae9082b2dbd9cd1f79ba85bfe628eff41c5b00651830cde41a76a6",
-      "bytes": 16243,
+      "url": "/assets/models/weapons_barrett-m82.4c402d4417fa.bbmodel",
+      "sha256": "4c402d4417fac9889783249da2ed52f899004aa0f2e6667234f3527ff4f87747",
+      "bytes": 20975,
       "kind": "bbmodel"
     },
     "weapons/baseball-bat.bbmodel": {
@@ -1347,9 +1347,9 @@
       "kind": "bbmodel"
     },
     "weapons/glock-18.bbmodel": {
-      "url": "/assets/models/weapons_glock-18.c5aa76944bdb.bbmodel",
-      "sha256": "c5aa76944bdb6854f340a2ddb6ec9d68e813a4e85a79403c6d64cbd26b49eba5",
-      "bytes": 11840,
+      "url": "/assets/models/weapons_glock-18.afca91ed3720.bbmodel",
+      "sha256": "afca91ed3720f66e3dd26e8b935c796b465849fb75d1af6baf378cf9d638cc71",
+      "bytes": 14893,
       "kind": "bbmodel"
     },
     "weapons/grenade-40mm-retail-pack.bbmodel": {
@@ -1395,9 +1395,9 @@
       "kind": "bbmodel"
     },
     "weapons/m4a1-rifle.bbmodel": {
-      "url": "/assets/models/weapons_m4a1-rifle.95bfe82a968e.bbmodel",
-      "sha256": "95bfe82a968e338c632f9cc43ea4df48de68a2e338955148a2a05bec63532a00",
-      "bytes": 10903,
+      "url": "/assets/models/weapons_m4a1-rifle.2014bba7a7db.bbmodel",
+      "sha256": "2014bba7a7dba33538a413e89b9cd968b14736284984285f8d2964e76b309ae3",
+      "bytes": 17294,
       "kind": "bbmodel"
     },
     "weapons/machete.bbmodel": {

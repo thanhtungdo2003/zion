@@ -57,7 +57,9 @@ async function generateAtlas(generator: WorldGenerator, worldId: string): Promis
   const pixels = 256, size = generator.worldSize;
   const rgb = await terrainRgb(generator, 0, 0, size, pixels);
   const authored = generator.config.mode === 'battle-royale' ? authoredWorld(generator) : null;
-  return { worldId, size, pixels, rgb, ...(authored ? battleOverlay(generator, authored) : {}), roads: generator.roads?.segments.map(s => ({ ax: s.a.x, az: s.a.z, bx: s.b.x, bz: s.b.z, width: s.halfWidth * 2, bridge: !!s.bridge, paved: !!s.paved, widthA: (s.widthA ?? s.halfWidth) * 2, widthB: (s.widthB ?? s.halfWidth) * 2 })), structures: [...allStructures(generator)].map(({ x, z, radius, kind, halfX, halfZ, yaw }) => ({ x, z, radius, kind, ...(halfX ? { halfX, halfZ, yaw } : {}) })) };
+  // Survival (v7+): the roadside grid's cables, strung by the client.
+  const grid = authored ? [] : generator.roads?.cables() ?? [];
+  return { worldId, size, pixels, rgb, ...(authored ? battleOverlay(generator, authored) : {}), ...(grid.length ? { cables: grid.map(c => ({ kind: c.kind, points: c.points.map(([x, y, z]) => [+x.toFixed(2), +y.toFixed(2), +z.toFixed(2)] as [number, number, number]) })) } : {}), roads: generator.roads?.segments.map(s => ({ ax: s.a.x, az: s.a.z, bx: s.b.x, bz: s.b.z, width: s.halfWidth * 2, bridge: !!s.bridge, paved: !!s.paved, widthA: (s.widthA ?? s.halfWidth) * 2, widthB: (s.widthB ?? s.halfWidth) * 2 })), structures: [...allStructures(generator)].map(({ x, z, radius, kind, halfX, halfZ, yaw }) => ({ x, z, radius, kind, ...(halfX ? { halfX, halfZ, yaw } : {}) })) };
 }
 
 /** Named areas, power lines and building footprints of an authored map. */

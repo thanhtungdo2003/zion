@@ -20,8 +20,12 @@ import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
 import type { NewsBackend } from '../repositories/news';
 import { registerLibraryRoutes } from './routes/library';
+import { registerWeaponRoutes } from './routes/weapons';
+import type { CustomWeaponStore } from '../repositories/custom-weapons';
 
 export interface HttpDeps {
+  /** Weapons made in the Studio (definitions + model files). */
+  customWeapons?: CustomWeaponStore;
   news?: NewsBackend;
   progression?: ProgressionService;
   config: AppConfig;
@@ -127,6 +131,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerCareerRoutes(app, deps);
   registerGameRoutes(app, deps);
   registerLibraryRoutes(app, deps);
+  registerWeaponRoutes(app, deps);
   registerStudioRoutes(app, deps);
   return app;
 }

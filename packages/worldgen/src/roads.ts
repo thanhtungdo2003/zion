@@ -6,7 +6,8 @@ import { IndexHeap } from './heap';
 import { allStructures, insideStructure } from './structures';
 import { bridgeProp, buildBridgeProps, type BridgeSpan } from './bridges';
 import { Simplex2 } from './noise';
-import { authoredWorld } from './maps/authored';
+import { authoredWorld, type PowerCable } from './maps/authored';
+import { PowerGrid } from './power-grid';
 
 export const ROAD_HALF_WIDTH = 2.4;
 export const ROAD_SHOULDER = 2;
@@ -35,7 +36,9 @@ export class RoadNetwork {
   private readonly improved: boolean;
   private readonly wear: Simplex2;
 
-  constructor(gen: WorldGenerator) {
+  private grid: PowerGrid | null = null;
+
+  constructor(private readonly gen: WorldGenerator) {
     this.improved = gen.config.generatorVersion >= 6;
     this.wear = new Simplex2(gen.seed ^ 0xa5fa17);
     if (!gen.camp && gen.config.mode !== 'battle-royale') return;
@@ -180,10 +183,19 @@ export class RoadNetwork {
       }
     };
     edges.push([{ x: camp.x, z: camp.z + 50, y: camp.y, fixed: true }, node(root)]);
+    const streetNodes = new Set<Node>();
     for (const site of sites) {
       const distance = Math.hypot(camp.x - site.x, camp.z - site.z);
       const x = site.x + (camp.x - site.x) / distance * (site.radius + 5);
       const z = site.z + (camp.z - site.z) / distance * (site.radius + 5);
+      const entrance = { x, z, y: site.y, fixed: true };
+      if (site.street) {
+        // A town's main street runs straight through it from the entrance (its local +Z faces
+        // the camp) to the far end of the houses.
+        const far = { x: site.x + Math.sin(site.yaw) * site.street, z: site.z + Math.cos(site.yaw) * site.street, y: site.y, fixed: true };
+        edges.push([far, entrance]);
+        for (const p of [far, entrance]) { streetNodes.add(p); pavedNodes.add(p); }
+      }
       let goal = -1, best = Infinity;
       for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
         const gx = Math.round(x / step) + dx, gz = Math.round(z / step) + dz;
@@ -198,7 +210,6 @@ export class RoadNetwork {
       const paved = this.improved && route.some(k => parentBridge.has(k));
       if (paved) for (const k of route) pavedNodes.add(node(k));
       this.connectedSites.push({ x: site.x, z: site.z });
-      const entrance = { x, z, y: site.y, fixed: true };
       if (paved) pavedNodes.add(entrance);
       edges.push([node(goal), entrance]);
       for (let k = goal; k !== root && k >= 0 && !used.has(k); k = parent[k]!) {
@@ -319,6 +330,7 @@ export class RoadNetwork {
         }
       }
     }
+    for (const p of streetNodes) widths.set(p, Math.max(widths.get(p) ?? 0, 3.3));
     for (const [a, b] of edges) {
       const length = Math.hypot(b.x - a.x, b.z - a.z);
       if (length < .1) continue;
@@ -507,7 +519,20 @@ export class RoadNetwork {
     }
   }
 
-  chunkProps(cx: number, cz: number): PropInstance[] { return this.fences.get(`${cx}:${cz}`) ?? []; }
+  chunkProps(cx: number, cz: number): PropInstance[] {
+    const fences = this.fences.get(`${cx}:${cz}`) ?? [];
+    const grid = this.powerGrid();
+    return grid ? [...fences, ...grid.chunkProps(cx, cz)] : fences;
+  }
+
+  /** The survival map's roadside power lines (generator v7+); built on first use, after the roads. */
+  powerGrid(): PowerGrid | null {
+    if (this.gen.config.generatorVersion < 7 || this.gen.config.mode === 'battle-royale' || this.gen.rawTerrain) return null;
+    return this.grid ??= new PowerGrid(this.gen, this.segments);
+  }
+
+  /** Conductor polylines of the roadside grid, for rendering. */
+  cables(): readonly PowerCable[] { return this.powerGrid()?.cables() ?? []; }
 
   private buildDangerBarriers(gen: WorldGenerator): void {
     const adjacent = new Map<Node, Node[]>();

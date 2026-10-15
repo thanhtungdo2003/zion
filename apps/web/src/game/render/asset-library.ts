@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   DoubleSide,
+  Euler,
   Matrix4,
   Mesh,
   MeshLambertMaterial,
@@ -193,7 +194,12 @@ export class AssetLibrary {
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const res = await cachedFetch(entry.url);
         if (!res.ok) throw new Error(`fetch ${entry.url} failed (${res.status})`);
-        return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset, model.axisScale) };
+        if (!model.rotation) return { def, parts: await loadBBModel(await res.json(), model.unitsPerMeter, model.offset, model.axisScale) };
+        // Turned about the model origin first, then offset (leaning and fallen variants).
+        const parts = await loadBBModel(await res.json(), model.unitsPerMeter, [0, 0, 0], model.axisScale);
+        const turn = new Matrix4().makeTranslation(...model.offset).multiply(new Matrix4().makeRotationFromEuler(new Euler(...model.rotation)));
+        for (const part of parts) { part.geometry.applyMatrix4(turn); part.geometry.computeBoundingSphere(); }
+        return { def, parts };
       }
       case 'glb': {
         const release = await this.acquireGlb();

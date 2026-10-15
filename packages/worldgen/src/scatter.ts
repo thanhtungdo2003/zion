@@ -14,6 +14,7 @@ import {
 import { CAMP_ASSET, type AssetDefinition, type PlacementLayer } from '@zion/assets';
 import { makeColumnSample, type ColumnSample, type WorldGenerator } from './generator';
 import { insideStructure } from './structures';
+import { ISLAND_ASSET } from './maps/authored';
 
 /**
  * Placement layers, processed in order. Each layer scatters at most one candidate per world-aligned
@@ -56,6 +57,7 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
   const sample = makeColumnSample();
   const probe = makeColumnSample();
   const weights: number[] = [];
+  const flora = gen.config.generatorVersion >= 7;
 
   for (const spec of LAYERS) {
     const assets = gen.registry.layer(spec.layer);
@@ -126,6 +128,15 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         const rule = def.placement!;
         const scale = lerp(rule.scale[0], rule.scale[1], rng.next());
         const rotY = rng.next() * Math.PI * 2;
+        if (flora) {
+          // v7: the same prepared trees, bushes and rocks as the battle-royale island.
+          const swap = islandFlora(def.numericId, rng.next(), rng.next());
+          if (swap) {
+            if (swap.thin && rng.next() < swap.thin) continue;
+            out.push({ asset: swap.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(sample.height - swap.sink), rot: quantizeRotation(rotY), scale: quantizeScale(swap.scale) });
+            continue;
+          }
+        }
         out.push({
           asset: def.numericId,
           lx: quantizeLocal(x - ox),
@@ -139,6 +150,29 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
   }
   if (gen.config.generatorVersion >= 2) placeAmmoCaches(gen, ox, oz, sample, out);
   return out;
+}
+
+/**
+ * The island model standing in for a procedural survival asset: species by the procedural kind
+ * (conifers for spruce, broadleaves for oak…), sizes like the island's. `thin` drops a share of
+ * candidates, since the island trees are fuller than the procedural ones.
+ */
+function islandFlora(id: number, species: number, size: number): { asset: number; scale: number; sink: number; thin?: number } | null {
+  const pick = (list: readonly number[]) => list[Math.min(list.length - 1, Math.floor(species * list.length))]!;
+  const tree = (asset: number) => ({ asset, scale: .75 + size * .5, sink: .25, thin: .35 });
+  switch (id) {
+    case 1: return tree(species < .3 ? ISLAND_ASSET.pineSmall : species < .6 ? ISLAND_ASSET.pineMedium : species < .85 ? ISLAND_ASSET.pineBig : ISLAND_ASSET.conifer);
+    case 2: case 4: case 7: return tree(species < .6 ? pick(ISLAND_ASSET.treeBig) : ISLAND_ASSET.treeSmall[Math.floor(size * 5) % 5]!);
+    case 3: return tree(pick(ISLAND_ASSET.treeSmall));
+    case 5: return tree(ISLAND_ASSET.banana);
+    case 6: return tree(species < .5 ? ISLAND_ASSET.deadTree : ISLAND_ASSET.deadPine);
+    case 9: return { asset: pick(ISLAND_ASSET.bush), scale: .7 + size * .5, sink: .1 };
+    case 10: return { asset: pick(ISLAND_ASSET.bush), scale: .55 + size * .35, sink: .1, thin: .3 };
+    case 20: return { asset: pick(ISLAND_ASSET.stone), scale: .6 + size * .6, sink: .3 };
+    case 21: return { asset: pick(ISLAND_ASSET.rockMedium), scale: .6 + size * .6, sink: .4 };
+    case 22: return { asset: pick(ISLAND_ASSET.rockBig), scale: .6 + size * .5, sink: .5 };
+    default: return null;
+  }
 }
 
 /** One ammo cache station per world cell (at most), on dry, flat ground away from the camp. */

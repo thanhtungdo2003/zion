@@ -9,6 +9,7 @@ import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
+import { CustomWeaponStore } from './repositories/custom-weapons';
 import { ProgressionService } from './game/progression';
 import { atlasProvider, atlasTileProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
@@ -83,6 +84,9 @@ async function main(): Promise<void> {
   const progression = new ProgressionService(db, config.WORLD_ID);
   await progression.initialize();
   const playerStates = new PlayerStateRepository(db, config.WORLD_ID, progression);
+  // Studio weapons join the shared weapon/item/shop tables before any game server starts.
+  const customWeapons = new CustomWeaponStore(db);
+  await customWeapons.load((id, err) => logger.warn({ id, err }, 'custom weapon skipped (invalid definition)'));
   const teams = new TeamService(await playerStates.loadTeams(), (id, team, player) => playerStates.saveTeam(id, team, player));
   const game = new GameServer({
     progression,
@@ -148,6 +152,7 @@ async function main(): Promise<void> {
 
   const app = await buildHttpApp({
     news: new NewsRepository(db),
+    customWeapons,
     progression,
     atlas: mode => mode === 'battle-royale' ? battleAtlas() : survivalAtlas(),
     atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : survivalTiles(x, z),

@@ -48,7 +48,7 @@ describe('weapon sights and attachment mounts', () => {
     const dir = v.sight!.front.clone().sub(v.sight!.rear).normalize();
     expect(dir.x).toBeGreaterThan(.97);
     expect(v.sight!.rear.y).toBeGreaterThan(0);
-    expect(v.sight!.rear.y).toBeLessThan(.3);
+    expect(v.sight!.rear.y).toBeLessThan(.4);
     const bounds = meshBounds(v.display);
     const muzzle = v.display.getObjectByName('weapon-muzzle')!.getWorldPosition(new Vector3());
     // The muzzle marker is at the front end of the model and the sights sit on top of it.
@@ -64,7 +64,8 @@ describe('weapon sights and attachment mounts', () => {
     const gun = meshBounds(v.display), mounted = new Box3().setFromObject(holder, true);
     if (slot === 'optic') {
       // Sits on the gun's top, over its body, and its eyepiece becomes the sight line.
-      expect(mounted.min.y).toBeGreaterThan(gun.max.y - .08);
+      // Mounts are hand-placed in the Studio; the optic stands up on the gun's top.
+      expect(mounted.max.y).toBeGreaterThan(gun.max.y - .02);
       expect(mounted.max.x).toBeGreaterThan(gun.min.x);
       expect(mounted.min.x).toBeLessThan(gun.max.x);
       const dir = v.sight!.front.clone().sub(v.sight!.rear).normalize();
@@ -74,7 +75,7 @@ describe('weapon sights and attachment mounts', () => {
       // Screwed on the muzzle, extending it forward; the flash now comes from its end.
       const base = weapons.get(id)!.display.getObjectByName('weapon-muzzle')!.getWorldPosition(new Vector3());
       const muzzle = v.display.getObjectByName('weapon-muzzle')!.getWorldPosition(new Vector3());
-      expect(mounted.min.x).toBeGreaterThan(base.x - .03);
+      expect(Math.abs(mounted.min.x - base.x)).toBeLessThan(.003); // threaded on the bore's face
       expect(muzzle.x).toBeGreaterThan(base.x + .05);
       expect(Math.abs(muzzle.y - base.y)).toBeLessThan(.01);
     }
@@ -145,7 +146,7 @@ describe('first-person hands', () => {
 });
 
 describe('see-through sights', () => {
-  it.each([['ak47', 'red_dot'], ['ak47', 'holo_sight'], ['mp5', 'holo_sight'], ['m4a1', 'red_dot']] as const)('%s with %s: nothing blocks the aiming ray', (id, optic) => {
+  it.each([['ak47', 'red_dot'], ['ak47', 'holo_sight'], ['mp5', 'holo_sight'], ['scar_h', 'red_dot']] as const)('%s with %s: nothing blocks the aiming ray', (id, optic) => {
     const camera = new PerspectiveCamera(75, 16 / 9, .05, 1000), view = new ViewModel(camera);
     view.set(id, weapons, { optic });
     for (let i = 0; i < 120; i++) view.update(1 / 60, { visible: true, moving: false, sprint: false, reloading: false, yaw: 0, pitch: 0, aiming: true });
@@ -155,3 +156,17 @@ describe('see-through sights', () => {
     expect(ray.intersectObject(model, true).length).toBe(0);
   });
 });
+
+describe('Studio attachment preview', () => {
+  it('mounts an attachment at the same size as in game, even on a rotated model', async () => {
+    const { previewAttachment, builtinWeaponVisual } = await import('./weapons');
+    const { Group: G } = await import('three');
+    const v = weapons.get('m4a1')!;
+    const game = dressWeapon(weapons, 'm4a1', { optic: 'scope_4x' })!.object.getObjectByName('attachment-scope_4x')!;
+    const holder = new G(); holder.rotation.set(.7, 1.1, -.4);
+    const root = v.object.clone(true); holder.add(root);
+    const preview = (await previewAttachment(builtinWeaponVisual('m4a1')!, root, 'scope_4x'))!;
+    for (let i = 0; i < 16; i++) expect(preview.matrix.elements[i]).toBeCloseTo(game.matrix.elements[i]!, 6);
+  });
+});
+

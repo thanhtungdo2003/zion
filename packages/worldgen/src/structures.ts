@@ -4,7 +4,8 @@ import { makeColumnSample, type ColumnSample, type WorldGenerator } from './gene
 import type { CampPart } from './camp';
 import { authoredWorld } from './maps/authored';
 import { battleStructures } from './battle-map';
-import { importedRoofAccess, importedSettlement } from './imported-buildings';
+import { importedRoofAccess, importedSettlement, importedSpawns } from './imported-buildings';
+import { survivalTown, type SpawnSpot } from './survival-town';
 
 /**
  * Abandoned structures scattered over the map (Minecraft-style): ruined camps, lone houses,
@@ -30,6 +31,10 @@ export interface Structure {
   parts: CampPart[];
   /** Seeded id of this site (makes its group ids unique). */
   gid: number;
+  /** Towns (v7+): local Z of the far end of the main street, which runs along local Z to the entrance. */
+  street?: number;
+  /** Where zombies may lurk indoors: site-local x, floor height above the base, z. */
+  spawns?: SpawnSpot[];
 }
 
 /**
@@ -71,6 +76,8 @@ const WALLS: Record<string, WallKit> = {
 
 class Builder {
   readonly parts: CampPart[] = [];
+  /** Indoor spots (site-local) where zombies may lurk. */
+  readonly spawns: SpawnSpot[] = [];
   /** Group stamped on parts added now (0 = none); one per building / wall run. */
   group = 0;
   private nextGroup = 1;
@@ -214,6 +221,7 @@ function houseSmall(b: Builder, cx = 0, cz = 0, facing: 'n' | 's' | 'e' | 'w' = 
   const w = b.pick([8, 8, 12]);
   const d = b.pick([4, 8, 8]);
   b.box(kit, cx, cz, w, d, 0.18, facing);
+  b.spawns.push([cx, 0, cz]);
   b.windows(kit, cx - w / 2, cz - d / 2, cx + w / 2, cz - d / 2);
   b.roof(cx, cz, w, d, kit.height, 0.35);
   b.debris(cx, cz, Math.min(w, d) / 2 - 0.8, 2 + Math.floor(b.rng.next() * 3));
@@ -226,6 +234,7 @@ function houseLarge(b: Builder, cx = 0, cz = 0, facing: 'n' | 's' | 'e' | 'w' = 
   const w = b.pick([12, 16]);
   const d = b.pick([8, 12]);
   b.box(kit, cx, cz, w, d, 0.25, facing);
+  b.spawns.push([cx - w / 4, 0, cz], [cx + w / 4, 0, cz]);
   // Inner partition with a doorway.
   b.wall(kit, cx, cz - d / 2, cx, cz + d / 2, 0.3, [0]);
   b.windows(kit, cx - w / 2, cz + d / 2, cx + w / 2, cz + d / 2);
@@ -474,10 +483,20 @@ function chooseSite(gen: WorldGenerator, gx: number, gz: number, salt = SALT): S
     if (gen.camp && Math.hypot(x - gen.camp.x, z - gen.camp.z) < CAMP_CLEARANCE + approx) continue;
     const base = flatBase(gen, x, z, approx, kind === 'town' ? 9 : kind === 'house_small' || kind === 'house_large' ? 5 : 7);
     if (base === null) continue;
+    const gid = hash3(gen.seed, gx, gz, salt + 3);
+    if (kind === 'town' && gen.config.generatorVersion >= 7) {
+      // A main street of prepared buildings, turned so the street points at the camp: the road
+      // network enters it head-on and runs straight down it.
+      const town = survivalTown(new Rng(hash3(gen.seed, gx, gz, salt + 1)));
+      const toward = gen.camp ?? { x: gen.worldSize * .5, z: gen.worldSize * .5 };
+      const parts = importedRoofAccess(town.parts);
+      return { kind, x, z, y: base, yaw: Math.atan2(toward.x - x, toward.z - z), radius: Math.min(MAX_RADIUS, town.radius), parts, gid, street: town.street, spawns: [...town.spawns, ...importedSpawns(parts)] };
+    }
     const b = new Builder(new Rng(hash3(gen.seed, gx, gz, salt + 1)));
     const radius = Math.min(MAX_RADIUS, BUILD[kind](b));
-    const gid = hash3(gen.seed, gx, gz, salt + 3);
-    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius, parts: importedRoofAccess(importedSettlement(kind, radius, gid) ?? b.parts), gid };
+    const imported = importedSettlement(kind, radius, gid, gen.config.generatorVersion);
+    const parts = importedRoofAccess(imported ?? b.parts);
+    return { kind, x, z, y: base, yaw: rng.next() * Math.PI * 2, radius: imported && gen.config.generatorVersion >= 7 ? Math.max(radius, 10) : radius, parts, gid, spawns: [...imported ? [] : b.spawns, ...importedSpawns(parts)] };
   }
   return null;
 }

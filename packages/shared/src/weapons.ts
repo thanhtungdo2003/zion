@@ -87,6 +87,9 @@ export interface GunSpec {
   projectile?: ProjectileSpec;
   /** Flame: seconds a target keeps burning and the burn damage per second. */
   burn?: { seconds: number; dps: number };
+  /** Studio weapons: first-person kick per shot (degrees) and shot sound name. */
+  recoil?: number;
+  sound?: string;
 }
 
 export interface ThrowSpec {

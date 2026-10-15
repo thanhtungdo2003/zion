@@ -1,5 +1,5 @@
 import { Euler, Group, Matrix4, Mesh, Quaternion, Vector3, type Camera, type Object3D } from 'three';
-import { attachmentModifier, opticOf, type Attachments } from '@zion/shared';
+import { ITEMS, attachmentModifier, opticOf, type Attachments } from '@zion/shared';
 import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
 import { RecoilSpring } from '../first-person-recoil';
@@ -28,6 +28,10 @@ export class ViewModel {
   private readonly rear = new Vector3();
   private readonly front = new Vector3();
   private readonly euler = new Euler();
+  /** Hip-fire position of the gun in front of the camera (x right, y up, z forward). */
+  private readonly hip = new Vector3(0.2, -0.27, -0.25);
+  /** Hip-fire tilt of the gun: pitch (up/down) and yaw (left/right), radians. */
+  private hipTilt: [number, number] = [0, 0];
   private offhandId: string | null = null;
   private offhandModel: Group | null = null;
   private readonly offhandBase = new Matrix4();
@@ -69,7 +73,12 @@ export class ViewModel {
     this.rig()?.mechanics.cancel();
     this.adsSpeed = attachmentModifier(attachments, 'adsSpeed');
     const optic = opticOf(attachments);
-    this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
+    this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') || ITEMS[itemId ?? '']?.category === 'pistol' ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
+    // Studio weapons may set their own hip position and eye relief.
+    const spec = itemId ? weapons?.get(itemId)?.spec : undefined;
+    if (!optic && spec?.fpEyeRelief) this.eyeRelief = spec.fpEyeRelief;
+    this.hip.set(...(spec?.fpHip ?? [0.2, -0.27, -0.25]));
+    this.hipTilt = spec?.fpRot ?? [0, 0];
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
     this.strikeAxes = null;
@@ -194,6 +203,12 @@ export class ViewModel {
     this.pivot.quaternion.slerp(this.aimRotation, this.aimBlend);
   }
 
+  /** Studio preview: start a swing / a reload on demand. */
+  preview(action: 'swing' | 'reload'): void {
+    if (action === 'swing') this.swing(1);
+    else this.reload(2.2);
+  }
+
   /** Melee: wind up over the shoulder, then a fast diagonal cut; variants alternate sides. */
   swing(variant: number, durationMs?: number): void {
     this.meleeEdge.reset();
@@ -283,8 +298,8 @@ export class ViewModel {
       // Hip pose, then the sight picture: rotate so the rear→front sight line runs straight down
       // the view axis and move the rear sight (or the optic's eyepiece) onto the eye.
       model.updateMatrix();
-      this.root.position.set(0.2 + this.swayX + bx + ax, -0.27 + this.swayY + by - this.dip * 0.12 + ay + lift, -0.25 + this.recoil.offset * .6 + az);
-      this.hipQuat.setFromEuler(this.euler.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant));
+      this.root.position.set(this.hip.x + this.swayX + bx + ax, this.hip.y + this.swayY + by - this.dip * 0.12 + ay + lift, this.hip.z + this.recoil.offset * .6 + az);
+      this.hipQuat.setFromEuler(this.euler.set(this.hipTilt[0] + this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.hipTilt[1] + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant));
       this.rear.copy(sight.rear).applyMatrix4(model.matrix);
       this.front.copy(sight.front).applyMatrix4(model.matrix);
       this.adsQuat.setFromUnitVectors(this.direction.subVectors(this.front, this.rear).normalize(), this.forward);
@@ -297,8 +312,8 @@ export class ViewModel {
       this.root.position.lerp(this.adsPos, this.aimBlend);
       this.pivot.quaternion.copy(this.hipQuat).slerp(this.adsQuat, this.aimBlend);
     } else {
-      this.root.position.set((0.2 + this.swayX + bx) * relaxed + ax, -0.27 + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay + lift, -0.25 - this.aimBlend * .18 + this.recoil.offset * .6 + az);
-      this.pivot.rotation.set(this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant);
+      this.root.position.set((this.hip.x + this.swayX + bx) * relaxed + ax, this.hip.y + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay + lift, this.hip.z - this.aimBlend * .18 + this.recoil.offset * .6 + az);
+      this.pivot.rotation.set(this.hipTilt[0] * relaxed + this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.hipTilt[1] * relaxed + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant);
     }
     if (model && this.strikeAxes) {
       model.rotation.set(0, Math.PI / 2, 0);

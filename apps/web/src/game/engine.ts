@@ -1699,8 +1699,8 @@ export class GameEngine {
     const battle = this.hud.get().battle;
     this.updateCrosshair(dt);
     const live = this.liveBattle();
-    // The island's power grid is described by the map atlas; string the cables once it arrives.
-    if (!this.powerCables && this.welcome?.mode === 'battle-royale' && this.worldMap.get().atlas?.cables) this.powerCables = new PowerCables(this.scene, this.worldMap.get().atlas!.cables!);
+    // The power grid (island pylons, survival roadside poles) comes with the map atlas; string the cables once it arrives.
+    if (!this.powerCables && this.worldMap.get().atlas?.cables) this.powerCables = new PowerCables(this.scene, this.worldMap.get().atlas!.cables!);
     if (live) this.battleZone?.update(live);
     const plane = battle?.plane ? battlePlaneAt(this.welcome!.world.sizeChunks * CHUNK_SIZE, BATTLE_FLIGHT.durationMs - battle.plane.remainingMs + performance.now() - this.planeReceivedAt) : undefined;
     this.battleFlight?.update(dt, this.elapsed, px, pz, plane && plane.remainingMs > 0 ? plane : undefined);

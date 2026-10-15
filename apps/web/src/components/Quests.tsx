@@ -1,4 +1,5 @@
 'use client';
+import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
 
 import { ITEMS } from '@zion/shared';
@@ -261,6 +262,7 @@ export function SideTabs({ active, onQuests, onInventory }: { active: 'quests' |
 /** Knocked down: the bleed-out bar, a call for help (nearby players get an arrow) and giving up. */
 export function DownedPanel({ bleed, onHelp, onGiveUp }: { bleed: number; onHelp: () => void; onGiveUp: () => void }) {
   const [calledAt, setCalledAt] = useState(0);
+  const [asking, setAsking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -276,9 +278,11 @@ export function DownedPanel({ bleed, onHelp, onGiveUp }: { bleed: number; onHelp
         <small>Máu cấp cứu {Math.round(bleed)} · còn khoảng {Math.ceil((bleed / 100) * 60)} giây</small>
         <div className="downed-actions">
           <button className="btn btn-primary" disabled={wait > 0} onClick={() => { setCalledAt(Date.now()); onHelp(); }}>{wait > 0 ? `Đã gọi (${wait}s)` : 'Gọi cấp cứu'}</button>
-          <button className="btn q-btn-danger" onClick={() => { if (confirm('Tự sát? Mọi nhiệm vụ đang làm sẽ bị hủy và mất vật phẩm nhiệm vụ.')) onGiveUp(); }}>Tự sát</button>
+          <button className="btn q-btn-danger" onClick={() => setAsking(true)}>Tự sát</button>
         </div>
       </div>
+      {asking && <ConfirmDialog title="Tự sát?" message="Bạn sẽ chết ngay, không chờ đồng đội cấp cứu nữa. Mọi nhiệm vụ đang làm sẽ bị hủy và mất vật phẩm nhiệm vụ."
+        confirmLabel="Tự sát" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); onGiveUp(); }} />}
     </div>
   );
 }

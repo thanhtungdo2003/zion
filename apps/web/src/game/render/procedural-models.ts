@@ -256,6 +256,40 @@ function slab(p: Params, rng: Rng): BufferGeometry {
   return merge([paint(g, 0x6f6b65, rng, 0.08)]);
 }
 
+/**
+ * Ivy and moss grown over a camp utility pole (same unscaled frame: a 0.25 m post up to 3.25 m,
+ * a 0.125 m one above). `lying` lays it along +X to cover a fallen pole.
+ */
+function ivy(p: Params, rng: Rng): BufferGeometry {
+  const h = num(p, 'height', 4.6);
+  const radius = (y: number) => (y < 3.25 ? .25 : .125) + .035;
+  const parts: BufferGeometry[] = [];
+  // Moss creeping up from the footing, thick at the base.
+  const moss = new CylinderGeometry(.29, .33, .7 + rng.next() * .6, 8, 3, true);
+  displace(moss, rng, .95, 1.12);
+  parts.push(paint(moss.translate(0, .55, 0), 0x4b5f29, rng, .2));
+  const skirt = new CylinderGeometry(.56, .62, .3, 8, 1, true);
+  displace(skirt, rng, .94, 1.08);
+  parts.push(paint(skirt.translate(0, .13, 0), 0x56682f, rng, .2));
+  const greens = [0x3d6b26, 0x557f2e, 0x2f5a20, 0x4a7428];
+  for (let strand = 0; strand < 3; strand++) {
+    const top = h * (.55 + rng.next() * .45), turn = (rng.next() < .5 ? -1 : 1) * (1.2 + rng.next() * 1.6), start = rng.next() * Math.PI * 2;
+    for (let y = .3; y < top; y += .11) {
+      // Fewer leaves towards the top of each strand.
+      if (rng.next() < (y / top) * .55) continue;
+      for (let k = 0; k < 2; k++) {
+        const a = start + (y / h) * turn * Math.PI + (rng.next() - .5) * .9, r = radius(y) + rng.next() * .05, s = .14 + rng.next() * .1;
+        const leaf = new PlaneGeometry(s, s * .85).rotateX((rng.next() - .5) * .9).rotateZ((rng.next() - .5) * 1.2);
+        leaf.translate(0, 0, r).rotateY(a).translate(0, y + (rng.next() - .5) * .08, 0);
+        parts.push(paint(leaf, greens[Math.floor(rng.next() * greens.length)]!, rng, .12));
+      }
+    }
+  }
+  const g = merge(parts);
+  if (p.lying) { g.rotateZ(-Math.PI / 2 + .06); g.translate(0, .22, 0); g.computeBoundingSphere(); }
+  return g;
+}
+
 const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeometry> = {
   water_tank: (_p, rng) => {
     const parts = [paint(new CylinderGeometry(1.9, 1.9, 3.2, 20).translate(0, 1.6, 0), 0x89928a, rng)];
@@ -288,6 +322,7 @@ const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeo
   reeds,
   rock,
   slab,
+  ivy,
 };
 
 /** Builds a deterministic low-poly mesh (metres, base at y = 0) for a procedural asset. */

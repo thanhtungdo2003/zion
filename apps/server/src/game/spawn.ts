@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { worldToChunk } from '@zion/shared';
 import { DEFAULT_CHARACTER, Layer, Mask, makeRayHit, type CharacterController, type CollisionWorld } from '@zion/physics';
-import type { SpawnPoint, WorldGenerator } from '@zion/worldgen';
+import { structuresNear, type SpawnPoint, type WorldGenerator } from '@zion/worldgen';
 import type { PhysicsChunkManager } from './physics-manager';
 
 export interface ValidatedPosition {
@@ -89,6 +89,41 @@ export class SpawnService {
       if (!this.controller.isFree(px, y, pz)) continue;
       if (requireOpen && this.collision.overlapsCapsule(px, y + 1.5, pz, px, y + 5, pz, 2.5, Layer.Static | Layer.Vegetation)) continue;
       return { x: px, y, z: pz };
+    }
+    return null;
+  }
+
+  /**
+   * Indoor spots of the buildings near (x, z) (world metres, approximate floor height): ground
+   * floors, upper storeys and attics of abandoned houses and town blocks.
+   */
+  indoorSpots(x: number, z: number, radius: number): ValidatedPosition[] {
+    if (this.gen.config.mode === 'battle-royale') return [];
+    const out: ValidatedPosition[] = [];
+    for (const s of structuresNear(this.gen, x, z, radius)) {
+      const c = Math.cos(s.yaw), sn = Math.sin(s.yaw);
+      for (const [px, py, pz] of s.spawns ?? []) {
+        const wx = s.x + px * c + pz * sn, wz = s.z - px * sn + pz * c;
+        if (Math.hypot(wx - x, wz - z) <= radius) out.push({ x: wx, y: s.y + py, z: wz });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Settles a spawn onto the floor under an indoor spot (within a metre or so of `y`), nudging
+   * aside from crates and furniture; never onto a roof or into a wall.
+   */
+  validateIndoor(x: number, y: number, z: number): ValidatedPosition | null {
+    for (const [dx, dz] of NUDGES.slice(0, 17)) {
+      const px = x + dx * .8, pz = z + dz * .8;
+      if (!this.controller.canSimulateAt(px, pz)) return null;
+      if (!this.collision.raycast(px, y + 1.2, pz, 0, -1, 0, 2.6, Mask.CharacterMovement, this.shadeHit)) continue;
+      const floor = y + 1.2 - this.shadeHit.t;
+      if (this.shadeHit.ny < .7 || !this.controller.isFree(px, floor + .02, pz)) continue;
+      // A ceiling overhead: the spot really is indoors.
+      if (!this.collision.raycast(px, floor + 1.9, pz, 0, 1, 0, 6, Mask.LineOfSight, this.shadeHit)) continue;
+      return { x: px, y: floor + .02, z: pz };
     }
     return null;
   }

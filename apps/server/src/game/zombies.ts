@@ -32,6 +32,10 @@ import { NavigationState, ZombieNavigation } from './navigation';
 const SPAWN_MIN_DIST = 56;
 const SPAWN_MAX_DIST = 112;
 const DESPAWN_DIST = 140;
+/** Indoor lurkers: spawn in buildings this far from players (they are out of sight indoors). */
+const INDOOR_MIN_DIST = 22;
+const INDOOR_MAX_DIST = 90;
+const INDOOR_COOLDOWN_MS = 90_000;
 const MAX_ZOMBIES = 90;
 /** Reinforcements appear this far (plus up to REINFORCE_SPREAD) from the hunted player. */
 const REINFORCE_MIN_DIST = 40;
@@ -203,6 +207,7 @@ export class ZombieDirector {
       this.nextSpawnCheck = now + 2000;
       this.despawn(players, now);
       this.spawnMap(players, now, night);
+      this.spawnIndoors(players, now, night);
     }
     this.separate(players);
     this.navigation.beginTick();
@@ -239,6 +244,33 @@ export class ZombieDirector {
       this.chunkSpawnAt.set(key, now + 12_000);
       budget--;
     }
+  }
+
+  /** Zombies lurking inside the abandoned buildings around players, upper floors included. */
+  private readonly spotSpawnAt = new Map<string, number>();
+  private spawnIndoors(players: readonly Player[], now: number, night: boolean): void {
+    const active = players.filter(p => p.active && !p.dead && p.state);
+    for (let i = active.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [active[i], active[j]] = [active[j]!, active[i]!]; }
+    let budget = 2;
+    for (const p of active) {
+      if (this.zombies.size >= MAX_ZOMBIES || budget <= 0) break;
+      const spots = this.spawns.indoorSpots(p.state.x, p.state.z, INDOOR_MAX_DIST);
+      for (let tries = 0; tries < 4 && spots.length; tries++) {
+        const spot = spots.splice(Math.floor(Math.random() * spots.length), 1)[0]!;
+        const key = `${Math.round(spot.x)},${Math.round(spot.y)},${Math.round(spot.z)}`;
+        if (now < (this.spotSpawnAt.get(key) ?? 0)) continue;
+        this.spotSpawnAt.set(key, now + INDOOR_COOLDOWN_MS);
+        if (!this.spawns.allowsZombieSpawn(spot.x, spot.z) || Math.random() > (night ? .55 : .4)) continue;
+        if (active.some(q => Math.hypot(spot.x - q.state.x, spot.y - q.state.y, spot.z - q.state.z) < INDOOR_MIN_DIST)) continue;
+        if (this.near(spot.x, spot.z, 6).some(z => !z.dead && Math.abs(z.state.y - spot.y) < 2.5)) continue;
+        const pos = this.spawns.validateIndoor(spot.x, spot.y, spot.z);
+        if (!pos) continue;
+        this.addZombie(pos).recruitsLeft = 1;
+        budget--;
+        break;
+      }
+    }
+    if (this.spotSpawnAt.size > 4096) for (const [key, at] of this.spotSpawnAt) if (at <= now) this.spotSpawnAt.delete(key);
   }
 
   private spawnClear(pos: { x: number; z: number }, players: readonly Player[], minimum: number): boolean {

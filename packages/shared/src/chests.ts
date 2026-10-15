@@ -1,4 +1,6 @@
 import { WEAPON_ATTACHMENTS } from './attachments';
+import { lootableCustomWeapons } from './custom-weapons';
+import { WEAPON_BY_ITEM } from './weapons';
 import { ARMOR_SPECS } from './armor';
 import { ITEMS, maxCount } from './items';
 import { magazineOf, type PlacedItem } from './inventory';
@@ -60,7 +62,7 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
     const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
     items.push(item);
   };
-  const gun = pick(['gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
+  const gun = pick([...lootableCustomWeapons().filter((id) => ITEMS[id] && WEAPON_BY_ITEM[id] && ITEMS[id]!.category !== 'melee'), 'gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
   add(gun);
   add(Object.values(ITEMS).find(item => item.ammo?.guns.includes(gun))!.id);
   add(pick(ARMOR_SPECS.map(a => a.item)));

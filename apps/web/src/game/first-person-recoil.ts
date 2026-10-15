@@ -1,4 +1,4 @@
-import { WeaponId } from '@zion/shared';
+import { weaponSpec, WeaponId } from '@zion/shared';
 
 /** Critically damped spring: fast lift, smooth recovery and no bounce below the starting aim. */
 export class RecoilSpring {
@@ -90,7 +90,13 @@ const KICK: Partial<Record<WeaponId, number>> = {
   [WeaponId.Flamethrower]: .045,
 };
 
+/** The shipped first-person kick of a built-in weapon (degrees), for the Studio defaults. */
+export function builtinRecoilDegrees(weapon: number): number {
+  return KICK[weapon as WeaponId] ?? 1;
+}
+
 export function weaponRecoil(weapon: number, magnification = 1): number {
   // Braced aiming is steadier; high-power optics still visibly amplify the remaining movement.
-  return (KICK[weapon as WeaponId] ?? 0) * Math.PI / 180 / Math.sqrt(Math.max(1, magnification));
+  // A kick set in the Studio wins over the built-in table.
+  return ((weaponSpec(weapon) as { recoil?: number } | undefined)?.recoil ?? KICK[weapon as WeaponId] ?? 0) * Math.PI / 180 / Math.sqrt(Math.max(1, magnification));
 }

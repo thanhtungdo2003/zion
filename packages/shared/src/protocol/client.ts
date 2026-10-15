@@ -53,9 +53,9 @@ export const inputMessageSchema = z
       .max(255)
       .refine((v) => (v & ~BUTTON_MASK) === 0, 'unknown button bits'),
     /** Weapon in hand (WeaponId); omitted = empty hands. */
-    w: z.number().int().min(0).max(MAX_WEAPON_ID).optional(),
+    w: z.number().int().min(0).max(Math.max(MAX_WEAPON_ID, 250)).optional(),
     /** Weapon carried on the back (main slot, not in hand); omitted = none. */
-    bw: z.number().int().min(0).max(MAX_WEAPON_ID).optional(),
+    bw: z.number().int().min(0).max(Math.max(MAX_WEAPON_ID, 250)).optional(),
     /** Client's interpolated render time (server clock, ms) — used for lag compensation. */
     rt: finite.min(0).optional(),
     /** Throw target distance (m, horizontal) on ticks that throw a grenade. */

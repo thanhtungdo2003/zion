@@ -4,8 +4,11 @@ import type { CampPart } from './camp';
 import type { Structure } from './structures';
 
 /** Each GLB here is a separately prepared building, never the source asset collection. */
-export function importedSettlement(kind: Structure['kind'], radius: number, variation: number): CampPart[] | null {
-  if (variation % 3 !== 0 || kind === 'power_plant' || kind === 'ruined_camp') return null;
+export function importedSettlement(kind: Structure['kind'], radius: number, variation: number, version = 6): CampPart[] | null {
+  if (kind === 'power_plant' || kind === 'ruined_camp') return null;
+  // From v7 most lone houses are prepared models, in more variety.
+  if (version >= 7 && (kind === 'house_small' || kind === 'house_large') && radius >= 6 && (variation >>> 0) % 10 < 7) return importedHouse(variation >>> 4);
+  if (variation % 3 !== 0) return null;
   const parts: CampPart[] = [];
   const put = (asset: number, x: number, z: number, yaw = 0, group = 1) => parts.push({asset,x,z,y:.08,yaw,scale:1,group});
   const chest = (x: number,z: number) => put(CAMP_ASSET['military-wooden-crate'],x,z,0,0);
@@ -23,6 +26,33 @@ export function importedSettlement(kind: Structure['kind'], radius: number, vari
     put(2412,7,0,Math.PI/2,0);
   } else return null;
   return parts;
+}
+
+/** One abandoned prepared house with a yard bench or junk beside it. */
+function importedHouse(roll: number): CampPart[] {
+  const parts: CampPart[] = [];
+  const put = (asset: number, x: number, z: number, yaw = 0, group = 1) => parts.push({ asset, x, z, y: .08, yaw, scale: 1, group });
+  switch (roll % 6) {
+    case 0: put(2420, 0, 0); break;
+    case 1: put(2403, 0, 0); break;
+    case 2: put(2402, 0, 0); break;
+    case 3: put(2404, 0, 0); put(2404, 5.2, .6, Math.PI / 2, 2); break;
+    case 4: for (const d of [-3.2, 0, 3.2]) put(2422, d, 0, 0, 2 + d); put(2423, 6.4, 0, 0, 9); break;
+    default: put(2420, 0, 0); put(2422, 7, 1, Math.PI / 2, 2); break;
+  }
+  parts.push({ asset: CAMP_ASSET['rusty-oil-barrel'], x: -6, z: 2, y: 0, yaw: 0, scale: 1, group: 0 });
+  if (roll % 3 === 0) parts.push({ asset: 2412, x: 0, z: -7, y: .08, yaw: 0, scale: 1, group: 0 });
+  return parts;
+}
+
+/** Indoor floor spots of the prepared buildings among `parts` (site-local, floor height above the base). */
+export function importedSpawns(parts: readonly CampPart[]): Array<readonly [number, number, number]> {
+  const out: Array<readonly [number, number, number]> = [];
+  for (const part of parts) {
+    const c = Math.cos(part.yaw), s = Math.sin(part.yaw), k = part.scale;
+    for (const [x, y, z] of INTERIOR_CRATES[part.asset] ?? []) out.push([part.x + (x * c + z * s) * k, part.y + y * k, part.z + (-x * s + z * c) * k]);
+  }
+  return out;
 }
 
 /**

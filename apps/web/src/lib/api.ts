@@ -1,5 +1,5 @@
 import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
-import type { AtlasTile, GameContent, GameMode, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
+import type { AtlasTile, CustomWeapon, GameContent, GameMode, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
 import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
@@ -315,6 +315,14 @@ export function studioSaveContent(content: GameContent): Promise<GameContent> {
 export interface PlayerProgress { id: string; username: string; journal: Record<string, { status: string; stage: number; progress: number }> }
 export function studioVehiclePhysics(): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics'); }
 export function studioSetVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics', { method: 'POST', body: JSON.stringify({ jolt }) }); }
+export type StudioWeapon = CustomWeapon & { modelUrl: string | null };
+export function studioWeapons(): Promise<{ weapons: StudioWeapon[] }> { return studioRequest('/api/studio/weapons'); }
+/** Saves a Studio weapon; `model` is the file as base64 (required when creating). */
+export function studioSaveWeapon(def: Omit<CustomWeapon, 'weaponId'> & { weaponId?: number }, model?: string): Promise<StudioWeapon> {
+  return studioRequest('/api/studio/weapons', { method: 'POST', body: JSON.stringify({ def, ...(model ? { model } : {}) }) });
+}
+export function studioResetWeapons(password: string, id?: string): Promise<{ ok: true; reset: string[] }> { return studioRequest('/api/studio/weapons/reset', { method: 'POST', body: JSON.stringify({ password, ...(id ? { id } : {}) }) }); }
+export function studioDeleteWeapon(id: string): Promise<{ ok: true }> { return studioRequest(`/api/studio/weapons/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 export function studioPlayers(): Promise<PlayerProgress[]> { return studioRequest('/api/studio/players'); }
 export function studioPlayerCounts(): Promise<{ online: number; total: number }> { return studioRequest('/api/studio/player-counts'); }
 export function studioCurrencyPlayers(search = ''): Promise<StudioCurrencyPlayer[]> { return studioRequest(`/api/studio/currency/players?search=${encodeURIComponent(search)}`); }

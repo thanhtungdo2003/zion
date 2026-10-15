@@ -8,6 +8,7 @@ import type { SpawnService } from './spawn';
 interface DirectorHarness {
   spawnMap(players: readonly Player[], now: number, night: boolean): void;
   reinforce(z: Zombie, players: readonly Player[], now: number): void;
+  spawnIndoors(players: readonly Player[], now: number, night: boolean): void;
 }
 function player(x: number, z: number): Player {
   return { active: true, dead: false, state: { x, y: 0, z }, suspendedZombies: [] } as unknown as Player;
@@ -18,6 +19,9 @@ function setup(darkness = 1) {
     validateAt: (x: number, z: number) => ({ x, y: .02, z }),
     allowsZombieSpawn: () => true,
     zombieDarkness: () => darkness,
+    // Upstairs in a building 30 m away.
+    indoorSpots: () => [{ x: 38, y: 3.4, z: 8 }],
+    validateIndoor: (x: number, y: number, z: number) => ({ x, y: y + .02, z }),
   } as unknown as SpawnService;
   const director = new ZombieDirector({} as CollisionWorld, spawns, { attackPlayer: vi.fn() });
   return { director, harness: director as unknown as DirectorHarness };
@@ -48,6 +52,22 @@ describe('shared map zombie population', () => {
     expect(close.director.zombies.size).toBe(0);
   });
 
+  it('lurks indoors, upper floors included, with a cooldown per spot and away from players', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(.2);
+    const { director, harness } = setup();
+    harness.spawnIndoors([player(8, 8)], 0, false);
+    expect(director.zombies.size).toBe(1);
+    const z = [...director.zombies.values()][0]!;
+    expect(z.state.y).toBeCloseTo(3.42, 5);
+    director.zombies.clear();
+    harness.spawnIndoors([player(8, 8)], 2000, false);
+    expect(director.zombies.size).toBe(0);
+    // Never right next to a player.
+    const near = setup();
+    near.harness.spawnIndoors([player(30, 8)], 0, true);
+    expect(near.director.zombies.size).toBe(0);
+  });
+
   it('recruits separately after detection, with a cooldown and no recursive recruitment', () => {
     vi.spyOn(Math, 'random').mockReturnValue(.5);
     const { director, harness } = setup();
@@ -75,7 +95,7 @@ describe('crimson zombie leap', () => {
     for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) {
       collision.addChunk(x, z, new Heightfield(x * 32, z * 32, 1, 33, new Float32Array(1089), new Float32Array(1089).fill(NaN)), []);
     }
-    const spawns = { loadedZombieChunks: () => [] } as unknown as SpawnService;
+    const spawns = { loadedZombieChunks: () => [], indoorSpots: () => [] } as unknown as SpawnService;
     const director = new ZombieDirector(collision, spawns, { attackPlayer: vi.fn() });
     const z = new Zombie(1_000_001, 40, .02, 40, ZombieVariant.Crimson);
     const p = player(40, 30);
@@ -108,7 +128,7 @@ describe('zombie detection', () => {
   interface DetectHarness { detect(z: Zombie, players: readonly Player[], sense: number): void }
   function detector(visible: () => boolean) {
     const collision = { lineOfSight: vi.fn(visible) } as unknown as CollisionWorld;
-    const director = new ZombieDirector(collision, { loadedZombieChunks: () => [] } as unknown as SpawnService, { attackPlayer: vi.fn() });
+    const director = new ZombieDirector(collision, { loadedZombieChunks: () => [], indoorSpots: () => [] } as unknown as SpawnService, { attackPlayer: vi.fn() });
     return { director, harness: director as unknown as DetectHarness };
   }
   const ticks = (ms: number) => Math.ceil(ms / (TICK_DT * 1000));

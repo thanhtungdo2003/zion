@@ -138,6 +138,9 @@ export class CombatEffects {
     if (!bank) return;
     // A suppressor keeps the gun's voice but muffles it: quieter, thinner, heard only nearby.
     const s = { play: (name: Parameters<SoundBank['play']>[0], o: { at: Vector3; rate?: number; volume?: number; maxDistance?: number }) => bank.play(name, suppressed ? { ...o, rate: (o.rate ?? 1) * 1.18, volume: (o.volume ?? 1) * .4, maxDistance: (o.maxDistance ?? 90) * .3 } : o) };
+    // A recording chosen in the Studio wins over the gun's usual voice.
+    const own = (weaponSpec(weapon) as { sound?: string } | undefined)?.sound as Parameters<SoundBank['play']>[0] | undefined;
+    if (own) { s.play(own, { at, volume: 0.9, maxDistance: 100 }); if (weapon === WeaponId.AWM || weapon === WeaponId.Kar98k) this.rechamber(at, 1.15); return; }
     switch (weapon) {
       case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
       case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); break;

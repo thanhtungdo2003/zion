@@ -97,7 +97,7 @@ describe('walking navigation', () => {
 function simulation(solids: ColliderInit[], start: NavPoint, goal: NavPoint) {
   const collision = world(solids);
   const attackPlayer = vi.fn();
-  const director = new ZombieDirector(collision, { validateAt: () => null, loadedZombieChunks: () => [] } as unknown as SpawnService, { attackPlayer });
+  const director = new ZombieDirector(collision, { validateAt: () => null, loadedZombieChunks: () => [], indoorSpots: () => [] } as unknown as SpawnService, { attackPlayer });
   const zombie = new Zombie(ZOMBIE_ID_BASE, start.x, start.y, start.z);
   const player = { active: true, dead: false, state: { ...goal }, suspendedZombies: [] } as unknown as Player;
   zombie.target = player; // Pathfinding starts after this player has been detected.

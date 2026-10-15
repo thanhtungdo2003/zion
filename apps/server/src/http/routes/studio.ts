@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateContent, type GameContent } from '@zion/shared';
+import { isBuiltinWeapon, validateContent, type GameContent } from '@zion/shared';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { CAMP_ASSET } from '@zion/assets';
 import type { CampNpcLayout, CampPart } from '@zion/worldgen';
 import type { HttpDeps } from '../app';
+import { modelUrl } from '../../repositories/custom-weapons';
 import { studioCurrencyGrantSchema, type StudioCurrencyGrant, type StudioCurrencyPlayer, type StudioCurrencyResult } from '@zion/shared';
 import { newsActionSchema } from '@zion/shared';
 
@@ -121,6 +122,44 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
       req.log.info({ postId: action.id, op: action.op, actorId: req.claims?.sub ?? 'studio-password' }, 'news publication changed');
       reply.header('cache-control', 'no-store');
       return result;
+    });
+  }
+
+  if (deps.customWeapons) {
+    const store = deps.customWeapons;
+    const saveSchema = z.object({ def: z.record(z.unknown()), model: z.string().max(12 * 1024 * 1024).optional() }).strict();
+    app.get('/api/studio/weapons', { preHandler: guard }, async (_req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return { weapons: store.list().map((w) => ({ ...w.def, modelUrl: modelUrl(w) })) };
+    });
+    // The model travels base64 in the JSON body (≤ 8 MB once decoded).
+    app.post('/api/studio/weapons', { preHandler: guard, bodyLimit: 12 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const body = saveSchema.parse(req.body);
+      try {
+        const saved = await store.save(body.def, body.model ? Buffer.from(body.model, 'base64') : null, req.claims?.sub ?? null);
+        req.log.info({ weapon: saved.def.id, actorId: req.claims?.sub ?? 'studio-password' }, 'custom weapon saved');
+        return { ...saved.def, modelUrl: modelUrl(saved) };
+      } catch (err) {
+        if (err instanceof z.ZodError) return reply.code(400).send({ error: 'invalid', message: err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') });
+        return reply.code(400).send({ error: 'invalid', message: err instanceof Error ? err.message : 'Không lưu được vũ khí.' });
+      }
+    });
+    app.delete<{ Params: { id: string } }>('/api/studio/weapons/:id', { preHandler: guard }, async (req, reply) => {
+      if (!(await store.remove(req.params.id))) return reply.code(404).send({ error: 'not_found', message: 'Không tìm thấy vũ khí.' });
+      req.log.info({ weapon: req.params.id, actorId: req.claims?.sub ?? 'studio-password' }, 'custom weapon deleted');
+      return { ok: true };
+    });
+    // Back to the shipped defaults: the Studio password must be typed again, even mid-session.
+    const resetSchema = z.object({ password: z.string().min(1).max(200), id: z.string().max(40).optional() }).strict();
+    app.post('/api/studio/weapons/reset', { preHandler: guard, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const { password: given, id } = resetSchema.parse(req.body);
+      const password = deps.config.STUDIO_PASSWORD;
+      if (!password || !samePassword(given, password)) return reply.code(403).send({ error: 'invalid_password', message: 'Sai mật khẩu Studio.' });
+      if (id && !isBuiltinWeapon(id)) return reply.code(400).send({ error: 'invalid', message: 'Chỉ vũ khí có sẵn mới có mặc định.' });
+      const ids = id ? [id] : store.list().map((w) => w.def.id).filter(isBuiltinWeapon);
+      for (const w of ids) await store.remove(w);
+      req.log.info({ weapons: ids, actorId: req.claims?.sub ?? 'studio-password' }, 'weapons reset to defaults');
+      return { ok: true, reset: ids };
     });
   }
 
