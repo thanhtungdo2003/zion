@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
-import { attachmentModifier, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
+import { attachmentModifier, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
@@ -1700,7 +1700,7 @@ export class GameServer {
         this.resolveQuestLocations(p);
         this.queueQuestEvent(p, { type: 'visit', x: p.state.x, z: p.state.z });
       }
-      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone, !!p.vehicleId);
+      p.history.push(now, p.state.x, p.state.y, p.state.z, p.yaw, p.state.prone, !!p.vehicleId, !!p.state.crouched, leanOf(p.lastButtons));
       this.grid.update(p);
       p.streamer.setCenter(p.chunkX, p.chunkZ);
       if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: p.dead ? 0 : p.health, downed: p.downed, yaw: p.yaw });
@@ -1864,7 +1864,10 @@ export class GameServer {
     p.aiming = aiming;
     if (!aiming) buttons &= ~Buttons.Aim;
     if (aiming || p.reloadAt || gunBlocksSprint(p.weapon, (buttons & Buttons.Attack) !== 0, now, p.fireReadyAt)) buttons &= ~Buttons.Sprint;
-    if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    if ((buttons & Buttons.Prone) || s.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Crouch);
+    if ((buttons & Buttons.Crouch) || s.crouched) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    // No leaning while swimming, climbing or prone.
+    if (s.swimming || s.climbing || s.prone || p.vehicleId) buttons &= ~(Buttons.LeanLeft | Buttons.LeanRight);
     // Exhausted (under 10% stamina): no sprinting, no rolling.
     if (p.life.stamina < this.life.config.stamina.maximum * 0.1) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     // Thrown by a vehicle: limp, nothing works until the body comes to rest.
@@ -1879,7 +1882,7 @@ export class GameServer {
     const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) },
       TICK_DT,
       this.stepInfo,
     );
@@ -1925,6 +1928,16 @@ export class GameServer {
     if (p.state.flight) { stepAirborne(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false }, this.collision, TICK_DT); return; }
     this.controller.step(p.state, { mx: 0, mz: 0, yaw: p.yaw, jump: false, sprint: false, prone: p.state.prone, speedMul: p.speedMul }, TICK_DT, this.stepInfo);
   }
+
+  /** Shot origin of a leaning shooter: out to the side, but never through the wall leant against. */
+  private leanOrigin(p: Player, oy: number): [number, number] {
+    const s = p.state, lean = leanOf(p.lastButtons);
+    if (!lean) return [s.x, s.z];
+    const [dx, dz] = leanOffset(p.yaw, lean), d = Math.hypot(dx, dz);
+    const t = this.collision.raycast(s.x, oy, s.z, dx / d, 0, dz / d, d + .15, Mask.LineOfSight, this.leanHit) ? Math.max(0, this.leanHit.t - .15) : d;
+    return [s.x + dx / d * t, s.z + dz / d * t];
+  }
+  private readonly leanHit = makeRayHit();
 
   private teleport(p: Player, pos: ValidatedPosition): void {
     const s = p.state;
@@ -2280,9 +2293,8 @@ export class GameServer {
     this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
-    const ox = s.x;
-    const oy = s.y + muzzleHeight(s.prone);
-    const oz = s.z;
+    const oy = s.y + muzzleHeight(s.prone, !!s.crouched);
+    const [ox, oz] = this.leanOrigin(p, oy);
     let [ax, ay, az] = aimDirection(p.yaw, p.pitch);
     const attachments = p.inv.equippedItem()?.attachments;
     p.gunHeat = Math.max(0, p.gunHeat - (now - p.lastGunShotAt) / 700);
@@ -2440,7 +2452,7 @@ export class GameServer {
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
     const x = s.x + fx * 0.7;
-    const y = s.y + muzzleHeight(s.prone);
+    const y = s.y + muzzleHeight(s.prone, !!s.crouched);
     const z = s.z + fz * 0.7;
     let vx: number;
     let vy: number;
@@ -2522,9 +2534,8 @@ export class GameServer {
     this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
-    const ox = s.x;
-    const oy = s.y + muzzleHeight(s.prone);
-    const oz = s.z;
+    const oy = s.y + muzzleHeight(s.prone, !!s.crouched);
+    const [ox, oz] = this.leanOrigin(p, oy);
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
     const inCone = (x: number, y: number, z: number): boolean => {
@@ -2997,6 +3008,9 @@ export class GameServer {
     if (now < p.attackingUntil) f |= EntityFlags.Attacking;
     if (p.state.rollTicks > 0) f |= EntityFlags.Rolling;
     if (p.state.prone) f |= EntityFlags.Prone;
+    if (p.state.crouched) f |= EntityFlags.Crouching;
+    const lean = leanOf(p.lastButtons);
+    if (lean < 0) f |= EntityFlags.LeanLeft; else if (lean > 0) f |= EntityFlags.LeanRight;
     if (p.aiming && !p.dead && !p.downed) f |= EntityFlags.Aiming;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;

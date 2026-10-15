@@ -6,7 +6,7 @@ import { rollKeyLabel, useSettings } from '@/lib/settings';
 
 /** Short how-to-play hints shown while the game downloads. */
 export const TIPS = [
-  'WASD để di chuyển, giữ Shift để chạy, Q để lướt, C để nằm hoặc đứng dậy.',
+  'WASD để di chuyển, giữ Shift để chạy, V để lướt, X để ngồi, giữ Q/E để nghiêng bắn, C để nằm hoặc đứng dậy.',
   'Nhấn E để nhặt đồ, nói chuyện với nhân vật, mở kho đạn hoặc kho cá nhân.',
   'Nhấn E khi đứng gần Bác Ba Nông Dân để nhận nhiệm vụ và mua khoai tây.',
   'Đứng lên một ô ruộng trống để mở bảng gieo hạt bên phải màn hình.',
@@ -64,7 +64,7 @@ export function LoadingScreen({ onDone }: { onDone: () => void }) {
         <div className="loader-file">{s.file ? `${s.done}/${s.total} · ${s.file}` : s.total ? 'Hoàn tất' : 'Đang chuẩn bị…'}</div>
         <div className="loader-tip">
           <span>Mẹo</span>
-          <p key={tip}>{TIPS[tip]?.replace('Q để lướt', `${rollKeyLabel(rollKey)} để lướt`).replace('C để nằm', `${rollKeyLabel(proneKey)} để nằm`)}</p>
+          <p key={tip}>{TIPS[tip]?.replace('V để lướt', `${rollKeyLabel(rollKey)} để lướt`).replace('C để nằm', `${rollKeyLabel(proneKey)} để nằm`)}</p>
         </div>
       </div>
     </div>

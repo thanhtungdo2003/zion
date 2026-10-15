@@ -343,6 +343,9 @@ export const EntityFlags = {
   Knocked: 1 << 16,
   /** Applying a first aid kit. */
   Healing: 1 << 17,
+  LeanLeft: 1 << 18,
+  LeanRight: 1 << 19,
+  Crouching: 1 << 20,
 } as const;
 
 export interface SelfState {

@@ -5,7 +5,7 @@ import { itemName, translate, translateMsg, type Lang, type Msg, type TKey } fro
 /** User settings (language, audio) shared by the menu and the in-game pause screen. */
 export type CameraMode = 'top-down' | 'first-person' | 'third-person';
 /** Keys not already used by movement, chat or another action. */
-export const ROLL_KEYS = ['KeyQ', 'KeyF', 'KeyG', 'KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
+export const ROLL_KEYS = ['KeyV', 'KeyF', 'KeyG', 'KeyZ', 'KeyB', 'KeyN', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
 export type RollKey = typeof ROLL_KEYS[number];
 export const PRONE_KEYS = ['KeyC', ...ROLL_KEYS] as const;
 export type ProneKey = typeof PRONE_KEYS[number];
@@ -58,7 +58,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyQ', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', ...GRAPHICS_PRESETS.high };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', ...GRAPHICS_PRESETS.high };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };

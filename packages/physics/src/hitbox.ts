@@ -66,6 +66,28 @@ export const PRONE_RIG: readonly RigPart[] = [
   { zone: 'leg_r', a: [.12, .18, -.08], b: [.12, .2, -.8], r: .1 },
 ];
 
+/**
+ * A player's hit rig for a stance: crouched (squatting, everything lower) and/or leaning out to
+ * a side (the upper body and head shift sideways, the legs stay). Cached per combination.
+ */
+const humanoidPoses = new Map<string, readonly RigPart[]>();
+export function humanoidRig(crouched: boolean, lean: number): readonly RigPart[] {
+  if (!crouched && !lean) return HUMANOID_RIG;
+  const key = `${crouched ? 1 : 0}:${lean}`;
+  let rig = humanoidPoses.get(key);
+  if (!rig) {
+    const move = (p: readonly [number, number, number]): [number, number, number] => {
+      const y = crouched ? (p[1] > .86 ? p[1] - .5 : p[1] * .42) : p[1];
+      // Lean pivots at the hips: higher points move further sideways (+X is the right).
+      const shift = lean * .42 * Math.max(0, Math.min(1, (y - (crouched ? .36 : .86)) / .76));
+      return [p[0] + shift, y - Math.abs(shift) * .15, p[2]];
+    };
+    rig = HUMANOID_RIG.map((part) => ({ ...part, a: move(part.a), b: move(part.b) }));
+    humanoidPoses.set(key, rig);
+  }
+  return rig;
+}
+
 function bruteRig(rig: readonly RigPart[]): readonly RigPart[] {
   return rig.map((p) => ({ ...p, a: [p.a[0] * 1.5, p.a[1] * 1.5, p.a[2] * 1.5], b: [p.b[0] * 1.5, p.b[1] * 1.5, p.b[2] * 1.5], r: p.r * 1.5 }));
 }

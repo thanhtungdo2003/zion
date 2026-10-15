@@ -232,7 +232,20 @@ export function weaponSpec(weapon: number): WeaponSpec | undefined {
 
 /** Shots leave from chest/shoulder height so a level top-down aim hits torsos, not only heads. */
 export const MUZZLE_HEIGHT = 1.35;
-export function muzzleHeight(prone = false): number { return prone ? .4 : MUZZLE_HEIGHT; }
+/** Muzzle height of a crouched shooter. */
+export const CROUCH_MUZZLE_HEIGHT = .95;
+export function muzzleHeight(prone = false, crouched = false): number { return prone ? .4 : crouched ? CROUCH_MUZZLE_HEIGHT : MUZZLE_HEIGHT; }
+/** How far the head and gun move sideways when leaning out (m). */
+export const LEAN_DISTANCE = .42;
+/** −1 leaning left, 1 right, 0 upright, from the held buttons (both = upright). */
+export function leanOf(buttons: number): -1 | 0 | 1 {
+  const l = (buttons & (1 << 8)) !== 0, r = (buttons & (1 << 9)) !== 0;
+  return l === r ? 0 : l ? -1 : 1;
+}
+/** World offset (x, z) of a lean towards the shooter's right (lean > 0) for a view yaw. */
+export function leanOffset(yaw: number, lean: number): [number, number] {
+  return [Math.cos(yaw) * LEAN_DISTANCE * lean, -Math.sin(yaw) * LEAN_DISTANCE * lean];
+}
 /** Server accepts a shot up to this much early (input timing jitter between ticks). */
 export const FIRE_TOLERANCE_MS = 45;
 

@@ -75,6 +75,8 @@ export interface CharacterState {
   /** Seconds spent in freefall (the parachute only opens after BATTLE_FLIGHT.deployDelayMs). */
   freefall?: number;
   prone: boolean;
+  /** Crouched (lower eye, slower). */
+  crouched?: boolean;
   /** Feet position. */
   x: number;
   y: number;
@@ -106,6 +108,8 @@ export interface CharacterInput {
   sprint: boolean;
   roll?: boolean;
   prone?: boolean;
+  /** Crouched: slower, lower, no sprint or roll. */
+  crouch?: boolean;
   /** Movement speed multiplier (armour and held weapon); 1 when omitted. */
   speedMul?: number;
 }
@@ -127,8 +131,10 @@ export function createCharacterState(x: number, y: number, z: number): Character
 export const PRONE_HEIGHT = 0.7;
 export const PRONE_EYE_HEIGHT = 0.45;
 export const PRONE_SPEED = 1.15;
-export function characterEyeHeight(state: Pick<CharacterState, 'prone'>): number {
-  return state.prone ? PRONE_EYE_HEIGHT : DEFAULT_CHARACTER.eyeHeight;
+export const CROUCH_EYE_HEIGHT = 1.08;
+export const CROUCH_SPEED = 2.1;
+export function characterEyeHeight(state: Pick<CharacterState, 'prone' | 'crouched'>): number {
+  return state.prone ? PRONE_EYE_HEIGHT : state.crouched ? CROUCH_EYE_HEIGHT : DEFAULT_CHARACTER.eyeHeight;
 }
 
 export function copyCharacterState(src: CharacterState, dst: CharacterState): CharacterState {
@@ -148,6 +154,7 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.rollYaw = src.rollYaw;
   dst.climbing = src.climbing;
   dst.prone = src.prone;
+  dst.crouched = src.crouched;
   return dst;
 }
 
@@ -210,9 +217,12 @@ export class CharacterController {
     if (s.swimming || s.climbing) s.prone = false;
     else if (input.prone && !input.jump && s.grounded && s.rollTicks === 0) s.prone = true;
     else if ((!input.prone || input.jump) && s.prone && this.isFree(s.x, s.y, s.z)) s.prone = false;
+    // Crouching holds while on the ground; jumping, swimming, climbing or going prone ends it.
+    s.crouched = !!input.crouch && !input.jump && !s.prone && !s.swimming && !s.climbing && (s.grounded || !!s.crouched);
 
     let speed = (s.swimming ? (input.sprint ? p.swimSprintSpeed : p.swimSpeed) : input.sprint && mz > 0.3 ? p.sprintSpeed : p.walkSpeed) * (input.speedMul ?? 1);
     if (s.prone) speed = PRONE_SPEED * (input.speedMul ?? 1);
+    else if (s.crouched) speed = CROUCH_SPEED * (input.speedMul ?? 1);
     if (mz < 0) speed *= p.backwardFactor;
     if (wading) speed *= 0.7;
     const targetX = wishX * speed;
@@ -221,7 +231,7 @@ export class CharacterController {
     // --- Dodge roll: commits to one direction at a fixed speed for its duration -------------
     if (s.rollTicks > 0) s.rollTicks--;
     else if (s.rollCooldown > 0) s.rollCooldown--;
-    if (input.roll && !s.prone && s.rollTicks === 0 && s.rollCooldown === 0 && s.grounded && !s.swimming) {
+    if (input.roll && !s.prone && !s.crouched && s.rollTicks === 0 && s.rollCooldown === 0 && s.grounded && !s.swimming) {
       s.rollTicks = Math.max(1, Math.round(p.rollDuration / dt));
       s.rollCooldown = Math.round(p.rollCooldown / dt);
       // Roll where the player is steering; standing still rolls toward the facing direction.

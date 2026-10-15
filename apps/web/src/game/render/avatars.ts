@@ -258,6 +258,8 @@ export class Avatar {
   }
 
   private proneShotFor = 0;
+  private crouchBlend = 0;
+  private leanBlend = 0;
 
   private play(name: string | null, rate = 1, start = 0, fade = 0): void {
     const clip = name ? (this.template.clips.get(name) ?? null) : null;
@@ -504,12 +506,28 @@ export class Avatar {
       head.node.rotation.y += this.headYaw;
     }
 
+    // Crouch (X): a low kneeling stance, one knee forward, the other leg back, chest over the gun.
+    const crouching = !limp && !rolling && !prone && (flags & (EntityFlags.Crouching | EntityFlags.Swimming)) === EntityFlags.Crouching;
+    this.crouchBlend += ((crouching ? 1 : 0) - this.crouchBlend) * (1 - Math.exp(-dt * 10));
+    const lean = limp || prone || rolling ? 0 : (flags & EntityFlags.LeanLeft) ? -1 : (flags & EntityFlags.LeanRight) ? 1 : 0;
+    this.leanBlend += (lean - this.leanBlend) * (1 - Math.exp(-dt * 10));
+    if (this.crouchBlend > .001) {
+      const c = this.crouchBlend, step = speed > .3 ? Math.sin(this.breath * 9) * .25 : 0;
+      const legL = this.bones.get('leg_left')?.node, legR = this.bones.get('leg_right')?.node;
+      if (legL) legL.rotation.x = legL.rotation.x * (1 - c) + c * (1 + step);
+      if (legR) legR.rotation.x = legR.rotation.x * (1 - c) + c * (-1 - step);
+      if (body) body.node.rotation.x -= .22 * c;
+    }
+    // Lean (Q / E): the upper body tips out sideways from the hips (+X is the character's right).
+    if (body && Math.abs(this.leanBlend) > .001) body.node.rotation.z -= .32 * this.leanBlend;
     const dead = (flags & EntityFlags.Dead) !== 0;
     this.model.rotation.x = dead ? -Math.PI / 2 : 0;
     // ...and the character is shoved back a few centimetres (model faces −Z, so back is +Z).
     this.model.position.z = dead ? 0 : this.recoil * 0.12;
     this.swimLift += (((flags & EntityFlags.Swimming) !== 0 ? .35 : 0) - this.swimLift) * (1 - Math.exp(-dt * 8));
     this.model.position.y = dead ? 0.2 : this.swimLift;
+    // Hips lowered so the kneeling legs reach the ground.
+    this.model.position.y -= .3 * this.crouchBlend;
     if (held) {
       held.obj.matrix.copy(held.visual.attach);
       held.obj.matrixWorldNeedsUpdate = true;

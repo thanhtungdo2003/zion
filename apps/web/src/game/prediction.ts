@@ -69,6 +69,7 @@ export class LocalPlayer {
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
       prone: (buttons & Buttons.Prone) !== 0,
+      crouch: (buttons & Buttons.Crouch) !== 0,
       speedMul: this.speedMul * (buttons & Buttons.Aim ? .65 : 1),
     };
     this.seq++;
@@ -101,6 +102,7 @@ export class LocalPlayer {
     s.grounded = (server.flags & EntityFlags.Grounded) !== 0;
     s.swimming = (server.flags & EntityFlags.Swimming) !== 0;
     s.prone = (server.flags & EntityFlags.Prone) !== 0;
+    s.crouched = (server.flags & EntityFlags.Crouching) !== 0;
     s.climbing = (server.flags & EntityFlags.Climbing) !== 0;
     s.flight = server.flags & EntityFlags.InPlane ? 1 : server.flags & EntityFlags.Freefall ? 2 : server.flags & EntityFlags.Parachute ? 3 : 0;
     s.stuckTicks = server.stuckTicks;

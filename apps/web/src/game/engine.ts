@@ -85,6 +85,8 @@ import {
   Buttons,
   ITEM_BY_WEAPON,
   muzzleHeight,
+  leanOf,
+  leanOffset,
   throwScatter,
   WEAPON_BY_ITEM,
   WEAPON_SPECS,
@@ -375,6 +377,9 @@ export class GameEngine {
   private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
+  /** Eased lean of the local view (−1 left … 1 right) and the leaned eye point. */
+  private leanBlend = 0;
+  private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private shoulderAim = { yaw: 0, pitch: 0 };
   private get shotYaw(): number { return this.mouseLook ? this.shoulderAim.yaw : this.input.yaw; }
@@ -1645,13 +1650,16 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming;
+    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming | EntityFlags.Crouching | EntityFlags.LeanLeft | EntityFlags.LeanRight;
+    const selfLean = leanOf(local.lastButtons);
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
       (local.state.grounded ? EntityFlags.Grounded : 0) |
       (local.state.swimming ? EntityFlags.Swimming : 0) |
       (local.state.rollTicks > 0 ? EntityFlags.Rolling : 0) |
       (local.state.prone ? EntityFlags.Prone : 0) |
+      (local.state.crouched ? EntityFlags.Crouching : 0) |
+      (selfLean < 0 ? EntityFlags.LeanLeft : selfLean > 0 ? EntityFlags.LeanRight : 0) |
       (this.aiming ? EntityFlags.Aiming : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0);
@@ -1717,6 +1725,7 @@ export class GameEngine {
         reloading: this.weaponCtl.reloading,
         firing: !local.state.swimming && weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
         aiming: this.aiming,
+        swimming: local.state.swimming,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
       });
@@ -1951,7 +1960,9 @@ export class GameEngine {
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
-    if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Crouch);
+    if ((buttons & Buttons.Crouch) || local.state.crouched) buttons &= ~(Buttons.Sprint | Buttons.Roll);
+    if (local.state.swimming || local.state.climbing || local.state.prone) buttons &= ~(Buttons.LeanLeft | Buttons.LeanRight);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
     // Aim is separate from the trigger and available with iron sights as well as optics.
     const equippedSpec = weaponSpec(weapon);
@@ -2086,7 +2097,7 @@ export class GameEngine {
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
     const ox = s.x;
-    const oy = s.y + muzzleHeight(s.prone);
+    const oy = s.y + muzzleHeight(s.prone, !!s.crouched);
     const oz = s.z;
     const ends: number[] = [];
     const heavy = heavyKick(weapon);
@@ -2545,7 +2556,7 @@ export class GameEngine {
     const dx = -Math.sin(yaw) * Math.cos(p);
     const dy = Math.sin(p);
     const dz = -Math.cos(yaw) * Math.cos(p);
-    const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone), pz);
+    const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
     let t = range;
     if (this.store?.collision.raycast(o.x, o.y, o.z, dx, dy, dz, range, Mask.LineOfSight, this.shotRay)) t = this.shotRay.t;
     const pos = this.laser.geometry.getAttribute('position') as Float32BufferAttribute;
@@ -2638,7 +2649,7 @@ export class GameEngine {
     let distance = 100;
     if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
     distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
-    this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone), pz);
+    this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
     this.shoulderAim = reticleAim(this.tmpA, ray, distance);
   }
 
@@ -2676,15 +2687,15 @@ export class GameEngine {
         const pose = zb.entity.pose;
         zombieAimPoint((zb.variant << 4) | zb.limbs, pose.flags, p, zb.avatar.root.rotation.y, 'torso', this.tmpB);
         const ty = this.tmpB.y;
-        const dy = ty - (py + muzzleHeight(this.local?.state.prone)), length = Math.hypot(distance, dy);
-        if (this.store?.collision.raycast(px, py + muzzleHeight(this.local?.state.prone), pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
+        const dy = ty - (py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched)), length = Math.hypot(distance, dy);
+        if (this.store?.collision.raycast(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz, dx / length, dy / length, dz / length, length, Mask.LineOfSight, this.shotRay)) continue;
         bestScore = score; found = true;
         this.hoverPoint.copy(this.tmpB);
       }
       if (found) {
         const dx = this.hoverPoint.x - px, dz = this.hoverPoint.z - pz;
         this.input.yaw = Math.atan2(-dx, -dz);
-        this.input.pitch = Math.atan2(this.hoverPoint.y - (py + muzzleHeight(this.local?.state.prone)), Math.hypot(dx, dz));
+        this.input.pitch = Math.atan2(this.hoverPoint.y - (py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched)), Math.hypot(dx, dz));
         this.aimPoint.copy(this.hoverPoint);
       } else {
         this.aimPoint.set(px - Math.sin(heading) * 30, py, pz - Math.cos(heading) * 30);
@@ -2707,13 +2718,13 @@ export class GameEngine {
       const h = Math.hypot(tx, tz);
       if (h > 0.5) {
         this.input.yaw = Math.atan2(-tx, -tz);
-        this.input.pitch = Math.atan2(target.y - (py + muzzleHeight(this.local?.state.prone)), h);
+        this.input.pitch = Math.atan2(target.y - (py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched)), h);
         return;
       }
     }
     this.input.yaw = Math.atan2(-dx, -dz);
     // Scoped: a flat shot at torso height so long range shots don't sail over targets.
-    let pitch = this.scoped || this.local?.state.prone ? Math.atan2(this.aimPoint.y - (py + muzzleHeight(this.local?.state.prone)), Math.sqrt(d2)) : aimPitch(Math.sqrt(d2));
+    let pitch = this.scoped || this.local?.state.prone ? Math.atan2(this.aimPoint.y - (py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched)), Math.sqrt(d2)) : aimPitch(Math.sqrt(d2));
     // Scoped bows/launchers: hold over for the round's drop so it comes down on the cursor.
     const spec = weaponSpec(this.equippedWeapon());
     const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
@@ -2810,6 +2821,7 @@ export class GameEngine {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
       this.viewModel = new ViewModel(this.camera);
+      this.viewModel.setSwimArms(this.character?.root.getObjectByName('arm_left') ?? null, this.character?.root.getObjectByName('arm_right') ?? null);
     }
     if (this.localAvatar) this.localAvatar.root.visible = true;
     this.camera.fov = mouseLook ? FP_FOV : 40;
@@ -2900,13 +2912,23 @@ export class GameEngine {
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
+      // Lean: the eye slides out to the side (never through the wall leant against) and the view tilts.
+      const leanTarget = this.local && !this.local.dead ? leanOf(this.local.lastButtons) : 0;
+      this.leanBlend += (leanTarget - this.leanBlend) * (1 - Math.exp(-dt * 10));
+      const leaned = this.leanFocus.copy(f);
+      if (Math.abs(this.leanBlend) > .001) {
+        const [lx, lz] = leanOffset(this.input.yaw, this.leanBlend), d = Math.hypot(lx, lz);
+        const t = this.store?.collision.raycast(f.x, f.y, f.z, lx / d, 0, lz / d, d + .2, Mask.LineOfSight, this.shotRay) ? Math.max(0, this.shotRay.t - .2) : d;
+        leaned.x += lx / d * t; leaned.z += lz / d * t; leaned.y -= Math.abs(this.leanBlend) * .06;
+      }
       if (this.cameraMode === 'third-person' && !this.scoped) {
-        this.thirdPersonCamera.update(cam, f, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
+        this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
+        if (this.leanBlend) cam.rotateZ(-this.leanBlend * .08);
       } else {
-        cam.position.set(f.x - Math.sin(this.input.yaw) * 0.12, f.y, f.z - Math.cos(this.input.yaw) * 0.12);
+        cam.position.set(leaned.x - Math.sin(this.input.yaw) * 0.12, leaned.y, leaned.z - Math.cos(this.input.yaw) * 0.12);
         const shake = (this.effects?.shake ?? 0) * 0.25;
         if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
-        cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
+        cam.rotation.set(this.input.pitch, this.input.yaw, -this.leanBlend * .2, 'YXZ');
         if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
           const rolling=this.local.state.rollTicks>0;
           const alongLook=Math.abs(Math.cos(this.local.state.rollYaw-this.input.yaw))>.65;

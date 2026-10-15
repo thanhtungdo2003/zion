@@ -14,9 +14,14 @@ export const Buttons = {
   Aim: 1 << 6,
   /** Applying a first aid kit (so others see the bandage animation). */
   Heal: 1 << 7,
+  /** Leaning out round cover (Q / E held). */
+  LeanLeft: 1 << 8,
+  LeanRight: 1 << 9,
+  /** Crouched (X toggles). */
+  Crouch: 1 << 10,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();
@@ -50,7 +55,7 @@ export const inputMessageSchema = z
       .number()
       .int()
       .min(0)
-      .max(255)
+      .max(2047)
       .refine((v) => (v & ~BUTTON_MASK) === 0, 'unknown button bits'),
     /** Weapon in hand (WeaponId); omitted = empty hands. */
     w: z.number().int().min(0).max(Math.max(MAX_WEAPON_ID, 250)).optional(),

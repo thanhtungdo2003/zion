@@ -3,6 +3,8 @@ import { cycleCameraMode, settingsStore } from '@/lib/settings';
 
 export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll' | 'throwC4';
 export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause' | 'prone';
+/** E held longer than this leans right; a shorter tap interacts as before. */
+const E_HOLD_MS = 200;
 const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll, throwC4: Buttons.ThrowC4 };
 
 /**
@@ -51,6 +53,9 @@ export class InputController {
   private readonly keys = new Set<string>();
   private mouseButtons = 0;
   private prone = false;
+  private crouch = false;
+  /** When E went down: a quick tap interacts / opens the bag, holding it leans right. */
+  private eDownAt = -1;
   touchEnabled = false;
   /** Manual stick heading, kept separate from the assisted shot heading. */
   touchHeading: number | null = null;
@@ -104,20 +109,20 @@ export class InputController {
         if (!e.repeat) cycleCameraMode();
         return;
       }
-      if (e.code === 'Space') this.prone = false;
+      if (e.code === 'Space') { this.prone = false; this.crouch = false; }
       if (e.code === 'Enter' || e.code === 'KeyT') {
         e.preventDefault();
         this.keys.clear();
         this.onChat();
         return;
       }
-      if (e.code === 'KeyE' && !e.repeat) {
-        this.keys.clear();
-        this.mouseButtons = 0;
-        this.handlers.openInventory();
+      if (e.code === 'KeyE') {
+        if (!e.repeat) this.eDownAt = performance.now();
+        this.keys.add('KeyE');
         return;
       }
-      if (e.code === settingsStore.get().proneKey && !e.repeat) this.toggleProne();
+      if (e.code === 'KeyX' && !e.repeat) { this.crouch = !this.crouch; if (this.crouch) this.prone = false; }
+      if (e.code === settingsStore.get().proneKey && !e.repeat) { this.toggleProne(); if (this.prone) this.crouch = false; }
       // Attachment screen for the gun in hand (Alt by default; keep the browser menu bar shut).
       if (e.code === settingsStore.get().attachKey || (settingsStore.get().attachKey === 'AltLeft' && e.code === 'AltRight')) {
         e.preventDefault();
@@ -133,7 +138,14 @@ export class InputController {
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code);
     });
-    on('keyup', (e) => this.keys.delete(e.code));
+    on('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.code === 'KeyE' && this.eDownAt >= 0) {
+        const tap = performance.now() - this.eDownAt < E_HOLD_MS;
+        this.eDownAt = -1;
+        if (tap && !this.suspended && this.active) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory(); }
+      }
+    });
     on('blur', () => {
       this.clearInput();
     });
@@ -241,6 +253,7 @@ export class InputController {
   /** Keep taps shorter than one simulation tick until the next input is sent. */
   acknowledgeTouchPresses(): void { this.touchPresses = 0; }
   toggleProne(): void { this.prone = !this.prone; }
+  toggleCrouch(): void { this.crouch = !this.crouch; if (this.crouch) this.prone = false; }
 
   touchLook(dx: number, dy: number, zoom = 1): void {
     if (!this.touchEnabled || this.suspended || !this.active || this.freeCursorFlag) return;
@@ -338,13 +351,16 @@ export class InputController {
   }
 
   buttons(): number {
-    const stance = this.prone ? Buttons.Prone : 0;
+    const stance = this.prone ? Buttons.Prone : this.crouch ? Buttons.Crouch : 0;
     if (this.suspended || !this.active) return stance;
     let b = this.touchBits | this.touchPresses | stance;
     if (this.keys.has('Space')) b |= Buttons.Jump;
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
     if (this.keys.has(settingsStore.get().rollKey)) b |= Buttons.Roll;
+    // Lean while Q / E is held (E only once it is clearly a hold, not a tap to interact).
+    if (this.keys.has('KeyQ')) b |= Buttons.LeanLeft;
+    if (this.keys.has('KeyE') && this.eDownAt >= 0 && performance.now() - this.eDownAt >= E_HOLD_MS) b |= Buttons.LeanRight;
     return b;
   }
 

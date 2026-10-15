@@ -62,15 +62,15 @@ describe('dodge key settings', () => {
   it('persists a custom dodge key across sessions', () => {
     storage({});
     const settings = new SettingsStore(); settings.hydrate();
-    expect(settings.get().rollKey).toBe('KeyQ');
-    settings.set({ rollKey: 'KeyV' });
+    expect(settings.get().rollKey).toBe('KeyV');
+    settings.set({ rollKey: 'KeyG' });
     const restored = new SettingsStore(); restored.hydrate();
-    expect(restored.get().rollKey).toBe('KeyV');
+    expect(restored.get().rollKey).toBe('KeyG');
   });
-  it.each(['KeyC', 'KeyW', 'KeyP', 'Escape', 'invalid'])('falls back to Q for a conflicting or invalid saved key %s', rollKey => {
+  it.each(['KeyC', 'KeyW', 'KeyP', 'Escape', 'invalid', 'KeyQ'])('falls back to V for a conflicting or invalid saved key %s', rollKey => {
     storage({ rollKey });
     const settings = new SettingsStore(); settings.hydrate();
-    expect(settings.get().rollKey).toBe('KeyQ');
+    expect(settings.get().rollKey).toBe('KeyV');
   });
 });
 

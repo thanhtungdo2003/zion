@@ -38,6 +38,7 @@ export class ViewModel {
   private readonly recoil = new RecoilSpring(22, .14);
   private bobPhase = 0;
   private bobAmount = 0;
+  private bobSpeed = 2.7;
   private swayX = 0;
   private swayY = 0;
   private lastYaw = 0;
@@ -58,11 +59,59 @@ export class ViewModel {
   private readonly meleeEdge = new MeleeEdge();
   private strikeAxes: StrikeAxes | null = null;
   private readonly supportArms = new Map<string, Group>();
+  /** 0..1 eased sprint pose (the gun swings across the body), so it never snaps in or out. */
+  private sprintBlend = 0;
+  /** 0..1 eased swimming: the weapon drops out of view and both arms take its place. */
+  private swimBlend = 0;
+  private swimPhase = 0;
+  private readonly swimRoot = new Group();
+  private swimArms: Array<{ arm: Group; toShoulder: Vector3; fist: Vector3; side: -1 | 1 }> = [];
 
   constructor(camera: Camera) {
     this.root.add(this.pivot);
     this.root.visible = false;
     camera.add(this.root);
+    this.swimRoot.visible = false;
+    camera.add(this.swimRoot);
+  }
+
+  /** Bare arms used for swimming strokes (the character's own arms, first-person scale). */
+  setSwimArms(left: Object3D | null, right: Object3D | null): void {
+    for (const a of this.swimArms) a.arm.removeFromParent();
+    this.swimArms = [];
+    for (const [source, hand, side] of [[left, 'hand_left', -1], [right, 'hand_right', 1]] as const) {
+      if (!source) continue;
+      const arm = firstPersonArm(source, hand, new Vector3(), new Vector3(0, 0, 1));
+      const handBone = arm?.getObjectByName(hand);
+      if (!arm || !handBone) continue;
+      const toHand = handBone.position.clone();
+      this.swimArms.push({ arm, toShoulder: toHand.clone().negate().normalize(), fist: toHand.clone().add(toHand.clone().normalize().multiplyScalar(-.1)).multiplyScalar(FP_ARM_SCALE), side });
+      this.swimRoot.add(arm);
+    }
+  }
+
+  /**
+   * Breaststroke: hands meet in front, sweep out and back to the chest, then shoot forward again.
+   * `t` is the stroke phase (0..1); each hand is posed with its forearm reaching to the shoulder.
+   */
+  private poseSwimArms(t: number, reach: number, rise: number): void {
+    const keys: Array<[number, number, number, number]> = [
+      [0, .05, -.13, -.52], [.3, .3, -.15, -.42], [.55, .17, -.27, -.24], [.8, .05, -.22, -.3], [1, .05, -.13, -.52],
+    ];
+    let i = 0;
+    while (i < keys.length - 2 && t > keys[i + 1]![0]) i++;
+    const [t0, x0, y0, z0] = keys[i]!, [t1, x1, y1, z1] = keys[i + 1]!;
+    const k = ease((t - t0) / (t1 - t0));
+    const hand = new Vector3(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, z0 + (z1 - z0) * k);
+    // Treading water: a smaller, slower circle closer to the body.
+    hand.set(hand.x * (.55 + .45 * reach), hand.y - (1 - reach) * .04, -.3 + (hand.z + .3) * (.5 + .5 * reach));
+    hand.y -= rise;
+    for (const a of this.swimArms) {
+      const fist = new Vector3(hand.x * a.side, hand.y, hand.z);
+      const shoulder = new Vector3(.24 * a.side, -.34, .12);
+      a.arm.quaternion.setFromUnitVectors(a.toShoulder, shoulder.sub(fist).normalize());
+      a.arm.position.copy(fist).sub(a.fist.clone().applyQuaternion(a.arm.quaternion));
+    }
   }
 
   set(itemId: string | null, weapons: WeaponLibrary | null, attachments?: Attachments): void {
@@ -222,9 +271,17 @@ export class ViewModel {
     this.throwT = 0;
   }
 
-  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean }): void {
-    this.root.visible = s.visible && (this.current !== null || this.offhandId !== null);
-    const aiming = !s.reloading && !s.sprint && s.aiming ? 1 : 0;
+  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean; swimming?: boolean }): void {
+    // Swimming: the weapon sinks out of view while the swimming arms come up, and back again.
+    this.swimBlend += ((s.swimming ? 1 : 0) - this.swimBlend) * (1 - Math.exp(-dt * 6));
+    const swim = this.swimBlend;
+    this.swimPhase = (this.swimPhase + dt * (s.moving ? .9 : .45)) % 1;
+    this.swimRoot.visible = s.visible && swim > .02 && this.swimArms.length > 0;
+    if (this.swimRoot.visible) this.poseSwimArms(this.swimPhase, s.moving ? 1 : 0, (1 - ease(swim)) * .45);
+    this.root.visible = s.visible && (this.current !== null || this.offhandId !== null) && swim < .98;
+    this.sprintBlend += ((s.sprint && s.moving && !s.swimming ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-dt * 7));
+    const sprinting = this.sprintBlend;
+    const aiming = !s.reloading && sprinting < .5 && !s.swimming && s.aiming ? 1 : 0;
     this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 14 * this.adsSpeed : 12)));
     const rig = this.rig();
     rig?.mechanics.update(dt);
@@ -238,18 +295,20 @@ export class ViewModel {
     this.swayX += (Math.max(-0.06, Math.min(0.06, dyaw * 0.6)) - this.swayX) * k;
     this.swayY += (Math.max(-0.05, Math.min(0.05, -dpitch * 0.6)) - this.swayY) * k;
     // Walk bob.
-    const targetBob = s.moving ? (s.sprint ? 1.6 : 1) : 0;
-    this.bobAmount += (targetBob - this.bobAmount) * (1 - Math.exp(-dt * 8));
-    this.bobPhase += dt * (s.sprint ? 13 : 9) * (s.moving ? 1 : 0.3);
+    // Bob grows and quickens continuously with the sprint blend: no jump between gaits.
+    const targetBob = s.moving && !s.swimming ? 1 + .6 * sprinting : 0;
+    this.bobAmount += (targetBob - this.bobAmount) * (1 - Math.exp(-dt * 6));
+    this.bobSpeed += ((s.moving ? 9 + 4 * sprinting : 2.7) - this.bobSpeed) * (1 - Math.exp(-dt * 5));
+    this.bobPhase += dt * this.bobSpeed;
     const bx = Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
     const by = -Math.abs(Math.cos(this.bobPhase)) * 0.012 * this.bobAmount;
+    let ax = 0, ay = 0, az = 0, rx = 0, ry = 0, rz = 0;
     // Recoil springs back; reload lowers the gun.
     this.recoil.update(dt);
     this.dip += ((s.reloading ? 1 : 0) - this.dip) * (1 - Math.exp(-dt * 9));
-    const sprintTilt = s.sprint && s.moving ? 1 : 0;
+    const sprintTilt = ease(sprinting);
 
     // Action offsets: position (x, y, z) and rotation (pitch, yaw, roll).
-    let ax = 0, ay = 0, az = 0, rx = 0, ry = 0, rz = 0;
     if (this.swingT >= 0) {
       this.swingT += dt * this.swingRate;
       const d = this.swingDir;
@@ -288,6 +347,8 @@ export class ViewModel {
     }
     if (hidden) this.root.visible = false;
 
+    // Lowered while swimming (the weapon slung down out of view).
+    ay -= ease(swim) * .5; rx -= ease(swim) * .9;
     const relaxed = 1 - this.aimBlend;
     const cant = rig?.mechanics.cant ?? 0, lift = rig?.mechanics.lift ?? 0;
     const supportArm = this.current ? this.supportArms.get(this.current) : null;
@@ -324,6 +385,7 @@ export class ViewModel {
 
   dispose(): void {
     this.root.removeFromParent();
+    this.swimRoot.removeFromParent();
   }
 }
 
