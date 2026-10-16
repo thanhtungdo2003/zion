@@ -532,10 +532,9 @@ export class ZombieDirector {
       if (!p.active || p.dead) continue;
       const d = dist2(s, p.state);
       const range = p.state.prone ? sense * .35 : sense;
-      // Seen at body or head height (a player up on a roof shows only the head), or simply
-      // heard / smelled when very close, whatever is in between.
+      // Seen at body or head height: a player up on a roof or a ledge often shows only the head.
       const sees = (h: number) => this.collision.lineOfSight(s.x, s.y + 1.5, s.z, p.state.x, p.state.y + h, p.state.z, Mask.LineOfSight, this.attackHit);
-      if (d < best && d < range * range && (d < 5 * 5 || sees(p.state.prone ? .4 : .9) || sees(p.state.prone ? .5 : 1.6))) {
+      if (d < best && d < range * range && (sees(p.state.prone ? .4 : .9) || sees(p.state.prone ? .5 : 1.6))) {
         best = d;
         seen = p;
       }
