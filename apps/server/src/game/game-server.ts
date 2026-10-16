@@ -2,6 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
+import { type ThrowSpec } from '@zion/shared';
 import { attachmentModifier, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
@@ -213,7 +214,7 @@ export class GameServer {
   private readonly epoch = performance.now();
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
-  private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number }> = [];
+  private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number; spec: ThrowSpec }> = [];
   private readonly c4Charges = new Map<number, C4Charge>();
   private nextGrenadeId = 1;
   readonly zombies: ZombieDirector;
@@ -2347,9 +2348,10 @@ export class GameServer {
   }
 
   private tryThrow(p: Player, now: number, targetDist?: number): void {
-    const spec = WEAPON_SPECS[WeaponId.Grenade];
-    if (spec.kind !== 'throw' || now < p.throwReadyAt || p.life.stamina < this.attackStaminaCost(p)) return;
-    if (p.inv.equippedItem()?.itemId !== 'grenade') return;
+    // Any hand-thrown grenade: frag, stun, smoke (and Studio-made ones); not the remote C4.
+    const weapon = WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0;
+    const spec = weaponSpec(weapon);
+    if (spec?.kind !== 'throw' || spec.remote || now < p.throwReadyAt || p.life.stamina < this.attackStaminaCost(p)) return;
     p.inv.consumeEquipped();
     this.syncLoadout(p);
     this.sendInv(p);
@@ -2378,9 +2380,10 @@ export class GameServer {
       owner: p,
       s: { x: ox, y: oy, z: oz, vx: fx * h + s.vx * carry, vy: Math.sin(spec.elevation) * speed, vz: fz * h + s.vz * carry, resting: false },
       explodeAt: now + spec.fuseMs,
+      spec,
     };
     this.grenades.push(g);
-    this.broadcastNear(p, { t: 'grenade', id: g.id, ownerId: p.id, ...pick(g.s), fuseMs: spec.fuseMs });
+    this.broadcastNear(p, { t: 'grenade', id: g.id, ownerId: p.id, ...pick(g.s), fuseMs: spec.fuseMs, ...(weapon !== WeaponId.Grenade ? { w: weapon } : {}) });
   }
 
   private tryThrowC4(p: Player, now: number, targetDist?: number): void {
@@ -2418,15 +2421,44 @@ export class GameServer {
   }
 
   private stepGrenades(now: number): void {
-    const spec = WEAPON_SPECS[WeaponId.Grenade];
-    if (spec.kind !== 'throw') return;
     for (let i = this.grenades.length - 1; i >= 0; i--) {
-      const g = this.grenades[i]!;
+      const g = this.grenades[i]!, spec = g.spec;
       stepProjectile(g.s, this.collision, GRENADE_GRAVITY, TICK_DT);
       if (now < g.explodeAt) continue;
       this.grenades.splice(i, 1);
-      this.explode(g.id, g.s.x, g.s.y, g.s.z, spec.radius, spec.damage, g.owner, 'grenade', now);
+      if (spec.effect === 'flash') this.flashbang(g.id, g.s.x, g.s.y, g.s.z, spec, now);
+      else if (spec.effect === 'smoke') this.smokeScreen(g.id, g.s.x, g.s.y, g.s.z, spec);
+      else this.explode(g.id, g.s.x, g.s.y, g.s.z, spec.radius, spec.damage, g.owner, 'grenade', now);
     }
+  }
+
+  /**
+   * Stun grenade: a bang and a blinding flash. Everyone within `radius` is blinded and deafened,
+   * fully when close and looking at it; less when far, facing away or behind cover.
+   */
+  private flashbang(id: number, x: number, y: number, z: number, spec: ThrowSpec, now: number): void {
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    for (const o of this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, [])) o.session.sendJson({ t: 'explosion', id, x, y, z, radius: spec.radius, kind: 'flash' });
+    this.zombies.alert(x, z, 50, now);
+    for (const t of this.grid.query(cx, cz, 1, this.scratch)) {
+      if (!t.active || t.dead) continue;
+      const ex = t.state.x, ey = t.state.y + characterEyeHeight(t.state), ez = t.state.z;
+      const dx = x - ex, dy = y + .2 - ey, dz = z - ez, d = Math.hypot(dx, dy, dz);
+      if (d >= spec.radius) continue;
+      const near = 1 - (d / spec.radius) ** 2;
+      // Looking at it: full; side-on half; facing away still a quarter (the bang).
+      const cp = Math.cos(t.pitch), look = d > .3 ? (-Math.sin(t.yaw) * cp * dx + Math.sin(t.pitch) * dy - Math.cos(t.yaw) * cp * dz) / d : 1;
+      const facing = .25 + .75 * Math.max(0, look);
+      const covered = d > .3 && this.collision.raycast(ex, ey, ez, dx / d, dy / d, dz / d, d - .2, Mask.LineOfSight, this.blastHit);
+      const strength = Math.min(1, near * facing * (covered ? .3 : 1) * 1.3);
+      if (strength > .05) t.session.sendJson({ t: 'flashbang', strength: +strength.toFixed(2), ms: spec.effectMs ?? 3000 });
+    }
+  }
+
+  /** Smoke grenade: a cloud everyone around sees for `effectMs`. */
+  private smokeScreen(id: number, x: number, y: number, z: number, spec: ThrowSpec): void {
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    for (const o of this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, [])) o.session.sendJson({ t: 'smoke', id, x, y, z, radius: spec.radius, ms: spec.effectMs ?? 20000 });
   }
 
   /** Blast damage with linear falloff; cover blocks it for players. */

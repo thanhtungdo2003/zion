@@ -35,13 +35,15 @@ const OPTICS = Object.values(ATTACHMENTS).filter((a) => a.slot === 'optic').map(
 const MUZZLES = Object.values(ATTACHMENTS).filter((a) => a.slot === 'muzzle').map((a) => a.id);
 const AMMO = Object.values(ITEMS).filter((d) => d.ammo).map((d) => d.id);
 
-function blankDraft(kind: 'gun' | 'melee', format: 'glb' | 'bbmodel'): Draft {
+function blankDraft(kind: 'gun' | 'melee' | 'throw', format: 'glb' | 'bbmodel'): Draft {
   return {
-    id: `cw_${Math.random().toString(36).slice(2, 8)}`, name: kind === 'gun' ? 'Súng mới' : 'Vũ khí cận chiến mới', info: '', kind, format,
-    item: { category: kind === 'gun' ? 'rifle' : 'melee', w: kind === 'gun' ? 5 : 4, h: kind === 'gun' ? 2 : 1, color: '#5a5a52' },
-    model: { length: kind === 'gun' ? .9 : .8, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
+    id: `cw_${Math.random().toString(36).slice(2, 8)}`, name: kind === 'gun' ? 'Súng mới' : kind === 'throw' ? 'Lựu đạn mới' : 'Vũ khí cận chiến mới', info: '', kind, format,
+    item: { category: kind === 'gun' ? 'rifle' : kind === 'throw' ? 'grenade' : 'melee', w: kind === 'gun' ? 5 : kind === 'throw' ? 1 : 4, h: kind === 'gun' ? 2 : 1, color: '#5a5a52' },
+    model: { length: kind === 'gun' ? .9 : kind === 'throw' ? .14 : .8, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
     ...(kind === 'gun'
       ? { gun: { damage: 14, pellets: 1, fireMs: 100, spread: .025, range: 70, magazine: 30, reloadMs: 2300, auto: true, weight: 3.5, recoil: 1, ammo: 'ammo_556', sound: 'rifleShot' as const, optics: [], muzzleDevices: [] } }
+      : kind === 'throw'
+      ? { throw: { damage: 120, radius: 7, fuseMs: 2600, cooldownMs: 1100, maxRange: 22, weight: .4, effect: 'frag' as const, effectMs: 0 } }
       : { melee: { damage: 40, range: 2.6, cooldownMs: 700, swingMs: 380, weight: 1.6 } }),
     price: 500, lootable: false,
   };
@@ -81,7 +83,7 @@ export function WeaponManagerPage() {
   const [saved, setSaved] = useState<StudioWeapon[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'locked' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'builtin' | 'custom'>('all');
+  const [filter, setFilter] = useState<'all' | 'builtin' | 'custom' | 'grenade'>('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   const [fresh, setFresh] = useState<{ draft: Draft; file: File } | null>(null);
@@ -98,7 +100,7 @@ export function WeaponManagerPage() {
     const custom = saved.filter((w) => w.id.startsWith('cw_')).map((w) => ({ draft: w as Draft, builtin: false, edited: true, modelUrl: `${API_URL}${w.modelUrl}` }));
     return [...builtinEntries(map), ...custom];
   }, [saved]);
-  const shown = entries.filter((e) => (filter === 'all' || (filter === 'builtin') === e.builtin) && (!search || `${e.draft.name} ${e.draft.id}`.toLowerCase().includes(search.toLowerCase())));
+  const shown = entries.filter((e) => (filter === 'all' || (filter === 'grenade' ? e.draft.kind === 'throw' : (filter === 'builtin') === e.builtin)) && (!search || `${e.draft.name} ${e.draft.id}`.toLowerCase().includes(search.toLowerCase())));
   const current = fresh ? null : entries.find((e) => e.draft.id === selected) ?? null;
   if (status === 'locked') return (
     <div className="studio-root studio-gate"><div className="overlay-card"><h2>Quản lý vũ khí</h2>
@@ -114,7 +116,7 @@ export function WeaponManagerPage() {
       <header className="studio-bar ws-bar">
         <Link href="/studio" className="studio-back" title="Về Xưởng căn cứ"><Icon name="lucide:arrow-left" /></Link>
         <h1>Quản lý vũ khí</h1>
-        <div className="ws-tabs">{(['all', 'builtin', 'custom'] as const).map((f) => <button key={f} className={`btn${filter === f ? ' btn-primary' : ''}`} onClick={() => setFilter(f)}>{f === 'all' ? 'Tất cả' : f === 'builtin' ? 'Có sẵn' : 'Tự tạo'}</button>)}</div>
+        <div className="ws-tabs">{(['all', 'builtin', 'custom', 'grenade'] as const).map((f) => <button key={f} className={`btn${filter === f ? ' btn-primary' : ''}`} onClick={() => setFilter(f)}>{f === 'all' ? 'Tất cả' : f === 'builtin' ? 'Có sẵn' : f === 'custom' ? 'Tự tạo' : 'Lựu đạn'}</button>)}</div>
         <input className="ws-search" placeholder="Tìm vũ khí…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="lucide:plus" /> Thêm vũ khí</button>
         <button className="btn ws-reset" title="Đưa mọi vũ khí có sẵn về mặc định" onClick={() => setResetting({ all: true })}><Icon name="lucide:rotate-ccw" /> Reset mặc định</button>
@@ -130,7 +132,7 @@ export function WeaponManagerPage() {
         <nav className="ws-list" aria-label="Danh sách vũ khí">
           {status === 'loading' && <Spinner />}
           {shown.map((e) => <button key={e.draft.id} className={`ws-item${selected === e.draft.id && !fresh ? ' on' : ''}`} onClick={() => { setFresh(null); setSelected(e.draft.id); }}>
-            <Icon name={e.draft.kind === 'gun' ? 'game-icons:pistol-gun' : 'game-icons:broadsword'} />
+            <Icon name={e.draft.kind === 'gun' ? 'game-icons:pistol-gun' : e.draft.kind === 'throw' ? 'game-icons:grenade' : 'game-icons:broadsword'} />
             <span><b>{e.draft.name}</b><small>{e.draft.id}{e.draft.gun ? ` · ${e.draft.gun.damage}${e.draft.gun.pellets > 1 ? `×${e.draft.gun.pellets}` : ''} st · ${e.draft.gun.fireMs} ms` : e.draft.melee ? ` · ${e.draft.melee.damage} st` : ''}</small></span>
             {e.builtin ? (e.edited ? <em className="ws-badge edited">Đã sửa</em> : <em className="ws-badge">Có sẵn</em>) : <em className="ws-badge custom">Tự tạo</em>}
           </button>)}
@@ -157,16 +159,16 @@ export function WeaponManagerPage() {
 }
 
 /** Step 1: the model file and whether it is a gun or a melee weapon. */
-function NewWeaponDialog({ onPick, onCancel }: { onPick: (kind: 'gun' | 'melee', file: File) => void; onCancel: () => void }) {
-  const [kind, setKind] = useState<'gun' | 'melee'>('gun');
+function NewWeaponDialog({ onPick, onCancel }: { onPick: (kind: 'gun' | 'melee' | 'throw', file: File) => void; onCancel: () => void }) {
+  const [kind, setKind] = useState<'gun' | 'melee' | 'throw'>('gun');
   const [file, setFile] = useState<File | null>(null);
   return (
     <div className="studio-modal-backdrop">
       <form className="overlay-card studio-modal studio-form" onSubmit={(e) => { e.preventDefault(); if (file) onPick(kind, file); }}>
         <h2>Thêm vũ khí</h2>
         <div className="ws-kind">
-          {(['gun', 'melee'] as const).map((k) => <label key={k} className={kind === k ? 'on' : ''}><input type="radio" name="kind" checked={kind === k} onChange={() => setKind(k)} />
-            <Icon name={k === 'gun' ? 'game-icons:pistol-gun' : 'game-icons:broadsword'} /><b>{k === 'gun' ? 'Tầm xa' : 'Cận chiến'}</b><small>{k === 'gun' ? 'Súng: sát thương, tốc độ bắn, băng đạn, độ giật, phụ kiện…' : 'Dao, rìu, gậy: sát thương, tầm với, tốc độ vung…'}</small></label>)}
+          {(['gun', 'melee', 'throw'] as const).map((k) => <label key={k} className={kind === k ? 'on' : ''}><input type="radio" name="kind" checked={kind === k} onChange={() => setKind(k)} />
+            <Icon name={k === 'gun' ? 'game-icons:pistol-gun' : k === 'throw' ? 'game-icons:grenade' : 'game-icons:broadsword'} /><b>{k === 'gun' ? 'Tầm xa' : k === 'throw' ? 'Lựu đạn' : 'Cận chiến'}</b><small>{k === 'gun' ? 'Súng: sát thương, tốc độ bắn, băng đạn, độ giật, phụ kiện…' : k === 'throw' ? 'Nổ, choáng hoặc khói: ngòi nổ, bán kính, tầm ném…' : 'Dao, rìu, gậy: sát thương, tầm với, tốc độ vung…'}</small></label>)}
         </div>
         <label className="studio-field"><span>File model (.glb hoặc .bbmodel, tối đa 8 MB)</span>
           <input type="file" accept=".glb,.bbmodel" required onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
@@ -227,6 +229,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
   const setModel = (patch: Partial<Draft['model']>) => setD((v) => ({ ...v, model: { ...v.model, ...patch } }));
   const setGun = (patch: Partial<NonNullable<Draft['gun']>>) => setD((v) => ({ ...v, gun: { ...v.gun!, ...patch } }));
   const setMelee = (patch: Partial<NonNullable<Draft['melee']>>) => setD((v) => ({ ...v, melee: { ...v.melee!, ...patch } }));
+  const setThrow = (patch: Partial<NonNullable<Draft['throw']>>) => setD((v) => ({ ...v, throw: { ...v.throw!, ...patch } }));
   const point = (k: PointKey): Vec3 | undefined => k === 'sightRear' ? d.model.sight?.rear : k === 'sightFront' ? d.model.sight?.front : d.model[k];
   const setPoint = (k: PointKey, p: Vec3 | undefined) => {
     if (k === 'sightRear' || k === 'sightFront') {
@@ -234,7 +237,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
       setModel({ sight: p ? sight as { rear: Vec3; front: Vec3 } : undefined });
     } else setModel({ [k]: p } as Partial<Draft['model']>);
   };
-  const keys = (Object.keys(POINTS) as PointKey[]).filter((k) => POINTS[k][d.kind]);
+  const keys = (Object.keys(POINTS) as PointKey[]).filter((k) => POINTS[k][d.kind === 'throw' ? 'melee' : d.kind]);
   const save = async () => {
     setBusy(true); setError(null);
     // Listing fields (where the model is served) are not part of the definition.
@@ -334,6 +337,17 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
                 return <label key={a}><input type="checkbox" checked={on} onChange={() => setGun(ATTACHMENTS[a]!.slot === 'optic' ? { optics: on ? list.filter((x) => x !== a) : [...list, a] } : { muzzleDevices: on ? list.filter((x) => x !== a) : [...list, a] })} />{ITEMS[a]!.name}</label>;
               })}</div>
               {!d.model.rail && d.gun.optics.length > 0 && <p className="studio-muted">Cần đặt “Ngàm ống ngắm” trên model để lắp ống ngắm.</p>}
+            </fieldset>}
+            {d.throw && <fieldset><legend>Lựu đạn</legend>
+              <label className="studio-field-inline"><span>Loại</span><select value={d.throw.effect} onChange={(e) => setThrow({ effect: e.target.value as 'frag' | 'flash' | 'smoke' })}>
+                <option value="frag">Nổ (sát thương)</option><option value="flash">Choáng (chói mắt, ù tai)</option><option value="smoke">Khói (che tầm nhìn)</option></select></label>
+              {num('Ngòi nổ (ms)', d.throw.fuseMs, (v) => setThrow({ fuseMs: v }), 50, 300, 10000)}
+              {num(d.throw.effect === 'smoke' ? 'Bán kính khói (m)' : d.throw.effect === 'flash' ? 'Bán kính choáng (m)' : 'Bán kính nổ (m)', d.throw.radius, (v) => setThrow({ radius: v }), .5, 1, 40)}
+              {d.throw.effect === 'frag' && num('Sát thương tâm nổ', d.throw.damage, (v) => setThrow({ damage: v }), 1, 0, 500)}
+              {d.throw.effect !== 'frag' && num(d.throw.effect === 'smoke' ? 'Khói tồn tại (ms)' : 'Choáng tối đa (ms)', d.throw.effectMs, (v) => setThrow({ effectMs: v }), 100, 0, 60000)}
+              {num('Tầm ném xa nhất (m)', d.throw.maxRange, (v) => setThrow({ maxRange: v }), .5, 3, 60)}
+              {num('Hồi ném (ms)', d.throw.cooldownMs, (v) => setThrow({ cooldownMs: v }), 50, 200, 5000)}
+              {num('Nặng (kg)', d.throw.weight, (v) => setThrow({ weight: v }), .05, .1, 5)}
             </fieldset>}
             {d.melee && <fieldset><legend>Cận chiến</legend>
               {num('Sát thương', d.melee.damage, (v) => setMelee({ damage: v }), 1, 1, 300)}

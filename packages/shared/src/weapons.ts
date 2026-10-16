@@ -39,9 +39,11 @@ export const WeaponId = {
   Vector: 33,
   P90: 34,
   ScarL: 35,
+  Flashbang: 36,
+  SmokeGrenade: 37,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 35;
+export const MAX_WEAPON_ID = 37;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'ballistic' | 'projectile' | 'flame';
@@ -109,7 +111,12 @@ export interface ThrowSpec {
   radius: number;
   /** Damage at the centre, falling off linearly to 0 at `radius`. */
   damage: number;
+  /** What it does when it goes off: blast (default), blinding flash or a smoke screen. */
+  effect?: ThrowEffect;
+  /** Flash: longest blindness/deafness (ms). Smoke: how long the cloud lasts (ms). */
+  effectMs?: number;
 }
+export type ThrowEffect = 'frag' | 'flash' | 'smoke';
 
 export interface MeleeSpec {
   weight: number;
@@ -172,6 +179,10 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
     burn: { seconds: 4, dps: 7 },
   },
   [WeaponId.Grenade]: { kind: 'throw', weight: 0.4, cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 22, scatterBase: 1.2, scatterPerM: 0.08, fuseMs: 2600, radius: 7, damage: 120 },
+  // Stun grenade: no damage, blinds and deafens whoever sees / hears it go off.
+  [WeaponId.Flashbang]: { kind: 'throw', weight: 0.35, cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 24, scatterBase: 1, scatterPerM: 0.07, fuseMs: 1800, radius: 16, damage: 0, effect: 'flash', effectMs: 3000 },
+  // Smoke grenade: a thick cloud that blocks sight for a while.
+  [WeaponId.SmokeGrenade]: { kind: 'throw', weight: 0.45, cooldownMs: 1100, speed: 14, elevation: 0.62, maxRange: 24, scatterBase: 1, scatterPerM: 0.07, fuseMs: 1500, radius: 7, damage: 0, effect: 'smoke', effectMs: 22000 },
   [WeaponId.C4]: { kind: 'throw', weight: 0.8, remote: true, cooldownMs: 1100, speed: 8, elevation: 0.62, maxRange: 8, scatterBase: .35, scatterPerM: .04, fuseMs: 0, radius: 8, damage: 220 },
   [WeaponId.Katana]: { kind: 'melee', weight: 1.4, decapitationChance: .12, damage: 38, range: 2.6, cooldownMs: 520, swingMs: 320 },
   [WeaponId.Quam]: { kind: 'melee', weight: 2.2, decapitationChance: .16, damage: 50, range: 3.2, cooldownMs: 850, swingMs: 420 },
@@ -193,6 +204,8 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   shotgun: WeaponId.Shotgun,
   gl18: WeaponId.GL18,
   grenade: WeaponId.Grenade,
+  flashbang: WeaponId.Flashbang,
+  smoke_grenade: WeaponId.SmokeGrenade,
   c4_detonator: WeaponId.C4,
   c4: WeaponId.C4,
   awm: WeaponId.AWM,

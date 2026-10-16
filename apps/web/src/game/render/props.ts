@@ -123,10 +123,12 @@ export class PropRenderer {
           visuals.set(p.asset, v);
         }
         const t = propTransform(chunk, p);
-        const max = v.def.render.maxDistance * this.distanceScale, d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
+        // Max draw distance (high preset): full detail much further out, models drawn as far as streamed.
+        const high = this.distanceScale >= 1;
+        const max = v.def.render.maxDistance * this.distanceScale * (high ? 1.8 : 1), d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
         if (d2 > max * max) continue;
         // Distant models keep their place and shape, drawn simplified and flat (negative key).
-        const lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * Math.max(.6, this.distanceScale);
+        const lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * (high ? 2.4 : Math.max(.6, this.distanceScale));
         const b = this.batch(v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset);
         if ((b.count + 1) * 16 > b.matrices.length) {
           const grown = new Float32Array(b.matrices.length * 2);

@@ -55,6 +55,8 @@ export interface ShotInfo {
  * Combat visuals and sounds: bullets in flight, muzzle flash + barrel heat, casings, impacts,
  * grenade flights and explosions, built on the pooled particle system.
  */
+import { SmokeClouds } from './smoke-clouds';
+
 export class CombatEffects {
   private disposed = false;
   readonly particles: ParticleSystem;
@@ -87,6 +89,10 @@ export class CombatEffects {
   private readonly bulletGlow = new Mesh(new IcosahedronGeometry(.055, 1), new MeshBasicMaterial({ color: 0xffd183, transparent: true, opacity: .18, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
   private readonly fallbackGrenade = new Mesh(new IcosahedronGeometry(0.07), new MeshBasicMaterial({ color: 0x445533 }));
 
+  /** Thrown grenade models by weapon id (frag uses `grenadeModel`). */
+  grenadeModels = new Map<number, Object3D>();
+  readonly smoke: SmokeClouds;
+
   setProjectileModels(models: Map<string, Object3D>): void {
     this.projectileModels = models;
   }
@@ -98,6 +104,7 @@ export class CombatEffects {
     private readonly listener: () => Vector3,
   ) {
     this.particles = new ParticleSystem(scene);
+    this.smoke = new SmokeClouds(scene);
     this.bulletHoles = new BulletHoles(scene);
     this.bulletModel.add(this.bulletGlow);
     for (let i = 0; i < 4; i++) {
@@ -236,9 +243,9 @@ export class CombatEffects {
 
   /* --------------------------------------- grenades ---------------------------------------- */
 
-  throwGrenade(id: number, s: ProjectileState): void {
+  throwGrenade(id: number, s: ProjectileState, weapon?: number): void {
     if (this.grenades.has(id)) return;
-    const mesh = (this.grenadeModel ?? this.fallbackGrenade).clone(true);
+    const mesh = ((weapon ? this.grenadeModels.get(weapon) : undefined) ?? this.grenadeModel ?? this.fallbackGrenade).clone(true);
     mesh.position.set(s.x, s.y, s.z);
     this.scene.add(mesh);
     this.grenades.set(id, { age: 0, s: { ...s, resting: false }, mesh, spin: new Vector3(Math.random() * 10, Math.random() * 6, Math.random() * 10) });
@@ -261,7 +268,7 @@ export class CombatEffects {
     }
   }
 
-  explode(id: number, x: number, y: number, z: number, radius: number, kind: 'grenade' | 'grenade40' | 'rocket' = 'grenade'): void {
+  explode(id: number, x: number, y: number, z: number, radius: number, kind: 'grenade' | 'grenade40' | 'rocket' | 'flash' | 'smoke' = 'grenade'): void {
     const c4 = this.c4Charges.get(id);
     if (c4) { this.scene.remove(c4.mesh); this.c4Charges.delete(id); }
     const round = this.rounds.get(id);
@@ -274,8 +281,18 @@ export class CombatEffects {
       this.scene.remove(g.mesh);
       this.grenades.delete(id);
     }
+    if (kind === 'flash') {
+      // Stun grenade: a white flash and a sharp bang, no fire.
+      ParticleFX.impact(this.particles, x, y + .1, z);
+      const light = this.blastLights[this.blastNext++ % this.blastLights.length]!;
+      light.distance = radius * 2.5; light.color.set(0xffffff); light.position.set(x, y + .6, z);
+      this.rings.push({ light, t: 0, radius: radius * .6 });
+      this.sounds?.play('explosion', { at: { x, y, z }, volume: 1.4, maxDistance: 140, refDistance: 10 });
+      return;
+    }
     ParticleFX.explosion(this.particles, x, y, z, radius);
     const light = this.blastLights[this.blastNext++ % this.blastLights.length]!;
+    light.color.set(0xffa040);
     light.distance = radius * 3.5;
     light.position.set(x, y + 1, z);
     this.rings.push({ light, t: 0, radius });
@@ -301,6 +318,7 @@ export class CombatEffects {
       else ParticleFX.barrelGlow(this.particles, h.at.x, h.at.y, h.at.z, h.h);
     }
 
+    this.smoke.update(dt);
     for (const [id, g] of this.grenades) {
       g.age += dt;
       if (g.age > 12) { this.scene.remove(g.mesh); this.grenades.delete(id); }
@@ -374,6 +392,7 @@ export class CombatEffects {
     for (const mesh of [this.bulletModel, this.bulletGlow, this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);
+    this.smoke.dispose();
     for (const g of this.grenades.values()) this.scene.remove(g.mesh);
     for (const c of this.c4Charges.values()) this.scene.remove(c.mesh);
     this.c4Charges.clear();

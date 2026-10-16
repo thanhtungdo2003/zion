@@ -25,7 +25,7 @@ export const GRID_ASSETS: readonly AssetDefinitionInput[] = [
       { type: 'capsule', a: [0, 0, 0], b: [Math.sin(POLE_LEAN) * POLE_HEIGHT, Math.cos(POLE_LEAN) * POLE_HEIGHT, 0], radius: .25 },
     ],
     bounds: { radius: 2.4, height: 6 },
-    render: { maxDistance: 360 },
+    render: { maxDistance: 900 },
     tags: ['grid'],
   },
   {
@@ -37,7 +37,7 @@ export const GRID_ASSETS: readonly AssetDefinitionInput[] = [
     model: { ...pole, rotation: [0, 0, -Math.PI / 2 + .06], offset: [0, .22, 0] },
     colliders: [{ type: 'capsule', a: [0, .25, 0], b: [5.6, .2, 0], radius: .25 }],
     bounds: { radius: 6, height: 1.6 },
-    render: { maxDistance: 300 },
+    render: { maxDistance: 900 },
     tags: ['grid'],
   },
   {

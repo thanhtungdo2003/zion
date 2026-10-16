@@ -102,6 +102,8 @@ export interface GrenadeEvent {
   vy: number;
   vz: number;
   fuseMs: number;
+  /** Which grenade (model); the frag grenade when omitted. */
+  w?: number;
 }
 
 export interface ExplosionEvent {
@@ -112,8 +114,13 @@ export interface ExplosionEvent {
   z: number;
   radius: number;
   /** What blew up (sound/visual flavour); hand grenade when omitted. */
-  kind?: 'grenade' | 'grenade40' | 'rocket';
+  kind?: 'grenade' | 'grenade40' | 'rocket' | 'flash' | 'smoke';
 }
+
+/** A stun grenade went off near you: blinded and deafened for `ms`, scaled by `strength` (0…1). */
+export interface FlashbangEvent { t: 'flashbang'; strength: number; ms: number }
+/** A smoke screen: a cloud of `radius` at (x, y, z) for `ms` from now. */
+export interface SmokeEvent { t: 'smoke'; id: number; x: number; y: number; z: number; radius: number; ms: number }
 
 export interface C4Pose {
   id: number;
@@ -283,6 +290,8 @@ export type ServerJsonMessage =
   | GrenadeEvent
   | C4StateEvent
   | ExplosionEvent
+  | FlashbangEvent
+  | SmokeEvent
   | ProjectileEvent
   | ProjectileEndEvent
   | WalletEvent

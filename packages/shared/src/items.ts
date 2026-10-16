@@ -78,6 +78,8 @@ export const ITEMS: Record<string, ItemDef> = {
   nuclear_cell: { id: 'nuclear_cell', name: 'Pin năng lượng hạt nhân', category: 'resource', w: 1, h: 2, stance: 'unarmed', color: '#3a6a3a', info: 'Energy cell salvaged from industrial ruins' },
   coal_carton: { id: 'coal_carton', name: 'Thùng than', category: 'resource', w: 2, h: 2, uses: 2, stance: 'unarmed', color: '#3a3a3a', info: 'Nhấn chuột phải để đặt than cháy · 2 lần sử dụng · nướng đồ ăn trong 10 phút' },
   grenade: { id: 'grenade', name: 'Lựu đạn', category: 'grenade', w: 1, h: 1, stance: 'grenade', color: '#56663f', info: 'Frag grenade' },
+  flashbang: { id: 'flashbang', name: 'Lựu đạn choáng', category: 'grenade', w: 1, h: 1, stance: 'grenade', color: '#6e7378', info: 'Chói mắt và ù tai ~3 giây ai nhìn / ở gần · không sát thương' },
+  smoke_grenade: { id: 'smoke_grenade', name: 'Lựu đạn khói', category: 'grenade', w: 1, h: 1, stance: 'grenade', color: '#55603a', info: 'Màn khói dày che tầm nhìn ~20 giây' },
   c4: { id: 'c4', name: 'C4 điều khiển từ xa', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'Chuột phải: ném tầm ngắn · bám địa hình và mob · chuột trái: kích nổ' },
   c4_detonator: { id: 'c4_detonator', name: 'Bộ kích nổ C4', category: 'grenade', w: 2, h: 1, stance: 'grenade', color: '#687048', info: 'C4 đã được ném · cầm bộ kích nổ rồi nhấn chuột trái để kích nổ' },
   ammo_762: { id: 'ammo_762', name: '7.62×39', category: 'ammo', w: 1, h: 1, stance: 'unarmed', color: '#6e5a32', info: 'AK-47 ammo box · 30 rounds', ammo: { guns: ['ak47'], capacity: 30 } },

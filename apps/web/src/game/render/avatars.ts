@@ -259,6 +259,9 @@ export class Avatar {
 
   private proneShotFor = 0;
   private crouchBlend = 0;
+  /** 0..1 eased low-ready carry while running with a gun. */
+  private runBlend = 0;
+  private readonly runTarget = new Vector3();
   private leanBlend = 0;
 
   private play(name: string | null, rate = 1, start = 0, fade = 0): void {
@@ -314,7 +317,7 @@ export class Avatar {
       this.slash();
       return;
     }
-    if (attackStart && !busy && (!this.weaponId || this.weaponId === 'grenade' || this.weaponId === 'c4')) {
+    if (attackStart && !busy && (!this.weaponId || (this.stance === 'grenade' && this.weaponId !== 'c4_detonator'))) {
       this.playOnce(this.weaponId ? 'grenade_throw' : 'melee_attack');
       return;
     }
@@ -483,7 +486,7 @@ export class Avatar {
     const aiming = !limp && !rolling && !treating && (flags & EntityFlags.Aiming) !== 0;
     this.aimBlend += ((aiming ? 1 : 0) - this.aimBlend) * (1 - Math.exp(-dt * 14));
     if (held) held.obj.visible = !treating;
-    if (!rolling && this.weaponId && this.weaponId !== 'grenade' && this.oneShot === null && !treating) {
+    if (!rolling && this.weaponId && this.stance !== 'grenade' && this.oneShot === null && !treating) {
       for (const arm of ['arm_right', 'arm_left']) {
         const b = this.bones.get(arm);
         if (b) b.node.rotation.x += this.aimPitch + this.aimBlend * .12;
@@ -540,9 +543,18 @@ export class Avatar {
         this.rifleGrip ??= new RifleGrip();
         this.rifleGrip.pose(held.obj, held.visual, trigger, support, supportArm, body.node);
       }
+      // Running with a gun: both hands on it, muzzle lowered towards the ground across the body.
+      const running = !aiming && !prone && !(flags & EntityFlags.Crouching) && speed > .3 && ((flags & EntityFlags.Sprinting) !== 0 || speed > 5) && (flags & (EntityFlags.Grounded | EntityFlags.Swimming)) === EntityFlags.Grounded;
+      this.runBlend += ((running && held.visual.aim ? 1 : 0) - this.runBlend) * (1 - Math.exp(-dt * 9));
       if (!dead && !treating && !rolling && this.oneShot === null && !this.weaponAnim && !this.idleClip && held.visual.aim) {
         this.weaponAim ??= new WeaponAim();
-        this.weaponAim.pose(held.obj, held.visual.aim, yaw, this.aimPitch);
+        const r = this.runBlend;
+        // The firing arm comes forward to the hip so the gun is carried in front of the body.
+        const triggerArm = this.bones.get(`arm_${triggerSide}`)?.node;
+        if (r > .001 && triggerArm) { triggerArm.rotation.x += (.75 - triggerArm.rotation.x) * r; triggerArm.rotation.z *= 1 - r * .6; }
+        this.weaponAim.pose(held.obj, held.visual.aim, yaw + r * .45, this.aimPitch * (1 - r) - .75 * r);
+        // The other hand reaches for the handguard.
+        if (r > .05 && held.visual.twoHandGrip && support && supportArm) held.obj.updateWorldMatrix(true, false), reachFor(supportArm, support, this.runTarget.copy(held.visual.twoHandGrip.support).applyMatrix4(held.obj.matrixWorld), r);
       }
       if (!dead && !treating && held.visual.melee && this.oneShot && (this.oneShot.startsWith('sword_slash_') || this.oneShot === 'melee_attack')) {
         this.meleeEdge.pose(held.obj, held.visual.melee.held, this.root);
@@ -779,4 +791,21 @@ export class Avatar {
       this.label.material.dispose();
     }
   }
+}
+
+const reachShoulder = new Vector3(), reachHand = new Vector3(), reachFrom = new Vector3(), reachTo = new Vector3();
+const reachTurn = new Quaternion(), reachWorld = new Quaternion(), reachParent = new Quaternion();
+/** Swings an arm about its shoulder so its hand points at `target` (blended by `weight`). */
+function reachFor(arm: Object3D, hand: Object3D, target: Vector3, weight: number): void {
+  arm.updateWorldMatrix(true, true);
+  arm.getWorldPosition(reachShoulder);
+  hand.getWorldPosition(reachHand);
+  reachFrom.subVectors(reachHand, reachShoulder).normalize();
+  reachTo.subVectors(target, reachShoulder).normalize();
+  reachTurn.setFromUnitVectors(reachFrom, reachTo);
+  reachTurn.slerp(reachWorld.identity(), 1 - weight);
+  arm.getWorldQuaternion(reachWorld);
+  arm.parent!.getWorldQuaternion(reachParent).invert();
+  arm.quaternion.copy(reachParent.multiply(reachTurn.multiply(reachWorld)));
+  arm.updateWorldMatrix(false, true);
 }

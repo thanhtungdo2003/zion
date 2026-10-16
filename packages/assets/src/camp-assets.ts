@@ -1422,7 +1422,7 @@ export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
       "height": 6
     },
     "render": {
-      "maxDistance": 360
+      "maxDistance": 900
     },
     "tags": [
       "materias"

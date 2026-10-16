@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { WEAPON_ATTACHMENTS, ATTACHMENTS } from './attachments';
 import { ITEMS, type ItemCategory, type ItemDef } from './items';
 import { SHOP_STOCK, registerShopEntry, type ShopEntry } from './shop';
-import { ITEM_BY_WEAPON, WEAPON_BY_ITEM, WEAPON_SPECS, type GunSpec, type MeleeSpec, type WeaponId } from './weapons';
+import { type ThrowSpec, ITEM_BY_WEAPON, WEAPON_BY_ITEM, WEAPON_SPECS, type GunSpec, type MeleeSpec, type WeaponId } from './weapons';
 
 /**
  * Weapons created in the Studio: a model (GLB / Blockbench) plus everything the game needs to
@@ -20,11 +20,12 @@ const id = z.string().regex(/^[a-z0-9_]{2,33}$/);
  * and shop listing per weapon. Built-ins are edited in the Studio as overrides on top of this and
  * "deleting" one restores it.
  */
-interface BuiltinWeapon { weaponId: WeaponId; spec: GunSpec | MeleeSpec; item: ItemDef; ammo: string | null; attachments: Partial<Record<'optic' | 'muzzle', readonly string[]>> | undefined; shop: ShopEntry | undefined }
+interface BuiltinWeapon { weaponId: WeaponId; spec: GunSpec | MeleeSpec | ThrowSpec; item: ItemDef; ammo: string | null; attachments: Partial<Record<'optic' | 'muzzle', readonly string[]>> | undefined; shop: ShopEntry | undefined }
 const BUILTIN = new Map<string, BuiltinWeapon>();
 for (const [itemId, wid] of Object.entries(WEAPON_BY_ITEM)) {
   const spec = WEAPON_SPECS[wid as Exclude<WeaponId, 0>];
-  if (!spec || spec.kind === 'throw' || !ITEMS[itemId] || itemId === 'c4_detonator') continue;
+  // Hand grenades are editable too; the remote C4 (and its detonator) is not.
+  if (!spec || (spec.kind === 'throw' && spec.remote) || !ITEMS[itemId] || itemId === 'c4_detonator' || itemId === 'c4') continue;
   BUILTIN.set(itemId, {
     weaponId: wid, spec: structuredClone(spec), item: structuredClone(ITEMS[itemId]!),
     ammo: Object.values(ITEMS).find((d) => d.ammo?.guns.includes(itemId))?.id ?? null,
@@ -44,15 +45,16 @@ export function builtinWeaponDraft(itemId: string, model: CustomWeapon['model'],
   const b = BUILTIN.get(itemId);
   if (!b) return null;
   const s = b.spec;
-  const category = (['pistol', 'smg', 'rifle', 'shotgun', 'heavy', 'melee'] as const).find((c) => c === b.item.category) ?? (s.kind === 'melee' ? 'melee' : 'rifle');
+  const category = (['pistol', 'smg', 'rifle', 'shotgun', 'heavy', 'melee', 'grenade'] as const).find((c) => c === b.item.category) ?? (s.kind === 'melee' ? 'melee' : s.kind === 'throw' ? 'grenade' : 'rifle');
   return {
-    id: itemId, weaponId: b.weaponId, name: b.item.name, info: b.item.info.slice(0, 120), kind: s.kind === 'melee' ? 'melee' : 'gun', format,
+    id: itemId, weaponId: b.weaponId, name: b.item.name, info: b.item.info.slice(0, 120), kind: s.kind === 'melee' ? 'melee' : s.kind === 'throw' ? 'throw' : 'gun', format,
     item: { category, w: b.item.w, h: b.item.h, color: /^#[0-9a-fA-F]{6}$/.test(b.item.color) ? b.item.color : '#5a5a52' },
     model,
     ...(s.kind === 'gun' ? { gun: {
       damage: Math.max(1, s.damage), pellets: s.pellets, fireMs: s.fireMs, spread: s.spread, range: s.range, magazine: s.magazine, reloadMs: s.reloadMs, auto: s.auto, weight: s.weight,
       recoil, ammo: b.ammo ?? 'ammo_556', sound: 'default' as const, optics: [...(b.attachments?.optic ?? [])], muzzleDevices: [...(b.attachments?.muzzle ?? [])],
     } } : {}),
+    ...(s.kind === 'throw' ? { throw: { damage: s.damage, radius: s.radius, fuseMs: s.fuseMs, cooldownMs: s.cooldownMs, maxRange: s.maxRange, weight: s.weight, effect: s.effect ?? 'frag', effectMs: s.effectMs ?? 0 } } : {}),
     ...(s.kind === 'melee' ? { melee: { damage: s.damage, range: s.range, cooldownMs: s.cooldownMs, swingMs: s.swingMs, weight: s.weight, ...(s.decapitationChance ? { decapitationChance: s.decapitationChance } : {}) } } : {}),
     price: b.shop?.price ?? 0, lootable: false,
   };
@@ -67,11 +69,11 @@ export const customWeaponSchema = z.object({
   weaponId: z.number().int().min(1).max(CUSTOM_WEAPON_ID_MAX),
   name: z.string().trim().min(2).max(40),
   info: z.string().trim().max(120).default(''),
-  kind: z.enum(['gun', 'melee']),
+  kind: z.enum(['gun', 'melee', 'throw']),
   format: z.enum(['glb', 'bbmodel']),
   /** Inventory footprint, category and tile colour. */
   item: z.object({
-    category: z.enum(['pistol', 'smg', 'rifle', 'shotgun', 'heavy', 'melee']),
+    category: z.enum(['pistol', 'smg', 'rifle', 'shotgun', 'heavy', 'melee', 'grenade']),
     w: z.number().int().min(1).max(8),
     h: z.number().int().min(1).max(3),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#5a5a52'),
@@ -133,6 +135,18 @@ export const customWeaponSchema = z.object({
     weight: z.number().min(.2).max(20),
     decapitationChance: z.number().min(0).max(1).optional(),
   }).optional(),
+  /** Hand grenades: blast, stun (blinds and deafens) or smoke. */
+  throw: z.object({
+    damage: z.number().min(0).max(500),
+    radius: z.number().min(1).max(40),
+    fuseMs: z.number().int().min(300).max(10000),
+    cooldownMs: z.number().int().min(200).max(5000),
+    maxRange: z.number().min(3).max(60),
+    weight: z.number().min(.1).max(5),
+    effect: z.enum(['frag', 'flash', 'smoke']),
+    /** Stun: longest blindness (ms). Smoke: how long the cloud lasts (ms). */
+    effectMs: z.number().int().min(0).max(60000),
+  }).optional(),
   price: z.number().int().min(0).max(100000),
   /** Can turn up in chests and battle royale crates. */
   lootable: z.boolean().default(false),
@@ -140,7 +154,7 @@ export const customWeaponSchema = z.object({
   const builtin = BUILTIN.get(w.id);
   if (builtin) {
     if (w.weaponId !== builtin.weaponId) ctx.addIssue({ code: 'custom', message: 'Không đổi được mã của vũ khí có sẵn' });
-    if (w.kind !== (builtin.spec.kind === 'melee' ? 'melee' : 'gun')) ctx.addIssue({ code: 'custom', message: 'Không đổi được loại của vũ khí có sẵn' });
+    if (w.kind !== (builtin.spec.kind === 'melee' ? 'melee' : builtin.spec.kind === 'throw' ? 'throw' : 'gun')) ctx.addIssue({ code: 'custom', message: 'Không đổi được loại của vũ khí có sẵn' });
   } else {
     if (!/^cw_[a-z0-9_]{2,30}$/.test(w.id)) ctx.addIssue({ code: 'custom', message: 'Mã vũ khí mới phải bắt đầu bằng cw_' });
     if (w.weaponId < CUSTOM_WEAPON_ID_MIN) ctx.addIssue({ code: 'custom', message: 'Mã số vũ khí mới phải từ 100' });
@@ -148,6 +162,7 @@ export const customWeaponSchema = z.object({
   }
   if (w.kind === 'gun' && !w.gun) ctx.addIssue({ code: 'custom', message: 'Súng cần cấu hình bắn' });
   if (w.kind === 'melee' && !w.melee) ctx.addIssue({ code: 'custom', message: 'Vũ khí cận chiến cần cấu hình' });
+  if (w.kind === 'throw' && !w.throw) ctx.addIssue({ code: 'custom', message: 'Lựu đạn cần cấu hình' });
   if (w.kind === 'gun' && !w.model.muzzle) ctx.addIssue({ code: 'custom', message: 'Súng cần điểm đầu nòng' });
   if (w.gun?.optics.length && !w.model.rail) ctx.addIssue({ code: 'custom', message: 'Chọn ống ngắm lắp được thì cần đặt điểm Ngàm ống ngắm' });
   if (w.gun && !ITEMS[w.gun.ammo]?.ammo) ctx.addIssue({ code: 'custom', message: `Hộp đạn không tồn tại: ${w.gun.ammo}` });
@@ -173,23 +188,25 @@ const lootable = new Set<string>();
 export function registerCustomWeapon(w: CustomWeapon): void {
   const wid = w.weaponId as WeaponId;
   const builtin = BUILTIN.get(w.id);
-  const specs = WEAPON_SPECS as Record<number, GunSpec | MeleeSpec>;
+  const specs = WEAPON_SPECS as Record<number, GunSpec | MeleeSpec | ThrowSpec>;
   // Built-ins keep what the Studio does not edit (projectiles, flame, melee swing shape…).
   const base = builtin ? structuredClone(builtin.spec) : {};
-  specs[wid] = w.kind === 'gun' && w.gun
+  specs[wid] = w.kind === 'throw' && w.throw
+    ? { ...{ speed: 14, elevation: .62, scatterBase: 1, scatterPerM: .07 }, ...base as Partial<ThrowSpec>, kind: 'throw', weight: w.throw.weight, damage: w.throw.damage, radius: w.throw.radius, fuseMs: w.throw.fuseMs, cooldownMs: w.throw.cooldownMs, maxRange: w.throw.maxRange, effect: w.throw.effect, effectMs: w.throw.effectMs }
+    : w.kind === 'gun' && w.gun
     ? { ...base as GunSpec, kind: 'gun', weight: w.gun.weight, fireMs: w.gun.fireMs, damage: w.gun.damage, pellets: w.gun.pellets, spread: w.gun.spread, range: w.gun.range, magazine: w.gun.magazine, reloadMs: w.gun.reloadMs, auto: w.gun.auto, recoil: w.gun.recoil, ...(w.gun.sound !== 'default' ? { sound: w.gun.sound } : {}) }
     : { ...base as MeleeSpec, kind: 'melee', weight: w.melee!.weight, damage: w.melee!.damage, range: w.melee!.range, cooldownMs: w.melee!.cooldownMs, swingMs: w.melee!.swingMs, ...(w.melee!.decapitationChance ? { decapitationChance: w.melee!.decapitationChance } : {}) };
   (WEAPON_BY_ITEM as Record<string, WeaponId>)[w.id] = wid;
   (ITEM_BY_WEAPON as Record<number, string>)[wid] = w.id;
   const category: ItemCategory = w.item.category;
-  ITEMS[w.id] = { ...(builtin ? structuredClone(builtin.item) : {}), id: w.id, name: w.name, category, w: w.item.w, h: w.item.h, stance: builtin?.item.stance ?? (w.kind === 'melee' ? 'melee' : category === 'pistol' ? 'pistol' : 'rifle'), color: w.item.color, info: w.info || (w.kind === 'gun' ? 'Vũ khí tầm xa' : 'Vũ khí cận chiến') };
+  ITEMS[w.id] = { ...(builtin ? structuredClone(builtin.item) : {}), id: w.id, name: w.name, category, w: w.item.w, h: w.item.h, stance: builtin?.item.stance ?? (w.kind === 'throw' ? 'grenade' : w.kind === 'melee' ? 'melee' : category === 'pistol' ? 'pistol' : 'rifle'), color: w.item.color, info: w.info || (w.kind === 'gun' ? 'Vũ khí tầm xa' : w.kind === 'throw' ? 'Lựu đạn' : 'Vũ khí cận chiến') };
   // Ammo: the chosen box now also loads this gun.
   for (const d of Object.values(ITEMS)) if (d.ammo) d.ammo.guns = d.ammo.guns.filter((g) => g !== w.id);
   if (w.gun) ITEMS[w.gun.ammo]?.ammo?.guns.push(w.id);
   const slots = WEAPON_ATTACHMENTS as Record<string, Partial<Record<'optic' | 'muzzle', readonly string[]>>>;
   if (w.gun && (w.gun.optics.length || w.gun.muzzleDevices.length)) slots[w.id] = { ...(w.gun.optics.length ? { optic: w.gun.optics } : {}), ...(w.gun.muzzleDevices.length ? { muzzle: w.gun.muzzleDevices } : {}) };
   else delete slots[w.id];
-  registerShopEntry({ ...(builtin?.shop ?? {}), item: w.id, price: w.price, category: builtin?.shop?.category ?? (w.kind === 'melee' ? 'melee' : category === 'heavy' ? 'heavy' : 'guns') });
+  registerShopEntry({ ...(builtin?.shop ?? {}), item: w.id, price: w.price, category: builtin?.shop?.category ?? (w.kind === 'throw' ? 'explosives' : w.kind === 'melee' ? 'melee' : category === 'heavy' ? 'heavy' : 'guns') });
   registered.add(w.id);
   if (w.lootable) lootable.add(w.id); else lootable.delete(w.id);
 }
@@ -199,7 +216,7 @@ export function unregisterCustomWeapon(itemId: string): void {
   const builtin = BUILTIN.get(itemId);
   if (builtin) {
     // A built-in goes back to how it shipped.
-    (WEAPON_SPECS as Record<number, GunSpec | MeleeSpec>)[builtin.weaponId] = structuredClone(builtin.spec);
+    (WEAPON_SPECS as Record<number, GunSpec | MeleeSpec | ThrowSpec>)[builtin.weaponId] = structuredClone(builtin.spec);
     ITEMS[itemId] = structuredClone(builtin.item);
     for (const d of Object.values(ITEMS)) if (d.ammo) d.ammo.guns = d.ammo.guns.filter((g) => g !== itemId);
     if (builtin.ammo) ITEMS[builtin.ammo]?.ammo?.guns.push(itemId);

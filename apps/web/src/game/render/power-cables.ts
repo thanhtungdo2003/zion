@@ -14,7 +14,17 @@ export class PowerCables {
     }
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
-    this.lines = new LineSegments(geometry, new LineBasicMaterial({ color: 0x1d1f1f }));
+    // A line is always one pixel wide, so a far cable looks as thick as a near one: fade it with
+    // distance instead (thin and faint far off, gone before the poles stop being drawn).
+    const material = new LineBasicMaterial({ color: 0x1d1f1f, transparent: true, depthWrite: false });
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying float vCableDistance;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\nvCableDistance = length(mvPosition.xyz);');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vCableDistance;')
+        .replace('#include <opaque_fragment>', 'diffuseColor.a *= .95 * (1.0 - smoothstep(25.0, 380.0, vCableDistance));\n#include <opaque_fragment>');
+    };
+    material.customProgramCacheKey = () => 'power-cable-fade';
+    this.lines = new LineSegments(geometry, material);
     this.lines.frustumCulled = false;
     scene.add(this.lines);
   }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-16T07:14:08.901Z",
+  "generatedAt": "2026-10-16T15:16:20.540Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1334,6 +1334,12 @@
       "bytes": 14063,
       "kind": "bbmodel"
     },
+    "weapons/flashbang-grenade.bbmodel": {
+      "url": "/assets/models/weapons_flashbang-grenade.9529c1a8d905.bbmodel",
+      "sha256": "9529c1a8d9055e5da5ad5351a6c3f088198c4b80b7b2728ecf504ac6b69e589f",
+      "bytes": 17849,
+      "kind": "bbmodel"
+    },
     "weapons/fn-scar-l.glb": {
       "url": "/assets/models/weapons_fn-scar-l.7edf9228c68e.glb",
       "sha256": "7edf9228c68ef690de194962d12c100c91a6ac0a587c1524eec11adfc8db0b49",
@@ -1482,6 +1488,12 @@
       "url": "/assets/models/weapons_scar-h-rifle.606f77f2ba64.bbmodel",
       "sha256": "606f77f2ba644b2446515b398510e259a3829b5fe274cf1dd4f745032f281b51",
       "bytes": 21371,
+      "kind": "bbmodel"
+    },
+    "weapons/smoke-grenade.bbmodel": {
+      "url": "/assets/models/weapons_smoke-grenade.d4f49580ab1c.bbmodel",
+      "sha256": "d4f49580ab1c343f6c50d4c6d0083628630e2a3d2ce95d0a8705f55831be24cf",
+      "bytes": 14404,
       "kind": "bbmodel"
     },
     "weapons/steyr-aug.bbmodel": {

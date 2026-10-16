@@ -107,6 +107,34 @@ export class SoundBank {
   private readonly buffers = new Map<SoundName, AudioBuffer>();
   private readonly channels = new WeakMap<object, Set<{ src: AudioBufferSourceNode; gain: GainNode }>>();
   private readonly releaseVolume: () => void;
+  /** Hearing after a stun grenade (1 = normal), between the mix and the speakers. */
+  private readonly deafen: GainNode;
+
+  /**
+   * Stun grenade: every sound cut, a piercing ring in the ears instead, then hearing slowly
+   * returns over the following seconds. `strength` 0…1 scales how long and how hard.
+   */
+  stun(strength: number, ms: number): void {
+    if (this.disposed || strength <= 0) return;
+    const now = this.ctx.currentTime, hold = ms / 1000 * strength, back = 2.5 * strength + .5;
+    const g = this.deafen.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(Math.max(0, 1 - strength), now + .03);
+    g.setValueAtTime(Math.max(0, 1 - strength), now + hold);
+    g.linearRampToValueAtTime(1, now + hold + back);
+    // Tinnitus: a high sine with a slight wobble, loud at first, fading as hearing returns.
+    const tone = this.ctx.createOscillator(), wobble = this.ctx.createOscillator(), depth = this.ctx.createGain(), level = this.ctx.createGain();
+    tone.frequency.value = 3600 + Math.random() * 500; wobble.frequency.value = 5; depth.gain.value = 18;
+    wobble.connect(depth).connect(tone.frequency);
+    const peak = .16 * strength * this.master.gain.value;
+    level.gain.setValueAtTime(0, now);
+    level.gain.linearRampToValueAtTime(peak, now + .05);
+    level.gain.setValueAtTime(peak, now + hold * .6);
+    level.gain.exponentialRampToValueAtTime(.0001, now + hold + back);
+    tone.connect(level).connect(this.ctx.destination);
+    tone.start(now); wobble.start(now); tone.stop(now + hold + back + .1); wobble.stop(now + hold + back + .1);
+  }
 
   /**
    * Stereo position relative to where the listener faces: fully to one side for sounds beside
@@ -126,7 +154,8 @@ export class SoundBank {
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
     this.releaseVolume = bindVolume(this.master.gain);
-    this.master.connect(this.ctx.destination);
+    this.deafen = this.ctx.createGain();
+    this.master.connect(this.deafen).connect(this.ctx.destination);
   }
 
   async load(onProgress?: (p: number) => void): Promise<void> {

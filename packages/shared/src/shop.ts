@@ -76,6 +76,8 @@ export const SHOP_STOCK: readonly ShopEntry[] = [
   { item: 'long_sledgehammer', price: 420, category: 'melee' },
   { item: 'quam', price: 320, category: 'melee' },
   { item: 'grenade', price: 60, category: 'explosives' },
+  { item: 'flashbang', price: 45, category: 'explosives' },
+  { item: 'smoke_grenade', price: 35, category: 'explosives' },
   { item: 'c4', price: 240, category: 'explosives' },
   { item: 'medkit', price: 100, category: 'medical', vendor: 'medic' },
   { item: 'ammo_40mm', price: 180, category: 'explosives' },

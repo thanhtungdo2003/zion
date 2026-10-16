@@ -379,6 +379,25 @@ export class GameEngine {
   private readonly thirdPersonCamera = new ThirdPersonCamera();
   /** Eased lean of the local view (−1 left … 1 right) and the leaned eye point. */
   private leanBlend = 0;
+  /** Stun grenade white-out: full until `until`, then fading over `fade` ms. */
+  private readonly flash = { until: 0, fade: 1, peak: 0 };
+  private flashOverlay: HTMLDivElement | null = null;
+  private flashLevel(): number {
+    const now = performance.now(), f = this.flash;
+    if (now <= f.until) return f.peak;
+    return f.peak * Math.max(0, 1 - (now - f.until) / f.fade) ** 1.6;
+  }
+  private updateFlash(): void {
+    const level = this.flashLevel();
+    if (level <= 0.002 && !this.flashOverlay) return;
+    if (!this.flashOverlay && typeof document !== 'undefined') {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;background:#fff;pointer-events:none;z-index:900;opacity:0';
+      document.body.appendChild(el); this.flashOverlay = el;
+    }
+    if (this.flashOverlay) this.flashOverlay.style.opacity = level.toFixed(3);
+    if (level <= 0.002) { this.flashOverlay?.remove(); this.flashOverlay = null; this.flash.peak = 0; }
+  }
   /** Riding in a passenger seat (free look and shooting; the driver steers). */
   private passenger = false;
   private readonly leanFocus = new Vector3();
@@ -618,6 +637,7 @@ export class GameEngine {
   }
 
   dispose(): void {
+    this.flashOverlay?.remove(); this.flashOverlay = null;
     this.vehicles?.dispose();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
@@ -1017,6 +1037,10 @@ export class GameEngine {
         if (model) rounds.set(kind, model);
       }
       this.effects.setProjectileModels(rounds);
+      for (const [item, weapon] of [['flashbang', WeaponId.Flashbang], ['smoke_grenade', WeaponId.SmokeGrenade]] as const) {
+        const model = this.weapons?.get(item)?.display;
+        if (model) this.effects.grenadeModels.set(weapon, model);
+      }
       this.onResize();
     }
     // Preload every registered model so first sight of an asset never stalls.
@@ -1411,13 +1435,23 @@ export class GameEngine {
         break;
       }
       case 'grenade':
-        this.effects?.throwGrenade(m.id, { x: m.x, y: m.y, z: m.z, vx: m.vx, vy: m.vy, vz: m.vz, resting: false });
+        this.effects?.throwGrenade(m.id, { x: m.x, y: m.y, z: m.z, vx: m.vx, vy: m.vy, vz: m.vz, resting: false }, m.w);
         break;
       case 'c4':
         this.effects?.syncC4(m.charges);
         break;
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
+        break;
+      case 'flashbang':
+        // Blinded white and deafened, both easing back over the next seconds.
+        this.sounds?.stun(m.strength, m.ms);
+        this.flash.until = Math.max(this.flash.until, performance.now() + m.ms * m.strength * .55);
+        this.flash.fade = Math.max(800, m.ms * m.strength * .9);
+        this.flash.peak = Math.max(this.flash.peak * this.flashLevel(), Math.min(1, m.strength * 1.15));
+        break;
+      case 'smoke':
+        this.effects?.smoke.add(m.id, m.x, m.y, m.z, m.radius, m.ms);
         break;
       case 'vegetation':
         this.vegetation?.applyDamage(m);
@@ -1712,6 +1746,7 @@ export class GameEngine {
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
     const battle = this.hud.get().battle;
     this.updateCrosshair(dt);
+    this.updateFlash();
     const live = this.liveBattle();
     // The power grid (island pylons, survival roadside poles) comes with the map atlas; string the cables once it arrives.
     if (!this.powerCables && this.worldMap.get().atlas?.cables) this.powerCables = new PowerCables(this.scene, this.worldMap.get().atlas!.cables!);
