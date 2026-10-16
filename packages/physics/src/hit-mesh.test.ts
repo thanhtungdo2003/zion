@@ -12,7 +12,7 @@ function scene(): CollisionWorld {
     { shape: makeBox(10, 1, 10, 1, 1, .1), layer: Layer.Static, tag: 77, hit },
   ]);
   // Local model: a 1 m × 2 m quad from x −1…0, y 0…2 at z 0.
-  w.setHitMeshes(new Map([[77, Float32Array.from([-1, 0, 0, 0, 0, 0, 0, 2, 0, -1, 0, 0, 0, 2, 0, -1, 2, 0])]]));
+  w.setHitMeshes(new Map([[77, { tris: Float32Array.from([-1, 0, 0, 0, 0, 0, 0, 2, 0, -1, 0, 0, 0, 2, 0, -1, 2, 0]) }]]));
   return w;
 }
 
@@ -33,7 +33,7 @@ describe('precise shot geometry', () => {
     w.addChunk(0, 0, new Heightfield(0, 0, 1, 33, new Float32Array(33 * 33), new Float32Array(33 * 33).fill(NaN)), [
       { shape: makeBox(10, 2, 11, .2, 2, 2), layer: Layer.Static, tag: 77, hit },
     ]);
-    w.setHitMeshes(new Map([[77, Float32Array.from([-1, 0, 0, 0, 0, 0, 0, 2, 0, -1, 0, 0, 0, 2, 0, -1, 2, 0])]]));
+    w.setHitMeshes(new Map([[77, { tris: Float32Array.from([-1, 0, 0, 0, 0, 0, 0, 2, 0, -1, 0, 0, 0, 2, 0, -1, 2, 0]) }]]));
     const h = makeRayHit();
     expect(w.raycast(5, 1, 11, 1, 0, 0, 20, Mask.Weapon, h)).toBe(true);
     expect(h.t).toBeCloseTo(5, 4);

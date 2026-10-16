@@ -102,7 +102,7 @@ export function castCombatRay<T extends Combatant>(
     if (hit && (!best || hit.t < best.t)) best = { target, t: hit.t, zone: hit.zone };
   }
   const limit = best ? best.t : range;
-  if (collision.raycast(ox, oy, oz, dx, dy, dz, limit, Mask.LineOfSight, losHit)) {
+  if (collision.raycast(ox, oy, oz, dx, dy, dz, limit, Mask.Weapon, losHit)) {
     return { target: null, zone: null, t: losHit.t, rewoundMs: nowMs - rewindTo, normal: [losHit.nx, losHit.ny, losHit.nz], colliderTag: losHit.tag };
   }
   return { target: best?.target ?? null, zone: best?.zone ?? null, t: limit, rewoundMs: nowMs - rewindTo };

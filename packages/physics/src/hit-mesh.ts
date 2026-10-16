@@ -26,10 +26,20 @@ interface Node { minX: number; minY: number; minZ: number; maxX: number; maxY: n
 
 const LEAF = 6;
 
+/** Model triangles, with texture alpha for see-through faces (see @zion/assets HitMeshData). */
+export interface HitMeshSource {
+  tris: Float32Array;
+  uvs?: Float32Array;
+  maskOf?: Int16Array;
+  masks?: ReadonlyArray<{ w: number; h: number; bits: Uint8Array }>;
+}
+
 export class HitMesh {
   private readonly root: Node | null;
-  constructor(private readonly v: Float32Array) {
-    const count = Math.floor(v.length / 9);
+  private readonly v: Float32Array;
+  constructor(private readonly src: HitMeshSource) {
+    this.v = src.tris;
+    const count = Math.floor(this.v.length / 9);
     const ids = Array.from({ length: count }, (_, i) => i);
     this.root = count ? this.build(ids) : null;
   }
@@ -52,6 +62,17 @@ export class HitMesh {
     node.left = this.build(ids.slice(0, mid));
     node.right = this.build(ids.slice(mid));
     return node;
+  }
+
+  /** Is the texture opaque at barycentric (u, w) of triangle `t`? Faces without a mask are solid. */
+  private solidAt(t: number, u: number, w: number): boolean {
+    const m = this.src.maskOf?.[t] ?? -1;
+    if (m < 0) return true;
+    const mask = this.src.masks![m]!, uv = this.src.uvs!, o = t * 6, a = 1 - u - w;
+    let s = uv[o]! * a + uv[o + 2]! * u + uv[o + 4]! * w, q = uv[o + 1]! * a + uv[o + 3]! * u + uv[o + 5]! * w;
+    s -= Math.floor(s); q -= Math.floor(q);
+    const x = Math.min(mask.w - 1, Math.floor(s * mask.w)), y = Math.min(mask.h - 1, Math.floor(q * mask.h)), i = y * mask.w + x;
+    return (mask.bits[i >> 3]! & (1 << (i & 7))) !== 0;
   }
 
   /** Nearest hit of a local-space ray within maxT: t (or −1) and the face normal in `n`. */
@@ -88,6 +109,8 @@ export class HitMesh {
         if (w < 0 || u + w > 1) continue;
         const d = (e2x * qx + e2y * qy + e2z * qz) * inv;
         if (d < 0 || d >= best) continue;
+        // See-through texel (fence gaps, grates, leaves): the shot passes.
+        if (!this.solidAt(t, u, w)) continue;
         best = d; hit = d;
         let nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
         const l = Math.hypot(nx, ny, nz) || 1;

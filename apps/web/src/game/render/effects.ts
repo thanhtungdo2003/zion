@@ -345,7 +345,7 @@ export class CombatEffects {
         const dx = r.x - ox, dy = r.y - oy, dz = r.z - oz;
         const len = Math.hypot(dx, dy, dz);
         // Locally sweep geometry to keep the visible round out of walls while awaiting projEnd.
-        if (len > 0 && world.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len, Mask.LineOfSight, this.roundHit)) {
+        if (len > 0 && world.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len, Mask.Weapon, this.roundHit)) {
           r.mesh.visible = false;
         }
       }

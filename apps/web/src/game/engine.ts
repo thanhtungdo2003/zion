@@ -1790,7 +1790,7 @@ export class GameEngine {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
       const ray = this.raycaster.ray;
       let distance = 100;
-      if (store.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
+      if (store.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.Weapon, this.shotRay)) distance = this.shotRay.t;
       distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
       this.viewModel.aimAt(this.tmpC.copy(ray.direction).multiplyScalar(Math.max(1, distance)).add(ray.origin));
     }
@@ -2604,7 +2604,7 @@ export class GameEngine {
     const dz = -Math.cos(yaw) * Math.cos(p);
     const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
     let t = range;
-    if (this.store?.collision.raycast(o.x, o.y, o.z, dx, dy, dz, range, Mask.LineOfSight, this.shotRay)) t = this.shotRay.t;
+    if (this.store?.collision.raycast(o.x, o.y, o.z, dx, dy, dz, range, Mask.Weapon, this.shotRay)) t = this.shotRay.t;
     const pos = this.laser.geometry.getAttribute('position') as Float32BufferAttribute;
     pos.setXYZ(0, o.x, o.y, o.z);
     pos.setXYZ(1, o.x + dx * t, o.y + dy * t, o.z + dz * t);
@@ -2693,7 +2693,7 @@ export class GameEngine {
     this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
     const ray = this.raycaster.ray;
     let distance = 100;
-    if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
+    if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.Weapon, this.shotRay)) distance = this.shotRay.t;
     distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
     this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
     this.shoulderAim = reticleAim(this.tmpA, ray, distance);

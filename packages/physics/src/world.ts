@@ -24,7 +24,7 @@ import {
   type RayHit,
 } from './shapes';
 import { SpatialHash, traverseGrid2D } from './spatial-hash';
-import { HitMesh, raycastHitRef, type HitRef } from './hit-mesh';
+import { HitMesh, raycastHitRef, type HitMeshSource, type HitRef } from './hit-mesh';
 
 export interface CollisionWorldOptions {
   /** World extent in metres along X and Z (world spans [0, size)). */
@@ -376,14 +376,14 @@ export class CollisionWorld {
 
   /* ----------------------------------- raycasts ------------------------------------------- */
 
-  private readonly hitSources = new Map<number, Float32Array>();
+  private readonly hitSources = new Map<number, HitMeshSource>();
   private readonly hitMeshes = new Map<number, HitMesh>();
   private readonly hitNormal = { x: 0, y: 0, z: 0 };
   /**
    * Model triangles per asset id: weapon raycasts (masks including Layer.Hitbox) that touch a
    * prop's collider are re-tested against them, so shots pass through its gaps.
    */
-  setHitMeshes(meshes: ReadonlyMap<number, Float32Array>): void {
+  setHitMeshes(meshes: ReadonlyMap<number, HitMeshSource>): void {
     this.hitSources.clear(); this.hitMeshes.clear();
     for (const [id, tris] of meshes) this.hitSources.set(id, tris);
   }
