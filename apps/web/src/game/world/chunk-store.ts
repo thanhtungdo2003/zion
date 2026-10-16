@@ -9,7 +9,7 @@ import {
   type Surface,
 } from '@zion/shared';
 import { CollisionWorld } from '@zion/physics';
-import { buildChunkCollision, type AssetRegistry } from '@zion/assets';
+import { decodeHitMeshes, buildChunkCollision, type AssetRegistry } from '@zion/assets';
 
 export interface ChunkListener {
   onChunkSet(chunk: ChunkData, previous: ChunkData | undefined): void;
@@ -32,6 +32,8 @@ export class ChunkStore {
     private readonly registry: AssetRegistry,
   ) {
     this.collision = new CollisionWorld({ worldSize, seaLevel });
+    // Same precise shot geometry as the server, so predicted impacts match.
+    if (typeof fetch !== 'undefined' && typeof window !== 'undefined') void fetch('/assets/hit-meshes.bin').then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => { if (buf) this.collision.setHitMeshes(decodeHitMeshes(buf)); }).catch(() => undefined);
   }
 
   listen(l: ChunkListener): void {

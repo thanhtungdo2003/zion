@@ -24,6 +24,7 @@ import {
   type RayHit,
 } from './shapes';
 import { SpatialHash, traverseGrid2D } from './spatial-hash';
+import { HitMesh, raycastHitRef, type HitRef } from './hit-mesh';
 
 export interface CollisionWorldOptions {
   /** World extent in metres along X and Z (world spans [0, size)). */
@@ -37,6 +38,8 @@ export interface ColliderInit {
   shape: ColliderShape;
   layer: number;
   tag?: number;
+  /** Placed model for precise shot tests (see HitMesh). */
+  hit?: HitRef;
 }
 
 const MAX_CONTACTS = 64;
@@ -126,6 +129,7 @@ export class CollisionWorld {
       aabb: shapeAABB(init.shape),
       owner,
       tag: init.tag ?? 0,
+      ...(init.hit ? { hit: init.hit } : {}),
       stamp: 0,
     };
     this.statics.insert(c);
@@ -372,6 +376,23 @@ export class CollisionWorld {
 
   /* ----------------------------------- raycasts ------------------------------------------- */
 
+  private readonly hitSources = new Map<number, Float32Array>();
+  private readonly hitMeshes = new Map<number, HitMesh>();
+  private readonly hitNormal = { x: 0, y: 0, z: 0 };
+  /**
+   * Model triangles per asset id: weapon raycasts (masks including Layer.Hitbox) that touch a
+   * prop's collider are re-tested against them, so shots pass through its gaps.
+   */
+  setHitMeshes(meshes: ReadonlyMap<number, Float32Array>): void {
+    this.hitSources.clear(); this.hitMeshes.clear();
+    for (const [id, tris] of meshes) this.hitSources.set(id, tris);
+  }
+  private hitMesh(id: number): HitMesh | undefined {
+    let m = this.hitMeshes.get(id);
+    if (!m) { const src = this.hitSources.get(id); if (!src) return undefined; this.hitMeshes.set(id, m = new HitMesh(src)); }
+    return m;
+  }
+
   /**
    * Nearest hit along a ray against terrain and static colliders matching `mask`.
    * Direction must be normalised. Returns false if nothing is hit within maxDist.
@@ -403,6 +424,7 @@ export class CollisionWorld {
       }
     }
     const staticMask = mask & ~Layer.Terrain;
+    const precise = (mask & Layer.Hitbox) !== 0 && this.hitSources.size > 0;
     if (staticMask) {
       const stamp = this.statics.nextStamp();
       const nrm = this.tmpNormal;
@@ -420,6 +442,20 @@ export class CollisionWorld {
           else if (s.type === 'capsule') t = rayCapsule(ox, oy, oz, dx, dy, dz, s);
           else t = rayBox(ox, oy, oz, dx, dy, dz, s, nrm);
           if (t < 0 || t >= best) continue;
+          // Shots: the collider is only the broad phase; the model's own surfaces decide.
+          const ref = precise ? col.hit : undefined, mesh = ref ? this.hitMesh(ref.mesh) : undefined;
+          if (ref && mesh) {
+            if (ref.stamp !== stamp) {
+              ref.stamp = stamp;
+              ref.t = raycastHitRef(mesh, ref, ox, oy, oz, dx, dy, dz, maxDist, this.hitNormal);
+              ref.nx = this.hitNormal.x; ref.ny = this.hitNormal.y; ref.nz = this.hitNormal.z;
+            }
+            if (ref.t! < 0 || ref.t! >= best) continue;
+            best = ref.t!;
+            out.t = best; out.nx = ref.nx!; out.ny = ref.ny!; out.nz = ref.nz!;
+            out.layer = col.layer; out.colliderId = col.id; out.tag = col.tag;
+            continue;
+          }
           best = t;
           const px = ox + dx * t;
           const py = oy + dy * t;

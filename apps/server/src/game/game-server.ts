@@ -3,6 +3,7 @@ import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec } from '@zion/shared';
+import { loadHitMeshes } from '../world/hit-meshes';
 import { attachmentModifier, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
@@ -273,6 +274,8 @@ export class GameServer {
     this.log = deps.logger.child({ module: 'game' });
     const gen = deps.world.generator;
     this.collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
+    // Shots test props against their real model surfaces (gaps, windows, lattices).
+    this.collision.setHitMeshes(loadHitMeshes());
     this.vehicles = new Vehicles(this.collision, gen);
     for (const [id, door] of this.battleDoors) this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door));
     this.vegetation = new VegetationDamage({

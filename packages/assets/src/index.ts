@@ -12,3 +12,4 @@ export * from './battle-assets';
 export * from './imported-assets';
 export * from './imported-building-ids';
 export * from './grid-assets';
+export * from './hit-meshes';

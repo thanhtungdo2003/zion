@@ -1,3 +1,4 @@
+import type { HitRef } from './hit-mesh';
 export interface AABB {
   minX: number;
   minY: number;
@@ -142,6 +143,8 @@ export interface Collider {
   readonly owner: number;
   /** Free-form tag, e.g. numeric asset id. */
   readonly tag: number;
+  /** Placed model whose own triangles decide whether a shot really hits (props). */
+  readonly hit?: HitRef;
   /** Internal query de-duplication stamp. */
   stamp: number;
 }

@@ -4,6 +4,7 @@ export * from './geometry';
 export * from './heightfield';
 export * from './spatial-hash';
 export * from './world';
+export * from './hit-mesh';
 export * from './character';
 export * from './hitbox';
 export * from './projectile';

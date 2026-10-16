@@ -22,13 +22,15 @@ export function assetColliders(def: AssetDefinition, t: PropTransform, out: Coll
   const k = t.scale;
   // Local→world for points: three.js rotation.y convention.
   const tx = (x: number, z: number) => t.x + (x * c + z * s) * k;
+  // Shared by all colliders of this prop: the model itself, for precise shots.
+  const hit = { mesh: def.numericId, x: t.x, y: t.y, z: t.z, c, s, k };
   const tz = (x: number, z: number) => t.z + (-x * s + z * c) * k;
   for (const cd of def.colliders) {
     const layer = layerFor(def, cd.layer);
     switch (cd.type) {
       case 'sphere': {
         const [x, y, z] = cd.center;
-        out.push({ shape: makeSphere(tx(x, z), t.y + y * k, tz(x, z), cd.radius * k), layer, tag: def.numericId });
+        out.push({ shape: makeSphere(tx(x, z), t.y + y * k, tz(x, z), cd.radius * k), layer, tag: def.numericId, ...(layer === Layer.Static ? { hit } : {}) });
         break;
       }
       case 'capsule': {
@@ -38,6 +40,7 @@ export function assetColliders(def: AssetDefinition, t: PropTransform, out: Coll
           shape: makeCapsule(tx(ax, az), t.y + ay * k, tz(ax, az), tx(bx, bz), t.y + by * k, tz(bx, bz), cd.radius * k),
           layer,
           tag: def.numericId,
+          ...(layer === Layer.Static ? { hit } : {}),
         });
         break;
       }
@@ -48,6 +51,7 @@ export function assetColliders(def: AssetDefinition, t: PropTransform, out: Coll
           shape: makeBox(tx(x, z), t.y + y * k, tz(x, z), hx * k, hy * k, hz * k, cd.yaw + t.rotY),
           layer,
           tag: def.numericId,
+          ...(layer === Layer.Static ? { hit } : {}),
         });
         break;
       }
