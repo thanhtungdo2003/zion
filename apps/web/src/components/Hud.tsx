@@ -2,6 +2,7 @@
 import { Icon } from './Icon';
 import { RankBadge } from './RankBadge';
 import { RankPromotion } from './RankPromotion';
+import { LoadingBackdrop } from './LoadingBackdrop';
 import { RedDotReticle, ScopeOverlay } from './ScopeOverlay';
 
 import { itemIcons } from '@/game/inventory/icons';
@@ -268,17 +269,18 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       )}
 
       {(state.status === 'connecting' || state.status === 'loading') && (
-        <div className="overlay">
-          <div className="overlay-card">
-            <h2>ZION</h2>
-            <div>{tm(state.statusDetail)}</div>
-            {state.status === 'loading' && (
-              <div className="loading-bar">
-                <div style={{ width: `${Math.round(state.loadProgress * 100)}%` }} />
-              </div>
-            )}
+        <LoadingBackdrop>
+          <div className="loader-row">
+            <i className="spinner" />
+            <span>{tm(state.statusDetail)}</span>
+            {state.status === 'loading' && <b>{Math.round(state.loadProgress * 100)}%</b>}
           </div>
-        </div>
+          {state.status === 'loading' && (
+            <div className="loader-bar" role="progressbar" aria-label={tm(state.statusDetail)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(state.loadProgress * 100)}>
+              <div style={{ width: `${Math.round(state.loadProgress * 100)}%` }} />
+            </div>
+          )}
+        </LoadingBackdrop>
       )}
 
       {state.status === 'playing' && !state.pointerLocked && !chatOpen && !inventoryOpen && (

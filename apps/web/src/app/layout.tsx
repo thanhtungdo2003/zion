@@ -23,7 +23,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="vi">
-      <head><link rel="preload" href="/fonts/NotoSans-VF.ttf" as="font" type="font/ttf" crossOrigin="anonymous" /></head>
+      <head>
+        <link rel="preload" href="/fonts/NotoSans-VF.ttf" as="font" type="font/ttf" crossOrigin="anonymous" />
+        <link rel="preload" href="/images/loading-freefall.webp" as="image" type="image/webp" fetchPriority="high" />
+      </head>
       <body><PwaProvider><BrowserControls />{children}</PwaProvider></body>
     </html>
   );

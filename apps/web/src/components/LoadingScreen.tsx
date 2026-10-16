@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { onPreload, preloadAll, preloadState } from '@/lib/preload';
 import { rollKeyLabel, useSettings } from '@/lib/settings';
+import { LoadingBackdrop } from './LoadingBackdrop';
 
 /** Short how-to-play hints shown while the game downloads. */
 export const TIPS = [
@@ -52,21 +53,18 @@ export function LoadingScreen({ onDone }: { onDone: () => void }) {
 
   const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
   return (
-    <div className={`loader-screen ${leaving ? 'leaving' : ''}`}>
-      <div className="loader-card">
-        <div className="loader-brand">ZI<span>O</span>N</div>
+    <LoadingBackdrop leaving={leaving}>
         <div className="loader-row">
           <i className="spinner" />
           <span>Đang tải tài nguyên trò chơi</span>
           <b>{pct}%</b>
         </div>
-        <div className="loader-bar"><div style={{ width: `${pct}%` }} /></div>
+        <div className="loader-bar" role="progressbar" aria-label="Tải tài nguyên trò chơi" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><div style={{ width: `${pct}%` }} /></div>
         <div className="loader-file">{s.file ? `${s.done}/${s.total} · ${s.file}` : s.total ? 'Hoàn tất' : 'Đang chuẩn bị…'}</div>
         <div className="loader-tip">
           <span>Mẹo</span>
           <p key={tip}>{TIPS[tip]?.replace('V để lướt', `${rollKeyLabel(rollKey)} để lướt`).replace('C để nằm', `${rollKeyLabel(proneKey)} để nằm`)}</p>
         </div>
-      </div>
-    </div>
+    </LoadingBackdrop>
   );
 }
