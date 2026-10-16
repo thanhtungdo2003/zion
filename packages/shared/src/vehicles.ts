@@ -2,6 +2,8 @@ export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly';
 export interface VehicleState {
   id: number; kind: VehicleKind; x: number; y: number; z: number; yaw: number;
   speed: number; health: number; driver: number | null; explodeAt: number; exploded: boolean;
+  /** Passengers by seat (seat i + 1; 0 = empty). Only teammates of the occupants may board. */
+  passengers?: number[];
   motion?: VehicleMotion;
   /** Authoritative controls and physical contact events, separate from bullet/blast damage. */
   braking?: boolean;
@@ -18,17 +20,35 @@ export interface VehicleMotion {
 export const VEHICLES = {
   // `scale` enlarges the prepared model; every physical dimension below is already scaled.
   // mass (kg) and grip (tyre friction coefficient) drive inertia, braking and slides.
-  car: { asset: 2300, name: 'Lada 2109', maxSpeed: 34, acceleration: 7, turn: .65, health: 600, halfX: .96, halfZ: 2.58, seat: [-.42, -.04, -.22], quad: false, com: .62, height: 1.79, wheelX: .844, frontZ: -1.566, rearZ: 1.606, wheelRadius: .377, spring: .24, scale: 1.2, mass: 1050, grip: 1.05, step: .45 },
-  jeep: { asset: 2301, name: 'Jeep', maxSpeed: 30, acceleration: 8, turn: .75, health: 850, halfX: 1.4, halfZ: 2.1, seat: [-.44, .59, .37], quad: false, com: .8, height: 2.35, wheelX: 1.11, frontZ: -1.27, rearZ: 1.27, wheelRadius: .542, spring: .3, scale: 1, mass: 1600, grip: 1.1, step: .6 },
-  quad: { asset: 2302, name: 'Quad bike', maxSpeed: 27, acceleration: 9, turn: 1, health: 320, halfX: .75, halfZ: 1.15, seat: [0, .14, .16], quad: true, com: .55, height: 1.3, wheelX: .577, frontZ: -.743, rearZ: .784, wheelRadius: .357, spring: .26, scale: 1, mass: 330, grip: 1, step: .4 },
-  grizzly: { asset: 2303, name: 'Grizzly 700', maxSpeed: 29, acceleration: 9, turn: .95, health: 380, halfX: .8, halfZ: 1.2, seat: [0, .28, .12], quad: true, com: .6, height: 1.51, wheelX: .626, frontZ: -.852, rearZ: .748, wheelRadius: .362, spring: .28, scale: 1, mass: 380, grip: 1, step: .42 },
+  car: { asset: 2300, name: 'Lada 2109', maxSpeed: 34, acceleration: 7, turn: .65, health: 600, halfX: .96, halfZ: 2.58, seat: [-.42, -.04, -.22], seats: [[-.42, -.04, -.22], [.42, -.04, -.22], [-.42, -.04, .66], [.42, -.04, .66]], quad: false, com: .62, height: 1.79, wheelX: .844, frontZ: -1.566, rearZ: 1.606, wheelRadius: .377, spring: .24, scale: 1.2, mass: 1050, grip: 1.05, step: .45 },
+  jeep: { asset: 2301, name: 'Jeep', maxSpeed: 30, acceleration: 8, turn: .75, health: 850, halfX: 1.4, halfZ: 2.1, seat: [-.44, .59, .37], seats: [[-.44, .59, .37], [.44, .59, .37], [-.44, .59, 1.25], [.44, .59, 1.25]], quad: false, com: .8, height: 2.35, wheelX: 1.11, frontZ: -1.27, rearZ: 1.27, wheelRadius: .542, spring: .3, scale: 1, mass: 1600, grip: 1.1, step: .6 },
+  quad: { asset: 2302, name: 'Quad bike', maxSpeed: 27, acceleration: 9, turn: 1, health: 320, halfX: .75, halfZ: 1.15, seat: [0, .14, .16], seats: [[0, .14, .16], [0, .24, .6]], quad: true, com: .55, height: 1.3, wheelX: .577, frontZ: -.743, rearZ: .784, wheelRadius: .357, spring: .26, scale: 1, mass: 330, grip: 1, step: .4 },
+  grizzly: { asset: 2303, name: 'Grizzly 700', maxSpeed: 29, acceleration: 9, turn: .95, health: 380, halfX: .8, halfZ: 1.2, seat: [0, .28, .12], seats: [[0, .28, .12], [0, .38, .56]], quad: true, com: .6, height: 1.51, wheelX: .626, frontZ: -.852, rearZ: .748, wheelRadius: .362, spring: .28, scale: 1, mass: 380, grip: 1, step: .42 },
 } as const;
 export const VEHICLE_EXPLODE_DELAY = 2000;
 export const VEHICLE_REACH = 3.6;
 export const vehicleOwner = (id: number): number => 0xc0000000 + id;
-export function vehicleSeat(v: VehicleState): { x: number; y: number; z: number } {
-  const [x,y,z]=VEHICLES[v.kind].seat;
+/** World position of a seat (0 = driver, then the passenger seats). */
+export function vehicleSeat(v: VehicleState, index = 0): { x: number; y: number; z: number } {
+  const [x,y,z]=VEHICLES[v.kind].seats[index]??VEHICLES[v.kind].seat;
   return vehiclePoint(v,x,y,z);
+}
+/** Seat of a player in this vehicle: 0 driving, 1… a passenger seat, −1 not aboard. */
+export function vehicleSeatOf(v: VehicleState, id: number): number {
+  if (v.driver === id) return 0;
+  const i = v.passengers?.indexOf(id) ?? -1;
+  return i >= 0 ? i + 1 : -1;
+}
+/** Everyone aboard (driver first). */
+export function vehicleOccupants(v: VehicleState): number[] {
+  return [...(v.driver ? [v.driver] : []), ...(v.passengers ?? []).filter((id) => id)];
+}
+/** First empty seat (0 = driver's), or −1 when full. */
+export function vehicleFreeSeat(v: VehicleState): number {
+  if (!v.driver) return 0;
+  const seats = VEHICLES[v.kind].seats.length;
+  for (let i = 1; i < seats; i++) if (!v.passengers?.[i - 1]) return i;
+  return -1;
 }
 /** Column-major YXZ frame, shared by suspension, collision, riders and graphics. */
 export function vehicleBasis(v: VehicleState): readonly number[] {

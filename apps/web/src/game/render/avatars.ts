@@ -100,8 +100,8 @@ export class Avatar {
     if(body){body.node.position.y-=quad?.04:.16;body.node.rotation.x+=quad?.14:-.04;}
     for (const side of ['left', 'right']) {
       const leg = this.bones.get(`leg_${side}`), arm = this.bones.get(`arm_${side}`), hand = this.bones.get(`hand_${side}`);
-      if (leg) { leg.node.rotation.copy(leg.restRot); leg.node.rotation.x += quad ? .85 : 1.3; leg.node.rotation.z += (side === 'left' ? 1 : -1) * (quad ? .28 : .06); }
-      if (arm) { arm.node.rotation.copy(arm.restRot); arm.node.rotation.x += quad ? 1.05 : 1.2; arm.node.rotation.z += (side === 'left' ? 1 : -1) * .12; }
+      if (leg) { leg.node.rotation.copy(leg.restRot); leg.node.rotation.x += quad ? .85 : 1.3; leg.node.rotation.z += (side === 'left' ? -1 : 1) * (quad ? .28 : .06); }
+      if (arm) { arm.node.rotation.copy(arm.restRot); arm.node.rotation.x += quad ? 1.05 : 1.2; arm.node.rotation.z += (side === 'left' ? -1 : 1) * .12; }
       if (hand) { hand.node.rotation.copy(hand.restRot); hand.node.rotation.x += .2; }
     }
   }
@@ -364,7 +364,7 @@ export class Avatar {
     this.model.position.y = falling ? 1 : 0;
     if (falling || chute) for (const name of ['arm_left', 'arm_right']) {
       const arm = this.bones.get(name)?.node;
-      if (arm) { arm.rotation.x = chute ? -2.2 : -.35; arm.rotation.z = name === 'arm_left' ? -.9 : .9; }
+      if (arm) { arm.rotation.x = chute ? -2.2 : -.35; arm.rotation.z = name === 'arm_left' ? .9 : -.9; }
     }
     this.root.visible = !(flags & EntityFlags.InPlane);
   }

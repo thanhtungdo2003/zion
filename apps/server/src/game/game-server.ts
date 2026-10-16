@@ -1189,7 +1189,7 @@ export class GameServer {
         return;
       }
       case 'vehicle':
-        this.vehicles.toggle(p, msg.id, this.serverTime);
+        this.vehicles.toggle(p, msg.id, this.serverTime, (id) => { const other = this.players.get(id); return !!other && this.allied(p, other); });
         this.vehicles.send(p, this.serverTime);
         return;
       case 'pvp':
@@ -1712,8 +1712,8 @@ export class GameServer {
       }
     }
 
-    this.vehicles.step(now, TICK_DT, this.players, (v, occupant) => {
-      if (occupant && !occupant.dead) this.killPlayer(occupant, null, now, 'xe phát nổ');
+    this.vehicles.step(now, TICK_DT, this.players, (v, occupants) => {
+      for (const occupant of occupants) if (!occupant.dead) this.killPlayer(occupant, null, now, 'xe phát nổ');
       this.collision.removeOwnerColliders(vehicleOwner(v.id));
       this.explode(0x60000000 + v.id, v.x, v.y + .8, v.z, 7, 220, null, 'rocket', now);
     }, (p, speed) => this.damage(null, p, Math.round((speed - 8) * 1.8), 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now));
@@ -1829,6 +1829,7 @@ export class GameServer {
   }
 
   private applyInput(p: Player, input: InputMessage, now: number): void {
+    if (p.vehicleId && p.vehicleSeat > 0) { this.passengerInput(p, input, now); return; }
     if (p.vehicleId) {
       this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now);
       p.pitch = input.pitch; p.aiming = false; p.lastButtons = 0; p.lastProcessedSeq = input.s;
@@ -1918,6 +1919,37 @@ export class GameServer {
       }
       else if (spec?.kind === 'throw') this.tryThrow(p, now, input.td);
       else this.tryAttack(p, now, input.rt, spec?.kind === 'melee' ? spec : undefined);
+    }
+    p.lastProcessedSeq = input.s;
+  }
+
+  /**
+   * A passenger: the seat carries them, they only look around and use their gun (aim and fire;
+   * shots leave through the vehicle's own body).
+   */
+  private passengerInput(p: Player, input: InputMessage, now: number): void {
+    p.yaw = input.aimYaw ?? input.yaw;
+    p.pitch = input.pitch;
+    p.eyeAim = input.aimYaw !== undefined;
+    p.bandaging = false;
+    const held = p.inv.equippedItem();
+    const weapon = held ? (WEAPON_BY_ITEM[held.itemId] ?? 0) : 0;
+    if (weapon !== p.weapon) { p.aiming = false; p.gunHeat = 0; p.lastGunShotAt = -Infinity; }
+    p.weapon = weapon;
+    const spec = weaponSpec(p.weapon);
+    let buttons = p.downed || tutorialProtected(p, this.serverTime) ? 0 : input.b & (Buttons.Attack | Buttons.Aim);
+    const aiming = spec?.kind === 'gun' && !p.reloadAt && (buttons & Buttons.Aim) !== 0;
+    if (aiming && !p.aiming) p.aimStartedAt = now;
+    p.aiming = aiming;
+    if (!aiming) buttons &= ~Buttons.Aim;
+    p.lastButtons = buttons;
+    const v = this.vehicles.driving(p);
+    if (v && spec?.kind === 'gun' && (buttons & Buttons.Attack)) {
+      this.vehicles.withoutColliders(v, () => {
+        if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td);
+        else if (spec.fire === 'flame') this.tryFlame(p, spec, now);
+        else this.tryShoot(p, now, input.rt);
+      });
     }
     p.lastProcessedSeq = input.s;
   }

@@ -287,3 +287,47 @@ function copy3(src: Vec3, out: Vec3): Vec3 {
 }
 
 export const BB_UNITS_PER_METER = UNITS_PER_METER;
+
+/**
+ * The character rigs are authored mirrored: once facing −Z, the bone named `arm_right` hangs on
+ * the character's left. Mirrors a freshly built template across X (meshes, bones and clips) so
+ * the named right hand really is on the right, without a negative scale anywhere in the scene.
+ */
+export function mirrorCharacter(template: CharacterTemplate): CharacterTemplate {
+  const done = new Set<BufferGeometry>();
+  template.root.traverse((o) => {
+    if (o instanceof Mesh) {
+      const geo = o.geometry as BufferGeometry;
+      if (done.has(geo)) return;
+      done.add(geo);
+      const flipX = (name: string) => { const a = geo.getAttribute(name) as BufferAttribute | undefined; if (a) for (let i = 0; i < a.count; i++) a.setX(i, -a.getX(i)); };
+      flipX('position'); flipX('normal');
+      // Reflection reverses the winding: swap two corners of every triangle.
+      for (const name of ['position', 'normal', 'uv']) {
+        const a = geo.getAttribute(name) as BufferAttribute | undefined;
+        if (!a) continue;
+        for (let t = 0; t + 2 < a.count; t += 3) for (let c = 0; c < a.itemSize; c++) {
+          const v = a.getComponent(t + 1, c); a.setComponent(t + 1, c, a.getComponent(t + 2, c)); a.setComponent(t + 2, c, v);
+        }
+        a.needsUpdate = true;
+      }
+      geo.computeBoundingSphere();
+      return;
+    }
+    if (o === template.root) return;
+    o.position.x = -o.position.x;
+    o.rotation.set(o.rotation.x, -o.rotation.y, -o.rotation.z, o.rotation.order);
+    if (o.userData.restPos) o.userData.restPos = o.position.clone();
+    if (o.userData.restRot) o.userData.restRot = o.rotation.clone();
+  });
+  for (const clip of template.clips.values()) for (const tracks of clip.bones.values()) {
+    for (const v of tracks.rotation?.values ?? []) { v[1] = -v[1]; v[2] = -v[2]; }
+    for (const v of tracks.position?.values ?? []) v[0] = -v[0];
+  }
+  return template;
+}
+
+/** A player / NPC character model, mirrored so its named right hand is on the right. */
+export async function loadPlayerCharacter(url = CHARACTER_MODEL_URL, onProgress?: (p: number) => void): Promise<CharacterTemplate> {
+  return mirrorCharacter(await loadCharacterModel(url, onProgress));
+}

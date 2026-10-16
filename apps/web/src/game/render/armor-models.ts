@@ -1,6 +1,6 @@
 import { Vector3, type Object3D } from 'three';
 import { ARMOR_BY_ID } from '@zion/shared';
-import { buildBBModel, type CharacterTemplate, type RawModel } from './character-model';
+import { buildBBModel, mirrorCharacter, type CharacterTemplate, type RawModel } from './character-model';
 
 /**
  * Armour models are authored on the character's own skeleton (same pivots): each top-level group
@@ -30,7 +30,7 @@ export function loadArmorModel(id: number): Promise<CharacterTemplate | null> {
           if (!r.ok) throw new Error(`armour model ${spec.model} unavailable (${r.status})`);
           return r.json() as Promise<RawModel>;
         })
-        .then((raw) => buildBBModel(raw))
+        .then(async (raw) => mirrorCharacter(await buildBBModel(raw)))
         .catch((err: unknown) => {
           console.warn('armour model failed to load', err);
           return null;

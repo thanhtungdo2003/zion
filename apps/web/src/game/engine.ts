@@ -1,7 +1,7 @@
 import { acceptsAttachments, attachmentModifier, opticOf, unpackAttachments, weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES } from '@zion/shared';
+import { VEHICLES, vehicleSeatOf } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -111,7 +111,7 @@ import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type 
 import { AssetLibrary, windUniforms } from './render/asset-library';
 import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
-import { loadCharacterModel, type CharacterTemplate } from './render/character-model';
+import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
 import { prepareGuardModel } from './render/guard-model';
 import { occlusionUniforms } from './render/occlusion-fade';
 import { loadWeapons, type WeaponLibrary } from './render/weapons';
@@ -379,6 +379,8 @@ export class GameEngine {
   private readonly thirdPersonCamera = new ThirdPersonCamera();
   /** Eased lean of the local view (−1 left … 1 right) and the leaned eye point. */
   private leanBlend = 0;
+  /** Riding in a passenger seat (free look and shooting; the driver steers). */
+  private passenger = false;
   private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private shoulderAim = { yaw: 0, pitch: 0 };
@@ -522,7 +524,7 @@ export class GameEngine {
   /* ------------------------------------- lifecycle --------------------------------------- */
 
   private async loadOwnedCharacter(url?: string, progress?: (p: number) => void): Promise<CharacterTemplate> {
-    const template = await loadCharacterModel(url, progress);
+    const template = await loadPlayerCharacter(url, progress);
     if (this.disposed) { this.resources.object(template.root); throw new Error('engine disposed'); }
     this.ownedModels.add(template.root);
     return template;
@@ -1257,7 +1259,7 @@ export class GameEngine {
       case 'vehicles': {
         this.vehicles?.sync(m);
 
-        if (this.local) this.local.riding = m.vehicles.some(v => v.driver === this.welcome?.playerId);
+        if (this.local) this.local.riding = m.vehicles.some(v => vehicleSeatOf(v, this.welcome!.playerId) >= 0);
         break;
       }
       case 'tutorialState':
@@ -1546,19 +1548,23 @@ export class GameEngine {
     const store = this.store;
     if (!local || !store || !this.sky) return;
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now());
-    const driving = this.vehicles?.rider(this.welcome!.playerId);
+    // Aboard a vehicle: the driver steers it; a passenger rides along and can shoot.
+    const aboard = this.vehicles?.rider(this.welcome!.playerId);
+    this.passenger = !!aboard && (this.vehicles?.seatIndex(this.welcome!.playerId) ?? 0) > 0;
+    const driving = this.passenger ? undefined : aboard;
     const seat = this.vehicles?.seat(this.welcome!.playerId);
-    if (!!driving !== local.riding) {
+    if (!!aboard !== local.riding) {
       this.vehicleCamera.reset(); this.camFocusInit = false;
       if (driving) { this.input.pitch = -.16; this.aiming = false; this.scoped = false; }
     }
-    if (driving) {
-      const delta = this.drivingYaw === null ? driving.yaw - this.input.yaw : driving.yaw - this.drivingYaw;
+    if (aboard) {
+      // The view turns with the vehicle.
+      const delta = this.drivingYaw === null ? (driving ? aboard.yaw - this.input.yaw : 0) : aboard.yaw - this.drivingYaw;
       const heading = this.input.yaw + Math.atan2(Math.sin(delta), Math.cos(delta));
       this.input.yaw = Math.atan2(Math.sin(heading), Math.cos(heading));
     }
-    this.drivingYaw = driving?.yaw ?? null;
-    local.riding = !!driving;
+    this.drivingYaw = aboard?.yaw ?? null;
+    local.riding = !!aboard;
     this.applyViewMode();
     if (this.mouseLook && !this.camFocusInit) this.updateCamera(local.state.x, local.state.y, local.state.z, 0);
 
@@ -1610,7 +1616,7 @@ export class GameEngine {
     for (const r of this.remotes.values()) {
       const pose = r.entity.sample(renderTime);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
-      r.avatar.setWeapon(this.vehicles?.rider(r.entity.id) ? null : itemId, this.weapons, r.att ? unpackAttachments(r.att) : undefined);
+      r.avatar.setWeapon(this.vehicles?.seatIndex(r.entity.id) === 0 ? null : itemId, this.weapons, r.att ? unpackAttachments(r.att) : undefined);
       r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
       r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
@@ -1620,7 +1626,7 @@ export class GameEngine {
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
-      r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride?.yaw ?? pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
+      r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride && this.vehicles!.seatIndex(r.entity.id) === 0 ? ride.yaw : pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
       const target = r.entity.kind === EntityKind.Player || r.entity.kind === EntityKind.Animal || r.entity.kind === EntityKind.Guard;
       // Visibility is recomputed every frame: once hidden by the vision cone, a body must come back
       // as soon as it is seen again (it used to stay hidden while its shots were still visible).
@@ -1701,7 +1707,7 @@ export class GameEngine {
     }));
     const flightFlags = local.state.flight === 1 ? EntityFlags.InPlane : local.state.flight === 2 ? EntityFlags.Freefall : local.state.flight === 3 ? EntityFlags.Parachute : 0;
     this.localAvatar?.flightPose(flightFlags, (local.lastButtons & Buttons.Sprint) !== 0, Math.hypot(local.state.vx, local.state.vz) > 2, dt);
-    this.localAvatar?.drivingPose(driving ? VEHICLES[driving.kind].quad : null, driving?.yaw ?? this.input.yaw,driving?.motion?.pitch,driving?.motion?.roll);
+    this.localAvatar?.drivingPose(aboard ? VEHICLES[aboard.kind].quad : null, driving?.yaw ?? this.input.yaw,aboard?.motion?.pitch,aboard?.motion?.roll);
     this.viewModel?.setVisible(!driving);
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);
     const battle = this.hud.get().battle;
@@ -1931,7 +1937,7 @@ export class GameEngine {
 
   private fixedStep(local: LocalPlayer): void {
     if (!this.conn.open) return;
-    if (local.riding) {
+    if (local.riding && !this.passenger) {
       const axes = this.input.axes();
       this.aiming = false; this.scoped = false;
       this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, 0, undefined));
@@ -2801,7 +2807,7 @@ export class GameEngine {
     this.applyGraphics(settings);
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
-    const mode = this.local?.riding ? 'third-person' : settings.cameraMode;
+    const mode = this.local?.riding && !this.passenger ? 'third-person' : settings.cameraMode;
     const fp = mode === 'first-person';
     const mouseLook = mode !== 'top-down';
     this.input.sensitivity = settings.mouseSens * 0.00004;
@@ -2871,7 +2877,7 @@ export class GameEngine {
     // A non-finite position (bad snapshot) would blank the whole view: hold the last camera.
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
-    const vehicle = this.local?.riding && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
+    const vehicle = this.local?.riding && !this.passenger && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
     if (vehicle) {
       // Centre the chase camera above the roof; the vehicle's own body never blocks it.
       const f = this.camFocus, height = VEHICLES[vehicle.kind].height + .6;
@@ -2922,7 +2928,9 @@ export class GameEngine {
         leaned.x += lx / d * t; leaned.z += lz / d * t; leaned.y -= Math.abs(this.leanBlend) * .06;
       }
       if (this.cameraMode === 'third-person' && !this.scoped) {
-        this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
+        const ride = this.passenger ? this.vehicles?.rider(this.welcome!.playerId) : undefined;
+        if (ride) this.vehicles!.withoutOwnColliders(ride, () => this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming));
+        else this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
         if (this.leanBlend) cam.rotateZ(-this.leanBlend * .08);
       } else {
         cam.position.set(leaned.x - Math.sin(this.input.yaw) * 0.12, leaned.y, leaned.z - Math.cos(this.input.yaw) * 0.12);

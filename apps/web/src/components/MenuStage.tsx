@@ -18,7 +18,7 @@ import {
 } from 'three';
 import { EntityFlags, type RankTitle } from '@zion/shared';
 import { Avatar } from '@/game/render/avatars';
-import { loadCharacterModel } from '@/game/render/character-model';
+import { loadPlayerCharacter } from '@/game/render/character-model';
 import { loadWeapons } from '@/game/render/weapons';
 import { ResourceDisposer } from '@/game/render/resources';
 import { renderItemIcons } from '@/game/inventory/icons';
@@ -88,7 +88,7 @@ export default function MenuStage({ onReady, members }: { onReady?: () => void; 
     const ownedModels: Object3D[] = [];
     void (async () => {
       try {
-        const character = await loadCharacterModel();
+        const character = await loadPlayerCharacter();
         if (disposed) { resources.object(character.root); return; }
         ownedModels.push(character.root);
         const weapons = await loadWeapons(character);

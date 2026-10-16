@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { JoltVehicles, loadJolt, damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
@@ -86,22 +86,36 @@ export class Vehicles {
   }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
   control(p: Player, throttle: number, steer: number, now: number): void {
-    if (p.vehicleId) this.controls.set(p.vehicleId, { throttle, steer, at: now });
+    // Only the driver steers; passengers just ride (and shoot).
+    if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, at: now });
   }
-  toggle(p: Player, id: number | undefined, now: number): void {
+  /** Runs fn with this vehicle's own collision removed (a passenger's shots leave the cabin). */
+  withoutColliders<T>(v: VehicleState, fn: () => T): T {
+    this.world.removeOwnerColliders(vehicleOwner(v.id));
+    try { return fn(); } finally { this.install(v); }
+  }
+  /**
+   * F: get out, or get in. An empty vehicle seats you as its driver; an occupied one takes you
+   * on a free seat only if everyone aboard is your teammate (`allied`).
+   */
+  toggle(p: Player, id: number | undefined, now: number, allied: (otherId: number) => boolean = () => false): void {
     if (!this.available) return;
     if (p.dead || p.downed || p.state.flight || p.questBusy || now - (this.usedAt.get(p.id) ?? -Infinity) < 350) return;
     this.usedAt.set(p.id, now);
     if (this.driving(p)) { this.exit(p); return; }
-    const v = id ? this.states.get(id) : [...this.states.values()].filter(v => !v.driver && v.health > 0).sort((a, b) => Math.hypot(a.x - p.state.x, a.z - p.state.z) - Math.hypot(b.x - p.state.x, b.z - p.state.z))[0];
-    if (!v || v.driver || v.health <= 0 || v.exploded || Math.hypot(v.x - p.state.x, v.z - p.state.z) > VEHICLE_REACH || Math.abs(v.y - p.state.y) > 2.5) return;
+    const boardable = (v: VehicleState) => v.health > 0 && !v.exploded && vehicleFreeSeat(v) >= 0 && vehicleOccupants(v).every(allied);
+    const v = id ? this.states.get(id) : [...this.states.values()].filter(boardable).sort((a, b) => Math.hypot(a.x - p.state.x, a.z - p.state.z) - Math.hypot(b.x - p.state.x, b.z - p.state.z))[0];
+    if (!v || !boardable(v) || Math.hypot(v.x - p.state.x, v.z - p.state.z) > VEHICLE_REACH || Math.abs(v.y - p.state.y) > 2.5) return;
     // Reach is not enough: do not let F pull players through a wall.
     const dx = v.x - p.state.x, dz = v.z - p.state.z, d = Math.hypot(dx, dz), hit = makeRayHit();
     this.world.removeOwnerColliders(vehicleOwner(v.id));
     const blocked = d > .1 && this.world.raycast(p.state.x, p.state.y + 1.2, p.state.z, dx / d, 0, dz / d, d, Mask.LineOfSight, hit);
     this.install(v);
     if (blocked) return;
-    v.driver = p.id; p.vehicleId = v.id; p.state.prone = false; p.state.rollTicks = 0; p.strike = null;
+    const seat = vehicleFreeSeat(v);
+    if (seat === 0) v.driver = p.id;
+    else { v.passengers ??= []; while (v.passengers.length < seat) v.passengers.push(0); v.passengers[seat - 1] = p.id; }
+    p.vehicleId = v.id; p.vehicleSeat = seat; p.state.prone = false; p.state.crouched = false; p.state.rollTicks = 0; p.strike = null;
     p.history.clear(); this.seat(p, v);
   }
   exit(p: Player, force = false): boolean {
@@ -128,7 +142,9 @@ export class Vehicles {
     }
     this.install(v);
     if (!point && !force) return false;
-    v.driver = null; this.controls.delete(v.id); p.vehicleId = 0;
+    if (v.driver === p.id) { v.driver = null; this.controls.delete(v.id); }
+    if (v.passengers) v.passengers = v.passengers.map((id) => (id === p.id ? 0 : id));
+    p.vehicleId = 0; p.vehicleSeat = 0;
     if (point) Object.assign(p.state, point);
     const water = this.world.waterLevel(p.state.x, p.state.z), swimming = water - p.state.y > DEFAULT_CHARACTER.swimDepth;
     p.state.vx = p.state.vy = p.state.vz = 0; p.state.grounded = !swimming; p.state.swimming = swimming;
@@ -138,17 +154,30 @@ export class Vehicles {
   }
   release(p: Player): void { this.exit(p, true); this.usedAt.delete(p.id); }
   private seat(p: Player, v: VehicleState): void {
-    Object.assign(p.state, vehicleSeat(v), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false });
-    p.yaw = v.yaw; p.dirty = true;
+    const seat = Math.max(0, vehicleSeatOf(v, p.id));
+    Object.assign(p.state, vehicleSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false });
+    // The driver faces the road; passengers keep looking where they aim.
+    if (seat === 0) p.yaw = v.yaw;
+    p.dirty = true;
   }
-  step(now: number, dt: number, players: ReadonlyMap<number, Player>, explode: (v: VehicleState, occupant: Player | undefined) => void, impact: (p: Player, speed: number) => void): void {
+  /** Players aboard a vehicle who are still in it. */
+  private aboard(v: VehicleState, players: ReadonlyMap<number, Player>): Player[] {
+    return vehicleOccupants(v).map((id) => players.get(id)).filter((p): p is Player => !!p && p.vehicleId === v.id);
+  }
+  step(now: number, dt: number, players: ReadonlyMap<number, Player>, explode: (v: VehicleState, occupants: Player[]) => void, impact: (p: Player, speed: number) => void): void {
     for (const v of this.states.values()) {
-      const p = v.driver ? players.get(v.driver) : undefined;
-      if (v.driver && (!p || p.dead || p.downed)) { if (p) this.release(p); else v.driver = null; }
+      for (const id of vehicleOccupants(v)) {
+        const p = players.get(id);
+        if (!p || p.dead || p.downed || p.vehicleId !== v.id) {
+          if (p && p.vehicleId === v.id) this.release(p);
+          else { if (v.driver === id) v.driver = null; if (v.passengers) v.passengers = v.passengers.map((x) => (x === id ? 0 : x)); }
+        }
+      }
       if (v.explodeAt && now >= v.explodeAt && !v.exploded) {
         v.exploded = true; this.world.removeOwnerColliders(vehicleOwner(v.id));
-        explode(v, p);
-        if (p && p.vehicleId === v.id) this.release(p);
+        const aboard = this.aboard(v, players);
+        explode(v, aboard);
+        for (const p of aboard) this.release(p);
         this.install(v);
       }
     }
@@ -159,9 +188,9 @@ export class Vehicles {
       return p && input && now - input.at < 250 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
     }, dt, now);
     for (const [id, speed] of impacts) {
-      const v = this.states.get(id)!, p = v.driver ? players.get(v.driver) : undefined;
+      const v = this.states.get(id)!;
       this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
-      if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
+      for (const p of this.aboard(v, players)) { this.seat(p, v); if (speed > 10) impact(p, speed); }
     }
   }
   private stepLegacy(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
@@ -176,7 +205,7 @@ export class Vehicles {
         return other && !other.exploded ? other : undefined;
       });
       this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
-      if (p && p.vehicleId === v.id) { this.seat(p, v); if (speed > 10) impact(p, speed); }
+      for (const rider of this.aboard(v, players)) { this.seat(rider, v); if (speed > 10) impact(rider, speed); }
     }
   }
   dispose(): void { this.physics.dispose(); }
@@ -225,12 +254,12 @@ export class Vehicles {
   /** False hides every vehicle (battle royale before the drop): none are sent or usable. */
   available = true;
   send(p: Player, now: number): void {
-    p.session.sendJson({ t: 'vehicles', time: now, vehicles: !this.available ? [] : [...this.states.values()].filter(v => v.driver === p.id || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
+    p.session.sendJson({ t: 'vehicles', time: now, vehicles: !this.available ? [] : [...this.states.values()].filter(v => vehicleSeatOf(v, p.id) >= 0 || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
   }
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();
     if (this.parking.length) this.shuffleParking();
-    for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.speed = 0; v.braking=false;delete v.impact;v.motion=createVehicleMotion(v.kind); this.install(v); }
+    for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.passengers = []; v.speed = 0; v.braking=false;delete v.impact;v.motion=createVehicleMotion(v.kind); this.install(v); }
   }
 }
 

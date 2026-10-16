@@ -1,5 +1,5 @@
 import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, vehicleOwner, vehicleSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -32,9 +32,12 @@ export class VehicleRenderer {
       else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0});}
     }
   }
-  rider(id:number):VehicleState|undefined{return [...this.views.values()].find(v=>v.target.driver===id)?.pose;}
+  /** The vehicle a player is aboard (any seat), interpolated. */
+  rider(id:number):VehicleState|undefined{return [...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0)?.pose;}
+  /** Seat of a player aboard: 0 driving, 1… passenger, −1 on foot. */
+  seatIndex(id:number):number{const v=[...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0);return v?vehicleSeatOf(v.target,id):-1;}
   nearest(x:number,y:number,z:number):VehicleState|undefined{
-    return [...this.views.values()].map(v=>v.target).filter(v=>!v.driver&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
+    return [...this.views.values()].map(v=>v.target).filter(v=>vehicleFreeSeat(v)>=0&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
   }
   update(dt:number,now:number,localId:number,x:number,y:number,z:number,enabled:boolean,serverTime=now):void{
     const target=serverTime-VEHICLE_RENDER_DELAY_MS;
@@ -45,7 +48,7 @@ export class VehicleRenderer {
     if(this.ownPlayback===undefined||Math.abs(ownTarget-this.ownPlayback)>400)this.ownPlayback=ownTarget;
     else this.ownPlayback+=dt*1000+(ownTarget-this.ownPlayback)*Math.min(1,dt*1.5);
     for(const view of this.views.values()){
-      const v=view.target,p=view.pose=view.timeline.play(v.driver===localId?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
+      const v=view.target,p=view.pose=view.timeline.play(vehicleSeatOf(v,localId)>=0?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
       // Camera/LOS colliders follow the same interpolated pose as the mesh. Installing the
       // newest packet here caused the chase camera to alternate between two positions.
       this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));
@@ -88,6 +91,6 @@ export class VehicleRenderer {
     this.world.removeOwnerColliders(vehicleOwner(v.id));
     try{return fn();}finally{this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(v));}
   }
-  seat(id:number):{x:number;y:number;z:number}|undefined{const v=this.rider(id);return v?vehicleSeat(v):undefined;}
+  seat(id:number):{x:number;y:number;z:number}|undefined{const v=this.rider(id);return v?vehicleSeat(v,Math.max(0,this.seatIndex(id))):undefined;}
   dispose():void{this.disposed=true;for(const[id,v]of this.views){this.scene.remove(v.root);this.world.removeOwnerColliders(vehicleOwner(id));}this.views.clear();this.audio.dispose();this.smoke.dispose();}
 }

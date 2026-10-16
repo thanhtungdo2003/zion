@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { ConfirmDialog } from './ConfirmDialog';
 import { API_URL, studioDeleteWeapon, studioResetWeapons, studioLogin, studioSaveWeapon, studioWeapons, type StudioWeapon } from '@/lib/api';
 import { builtinRecoilDegrees } from '@/game/first-person-recoil';
-import { BB_UNITS_PER_METER, loadCharacterModel, type CharacterTemplate } from '@/game/render/character-model';
+import { BB_UNITS_PER_METER, loadPlayerCharacter, type CharacterTemplate } from '@/game/render/character-model';
 import { builtinWeaponVisual, loadWeaponModel, previewAttachment, standaloneVisual, type WeaponSpec } from '@/game/render/weapons';
 import { ViewModel } from '@/game/render/viewmodel';
 import { scopeFov } from '@/game/scope';
@@ -546,7 +546,7 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
     };
     frame = requestAnimationFrame(loop);
     // The player's own arms, as in game (loaded with the model).
-    void Promise.all([loadWeaponModel(url, undefined, draft.format), loadCharacterModel()]).then(([{ root }, character]) => {
+    void Promise.all([loadWeaponModel(url, undefined, draft.format), loadPlayerCharacter()]).then(([{ root }, character]) => {
       if (disposed || !stage.current) return;
       stage.current.root = root; stage.current.character = character; setLoaded((n) => n + 1);
     }).catch(() => undefined);

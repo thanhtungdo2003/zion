@@ -71,6 +71,26 @@ describe('authoritative vehicles',()=>{
     expect(s.exit(a)).toBe(true);expect(v.driver).toBeNull();
     expect(Math.hypot(a.state.x-v.x,a.state.z-v.z)).toBeGreaterThan(VEHICLES.car.halfX+.5);
   });
+  it('seats teammates as passengers (only teammates), up to the vehicle seats, and lets them out',()=>{
+    const w=world(),s=system(w),a=player(),b=player(2),c=player(3),d=player(4),e=player(5);
+    a.state.x=48;a.state.z=75;expect(s.spawn(a,'car',0)).toContain('F');
+    const v=[...s.states.values()][0]!;
+    for(const p of [a,b,c,d,e])Object.assign(p.state,{x:v.x,y:v.y,z:v.z+3});
+    const team=new Set([1,2,3,4,5]);
+    s.toggle(a,v.id,1000,id=>team.has(id));
+    expect(v.driver).toBe(1);expect(a.vehicleSeat).toBe(0);
+    // A stranger cannot climb into a teammate's car.
+    s.toggle(b,v.id,1000,()=>false);expect(b.vehicleId).toBe(0);
+    for(const p of [b,c,d])s.toggle(p,v.id,2000,id=>team.has(id));
+    expect([b,c,d].map(p=>p.vehicleSeat)).toEqual([1,2,3]);expect(v.passengers).toEqual([2,3,4]);
+    // Four seats in a Lada: the fifth stays outside.
+    s.toggle(e,v.id,2000,id=>team.has(id));expect(e.vehicleId).toBe(0);
+    s.step(1100,1/30,new Map([a,b,c,d].map(p=>[p.id,p])),vi.fn(),vi.fn());
+    const seat=b.state;expect(Math.hypot(seat.x-a.state.x,seat.z-a.state.z)).toBeGreaterThan(.6);
+    expect(s.exit(c)).toBe(true);expect(v.passengers).toEqual([2,0,4]);expect(v.driver).toBe(1);
+    s.control(b,1,0,1200);s.control(a,1,0,1200);
+    s.dispose();
+  });
   it('allows exiting a destroyed vehicle during the two-second fuse and detonates exactly once',()=>{
     const w=world(),s=system(w),v=vehicle(),a=player();
     s.states.set(1,v);w.setOwnerColliders(vehicleOwner(1),vehicleColliders(v));
@@ -80,7 +100,7 @@ describe('authoritative vehicles',()=>{
     s.toggle(a,1,2000);expect(a.vehicleId).toBe(0);
     s.step(3000,1/30,new Map([[a.id,a]]),explode,vi.fn());
     s.step(3100,1/30,new Map([[a.id,a]]),explode,vi.fn());
-    expect(explode).toHaveBeenCalledTimes(1);expect(explode.mock.calls[0]![1]).toBeUndefined();
+    expect(explode).toHaveBeenCalledTimes(1);expect(explode.mock.calls[0]![1]).toEqual([]);
   });
   it.each([{sea:40,inland:NaN,y:35},{sea:40,inland:NaN,y:39.95},{sea:20,inland:40,y:35}])('allows F exit from ocean/inland water at vehicle height $y',({sea,inland,y})=>{
     const w=world(sea,inland),s=system(w),v=vehicle(),a=player();

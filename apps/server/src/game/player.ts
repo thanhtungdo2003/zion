@@ -83,6 +83,8 @@ export class PoseHistory {
 
 export class Player {
   vehicleId = 0;
+  /** Seat in that vehicle: 0 driving, 1… passenger. */
+  vehicleSeat = 0;
   /** Battle royale: automatic jump point on the plane's path. */
   jumpPoint: { x: number; z: number } | null = null;
   pvpEnabled = false;
