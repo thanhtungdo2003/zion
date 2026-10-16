@@ -87,6 +87,8 @@ export class SpawnService {
       if (n.y < p.walkableNormalY) continue;
       const y = ground + 0.02;
       if (!this.controller.isFree(px, y, pz)) continue;
+      // Never inside a building's shell: not boxed in on every side, not in a slot between walls.
+      if (this.trapped(px, y, pz)) continue;
       if (requireOpen && this.collision.overlapsCapsule(px, y + 1.5, pz, px, y + 5, pz, 2.5, Layer.Static | Layer.Vegetation)) continue;
       return { x: px, y, z: pz };
     }
@@ -126,6 +128,33 @@ export class SpawnService {
       return { x: px, y: floor + .02, z: pz };
     }
     return null;
+  }
+
+  private readonly probe = makeRayHit();
+  /**
+   * A spot a character could not walk out of: walls within 4 m in every direction (a closed room
+   * or the inside of a model), or a gap narrower than 1 m between two walls (the cavity between
+   * a building's inner and outer faces).
+   */
+  trapped(x: number, y: number, z: number): boolean {
+    const reach = 4, d: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      d.push(this.collision.raycast(x, y + 1, z, Math.cos(a), 0, Math.sin(a), reach, Mask.CharacterMovement, this.probe) ? this.probe.t : reach);
+    }
+    if (d.every((t) => t < reach)) return true;
+    return this.inWallGap(x, y, z, d);
+  }
+
+  /** Squeezed into a gap under 1 m wide between two walls (inside a model's wall). */
+  inWallGap(x: number, y: number, z: number, d?: number[]): boolean {
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 4;
+      const f = d ? d[i]! : this.collision.raycast(x, y + 1, z, Math.cos(a), 0, Math.sin(a), 1, Mask.CharacterMovement, this.probe) ? this.probe.t : 1;
+      const b = d ? d[i + 4]! : this.collision.raycast(x, y + 1, z, -Math.cos(a), 0, -Math.sin(a), 1, Mask.CharacterMovement, this.probe) ? this.probe.t : 1;
+      if (f + b < 1) return true;
+    }
+    return false;
   }
 
   /** Loads the area around (x, z) and validates a position there. */
