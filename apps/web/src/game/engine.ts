@@ -1715,7 +1715,7 @@ export class GameEngine {
       const dx = pose.x - px;
       const dz = pose.z - pz;
       zb.avatar.seen = this.cameraMode !== 'top-down' || this.targetVisibility.visible(zb.entity.id, this.vision?.canSee(pose.x, pose.y + .9, pose.z, this.store?.collision) ?? false, now);
-      zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt, pose.health);
+      zb.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, zb.limbs, dt, pose.health, pose.pitch);
       zb.avatar.root.visible = zb.avatar.seen;
       if (this.cameraMode === 'top-down' && zb.avatar.seen && zb.avatar.root.visible && pose.health > 0 && !(pose.flags & EntityFlags.Dead)) this.outlinedZombies.push(zb.avatar.root);
       if (zb.burnUntil && zb.burnUntil > now && zb.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);

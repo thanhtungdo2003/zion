@@ -176,7 +176,10 @@ export class ZombieAvatar {
     head.node.position.copy(this.root.worldToLocal(head.position.clone()));
   }
 
-  update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number, health = 100): void {
+  /** Smoothed head pitch (radians, up positive) towards whatever it is hunting. */
+  private headPitch = 0;
+
+  update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number, health = 100, pitch = 0): void {
     if ((limbs & Limb.Head) && !this.detachedHead) {
       if (!this.ragdoll && this.deadFor < 0) { this.root.position.set(x, y, z); this.root.rotation.y = yaw; }
       this.severHead(Math.sin(yaw), Math.cos(yaw));
@@ -244,6 +247,14 @@ export class ZombieAvatar {
     for (const l of [this.cur, this.prev]) l.time += dt * l.rate;
     this.fade = Math.min(1, this.fade + dt / FADE_SEC);
     this.applyPose();
+    // The head follows the prey up and down (part of the bend goes into the neck/body).
+    this.headPitch += ((dead ? 0 : pitch) - this.headPitch) * Math.min(1, dt * 8);
+    const head = this.bones.get('head')?.node;
+    if (head && !crawling) {
+      head.rotation.x += Math.max(-.7, Math.min(.7, this.headPitch * .8));
+      const body = this.bones.get('body')?.node;
+      if (body) body.rotation.x += Math.max(-.25, Math.min(.35, this.headPitch * .25));
+    }
 
     // Crawl: lie prone (head forward) and drag along.
     this.crawl += ((crawling && !dead ? 1 : 0) - this.crawl) * Math.min(1, dt * 6);

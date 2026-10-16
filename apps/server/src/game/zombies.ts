@@ -636,7 +636,10 @@ export class ZombieDirector {
       if (z.target && !z.dead) flags |= EntityFlags.Sprinting;
       if (now < z.attackingUntil) flags |= EntityFlags.Attacking;
       if (!z.dead && (z.jumpWindupUntil > now || !z.state.grounded) && now < z.jumpingUntil) flags |= EntityFlags.Leaping;
-      out.push({ id: z.id, kind: EntityKind.Zombie, x: z.state.x, y: z.state.y, z: z.state.z, yaw: z.yaw, pitch: 0, flags, health: Math.max(0, Math.round(z.health / z.maxHealth * 100)), weapon: z.limbs | (z.variant << 4) });
+      // Head pitch: looking up at prey on a roof or down at someone below.
+      const t = z.target && !z.dead ? z.target.state : null;
+      const pitch = t ? Math.max(-1, Math.min(1, Math.atan2(t.y + 1.5 - (z.state.y + 1.55 * zombieScale(z.variant)), Math.hypot(t.x - z.state.x, t.z - z.state.z) || .01))) : 0;
+      out.push({ id: z.id, kind: EntityKind.Zombie, x: z.state.x, y: z.state.y, z: z.state.z, yaw: z.yaw, pitch, flags, health: Math.max(0, Math.round(z.health / z.maxHealth * 100)), weapon: z.limbs | (z.variant << 4) });
     }
   }
 }
