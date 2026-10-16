@@ -43,6 +43,18 @@ describe('battle royale bots', () => {
     expect(bot.searched.has('c1')).toBe(true);
   });
 
+  it('loses its target in a smoke cloud and is blinded by a flashbang', () => {
+    const items = () => generateBattleLoot(generateBattleLoot([], () => .3), () => .3);
+    const { director } = setup([{ id: 'a', x: 110, y: 10, z: 128, items: items() }, { id: 'b', x: 146, y: 10, z: 128, items: items() }]);
+    const a = director.spawn(108, 10, 128), b = director.spawn(148, 10, 128);
+    director.smoke(128, 128, 6, 1e9);
+    run(director, 20);
+    expect(a.dead || b.dead).toBe(false);
+    director.flash(a.state.x, a.state.y + 1, a.state.z, 10, 3000, 20_000);
+    expect(a.target).toBeNull();
+    expect(a.reactAt).toBeGreaterThan(20_000 + 2000);
+  });
+
   it('heads into the next safe circle when the zone closes', () => {
     const { director } = setup();
     const bot = director.spawn(30, 10, 128);
@@ -93,14 +105,14 @@ describe('battle royale bots', () => {
     expect(bot.state.rollTicks > 0 || bot.rollRequest === false).toBe(true);
   });
   it('without a gun, fights with a looted blade or its fists', () => {
-    const { director } = setup([{ id: 'c1', x: 124, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0 }] }]);
+    const { director } = setup([{ id: 'c1', x: 124, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0, rotated: false }] }]);
     const a = director.spawn(120, 10, 128), b = director.spawn(126, 10, 128);
     a.alert = { x: 126, z: 128, until: 1e9 }; b.alert = { x: 120, z: 128, until: 1e9 };
     run(director, 8);
     expect(a.health < 100 || b.health < 100).toBe(true);
   });
   it('picks up a melee weapon from a crate when it has none', () => {
-    const { director } = setup([{ id: 'c1', x: 130, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0 }] }]);
+    const { director } = setup([{ id: 'c1', x: 130, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0, rotated: false }] }]);
     const bot = director.spawn(120, 10, 128);
     run(director, 8);
     expect(bot.meleeItem?.itemId).toBe('machete');

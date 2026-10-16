@@ -2455,7 +2455,7 @@ export class GameServer {
       if (now < g.explodeAt) continue;
       this.grenades.splice(i, 1);
       if (spec.effect === 'flash') this.flashbang(g.id, g.s.x, g.s.y, g.s.z, spec, now);
-      else if (spec.effect === 'smoke') this.smokeScreen(g.id, g.s.x, g.s.y, g.s.z, spec);
+      else if (spec.effect === 'smoke') this.smokeScreen(g.id, g.s.x, g.s.y, g.s.z, spec, now);
       else this.explode(g.id, g.s.x, g.s.y, g.s.z, spec.radius, spec.damage, g.owner, 'grenade', now);
     }
   }
@@ -2468,6 +2468,8 @@ export class GameServer {
     const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
     for (const o of this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, [])) o.session.sendJson({ t: 'explosion', id, x, y, z, radius: spec.radius, kind: 'flash' });
     this.zombies.alert(x, z, 50, now);
+    // Battle royale bots are blinded too (they used to shrug a flashbang off).
+    this.bots?.flash(x, y, z, spec.radius, spec.effectMs ?? 3000, now);
     for (const t of this.grid.query(cx, cz, 1, this.scratch)) {
       if (!t.active || t.dead) continue;
       const ex = t.state.x, ey = t.state.y + characterEyeHeight(t.state), ez = t.state.z;
@@ -2484,8 +2486,10 @@ export class GameServer {
   }
 
   /** Smoke grenade: a cloud everyone around sees for `effectMs`. */
-  private smokeScreen(id: number, x: number, y: number, z: number, spec: ThrowSpec): void {
+  private smokeScreen(id: number, x: number, y: number, z: number, spec: ThrowSpec, now: number): void {
     const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    // Bots cannot see through the cloud while it lasts.
+    this.bots?.smoke(x, z, spec.radius, now + (spec.effectMs ?? 20000));
     for (const o of this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, [])) o.session.sendJson({ t: 'smoke', id, x, y, z, radius: spec.radius, ms: spec.effectMs ?? 20000 });
   }
 

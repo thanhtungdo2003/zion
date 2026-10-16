@@ -17,7 +17,9 @@ import {
 import {
   CharacterController,
   DEFAULT_CHARACTER,
+  Layer,
   Mask,
+  type Collider,
   zombieHitRig,
   createCharacterState,
   makeRayHit,
@@ -47,6 +49,9 @@ const ATTACK_RANGE = 1.5;
 const ATTACK_MS = 1200;
 /** Wind-up: the bite lands this long after the attack animation starts (if still in reach). */
 const BITE_DELAY_MS = 700;
+
+/** Climbable ladder asset (rusty iron wall ladder). */
+const LADDER_TAG = 2022;
 
 const ZOMBIE_PARAMS: CharacterParams = {
   ...DEFAULT_CHARACTER,
@@ -105,6 +110,10 @@ export class Zombie {
   jumpingUntil = 0;
   jumpWindupUntil = 0;
   leapYaw = 0;
+  /** Half of all zombies can climb ladders to reach prey up on a roof or a tower. */
+  readonly climber = Math.random() < .5;
+  /** Ladder this climber is heading for: where to stand at its foot and its centre. */
+  ladder: { x: number; z: number; cx: number; cz: number; until: number } | null = null;
 
   constructor(
     readonly id: number,
@@ -191,11 +200,12 @@ export class ZombieDirector {
   ) { this.navigation = new ZombieNavigation(collision); }
 
   /** Controller for a given ground speed (crawlers move slower depending on limbs left). */
-  private controller(speed: number, scale = 1, crawling = false): CharacterController {
-    const key = (Math.round(speed * 10) * 10 + Math.round(scale * 2)) * 2 + Number(crawling);
+  private controller(speed: number, scale = 1, crawling = false, climber = false): CharacterController {
+    const key = ((Math.round(speed * 10) * 10 + Math.round(scale * 2)) * 2 + Number(crawling)) * 2 + Number(climber);
     let c = this.controllers.get(key);
     if (!c) {
-      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, radius: ZOMBIE_PARAMS.radius * scale, height: crawling ? .85 : ZOMBIE_PARAMS.height * scale, walkSpeed: speed, sprintSpeed: speed });
+      // Only climbers grip ladders; the rest just bump against them.
+      c = new CharacterController(this.collision, { ...ZOMBIE_PARAMS, radius: ZOMBIE_PARAMS.radius * scale, height: crawling ? .85 : ZOMBIE_PARAMS.height * scale, walkSpeed: speed, sprintSpeed: speed, ladderTags: climber && !crawling ? ZOMBIE_PARAMS.ladderTags : [] });
       this.controllers.set(key, c);
     }
     return c;
@@ -404,9 +414,19 @@ export class ZombieDirector {
     }
     const dist = Math.hypot(goalX - s.x, goalZ - s.z);
     const goal = { x: goalX, y: z.target?.state.y ?? this.collision.terrainHeight(goalX, goalZ), z: goalZ };
-    const waypoint = chasing
+    // Prey up high (roof, tower): climbers make for the nearest ladder and go up it.
+    const high = !!z.target && z.target.state.y - s.y > 2.2 && dist < 30;
+    if (high && z.climber && !isCrawling(z.limbs)) {
+      if (!z.ladder || now > z.ladder.until) z.ladder = this.findLadder(z.target!.state.x, z.target!.state.y, z.target!.state.z, s, now);
+    } else if (!high) z.ladder = null;
+    const ladder = z.ladder;
+    let waypoint = ladder
+      ? (Math.hypot(ladder.x - s.x, ladder.z - s.z) < .9 || !s.grounded ? { x: ladder.cx, y: s.y, z: ladder.cz } : this.navigation.steer(z.navigation, s, { x: ladder.x, y: this.collision.terrainHeight(ladder.x, ladder.z), z: ladder.z }, now) ?? { x: ladder.x, y: s.y, z: ladder.z })
+      : chasing
       ? this.navigation.steer(z.navigation, s, goal, now)
       : this.navigation.map.trace(s, goalX, goalZ);
+    // Out of reach (up high, no way found): keep pressing towards the prey instead of standing still.
+    if (!waypoint && chasing) waypoint = { x: goalX, y: s.y, z: goalZ };
     if (!chasing) {
       this.navigation.clear(z.navigation);
       if (!waypoint) z.wanderYaw += 0.5;
@@ -481,6 +501,28 @@ export class ZombieDirector {
     this.stepPhysics(z, move && !idleRandom ? 1 : 0, approachSpeed, want);
   }
 
+  /**
+   * The ladder (asset 2022) nearest to a high spot, and where a zombie stands to climb it: in
+   * front of its thin face, on the side the zombie can reach.
+   */
+  private findLadder(x: number, y: number, z: number, from: { x: number; y: number; z: number }, now: number): Zombie['ladder'] {
+    const found: Collider[] = [];
+    const n = this.collision.queryAABB({ minX: x - 22, minY: Math.min(y, from.y) - 2, minZ: z - 22, maxX: x + 22, maxY: y + 2, maxZ: z + 22 }, Layer.Static, found);
+    let best: Zombie['ladder'] = null, bestD = Infinity;
+    for (let i = 0; i < n; i++) {
+      const c = found[i]!;
+      if (c.tag !== LADDER_TAG || c.aabb.minY > from.y + 1.5) continue;
+      const cx = (c.aabb.minX + c.aabb.maxX) / 2, cz = (c.aabb.minZ + c.aabb.maxZ) / 2;
+      const hx = (c.aabb.maxX - c.aabb.minX) / 2, hz = (c.aabb.maxZ - c.aabb.minZ) / 2;
+      // Stand off the thin side, on whichever side is nearer the zombie.
+      const alongX = hx < hz, side = alongX ? Math.sign(from.x - cx) || 1 : Math.sign(from.z - cz) || 1;
+      const sx = alongX ? cx + side * (hx + .55) : cx, sz = alongX ? cz : cz + side * (hz + .55);
+      const d = Math.hypot(sx - from.x, sz - from.z) + Math.hypot(cx - x, cz - z);
+      if (d < bestD) { bestD = d; best = { x: sx, z: sz, cx, cz, until: now + 3000 }; }
+    }
+    return best;
+  }
+
   /** Acquire visible players immediately; prone players have 35% of the normal detection range. */
   private detect(z: Zombie, players: readonly Player[], sense: number): void {
     const s = z.state;
@@ -490,7 +532,10 @@ export class ZombieDirector {
       if (!p.active || p.dead) continue;
       const d = dist2(s, p.state);
       const range = p.state.prone ? sense * .35 : sense;
-      if (d < best && d < range * range && this.collision.lineOfSight(s.x, s.y + .9, s.z, p.state.x, p.state.y + (p.state.prone ? .4 : .9), p.state.z, Mask.LineOfSight, this.attackHit)) {
+      // Seen at body or head height (a player up on a roof shows only the head), or simply
+      // heard / smelled when very close, whatever is in between.
+      const sees = (h: number) => this.collision.lineOfSight(s.x, s.y + 1.5, s.z, p.state.x, p.state.y + h, p.state.z, Mask.LineOfSight, this.attackHit);
+      if (d < best && d < range * range && (d < 5 * 5 || sees(p.state.prone ? .4 : .9) || sees(p.state.prone ? .5 : 1.6))) {
         best = d;
         seen = p;
       }
@@ -499,7 +544,7 @@ export class ZombieDirector {
   }
 
   private stepPhysics(z: Zombie, mz: number, speed: number, yaw = z.yaw): void {
-    this.controller(Math.max(speed, 0.3), zombieScale(z.variant), z.variant === ZombieVariant.Crimson && z.state.grounded && !z.jumpWindupUntil).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
+    this.controller(Math.max(speed, 0.3), zombieScale(z.variant), z.variant === ZombieVariant.Crimson && z.state.grounded && !z.jumpWindupUntil, z.climber && !isCrawling(z.limbs)).step(z.state, { mx: 0, mz, yaw, jump: false, sprint: false }, TICK_DT);
   }
 
   /** Applies a hit. Returns what happened so the caller can broadcast it. */

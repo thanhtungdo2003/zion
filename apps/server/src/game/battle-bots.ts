@@ -120,6 +120,13 @@ export class BattleBot implements Combatant {
   get reserve(): number { return this.ammoItems().reduce((n, i) => n + (i.count ?? 0), 0); }
 }
 
+/** Bot gunplay tuning (battle royale). Slower than a sharp human, so fights are winnable. */
+export const BOT_AIM_SETTLE_MS = 360;
+export const BOT_SPREAD_SCALE = 1.7;
+export const BOT_SPREAD_BASE = .011;
+export const BOT_SPREAD_PER_M = .0004;
+export const BOT_AUTO_FIRE_SCALE = 2;
+
 export interface BotHooks {
   shot(e: ShotEvent): void;
   projectile(e: ProjectileEvent): void;
@@ -158,6 +165,10 @@ export class BattleBotDirector {
   private readonly navigation: ZombieNavigation;
   private readonly sight = makeRayHit();
   private readonly rounds: Round[] = [];
+  /** Smoke clouds bots cannot see through (centre, radius, gone at `until`). */
+  private readonly smokes: Array<{ x: number; z: number; radius: number; until: number }> = [];
+  /** Server time of the current step (smoke clouds expire against it). */
+  private now = 0;
   private nextRoundId = 0x68000000;
   private serial = 0;
 
@@ -227,6 +238,7 @@ export class BattleBotDirector {
   }
 
   step(now: number, tick: number, world: BotWorld, players: readonly Player[]): void {
+    this.now = now;
     this.navigation.beginTick();
     const think = tick % 3 === 0;
     for (const bot of this.bots) {
@@ -284,9 +296,43 @@ export class BattleBotDirector {
     return list;
   }
 
+  /** A smoke grenade went off: bots lose sight of anything behind or inside the cloud. */
+  smoke(x: number, z: number, radius: number, until: number): void {
+    this.smokes.push({ x, z, radius, until });
+  }
+
+  /**
+   * A flashbang went off: bots close to it (and not behind cover) drop their target and stay
+   * blinded for up to `ms`, scaled by distance.
+   */
+  flash(x: number, y: number, z: number, radius: number, ms: number, now: number): void {
+    for (const bot of this.bots) {
+      if (bot.dead) continue;
+      const s = bot.state, ey = s.y + MUZZLE_HEIGHT, dx = x - s.x, dy = y + .2 - ey, dz = z - s.z, d = Math.hypot(dx, dy, dz);
+      if (d >= radius) continue;
+      if (d > .3 && !this.collision.lineOfSight(s.x, ey, s.z, x, y + .2, z, Mask.LineOfSight, this.sight)) continue;
+      const strength = 1 - (d / radius) ** 2;
+      bot.target = null; bot.aimedAt = 0;
+      bot.reactAt = Math.max(bot.reactAt, now + ms * strength);
+    }
+  }
+
+  /** True when the sight line from (ax,az) to (bx,bz) crosses a live smoke cloud. */
+  private smoked(ax: number, az: number, bx: number, bz: number, now: number): boolean {
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const c = this.smokes[i]!;
+      if (now >= c.until) { this.smokes.splice(i, 1); continue; }
+      const vx = bx - ax, vz = bz - az, l2 = vx * vx + vz * vz || 1;
+      const t = Math.max(0, Math.min(1, ((c.x - ax) * vx + (c.z - az) * vz) / l2));
+      if (Math.hypot(ax + vx * t - c.x, az + vz * t - c.z) < c.radius) return true;
+    }
+    return false;
+  }
+
   private visible(bot: BattleBot, t: { state: CharacterState }, alerted: boolean): boolean {
     const s = bot.state, dx = t.state.x - s.x, dz = t.state.z - s.z, d = Math.hypot(dx, dz);
     if (d > SIGHT) return false;
+    if (this.smokes.length && this.smoked(s.x, s.z, t.state.x, t.state.z, this.now)) return false;
     if (!alerted && d > 12) {
       const fx = -Math.sin(bot.yaw), fz = -Math.cos(bot.yaw);
       if ((dx * fx + dz * fz) / (d || 1) < FOV) return false;
@@ -521,16 +567,17 @@ export class BattleBotDirector {
     const facing = Math.atan2(-tx, -tz), off = Math.abs(Math.atan2(Math.sin(facing - bot.yaw), Math.cos(facing - bot.yaw)));
     if (off > .08) { bot.aimedAt = 0; return; }
     if (!bot.aimedAt) bot.aimedAt = now;
-    if (now - bot.aimedAt < 220) return;
+    // Settle a little longer than a human flick: bots used to land the first shot almost at once.
+    if (now - bot.aimedAt < BOT_AIM_SETTLE_MS) return;
     const d = Math.hypot(tx, ty, tz) || 1;
     if (d > gun.range) return;
     bot.pitch = Math.atan2(ty, Math.hypot(tx, tz));
-    // Lead moving targets a little and miss more at range and while moving.
-    const lead = d / 400;
+    // Lead moving targets a little (not perfectly) and miss more at range and while moving.
+    const lead = d / 400 * (.6 + Math.random() * .6);
     const ax = tx + t.vx * lead, az = tz + t.vz * lead, len = Math.hypot(ax, ty, az) || 1;
-    const spread = gun.spread * 1.2 + .006 + d * .00025 + (Math.hypot(s.vx, s.vz) > 1 ? .01 : 0);
+    const spread = gun.spread * BOT_SPREAD_SCALE + BOT_SPREAD_BASE + d * BOT_SPREAD_PER_M + (Math.hypot(s.vx, s.vz) > 1 ? .015 : 0);
     const spec = bulletSpec(bot.weapon, gun);
-    bot.fireAt = now + Math.max(gun.fireMs, gun.auto ? gun.fireMs * 1.4 : 380 + Math.random() * 300);
+    bot.fireAt = now + Math.max(gun.fireMs, gun.auto ? gun.fireMs * BOT_AUTO_FIRE_SCALE : 520 + Math.random() * 420);
     item.mag = (item.mag ?? 0) - 1;
     for (let p = 0; p < Math.max(1, gun.pellets); p++) {
       const [dx, dy, dz] = spreadDirection(ax / len, ty / len, az / len, spread, Math.random);

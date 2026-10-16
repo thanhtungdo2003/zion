@@ -1627,10 +1627,15 @@ export class GameEngine {
     local.decayCorrection(dt);
 
     const alpha = this.accumulator / TICK_DT;
-    const px = seat?.x ?? local.prev.x + (local.state.x - local.prev.x) * alpha + local.correction.x;
-    const py = seat?.y ?? local.prev.y + (local.state.y - local.prev.y) * alpha + local.correction.y;
-    const pz = seat?.z ?? local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
+    let px = seat?.x ?? local.prev.x + (local.state.x - local.prev.x) * alpha + local.correction.x;
+    let py = seat?.y ?? local.prev.y + (local.state.y - local.prev.y) * alpha + local.correction.y;
+    let pz = seat?.z ?? local.prev.z + (local.state.z - local.prev.z) * alpha + local.correction.z;
     if (!local.dead) this.worldMap.explore(px, pz);
+    // Spectating: the whole frame (props, vegetation, vision, sky, sounds) centres on the watched
+    // teammate, not on our own body far away — otherwise their surroundings never build and the
+    // vision cone from our corpse hides them.
+    const watch = this.spectateTarget();
+    if (watch) { px = watch.x; py = watch.y; pz = watch.z; }
 
     const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
     this.props?.update(px, pz, now, buildDeadline);
@@ -2842,12 +2847,14 @@ export class GameEngine {
     this.applyGraphics(settings);
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
-    const mode = this.local?.riding && !this.passenger ? 'third-person' : settings.cameraMode;
+    // Spectating always uses the shoulder camera: the mouse orbits around the watched teammate.
+    const mode = (this.local?.riding && !this.passenger) || (this.local?.dead && this.hud.get().spectating) ? 'third-person' : settings.cameraMode;
     const fp = mode === 'first-person';
     const mouseLook = mode !== 'top-down';
     this.input.sensitivity = settings.mouseSens * 0.00004;
     const hud = this.hud.get();
-    this.input.freeCursor = mouseLook && (!!this.local?.dead || !!hud.dialogue || hud.downed !== null);
+    // Spectating keeps the mouse captured so it can orbit the camera around the teammate.
+    this.input.freeCursor = mouseLook && ((!!this.local?.dead && !hud.spectating) || !!hud.dialogue || hud.downed !== null);
     this.vision?.setOverlay(!mouseLook);
     if (mode === this.cameraMode) return;
     this.targetVisibility.clear();
@@ -2875,22 +2882,31 @@ export class GameEngine {
    * Battle royale, eliminated: follow a living squadmate from behind (their body when streamed in,
    * else their reported position). False when there is nobody to watch.
    */
+  /** Battle royale, eliminated: the living squadmate being watched (their body when streamed in). */
+  private spectateTarget(): { name: string; x: number; y: number; z: number } | null {
+    if (!this.local?.dead || this.welcome?.mode !== 'battle-royale') return null;
+    const mate = (this.hud.get().team?.members ?? []).find((m) => m.entityId !== undefined && m.entityId !== this.welcome?.playerId && m.inGame && (m.health ?? 0) > 0 && m.x !== undefined);
+    if (!mate) return null;
+    const body = this.remotes.get(mate.entityId!);
+    const x = body ? body.entity.pose.x : mate.x!, z = body ? body.entity.pose.z : mate.z!;
+    const y = body ? body.entity.pose.y : mate.y ?? this.groundY(x, z);
+    return { name: mate.name, x, y, z };
+  }
+
+  /**
+   * Follow the watched squadmate from behind. The mouse orbits the camera (our own yaw/pitch), so
+   * the spectator can look around them. False when there is nobody to watch.
+   */
   private spectate(dt: number): boolean {
-    const local = this.local;
-    let watching: string | null = null;
-    if (local?.dead && this.welcome?.mode === 'battle-royale') {
-      const mate = (this.hud.get().team?.members ?? []).find((m) => m.entityId !== undefined && m.entityId !== this.welcome?.playerId && m.inGame && (m.health ?? 0) > 0 && m.x !== undefined);
-      if (mate) {
-        const body = this.remotes.get(mate.entityId!);
-        const x = body ? body.entity.pose.x : mate.x!, z = body ? body.entity.pose.z : mate.z!;
-        const y = body ? body.entity.pose.y : mate.y ?? this.groundY(x, z);
-        const yaw = body ? body.entity.pose.yaw : mate.yaw ?? this.input.yaw;
-        const f = this.camFocus, k = this.camFocusInit && (f.x - x) ** 2 + (f.z - z) ** 2 < 400 ? 1 - Math.exp(-dt * 10) : 1;
-        f.lerp(this.focus.set(x, y + 1.6, z), k); this.camFocusInit = true;
-        this.thirdPersonCamera.update(this.camera, f, yaw, -.18, dt, this.store?.collision, false);
-        watching = mate.name;
-      }
+    const target = this.spectateTarget();
+    if (target) {
+      const { x, y, z } = target;
+      const f = this.camFocus, k = this.camFocusInit && (f.x - x) ** 2 + (f.z - z) ** 2 < 400 ? 1 - Math.exp(-dt * 10) : 1;
+      f.lerp(this.focus.set(x, y + 1.6, z), k); this.camFocusInit = true;
+      const pitch = Math.max(-.9, Math.min(.5, this.input.pitch - .18));
+      this.thirdPersonCamera.update(this.camera, f, this.input.yaw, pitch, dt, this.store?.collision, false);
     }
+    const watching = target?.name ?? null;
     if (this.hud.get().spectating !== watching) this.hud.set({ spectating: watching });
     return watching !== null;
   }

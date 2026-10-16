@@ -150,3 +150,24 @@ describe('zombie path following', () => {
     expect(high.attackPlayer).not.toHaveBeenCalled();
   });
 });
+
+describe('zombies and high ground', () => {
+  // A 4 m block with a ladder up its south face and the player standing on its roof.
+  const tower = (): ColliderInit[] => [
+    { shape: makeBox(16, 2, 16, 3, 2, 3), layer: Layer.Static },
+    { shape: makeBox(16, 2, 19.08, .4, 2, .08), layer: Layer.Static, tag: 2022 },
+  ];
+  it('a climber goes up the ladder to prey on the roof; a non-climber stays below, still chasing', () => {
+    for (const climber of [true, false]) {
+      const sim = simulation(tower(), point(16, 26), point(16, 16, 4.01));
+      Object.defineProperty(sim.zombie, 'climber', { value: climber });
+      sim.run(30 * 25);
+      if (climber) expect(sim.zombie.state.y).toBeGreaterThan(3.5);
+      else {
+        expect(sim.zombie.state.y).toBeLessThan(1);
+        expect(sim.zombie.target).toBe(sim.player);
+        expect(Math.hypot(sim.zombie.state.x - 16, sim.zombie.state.z - 16)).toBeLessThan(6);
+      }
+    }
+  });
+});

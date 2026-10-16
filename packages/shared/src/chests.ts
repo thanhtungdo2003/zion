@@ -73,7 +73,7 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
   if (random() < .7) add(pick(['katana', 'quam', 'shovel', 'fire_axe', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar']));
   for (let i = 0, n = 2 + Math.floor(random() * 3); i < n; i++) {
     const roll = random();
-    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .9 ? 'grenade' : pick(ARMOR_SPECS.map(a => a.item)));
+    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .86 ? 'grenade' : roll < .91 ? 'flashbang' : roll < .95 ? 'smoke_grenade' : pick(ARMOR_SPECS.map(a => a.item)));
   }
   return items;
 }
