@@ -70,4 +70,26 @@ describe('battle royale bots', () => {
     expect(bot.state.flight).toBe(0);
     expect(bot.state.y).toBeLessThan(11);
   });
+  it('knocks a squad bot down instead of killing it, and a squadmate runs over and revives it', () => {
+    const { director, deaths } = setup();
+    const a = director.spawn(120, 10, 128), b = director.spawn(150, 10, 128);
+    a.squad = b.squad = 's1'; b.role = 'gunner';
+    director.hit(a, 500, 'enemy', { x: 100, z: 128 }, 0);
+    expect(a.downed).toBe(true); expect(a.dead).toBe(false); expect(deaths).toEqual([]);
+    run(director, 14, 100);
+    expect(a.downed).toBe(false); expect(a.health).toBe(30);
+    // Shot again while down, nobody left standing: dead for good.
+    director.hit(b, 500, 'enemy', null, 20_000); expect(b.downed).toBe(true);
+    director.hit(b, 5, 'enemy', null, 20_100); expect(b.dead).toBe(true);
+  });
+
+  it('rolls out of the way when shot', () => {
+    const { director } = setup();
+    const bot = director.spawn(120, 10, 128);
+    run(director, 1);
+    director.hit(bot, 10, 'enemy', { x: 100, z: 128 }, 2000);
+    expect(bot.rollRequest).toBe(true);
+    run(director, .2, 2000);
+    expect(bot.state.rollTicks > 0 || bot.rollRequest === false).toBe(true);
+  });
 });

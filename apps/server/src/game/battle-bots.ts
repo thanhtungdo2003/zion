@@ -35,7 +35,11 @@ function playerLikeName(taken: ReadonlySet<string>): string {
 /** How far bots see (m), and the field of view when not already alerted. */
 const SIGHT = 70, FOV = Math.cos(65 * Math.PI / 180);
 
-type Mode = 'idle' | 'loot' | 'zone' | 'fight' | 'roam';
+type Mode = 'idle' | 'loot' | 'zone' | 'fight' | 'roam' | 'camp' | 'revive';
+/** Squad role: the lead picks the way, the gunner covers, the looter searches first. */
+export type BotRole = 'lead' | 'gunner' | 'looter';
+/** How long a downed bot bleeds out waiting for a squadmate (ms), and how long a revive takes. */
+const BLEED_MS = 30_000, REVIVE_MS = 5000;
 
 export class BattleBot implements Combatant {
   readonly history = new PoseHistory();
@@ -78,10 +82,23 @@ export class BattleBot implements Combatant {
   detourUntil = 0;
   detourYaw = 0;
   roamUntil = 0;
+  role: BotRole = 'lead';
+  /** Knocked down (squad matches): bleeding out until a squadmate revives it. */
+  downed = false;
+  bleedUntil = 0;
+  /** A squadmate kneeling beside it since then (0 = nobody). */
+  reviveStart = 0;
+  /** Dodge roll on being shot (not more often than this). */
+  rollRequest = false;
+  rollReadyAt = 0;
+  /** Lying in ambush until then, watching that way. */
+  campUntil = 0;
+  campYaw = 0;
+  doorAt = 0;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
-  get rig() { return this.state.prone ? PRONE_RIG : HUMANOID_RIG; }
+  get rig() { return this.state.prone || this.downed ? PRONE_RIG : HUMANOID_RIG; }
   rigAt(pose: PoseSample) { return pose.prone ? PRONE_RIG : HUMANOID_RIG; }
   get gun(): GunSpec | null {
     const spec = this.weapon ? WEAPON_SPECS[this.weapon as keyof typeof WEAPON_SPECS] : undefined;
@@ -106,6 +123,8 @@ export interface BotHooks {
   chests(x: number, z: number, radius: number): Array<{ id: string; x: number; y: number; z: number }>;
   /** Takes the chosen items out of a chest; returns what was actually removed. */
   loot(id: string, choose: (items: readonly PlacedItem[]) => number[]): PlacedItem[];
+  /** Opens a closed door just ahead of a walking bot (houses, blocks). */
+  openDoor?(x: number, y: number, z: number, yaw: number): void;
 }
 
 export interface BotWorld {
@@ -155,8 +174,14 @@ export class BattleBotDirector {
       if (bot.dead) continue;
       bot.state.flight = 1; bot.state.grounded = false;
       bot.jumpAt = now + 6000 + Math.random() * (BATTLE_FLIGHT.durationMs - 14000);
-      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * circle.radius * .6;
-      bot.landing = { x: circle.x + Math.cos(a) * r, z: circle.z + Math.sin(a) * r };
+      // Drop where the loot is: of a few spots under the flight, the one with the most crates.
+      let best = -1;
+      for (let i = 0; i < 10; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * circle.radius * .6;
+        const x = circle.x + Math.cos(a) * r, z = circle.z + Math.sin(a) * r;
+        const crates = this.hooks.chests(x, z, 45).length + Math.random() * 2;
+        if (crates > best) { best = crates; bot.landing = { x, z }; }
+      }
       // Squadmates follow their first member out of the plane, landing a few metres apart.
       const lead = bot.squad ? this.bots.find(b => b.squad === bot.squad && !b.dead && b.landing) : undefined;
       if (lead && lead !== bot) { bot.jumpAt = lead.jumpAt + 300 + Math.random() * 600; bot.landing = { x: lead.landing!.x + (Math.random() - .5) * 16, z: lead.landing!.z + (Math.random() - .5) * 16 }; }
@@ -176,10 +201,19 @@ export class BattleBotDirector {
     if (bot.dead || amount <= 0) return;
     const taken = zone === 'red_zone' ? amount : Math.max(1, Math.round(amount * (1 - armorProtection(bot.armor))));
     bot.health = Math.max(0, bot.health - taken);
-    bot.healUntil = 0;
+    bot.healUntil = 0; bot.campUntil = 0;
     if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
+    // Shot at: roll out of the line of fire.
+    if (bot.health > 0 && zone !== 'red_zone' && !bot.downed && now >= bot.rollReadyAt) { bot.rollRequest = true; bot.rollReadyAt = now + 2600 + Math.random() * 1500; }
+    if (from) for (const mate of this.squad(bot)) if (Math.hypot(mate.state.x - bot.state.x, mate.state.z - bot.state.z) < 90) mate.alert = { x: from.x, z: from.z, until: now + 6000 };
     if (bot.health > 0) return;
-    bot.dead = true; bot.deadAt = now; bot.state.flight = 0; bot.state.prone = false;
+    // Squad matches: knocked down first while a squadmate can still come and help.
+    if (!bot.downed && zone !== 'red_zone' && this.squad(bot).some(m => !m.downed)) {
+      bot.downed = true; bot.bleedUntil = now + BLEED_MS; bot.reviveStart = 0; bot.target = null; bot.mode = 'idle';
+      bot.state.prone = true; bot.health = 1;
+      return;
+    }
+    bot.downed = false; bot.dead = true; bot.deadAt = now; bot.state.flight = 0; bot.state.prone = false;
     this.hooks.died(bot, by, now, killerId);
   }
 
@@ -196,6 +230,12 @@ export class BattleBotDirector {
       if (!bot.active) continue;
       // Thrown by a vehicle: no thinking, no steering, the body just flies and slides.
       if (now < bot.knockedUntil) { this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: false }, TICK_DT); continue; }
+      if (bot.downed) {
+        // Bleeding on the ground; dies if nobody gets there in time (or the squad is gone).
+        if (now >= bot.bleedUntil || !this.squad(bot).some(m => !m.downed)) { bot.health = 0; bot.downed = false; this.hit(bot, 1, 'mất máu', null, now, 'red_zone'); continue; }
+        this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: true }, TICK_DT);
+        continue;
+      }
       if (think) this.decide(bot, now, world, players);
       this.move(bot, now, world);
       if (bot.mode === 'fight') this.shoot(bot, now);
@@ -222,10 +262,15 @@ export class BattleBotDirector {
 
   /* ---------------------------------------------------------------------------- decisions */
 
+  /** Living squadmates (downed ones included). */
+  private squad(bot: BattleBot): BattleBot[] {
+    return bot.squad ? this.bots.filter(b => b !== bot && !b.dead && b.squad === bot.squad) : [];
+  }
+
   private enemies(bot: BattleBot, players: readonly Player[]): Array<Combatant & { state: CharacterState; id: number }> {
     const list: Array<Combatant & { state: CharacterState; id: number }> = [];
     for (const p of players) if (!p.dead && !p.state.flight && p.active) list.push(p);
-    for (const other of this.bots) if (other !== bot && !other.dead && !other.state.flight && (!bot.squad || other.squad !== bot.squad)) list.push(other);
+    for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (!bot.squad || other.squad !== bot.squad)) list.push(other);
     return list;
   }
 
@@ -252,7 +297,11 @@ export class BattleBotDirector {
         const d = Math.hypot(e.state.x - s.x, e.state.z - s.z);
         if (d < best && this.visible(bot, e, alerted)) { best = d; bot.target = e; }
       }
-      if (bot.target) { bot.seenAt = now; bot.reactAt = now + 350 + Math.random() * 450; }
+      if (bot.target) {
+        bot.seenAt = now; bot.reactAt = now + (bot.campUntil > now ? 120 : 350 + Math.random() * 450);
+        // Call it out: squadmates turn towards the contact.
+        for (const mate of this.squad(bot)) if (!mate.target) mate.alert = { x: bot.target.state.x, z: bot.target.state.z, until: now + 8000 };
+      }
     }
     if (alerted && !bot.target) bot.yaw = Math.atan2(-(bot.alert!.x - s.x), -(bot.alert!.z - s.z));
     const outsideNow = Math.hypot(s.x - world.circle.x, s.z - world.circle.z) > world.circle.radius - 4;
@@ -260,7 +309,19 @@ export class BattleBotDirector {
     const zoneUrgent = world.phase === 'running' && (outsideNow || (outsideNext && (world.shrinking || world.remainingMs < 25_000)));
     const armed = !!bot.gun && (bot.gunItem?.mag ?? 0) + bot.reserve > 0;
 
-    if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) { bot.mode = 'fight'; return; }
+    if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) { bot.mode = 'fight'; bot.campUntil = 0; return; }
+    // A squadmate is down: go and pick them up (unless the zone is about to take us).
+    const down = this.squad(bot).filter(m => m.downed).sort((a, b) => Math.hypot(a.state.x - s.x, a.state.z - s.z) - Math.hypot(b.state.x - s.x, b.state.z - s.z))[0];
+    if (down && !outsideNow && Math.hypot(down.state.x - s.x, down.state.z - s.z) < 120) {
+      const d = Math.hypot(down.state.x - s.x, down.state.z - s.z);
+      bot.mode = 'revive'; bot.campUntil = 0;
+      bot.goal = { x: down.state.x, y: down.state.y, z: down.state.z };
+      if (d < 1.8) {
+        if (!down.reviveStart) down.reviveStart = now;
+        if (now - down.reviveStart >= REVIVE_MS) { down.downed = false; down.health = 30; down.state.prone = false; down.reviveStart = 0; down.alert = null; }
+      } else down.reviveStart = 0;
+      return;
+    }
     if (zoneUrgent) {
       bot.mode = 'zone';
       const dx = next.x - s.x, dz = next.z - s.z, d = Math.hypot(dx, dz) || 1, inside = Math.min(d, next.radius * .4);
@@ -283,12 +344,27 @@ export class BattleBotDirector {
         bot.healUntil = 0;
       } else { bot.mode = 'idle'; return; }
     }
-    const wantsGear = !armed || bot.reserve < (bot.gun?.magazine ?? 0) || !bot.armor.chest || !bot.armor.head;
+    // Lying in wait: stay prone, watching, until the ambush time runs out.
+    if (bot.campUntil > now && armed && !zoneUrgent) { bot.mode = 'camp'; return; }
+    const wantsGear = !armed || bot.reserve < (bot.gun?.magazine ?? 0) || !bot.armor.chest || !bot.armor.head || (bot.role === 'looter' && bot.reserve < (bot.gun?.magazine ?? 0) * 3);
     if (world.phase === 'running' && wantsGear) {
       if (bot.goal?.chest && !bot.searched.has(bot.goal.chest)) { bot.mode = 'loot'; return; }
       const chest = this.hooks.chests(s.x, s.z, armed ? 60 : 160).filter(c => !bot.searched.has(c.id))
         .sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
       if (chest) { bot.mode = 'loot'; bot.goal = { x: chest.x, y: chest.y, z: chest.z, chest: chest.id }; return; }
+    }
+    // Armed, healthy and nothing to do: sometimes set an ambush instead of wandering.
+    if (armed && bot.health > 60 && world.phase === 'running' && Math.random() < (bot.role === 'gunner' ? .012 : .006)) {
+      bot.campUntil = now + 18_000 + Math.random() * 25_000;
+      bot.campYaw = Math.atan2(-(next.x - s.x), -(next.z - s.z)) + Math.PI + (Math.random() - .5) * 1.2;
+      bot.mode = 'camp'; return;
+    }
+    // Squadmates keep together: followers stay near their lead (the gunner a little behind).
+    const lead = bot.role !== 'lead' ? this.squad(bot).find(m => m.role === 'lead' && !m.downed) : undefined;
+    if (lead && Math.hypot(lead.state.x - s.x, lead.state.z - s.z) > 18) {
+      const side = bot.role === 'gunner' ? 1 : -1;
+      bot.goal = { x: lead.state.x + Math.cos(lead.yaw) * 4 * side, y: lead.state.y, z: lead.state.z - Math.sin(lead.yaw) * 4 * side };
+      bot.mode = 'roam'; bot.roamUntil = now + 4000; return;
     }
     // Roam inside the safe area.
     if (bot.mode !== 'roam' || !bot.goal || now > bot.roamUntil || Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 3) {
@@ -315,6 +391,12 @@ export class BattleBotDirector {
       if (!prone) { mx = bot.strafe; mz = d > close * 1.6 ? .8 : d < close * .6 ? -.8 : 0; }
       // Reloading up close: back off sideways.
       if (bot.reloadUntil && d < 15) { mz = -1; mx = bot.strafe; }
+    } else if (bot.mode === 'camp') {
+      // Ambush: prone and still, slowly scanning the approach.
+      prone = true;
+      yaw = bot.campYaw + Math.sin(now / 2600) * .5;
+    } else if (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8) {
+      yaw = Math.atan2(-(bot.goal.x - s.x), -(bot.goal.z - s.z));
     } else if (bot.goal && bot.mode !== 'idle') {
       const goal = bot.goal, d = Math.hypot(goal.x - s.x, goal.z - s.z);
       if (goal.chest && d < 1.8) { this.lootChest(bot, goal.chest); bot.goal = null; }
@@ -322,7 +404,11 @@ export class BattleBotDirector {
         const ground = this.collision.terrainHeight(goal.x, goal.z);
         const way = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now) ?? goal;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
-        mz = 1; sprint = bot.mode === 'zone' || d > 25;
+        mz = 1; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25;
+        // Houses: open the door in the way.
+        if (now >= bot.doorAt) { bot.doorAt = now + 700; this.hooks.openDoor?.(s.x, s.y, s.z, bot.yaw); }
+        // A crate up on a floor it cannot find a way to: try another one.
+        if (goal.chest && goal.y - s.y > 1.5 && d < 6 && now > bot.detourUntil + 4000 && Math.hypot(s.vx, s.vz) < .3) bot.searched.add(goal.chest);
       }
     } else if (world.phase !== 'running' && Math.random() < .01) {
       yaw = bot.yaw + (Math.random() - .5) * 2;
@@ -342,7 +428,11 @@ export class BattleBotDirector {
     // Movement axes are relative to the facing; recompute so a partly turned bot still heads to `yaw`.
     const rel = yaw - bot.yaw, c = Math.cos(rel), sn = Math.sin(rel);
     const rmx = mx * c - mz * sn, rmz = mx * sn + mz * c;
-    this.controller.step(s, { mx: rmx, mz: rmz, yaw: bot.yaw, jump: detour && Math.random() < .08, sprint: sprint && !prone, prone }, TICK_DT);
+    const roll = bot.rollRequest && !prone && s.grounded;
+    bot.rollRequest = false;
+    // Roll sideways (relative to the facing) when dodging.
+    const rx = roll ? (bot.strafe || 1) : rmx, rz = roll ? 0 : rmz;
+    this.controller.step(s, { mx: rx, mz: rz, yaw: bot.yaw, jump: detour && Math.random() < .08, sprint: sprint && !prone, prone, roll }, TICK_DT);
   }
 
   /* ------------------------------------------------------------------------------- looting */
@@ -457,7 +547,8 @@ export class BattleBotDirector {
       const s = bot.state;
       if (bot.dead && now - bot.deadAt > 15_000) continue;
       if (Math.hypot(s.x - player.viewX, s.z - player.viewZ) > range) continue;
-      const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.prone ? EntityFlags.Prone : 0) | (bot.dead ? EntityFlags.Dead : 0)
+      const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.prone && !bot.downed ? EntityFlags.Prone : 0) | (bot.dead ? EntityFlags.Dead : 0) | (bot.downed ? EntityFlags.Downed : 0)
+        | (s.rollTicks > 0 ? EntityFlags.Rolling : 0) | (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8 ? EntityFlags.Reviving : 0)
         | (s.flight === 1 ? EntityFlags.InPlane : s.flight === 2 ? EntityFlags.Freefall : s.flight === 3 ? EntityFlags.Parachute : 0)
         | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0)
         | (Math.hypot(s.vx, s.vz) > 5 ? EntityFlags.Sprinting : 0)

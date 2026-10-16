@@ -313,6 +313,17 @@ export class GameServer {
       died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
+      openDoor: (x, y, z, yaw) => {
+        // A closed door within reach ahead swings open (same as a player pressing E).
+        for (const [id, door] of this.battleDoors) {
+          if (door.open || Math.abs(door.y - y) > 1.6) continue;
+          const dx = door.x - x, dz = door.z - z, d = Math.hypot(dx, dz);
+          if (d > 2.2 || (d > .4 && (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / d < .3)) continue;
+          door.open = true;
+          this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door));
+          this.broadcast({ t: 'door', id, ...door });
+        }
+      },
     }) : null;
     if (this.battle) this.scatterGroundLoot();
     this.guards = new CampGuardDirector(gen.camp, this.collision, {
@@ -1567,17 +1578,34 @@ export class GameServer {
     const humans = [...this.players.values()].filter(p => !p.dead);
     // Squad matches: three bot squads of the match's squad size; solo: up to MAX_BATTLE_BOTS.
     const size = match.squadSize, limit = size > 1 ? size * 3 : MAX_BATTLE_BOTS;
-    if (!humans.length || this.bots.bots.length >= limit) return;
+    if (!humans.length) return;
+    // Right before the drop, every empty place in the match is filled with bots (whole squads).
+    const filling = match.phase === 'countdown' && match.state(now).remainingMs < 3000;
+    if (filling) {
+      let added = 0;
+      while (match.accepting && this.bots.bots.length < 400 && this.addBot(match, humans, size)) added++;
+      if (added) this.broadcastPlayerList();
+      return;
+    }
+    if (this.bots.bots.length >= limit) return;
     if (!this.nextBotAt) { this.nextBotAt = now + 800; return; }
     if (now < this.nextBotAt) return;
-    const near = humans[Math.floor(Math.random() * humans.length)]!;
-    const bot = this.bots.spawn(near.state.x, near.state.y, near.state.z);
-    const index = this.bots.bots.length - 1, squad = size > 1 ? `bot-squad-${Math.floor(index / size)}` : null;
-    if (!match.join(bot.id, bot.name, squad ? { id: squad, name: BOT_SQUAD_NAMES[Math.floor(index / size) % BOT_SQUAD_NAMES.length]!, size } : undefined)) { this.bots.bots.pop(); return; }
-    bot.squad = squad;
+    const bot = this.addBot(match, humans, size);
+    if (!bot) return;
     this.nextBotAt = now + 800 + Math.random() * 1400;
     this.broadcastPlayerList();
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã tham gia trận.` });
+  }
+
+  /** One more bot in the match: squads fill in order, each with a lead, a gunner and a looter. */
+  private addBot(match: BattleRoyaleMatch, humans: readonly Player[], size: number): BattleBot | null {
+    const near = humans[Math.floor(Math.random() * humans.length)]!;
+    const bot = this.bots!.spawn(near.state.x, near.state.y, near.state.z);
+    const index = this.bots!.bots.length - 1, squad = size > 1 ? `bot-squad-${Math.floor(index / size)}` : null;
+    if (!match.join(bot.id, bot.name, squad ? { id: squad, name: BOT_SQUAD_NAMES[Math.floor(index / size) % BOT_SQUAD_NAMES.length]!, size } : undefined)) { this.bots!.bots.pop(); return null; }
+    bot.squad = squad;
+    bot.role = size > 1 ? (['lead', 'gunner', 'looter'] as const)[index % size] ?? 'gunner' : 'lead';
+    return bot;
   }
 
   /** Every match draws its own zone sequence over land. */
