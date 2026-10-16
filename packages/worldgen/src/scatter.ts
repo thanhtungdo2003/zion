@@ -57,7 +57,8 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
   const sample = makeColumnSample();
   const probe = makeColumnSample();
   const weights: number[] = [];
-  const flora = gen.config.generatorVersion >= 7;
+  // Only imported models: procedural trees, bushes and rocks are swapped for the island's.
+  const flora = true;
 
   for (const spec of LAYERS) {
     const assets = gen.registry.layer(spec.layer);
@@ -128,14 +129,13 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         const rule = def.placement!;
         const scale = lerp(rule.scale[0], rule.scale[1], rng.next());
         const rotY = rng.next() * Math.PI * 2;
-        if (flora) {
-          // v7: the same prepared trees, bushes and rocks as the battle-royale island.
+        if (flora && def.model.kind === 'procedural') {
+          // The same prepared trees, bushes and rocks as the battle-royale island.
           const swap = islandFlora(def.numericId, rng.next(), rng.next());
-          if (swap) {
-            if (swap.thin && rng.next() < swap.thin) continue;
-            out.push({ asset: swap.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(sample.height - swap.sink), rot: quantizeRotation(rotY), scale: quantizeScale(swap.scale) });
-            continue;
-          }
+          // No imported counterpart (cactus, reeds): nothing grows there.
+          if (!swap || (swap.thin && rng.next() < swap.thin)) continue;
+          out.push({ asset: swap.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(sample.height - swap.sink), rot: quantizeRotation(rotY), scale: quantizeScale(swap.scale) });
+          continue;
         }
         out.push({
           asset: def.numericId,

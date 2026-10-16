@@ -6,7 +6,6 @@ import {
   InstancedMesh,
   Matrix4,
   MeshLambertMaterial,
-  IcosahedronGeometry,
   DynamicDrawUsage,
   Vector3,
   type Scene,
@@ -15,7 +14,6 @@ import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, smoothst
 import { FLOWER_COLORS, grassTint } from './palette';
 import { chunkHeightAtLocal } from './terrain';
 import { windUniforms } from './asset-library';
-import { buildProceduralGeometry } from './procedural-models';
 import { vegetationPatch } from './vegetation-pattern';
 
 /** Grass density per surface (instances per ~1.2 m cell). */
@@ -161,10 +159,10 @@ function windMaterial(): MeshLambertMaterial {
   return mat;
 }
 
-type Cover = 'grass' | 'tufts' | 'tall' | 'reeds' | 'flowers' | 'fern' | 'bush' | 'sapling' | 'conifer' | 'moss';
-const COVER_TYPES: readonly Cover[] = ['grass', 'tufts', 'tall', 'reeds', 'flowers', 'fern', 'bush', 'sapling', 'conifer', 'moss'];
+type Cover = 'grass' | 'tufts' | 'tall' | 'reeds' | 'flowers';
+const COVER_TYPES: readonly Cover[] = ['grass', 'tufts', 'tall', 'reeds', 'flowers'];
 type ChunkVegetation = Array<InstancedMesh>;
-const DESTRUCTIBLE = new Set<Cover>(['grass', 'tufts', 'tall', 'reeds', 'flowers', 'fern']);
+const DESTRUCTIBLE = new Set<Cover>(['grass', 'tufts', 'tall', 'reeds', 'flowers']);
 
 /**
  * Cosmetic ground cover for chunks near the player. Purely visual and gameplay-irrelevant, so it
@@ -184,14 +182,8 @@ export class VegetationRenderer {
     tall: bladeClump(9, 2.8, 0.8),
     reeds: bladeClump(10, 4.5, 0.7, true),
     flowers: flowerGeometry(),
-    fern: buildProceduralGeometry('fern', { radius: 0.75 }, 91),
-    bush: buildProceduralGeometry('bush', { radius: 0.6 }, 92),
-    sapling: buildProceduralGeometry('birch', { height: 1.8, radius: 0.45 }, 93),
-    conifer: buildProceduralGeometry('spruce', { height: 1.6, radius: 0.5, tiers: 4 }, 94),
-    moss: new IcosahedronGeometry(0.45, 1).scale(1, 0.13, 1).translate(0, 0.025, 0),
   };
   private readonly material = windMaterial();
-  private readonly mossMaterial = new MeshLambertMaterial({ color: 0x527c32 });
   private readonly m = new Matrix4();
   private readonly c = new Color();
   private centerX = Number.NaN;
@@ -286,7 +278,7 @@ export class VegetationRenderer {
     const ox = chunk.cx * CHUNK_SIZE;
     const oz = chunk.cz * CHUNK_SIZE;
     const data: Record<Cover, number[]> = {
-      grass: [], tufts: [], tall: [], reeds: [], flowers: [], fern: [], bush: [], sapling: [], conifer: [], moss: [],
+      grass: [], tufts: [], tall: [], reeds: [], flowers: [],
     };
     // Fit the grid exactly to the chunk; avoid bare strips along its far edges.
     const cells = Math.ceil(CHUNK_SIZE / CELL);
@@ -312,7 +304,6 @@ export class VegetationRenderer {
         const density = patch(18, 0x73);
         // Larger, rarer patches keep flower fields as occasional discoveries.
         const meadow = patch(64, 0x94);
-        const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
         const lush = surface === Surface.Grass || surface === Surface.DryGrass || surface === Surface.RoadVerge;
         // Skip cliff faces; sample the same triangle heightfield used by the terrain.
         const slope = Math.hypot(
@@ -320,12 +311,20 @@ export class VegetationRenderer {
           chunkHeightAtLocal(chunk, lx, Math.min(CHUNK_SIZE, lz + 0.35)) - y,
         ) / 0.35;
         if (slope > 1.25) continue;
-        const add = (type: Cover) => data[type].push(x, y, z, rng.next(), k);
-        if (gd > 0 && roll < gd * this.density * (0.2 + density * 1.1)) {
-          // Tall grass only in the densest spots (reed beds were removed).
-          if (lush && density > 0.72) add('tall');
-          else add(density > 0.43 ? 'tufts' : 'grass');
-        }
+        const add = (type: Cover, ox = 0, oz = 0) => data[type].push(x + ox, y, z + oz, rng.next(), k);
+        // Grass grows in patches: dense clumps packed together inside a patch (several per
+        // cell, fuller towards its middle), only a few stray blades on the bare ground between.
+        const shape = patch(14, 0x73) * .7 + patch(5, 0x5a) * .3;
+        const inside = smoothstep(.5, .66, shape);
+        if (gd > 0 && inside > 0) {
+          const clumps = inside > .75 ? 3 : inside > .35 ? 2 : 1;
+          for (let i = 0; i < clumps; i++) {
+            if (rng.next() > Math.min(1, gd * 1.6 + .25) * this.density) continue;
+            const ox = (rng.next() - .5) * cellSize, oz = (rng.next() - .5) * cellSize;
+            if (lush && inside > .8 && density > .55) add('tall', ox, oz);
+            else add(inside > .45 ? 'tufts' : 'grass', ox, oz);
+          }
+        } else if (gd > 0 && roll < gd * this.density * .05) add('grass');
         // Flowers and forest undergrowth coexist with the grass layer.
         let flowerDensity = fd;
         if (lush && meadow > MEADOW_THRESHOLD) {
@@ -339,18 +338,11 @@ export class VegetationRenderer {
           flowerDensity += (0.65 - fd) * remoteness * edge;
         }
         if (fd > 0 && rng.next() < flowerDensity * this.density * (0.5 + humidity)) add('flowers');
-        if ((forest || lush || surface === Surface.Mud) && humidity > 0.48) {
-          if (rng.next() < (forest ? 0.09 : 0.018) * density) add('fern');
-          if (rng.next() < (forest ? 0.025 : 0.009) * density) add('bush');
-          if (forest && rng.next() < 0.004) add(chunk.temperature[k]! < 115 ? 'conifer' : 'sapling');
-        }
-        if ((forest || surface === Surface.Rock || surface === Surface.Mud) && humidity > 0.5
-          && patch(12, 0xb8) > 0.48 && rng.next() < 0.28) add('moss');
       }
     }
     const meshes: ChunkVegetation = [];
     for (const type of COVER_TYPES) {
-      const mesh = this.instance(this.geometries[type], type === 'moss' ? this.mossMaterial : this.material, data[type], chunk, type);
+      const mesh = this.instance(this.geometries[type], this.material, data[type], chunk, type);
       if (mesh) meshes.push(mesh);
     }
     return meshes;
@@ -382,8 +374,7 @@ export class VegetationRenderer {
       if (type === 'flowers') {
         const palette = Math.floor(vegetationPatch(x, z, 22, this.cosmeticSeed ^ 0xca) * FLOWER_COLORS.length);
         this.c.copy(FLOWER_COLORS[(palette + (r > 0.8 ? 1 : 0)) % FLOWER_COLORS.length]!);
-      } else if (type === 'fern' || type === 'bush' || type === 'sapling' || type === 'conifer' || type === 'moss') this.c.setRGB(1, 1, 1).multiplyScalar(0.85 + r * 0.3);
-      else {
+      } else {
         grassTint(chunk.temperature[k]! / 255, chunk.humidity[k]! / 255, this.c).multiplyScalar(0.85 + r * 0.3);
         if (type === 'reeds') this.c.lerp(REED_TINT, 0.42);
       }
@@ -482,6 +473,5 @@ export class VegetationRenderer {
     this.instanceCount = 0;
     for (const geometry of Object.values(this.geometries)) geometry.dispose();
     this.material.dispose();
-    this.mossMaterial.dispose();
   }
 }
