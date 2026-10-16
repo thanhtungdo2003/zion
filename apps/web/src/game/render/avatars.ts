@@ -554,7 +554,10 @@ export class Avatar {
         if (r > .001 && triggerArm) { triggerArm.rotation.x += (.75 - triggerArm.rotation.x) * r; triggerArm.rotation.z *= 1 - r * .6; }
         this.weaponAim.pose(held.obj, held.visual.aim, yaw + r * .45, this.aimPitch * (1 - r) - .75 * r);
         // The other hand reaches for the handguard.
-        if (r > .05 && held.visual.twoHandGrip && support && supportArm) held.obj.updateWorldMatrix(true, false), reachFor(supportArm, support, this.runTarget.copy(held.visual.twoHandGrip.support).applyMatrix4(held.obj.matrixWorld), r);
+        if (r > .05 && held.visual.twoHandGrip && support && supportArm) {
+          held.obj.updateWorldMatrix(true, false);
+          reachFor(supportArm, support, this.runTarget.copy(held.visual.twoHandGrip.support).applyMatrix4(held.obj.matrixWorld), r);
+        }
       }
       if (!dead && !treating && held.visual.melee && this.oneShot && (this.oneShot.startsWith('sword_slash_') || this.oneShot === 'melee_attack')) {
         this.meleeEdge.pose(held.obj, held.visual.melee.held, this.root);

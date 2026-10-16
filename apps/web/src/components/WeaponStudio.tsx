@@ -499,7 +499,6 @@ function PointEditor({ url, format, draft, previews, picking, onPick }: { url: s
     };
     renderer.domElement.addEventListener('pointerdown', down); renderer.domElement.addEventListener('pointerup', up);
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); gizmo.dispose(); controls.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); api.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the file changes.
   }, [url, format]);
   const draftRef = useRef(draft); draftRef.current = draft;
   useEffect(() => { api.current?.markers(draft); }, [draft, picking]);
