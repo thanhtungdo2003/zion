@@ -1,14 +1,14 @@
 import {
   BATTLE_FLIGHT, CHUNK_SIZE, ENTITY_INTEREST_RADIUS_CHUNKS, EntityFlags, EntityKind, ITEMS, MUZZLE_HEIGHT, NO_ARMOR, NPC_ID_BASE,
   TICK_DT, WEAPON_BY_ITEM, WEAPON_SPECS, ARMOR_BY_ITEM, advanceBallistic, armorProtection, bulletSpec, packArmor,
-  type ArmorLoadout, type BattleCircle, type BattlePlane, type EntityState, type GunSpec, type PlacedItem, type ProjectileEndEvent,
+  type ArmorLoadout, type MeleeSpec, type BattleCircle, type BattlePlane, type EntityState, type GunSpec, type PlacedItem, type ProjectileEndEvent,
   type ProjectileEvent, type ShotEvent, type BallisticState,
 } from '@zion/shared';
 import {
   CharacterController, HUMANOID_RIG, Mask, PRONE_RIG, ZONE_DAMAGE_MULTIPLIER, createCharacterState, makeRayHit, stepAirborne,
   type CharacterState, type CollisionWorld,
 } from '@zion/physics';
-import { castCombatRay, spreadDirection, type Combatant } from './combat';
+import { MELEE, castCombatRay, spreadDirection, type Combatant } from './combat';
 import { PoseHistory, type Player, type PoseSample } from './player';
 import { NavigationState, ZombieNavigation } from './navigation';
 
@@ -35,7 +35,7 @@ function playerLikeName(taken: ReadonlySet<string>): string {
 /** How far bots see (m), and the field of view when not already alerted. */
 const SIGHT = 70, FOV = Math.cos(65 * Math.PI / 180);
 
-type Mode = 'idle' | 'loot' | 'zone' | 'fight' | 'roam' | 'camp' | 'revive';
+type Mode = 'idle' | 'loot' | 'zone' | 'fight' | 'roam' | 'camp' | 'revive' | 'brawl';
 /** Squad role: the lead picks the way, the gunner covers, the looter searches first. */
 export type BotRole = 'lead' | 'gunner' | 'looter';
 /** How long a downed bot bleeds out waiting for a squadmate (ms), and how long a revive takes. */
@@ -56,6 +56,10 @@ export class BattleBot implements Combatant {
   items: PlacedItem[] = [];
   weapon = 0;
   gunItem: PlacedItem | null = null;
+  /** A blade, bat or axe for when there is no gun (or no ammo). */
+  meleeItem: PlacedItem | null = null;
+  /** Swing animation shown until then. */
+  attackingUntil = 0;
   fireAt = 0;
   reloadUntil = 0;
   healUntil = 0;
@@ -100,6 +104,11 @@ export class BattleBot implements Combatant {
   }
   get rig() { return this.state.prone || this.downed ? PRONE_RIG : HUMANOID_RIG; }
   rigAt(pose: PoseSample) { return pose.prone ? PRONE_RIG : HUMANOID_RIG; }
+  get melee(): MeleeSpec | null {
+    const w = this.meleeItem ? WEAPON_BY_ITEM[this.meleeItem.itemId] : undefined;
+    const spec = w ? WEAPON_SPECS[w as keyof typeof WEAPON_SPECS] : undefined;
+    return spec?.kind === 'melee' ? spec : null;
+  }
   get gun(): GunSpec | null {
     const spec = this.weapon ? WEAPON_SPECS[this.weapon as keyof typeof WEAPON_SPECS] : undefined;
     return spec?.kind === 'gun' ? spec : null;
@@ -239,6 +248,7 @@ export class BattleBotDirector {
       if (think) this.decide(bot, now, world, players);
       this.move(bot, now, world);
       if (bot.mode === 'fight') this.shoot(bot, now);
+      else if (bot.mode === 'brawl') this.strike(bot, now);
     }
     this.fly(now, players);
   }
@@ -329,7 +339,9 @@ export class BattleBotDirector {
       return;
     }
     if (bot.target && !armed) {
-      // Unarmed: break line of sight and keep looking for a gun.
+      // No gun (or no ammo): close in with a melee weapon, or bare fists, when the enemy is near;
+      // otherwise keep looking for a gun.
+      if (Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) < 25 && !outsideNow) { bot.mode = 'brawl'; return; }
       bot.mode = 'loot';
     }
     // Patch up when it is quiet.
@@ -381,7 +393,14 @@ export class BattleBotDirector {
   private move(bot: BattleBot, now: number, world: BotWorld): void {
     const s = bot.state;
     let mx = 0, mz = 0, sprint = false, prone = false, yaw = bot.yaw;
-    if (bot.mode === 'fight' && bot.target) {
+    if (bot.mode === 'brawl' && bot.target) {
+      // Rush in and keep at arm's length, weaving a little.
+      const t = bot.target.state, dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
+      yaw = Math.atan2(-dx, -dz);
+      const reach = bot.melee?.range ?? MELEE.range;
+      if (now > bot.strafeUntil) { bot.strafe = Math.random() < .5 ? -1 : 1; bot.strafeUntil = now + 500 + Math.random() * 700; }
+      mz = d > reach * .8 ? 1 : 0; mx = d < reach * 1.5 ? bot.strafe * .4 : 0; sprint = d > 4;
+    } else if (bot.mode === 'fight' && bot.target) {
       const t = bot.target.state, dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
       yaw = Math.atan2(-dx, -dz);
       const close = (bot.gun?.range ?? 40) < 30 ? 7 : 18;
@@ -448,6 +467,11 @@ export class BattleBotDirector {
         const found = items.find(i => isBotGun(i.itemId));
         if (found) { pick.push(found.uid); gun = found.itemId; }
       }
+      // A melee weapon too, while it has none: better than fists once the ammo runs out.
+      if (!bot.meleeItem) {
+        const blade = items.find(i => !pick.includes(i.uid) && WEAPON_SPECS[WEAPON_BY_ITEM[i.itemId] as keyof typeof WEAPON_SPECS]?.kind === 'melee');
+        if (blade) pick.push(blade.uid);
+      }
       for (const i of items) {
         if (pick.includes(i.uid)) continue;
         const def = ITEMS[i.itemId];
@@ -463,6 +487,7 @@ export class BattleBotDirector {
       const armor = ARMOR_BY_ITEM.get(item.itemId);
       if (armor && !bot.armor[armor.slot]) bot.armor[armor.slot] = armor.id;
       if (!bot.gunItem && isBotGun(item.itemId)) { bot.gunItem = item; bot.weapon = WEAPON_BY_ITEM[item.itemId]!; }
+      else if (!bot.meleeItem && WEAPON_SPECS[WEAPON_BY_ITEM[item.itemId] as keyof typeof WEAPON_SPECS]?.kind === 'melee') bot.meleeItem = item;
     }
     if (bot.gunItem && !(bot.gunItem.mag ?? 0)) this.finishReload(bot);
   }
@@ -516,6 +541,22 @@ export class BattleBotDirector {
     this.hooks.shot({ t: 'shot', shooterId: bot.id, w: bot.weapon, ox: s.x, oy, oz: s.z, ends: [] });
   }
 
+  /** Melee blow (weapon or fists) on the target once in reach and facing it. */
+  private strike(bot: BattleBot, now: number): void {
+    const target = bot.target;
+    if (!target || now < bot.fireAt) return;
+    const s = bot.state, t = target.state, dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
+    const melee = bot.melee, reach = (melee?.range ?? MELEE.range) + .3;
+    if (d > reach || Math.abs(t.y - s.y) > 1.6) return;
+    const off = Math.abs(Math.atan2(Math.sin(Math.atan2(-dx, -dz) - bot.yaw), Math.cos(Math.atan2(-dx, -dz) - bot.yaw)));
+    if (off > .6) return;
+    bot.fireAt = now + (melee?.cooldownMs ?? MELEE.cooldownMs) + Math.random() * 150;
+    bot.attackingUntil = now + (melee?.swingMs ?? MELEE.swingMs);
+    const damage = melee?.damage ?? MELEE.baseDamage;
+    if (target instanceof BattleBot) this.hit(target, damage, bot.name, { x: s.x, z: s.z }, now, 'torso', bot.id);
+    else this.hooks.hitPlayer(bot, target as Player, damage, 'torso', t.x, t.y + 1.1, t.z, now);
+  }
+
   private fly(now: number, players: readonly Player[]): void {
     if (!this.rounds.length) return;
     const candidates: Array<Combatant & { state: CharacterState }> = [...players.filter(p => !p.dead && !p.state.flight), ...this.bots.filter(b => !b.dead && !b.state.flight)];
@@ -550,10 +591,10 @@ export class BattleBotDirector {
       const flags = (s.grounded ? EntityFlags.Grounded : 0) | (s.prone && !bot.downed ? EntityFlags.Prone : 0) | (bot.dead ? EntityFlags.Dead : 0) | (bot.downed ? EntityFlags.Downed : 0)
         | (s.rollTicks > 0 ? EntityFlags.Rolling : 0) | (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8 ? EntityFlags.Reviving : 0)
         | (s.flight === 1 ? EntityFlags.InPlane : s.flight === 2 ? EntityFlags.Freefall : s.flight === 3 ? EntityFlags.Parachute : 0)
-        | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0)
+        | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0) | (now < bot.attackingUntil && !bot.dead ? EntityFlags.Attacking : 0)
         | (Math.hypot(s.vx, s.vz) > 5 ? EntityFlags.Sprinting : 0)
         | (now < bot.knockedUntil && !bot.dead ? EntityFlags.Knocked : 0);
-      out.push({ id: bot.id, kind: EntityKind.Player, x: s.x, y: s.y, z: s.z, yaw: bot.yaw, pitch: bot.pitch, flags, health: bot.health, weapon: bot.dead ? 0 : bot.weapon, armor: packArmor(bot.armor) });
+      out.push({ id: bot.id, kind: EntityKind.Player, x: s.x, y: s.y, z: s.z, yaw: bot.yaw, pitch: bot.pitch, flags, health: bot.health, weapon: bot.dead ? 0 : bot.mode === 'brawl' || !bot.gunItem ? (bot.meleeItem ? WEAPON_BY_ITEM[bot.meleeItem.itemId] ?? 0 : 0) : bot.weapon, armor: packArmor(bot.armor) });
     }
   }
 }

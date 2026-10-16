@@ -92,4 +92,17 @@ describe('battle royale bots', () => {
     run(director, .2, 2000);
     expect(bot.state.rollTicks > 0 || bot.rollRequest === false).toBe(true);
   });
+  it('without a gun, fights with a looted blade or its fists', () => {
+    const { director } = setup([{ id: 'c1', x: 124, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0 }] }]);
+    const a = director.spawn(120, 10, 128), b = director.spawn(126, 10, 128);
+    a.alert = { x: 126, z: 128, until: 1e9 }; b.alert = { x: 120, z: 128, until: 1e9 };
+    run(director, 8);
+    expect(a.health < 100 || b.health < 100).toBe(true);
+  });
+  it('picks up a melee weapon from a crate when it has none', () => {
+    const { director } = setup([{ id: 'c1', x: 130, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0 }] }]);
+    const bot = director.spawn(120, 10, 128);
+    run(director, 8);
+    expect(bot.meleeItem?.itemId).toBe('machete');
+  });
 });
