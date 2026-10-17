@@ -49,6 +49,17 @@ function phase(tod: number): TKey {
   return 'time.dusk';
 }
 
+/** A mouse with its right button lit: "right click to use". */
+function MouseRight() {
+  return (
+    <svg className="hud-mouse" viewBox="0 0 16 22" aria-label="Chuột phải" role="img">
+      <rect x="1" y="1" width="14" height="20" rx="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 1v8" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8.75 1.8A6.25 6.25 0 0 1 14.25 8.25H8.75Z" fill="var(--accent)" />
+    </svg>
+  );
+}
+
 export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
   // Match modes: the server sends everyone back when the match ends; "reconnect" finds a new one.
@@ -227,8 +238,10 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
           {state.team && <div className="team-hud"><span className="q-label"><Icon name="lucide:users" /> {state.team.name}</span>{state.team.members.filter((m) => m.name !== state.username).map((m) => <div key={m.accountId}><i /><span>{m.name}</span><small>{m.downed ? 'Cần cứu!' : m.health !== undefined && m.inGame ? `${m.health} HP` : m.online ? 'Ở sảnh' : t('hud.offline')}</small></div>)}</div>}
           {state.toast && <div className="toast">{tm(state.toast)}</div>}
           {state.interact && !inventoryOpen && (
-            <div className="hud-interact" role="status">
-              <kbd>E</kbd><span>{tm(state.interact)}</span>
+            // TOP: next to the target under the cursor; third / first person: under the crosshair.
+            <div className={`hud-interact${state.interactAt ? ' at' : ''}`} role="status"
+              style={state.interactAt ? { left: state.interactAt[0], top: state.interactAt[1] } : undefined}>
+              {state.interactInput === 'mouse' ? <MouseRight /> : <kbd>F</kbd>}<span>{tm(state.interact)}</span>
             </div>
           )}
           {state.scoped && !mouseLook && <div className="hud-scope" />}

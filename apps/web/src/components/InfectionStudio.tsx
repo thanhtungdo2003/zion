@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDefaultRegistry, type AssetDefinition } from '@zion/assets';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
@@ -9,6 +10,8 @@ import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
 const registry = createDefaultRegistry();
+// WebGL viewer: client only, loaded when first shown.
+const ModelPreview = dynamic(() => import('./ModelPreview'), { ssr: false });
 type Group = 'buildings' | 'materials' | 'nature';
 const GROUPS: Array<{ id: Group; label: string; icon: string }> = [
   { id: 'buildings', label: 'Công trình', icon: 'lucide:house' },
@@ -375,6 +378,11 @@ export default function InfectionStudio() {
             <button className={tool.kind === 'zombie' ? 'on zombie' : 'zombie'} onClick={() => setTool({ kind: 'zombie' })} title="Điểm hồi sinh zombie (bấm lại để xóa)"><Icon name="game-icons:shambling-zombie" /></button>
           </div>
           <div className="ix-groups">{GROUPS.map((g) => <button key={g.id} className={group === g.id ? 'on' : ''} onClick={() => setGroup(g.id)}><Icon name={g.icon} />{g.label}</button>)}</div>
+          {(() => {
+            // 3D look at the model being placed (or the part selected): drag to turn, wheel to zoom.
+            const asset = tool.kind === 'place' ? tool.asset : part?.asset;
+            return asset !== undefined ? <div className="ix-preview"><ModelPreview key={asset} model={{ asset }} title={registry.byNumericId(asset)?.name ?? String(asset)} /></div> : null;
+          })()}
           <input className="ix-search" placeholder="Tìm mô hình…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="ix-list">
             {shown.map(({ def }) => (

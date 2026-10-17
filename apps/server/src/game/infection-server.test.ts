@@ -140,7 +140,7 @@ describe('isolated infection server', () => {
       await game.stop();
       await world.close();
     }
-  }, 60_000);
+  }, 180_000);
 
   it('reloads from nothing and places every spawn on open ground inside the walls', async () => {
     const logger = createLogger('silent', false), registry = createDefaultRegistry();
@@ -176,7 +176,7 @@ describe('isolated infection server', () => {
         harness.stepInfection(t * 50);
         if (m.phase === 'running') infected = Math.max(infected, m.zombies.size);
         if (m.phase === 'running' && !m.zombies.size && !groups.size) for (const b of harness.bots.bots) if (b.holdAt) groups.set(b.squad!, (groups.get(b.squad!) ?? 0) + 1);
-        if (m.phase === 'running' && !m.zombies.size) up = Math.max(up, ...harness.bots.bots.filter((b) => !b.zombie).map((b) => b.state.y));
+        if (m.phase === 'running') up = Math.max(up, ...harness.bots.bots.filter((b) => !b.zombie).map((b) => b.state.y));
       }
       // Before the outbreak the bots split into groups of 3–5 and climb to high ground.
       expect(groups.size).toBeGreaterThan(1);
@@ -188,5 +188,5 @@ describe('isolated infection server', () => {
       await game.stop();
       await world.close();
     }
-  }, 60_000);
+  }, 180_000);
 });

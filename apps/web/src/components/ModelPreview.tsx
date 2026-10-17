@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AmbientLight, Box3, DirectionalLight, GridHelper, Group, OrthographicCamera, Scene, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
+import { AmbientLight, Box3, DirectionalLight, GridHelper, Group, Mesh, OrthographicCamera, Scene, SRGBColorSpace, Vector3, WebGLRenderer, type Object3D } from 'three';
+import { createDefaultRegistry } from '@zion/assets';
+import { AssetLibrary } from '@/game/render/asset-library';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { HandbookEntry } from '@zion/shared';
@@ -13,7 +15,21 @@ import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
 /** `attachments`: show a gun dressed with these attachments (attachment screen, shop preview). */
-export default function ModelPreview({ model, title, attachments }: { model: HandbookEntry['model']; title: string; attachments?: Attachments }) {
+/** A world model (registry asset) as one object: its parts, wheels in place. */
+async function loadAssetModel(asset: number): Promise<Object3D> {
+  const visual = await new AssetLibrary(createDefaultRegistry()).load(asset);
+  if (!visual) throw new Error('Unknown asset');
+  const root = new Group();
+  for (const part of visual.parts) {
+    const mesh = new Mesh(part.geometry, part.material);
+    if (part.wheelCenter) mesh.position.set(...part.wheelCenter);
+    root.add(mesh);
+  }
+  return root;
+}
+
+/** `model`: an item, a model file, or a world asset (`asset`: its numeric id, Studio catalogues). */
+export default function ModelPreview({ model, title, attachments }: { model: HandbookEntry['model'] | { asset: number }; title: string; attachments?: Attachments }) {
   const dress = attachments ? `${attachments.optic ?? ''}|${attachments.muzzle ?? ''}` : '';
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<{ reset(): void; zoom(amount: number): void; rotate(value: boolean): void } | null>(null);
@@ -22,6 +38,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
   const [attempt, setAttempt] = useState(0);
   const itemId = 'item' in model ? model.item : null;
   const url = 'url' in model ? model.url : null;
+  const asset = 'asset' in model ? model.asset : null;
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -68,7 +85,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
       zoom: amount => { camera.zoom = Math.max(.6, Math.min(3, camera.zoom * amount)); camera.updateProjectionMatrix(); render(); },
       rotate: value => { controls.autoRotate = value; if (value) start(); },
     };
-    const load = itemId ? loadItemDisplayModel(itemId, attachments) : url?.endsWith('.glb') || url?.endsWith('.gltf')
+    const load = asset !== null ? loadAssetModel(asset) : itemId ? loadItemDisplayModel(itemId, attachments) : url?.endsWith('.glb') || url?.endsWith('.gltf')
       ? new GLTFLoader().loadAsync(url!).then(gltf => gltf.scene)
       : loadCharacterModel(url!).then(template => template.root);
     void load.then(root => {
@@ -87,7 +104,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
       controls.dispose(); resources.object(scene); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `dress` stands for `attachments`.
-  }, [itemId, url, attempt, dress]);
+  }, [itemId, url, asset, attempt, dress]);
   return <div className="model-preview" role="group" aria-label={`Mô hình 3D: ${title}`}>
     <div className="model-preview-canvas" ref={host} />
     {state === 'loading' && <div className="model-preview-state" role="status"><Spinner /> Đang tải mô hình 3D…</div>}

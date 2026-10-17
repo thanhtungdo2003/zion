@@ -1,5 +1,6 @@
 'use client';
 import { Icon } from './Icon';
+import { GroundPanel, type GroundEntry } from './GroundPanel';
 import { ChestPanel } from './ChestPanel';
 import ModelPreview from './ModelPreview';
 
@@ -44,7 +45,7 @@ function fitCell(withSide: boolean): number {
 }
 
 /** Hover info: the item definition plus its per-item metadata. */
-type Tip = { def: ItemDef; count?: number; equipped?: boolean; issued?: boolean };
+export type Tip = { def: ItemDef; count?: number; equipped?: boolean; issued?: boolean };
 
 /** Stat rows for the tooltip, from the shared weapon table and the item's metadata. */
 function tipRows(t: Tip, tr: Tr): Array<[string, string]> {
@@ -375,7 +376,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
 /** Battle royale has no economy: prices and ZCoin stay hidden there. */
 let hidePrices = false;
-export function InventoryPanel({ state, store, coins: shownCoins, side }: { state: InventoryState; store: InventoryStore; coins: number | null; side?: React.ReactNode }) {
+export function InventoryPanel({ state, store, coins: shownCoins, side, ground = [], onPickGround }: { state: InventoryState; store: InventoryStore; coins: number | null; side?: React.ReactNode; ground?: readonly GroundEntry[]; onPickGround?: (id: number) => void }) {
   hidePrices = shownCoins === null;
   const coins = shownCoins ?? 0;
   const wrap = useRef<HTMLDivElement>(null);
@@ -415,7 +416,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side }: { stat
     const onMove = (e: MouseEvent) => setMouse({ x: e.clientX, y: e.clientY });
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'KeyR') store.rotateHeld();
-      else if (e.code === 'KeyE' || e.code === 'Escape') {
+      else if (e.code === 'KeyE' || e.code === 'Tab' || e.code === 'KeyI' || e.code === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         if (state.held && e.code === 'Escape') store.returnHeld();
@@ -502,7 +503,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side }: { stat
           </div>
           {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
-          {state.station === 'chest' && <ChestPanel state={state} store={store} grid={hidePrices} />}
+          {state.station === 'chest' && <div className="inv-col"><ChestPanel state={state} store={store} grid={hidePrices} onTip={setTip} />{onPickGround && <GroundPanel items={ground} onPick={onPickGround} inChest onTip={setTip} />}</div>}
           {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && state.station !== 'chest' && (
             <section className="inv-box inv-cache">
               <header>

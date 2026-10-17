@@ -258,6 +258,7 @@ export class GameServer {
   private readonly infectionLoadouts = new Map<number, InfectionLoadout>();
   private infectionSpawnIndex = 0;
   private infectionOccupied = false;
+  private readonly pickupHit = makeRayHit();
   /**
    * Match modes: players who dropped out mid-match (closed tab, crash, lost connection) keep their
    * place for REJOIN_GRACE_MS; coming back puts them where they were with what they carried.
@@ -3243,7 +3244,12 @@ export class GameServer {
         break;
       case 'pickup': {
         const g = this.groundItems.get(msg.id);
-        if (!g || Math.hypot(p.state.x - g.x, p.state.z - g.z) > GROUND_PICKUP_REACH || Math.abs(p.state.y - g.y) > 2.5) break;
+        // Within reach on the player's own floor, nothing solid in between (never through a floor).
+        if (!g || Math.hypot(p.state.x - g.x, p.state.z - g.z) > GROUND_PICKUP_REACH || Math.abs(p.state.y - g.y) > 1.6) break;
+        {
+          const ey = p.state.y + 1.1, dx = g.x - p.state.x, dy = g.y + .35 - ey, dz = g.z - p.state.z, d = Math.hypot(dx, dy, dz);
+          if (d > .3 && this.collision.raycast(p.state.x, ey, p.state.z, dx / d, dy / d, dz / d, d, Mask.CharacterMovement, this.pickupHit) && this.pickupHit.t < d - .5) break;
+        }
         const added = p.inv.add(g.itemId, g.count, g.issued);
         if (!added) {
           p.session.sendJson({ t: 'error', code: 'invalid_message', message: 'Inventory full', fatal: false });

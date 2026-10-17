@@ -5,6 +5,7 @@ import type { InventoryState, InventoryStore } from '@/game/inventory/inventory'
 import { itemIconFor } from '@/game/inventory/icons';
 import { useSettings } from '@/lib/settings';
 import { Icon } from './Icon';
+import type { Tip } from './Inventory';
 
 type Tier = 'common' | 'rare' | 'epic' | 'legendary';
 const ELITE = new Set(['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell']);
@@ -20,7 +21,9 @@ function tierOf(id: string): Tier {
 const REVEAL_MS: Record<Tier, number> = { common: 550, rare: 1100, epic: 1500, legendary: 2000 };
 
 /** `grid`: battle royale crates — an open slot grid, no search, no prices. */
-export function ChestPanel({ state, store, grid = false }: { state: InventoryState; store: InventoryStore; grid?: boolean }) {
+export function ChestPanel({ state, store, grid = false, onTip }: { state: InventoryState; store: InventoryStore; grid?: boolean; onTip?: (tip: Tip | null) => void }) {
+  // Hovering any item shows the same detailed tooltip as the bag grid.
+  const tip = (i: PlacedItem) => ({ onMouseEnter: () => { const def = ITEMS[i.itemId]; if (def) onTip?.({ def, count: i.count, issued: i.issued }); }, onMouseLeave: () => onTip?.(null) });
   const c = state.chest;
   const { item } = useSettings();
   const [remaining, setRemaining] = useState(0);
@@ -70,7 +73,7 @@ export function ChestPanel({ state, store, grid = false }: { state: InventorySta
         const i = c.items[n];
         if (!i) return <div className="chest-slot empty" key={`e${n}`} />;
         const amount = i.mag !== undefined ? `${i.mag}` : i.count !== undefined ? `x${i.count}` : '';
-        return <button type="button" className={`chest-slot t-${tierOf(i.itemId)}`} key={`${c.id}:${i.uid}`} title={`${item(i.itemId)} — bấm để lấy`} disabled={locked || !!state.held} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestTake', i.uid)}>
+        return <button type="button" {...tip(i)} className={`chest-slot t-${tierOf(i.itemId)}`} key={`${c.id}:${i.uid}`} disabled={locked || !!state.held} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestTake', i.uid)}>
           {art(i)}<span>{item(i.itemId)}</span>{amount && <small>{amount}</small>}
         </button>;
       })}
@@ -88,7 +91,7 @@ export function ChestPanel({ state, store, grid = false }: { state: InventorySta
         const pending = hidden.indexOf(i.uid);
         if (pending > 0) return <div className="chest-item chest-unknown" key={`${c.id}:${i.uid}`}><Icon name="lucide:search" /><span><b>???</b><small>Chờ xác định</small></span></div>;
         if (pending === 0) return <div className={`chest-item chest-unknown scanning t-${tier}`} key={`${c.id}:${i.uid}`} style={{ ['--reveal' as string]: `${REVEAL_MS[tier]}ms` }}><Icon name="lucide:search" /><span><b>Đang xác định...</b><i className="chest-scan" /></span></div>;
-        return <div className={`chest-item t-${tier}`} key={`${c.id}:${i.uid}`}>
+        return <div className={`chest-item t-${tier}`} key={`${c.id}:${i.uid}`} {...tip(i)}>
           {art(i)}<span><b>{item(i.itemId)}</b><small>{i.mag !== undefined ? `${i.mag} viên` : i.count !== undefined ? `x${i.count}` : ''}</small></span>
           {price(i) > 0 && <em className="chest-price">{price(i)} ZC</em>}
           <button className="btn" disabled={locked || revealing || !!state.held} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestTake', i.uid)}><Icon name="lucide:arrow-left" /> Lấy</button>
@@ -98,7 +101,7 @@ export function ChestPanel({ state, store, grid = false }: { state: InventorySta
     </div>}
     <h4>Cất vào</h4>
     <div className="chest-deposit">
-      {state.items.filter((i) => !isStash(i.container)).map((i) => <button className="chest-put" key={i.uid} disabled={locked || !!state.held || c.items.length >= c.capacity} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestPut', i.uid)}>
+      {state.items.filter((i) => !isStash(i.container)).map((i) => <button className="chest-put" key={i.uid} {...tip(i)} disabled={locked || !!state.held || c.items.length >= c.capacity} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestPut', i.uid)}>
         {art(i)}<span>{item(i.itemId)}</span>{price(i) > 0 && <em className="chest-price">{price(i)} ZC</em>}<Icon name="lucide:arrow-right" />
       </button>)}
     </div>

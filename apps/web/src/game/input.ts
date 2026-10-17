@@ -4,7 +4,6 @@ import { cycleCameraMode, settingsStore } from '@/lib/settings';
 export type TouchButton = 'attack' | 'aim' | 'sprint' | 'jump' | 'roll' | 'throwC4';
 export type TouchAction = 'reload' | 'interact' | 'inventory' | 'heal' | 'weapon' | 'pause' | 'prone';
 /** E held longer than this leans right; a shorter tap interacts as before. */
-const E_HOLD_MS = 200;
 const TOUCH_BITS = { attack: Buttons.Attack, sprint: Buttons.Sprint, jump: Buttons.Jump, roll: Buttons.Roll, throwC4: Buttons.ThrowC4 };
 
 /**
@@ -55,7 +54,6 @@ export class InputController {
   private prone = false;
   private crouch = false;
   /** When E went down: a quick tap interacts / opens the bag, holding it leans right. */
-  private eDownAt = -1;
   touchEnabled = false;
   /** Manual stick heading, kept separate from the assisted shot heading. */
   touchHeading: number | null = null;
@@ -67,7 +65,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: () => void; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean };
+  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -75,7 +73,7 @@ export class InputController {
     handlers: {
       openChat: () => void;
       activeChange: (active: boolean) => void;
-      openInventory: () => void; vehicle?: () => void;
+      openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void;
       hotbar: (slot: number) => void;
       cycleHotbar: (dir: number) => void;
       reload: () => void;
@@ -116,9 +114,10 @@ export class InputController {
         this.onChat();
         return;
       }
-      if (e.code === 'KeyE') {
-        if (!e.repeat) this.eDownAt = performance.now();
-        this.keys.add('KeyE');
+      // Inventory: E in first person, Tab / I in every view (the engine decides by camera).
+      if (e.code === 'KeyE' || e.code === 'Tab' || e.code === 'KeyI') {
+        e.preventDefault();
+        if (!e.repeat) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory(e.code === 'KeyE' ? 'KeyE' : 'other'); }
         return;
       }
       if (e.code === 'KeyX' && !e.repeat) { this.crouch = !this.crouch; if (this.crouch) this.prone = false; }
@@ -140,11 +139,6 @@ export class InputController {
     });
     on('keyup', (e) => {
       this.keys.delete(e.code);
-      if (e.code === 'KeyE' && this.eDownAt >= 0) {
-        const tap = performance.now() - this.eDownAt < E_HOLD_MS;
-        this.eDownAt = -1;
-        if (tap && !this.suspended && this.active) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory(); }
-      }
     });
     on('blur', () => {
       this.clearInput();
@@ -168,7 +162,10 @@ export class InputController {
       this.pointer.y = -(((e.clientY - r.top) / Math.max(1, r.height)) * 2 - 1);
     });
     on('mousedown', (e) => {
-      if (this.active && !this.suspended && e.target === this.element) this.mouseButtons |= 1 << e.button;
+      if (!this.active || this.suspended || e.target !== this.element) return;
+      // Right click on something usable (TOP / third person) uses it instead of aiming.
+      if (e.button === 2 && this.handlers.secondary?.()) return;
+      this.mouseButtons |= 1 << e.button;
     });
     on('mouseup', (e) => {
       this.mouseButtons &= ~(1 << e.button);
@@ -358,9 +355,8 @@ export class InputController {
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
     if (this.keys.has(settingsStore.get().rollKey)) b |= Buttons.Roll;
-    // Lean while Q / E is held (E only once it is clearly a hold, not a tap to interact).
+    // Lean left while Q is held (TOP / third person also lean out by themselves when aiming at a wall's edge).
     if (this.keys.has('KeyQ')) b |= Buttons.LeanLeft;
-    if (this.keys.has('KeyE') && this.eDownAt >= 0 && performance.now() - this.eDownAt >= E_HOLD_MS) b |= Buttons.LeanRight;
     return b;
   }
 

@@ -86,6 +86,12 @@ export interface HudState {
   ammo: { mag: number; max: number; reserve: number; reload: number | null } | null;
   /** What E does here (open an ammo cache, pick up an item…), or null. */
   interact: Msg | null;
+  /** How the target in focus is used: right click (TOP / third person) or F (first person). */
+  interactInput: 'mouse' | 'key';
+  /** TOP view: where the caption sits (next to the target on screen), px. */
+  interactAt: [number, number] | null;
+  /** Loose items within reach on our floor (a list to pick from when there are two or more). */
+  groundNear: Array<{ id: number; itemId: string; count?: number }>;
   /** Looking through the equipped weapon's scope. */
   scoped: boolean;
   aiming: boolean;
@@ -165,6 +171,9 @@ export function initialHud(): HudState {
     respawnIn: 0,
     ammo: null,
     interact: null,
+    interactInput: 'mouse',
+    interactAt: null,
+    groundNear: [],
     scoped: false,
     aiming: false,
     scopeMagnification: 1,

@@ -23,9 +23,15 @@ describe('real-scale vehicle models', () => {
     // Rotated handlebars and bent panels can protrude a few centimetres beyond cube bounds.
     measured.toArray().forEach((value, axis) => expect(Math.abs(value - size[axis]!)).toBeLessThan(.05));
     expect(bounds.min.y).toBeCloseTo(0, 3);
-    const collider = def.colliders[0]!;
-    if (collider.type !== 'box') throw new Error('expected vehicle box');
-    collider.halfExtents.forEach((value, axis) => expect(value * 2).toBeCloseTo(size[axis]!, 2));
+    // One box, or (the tank) one box per part whose union spans the model (the thin antenna is open air).
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const c of def.colliders) {
+      if (c.type !== 'box') throw new Error('expected vehicle boxes');
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k]!, c.center[k]! - c.halfExtents[k]!); hi[k] = Math.max(hi[k]!, c.center[k]! + c.halfExtents[k]!); }
+    }
+    for (const axis of [0, 2]) expect(hi[axis]! - lo[axis]!).toBeCloseTo(size[axis]!, 2);
+    if (def.colliders.length === 1) expect(hi[1]! - lo[1]!).toBeCloseTo(size[1]!, 2);
+    else expect(hi[1]! - lo[1]!).toBeLessThanOrEqual(size[1]! + 1e-6);
     for (const part of parts) { part.geometry.dispose(); part.material.dispose(); }
   });
 });

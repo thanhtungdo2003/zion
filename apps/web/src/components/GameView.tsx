@@ -17,6 +17,7 @@ import { WorldMapStore } from '@/game/world-map';
 import { BattleHud } from './BattleHud';
 import { InfectionHud } from './InfectionHud';
 import { LoadoutPanel } from './LoadoutPanel';
+import { GroundPanel } from './GroundPanel';
 import { clearActiveMatch } from '@/lib/rejoin';
 
 export default function GameView() {
@@ -148,7 +149,8 @@ export default function GameView() {
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && hud.mode === 'infection' && <LoadoutPanel store={inventory} locked={!!hud.infection?.infected} onChange={(l) => engineRef.current?.setLoadout(l)} />}
-      {inWorld && inv.open && hud.mode !== 'infection' && <InventoryPanel state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
+      {inWorld && !inv.open && hud.groundNear.length >= 2 && <GroundPanel items={hud.groundNear} onPick={(id) => engineRef.current?.pickUp(id)} />}
+      {inWorld && inv.open && hud.mode !== 'infection' && <InventoryPanel ground={hud.groundNear} onPickGround={(id) => engineRef.current?.pickUp(id)} state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
       {inWorld && hud.mapOpen && <WorldMap store={worldMap} hud={hud} onClose={() => engineRef.current?.setMapOpen(false)} />}
     </div>
   );

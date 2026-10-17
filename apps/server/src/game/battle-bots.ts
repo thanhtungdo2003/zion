@@ -518,7 +518,7 @@ export class BattleBotDirector {
         const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now), way = steer ?? goal;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
         // Up on another floor and no route yet: wait for one rather than walk into the wall below.
-        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25;
+        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt;
         // Houses: open the door in the way.
         if (now >= bot.doorAt) { bot.doorAt = now + 700; this.hooks.openDoor?.(s.x, s.y, s.z, bot.yaw); }
         // A crate up on a floor it cannot find a way to: try another one.

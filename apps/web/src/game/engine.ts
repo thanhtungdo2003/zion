@@ -99,7 +99,7 @@ import {
 import { DEFAULT_CHARACTER, characterEyeHeight, Mask, makeRayHit, raycastRig, zombieHitRig, PRONE_RIG } from '@zion/physics';
 import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
-import { itemName, type Msg } from '@/lib/i18n';
+import { itemName, translateMsg, type Msg } from '@/lib/i18n';
 import type { InventoryStore } from './inventory/inventory';
 import { InputController, type TouchAction, type TouchButton } from './input';
 import { RemoteEntity } from './interpolation';
@@ -133,7 +133,7 @@ import { ParticleFX } from './render/particles';
 import { Minimap } from './render/minimap';
 import { CampLights } from './render/camp-lights';
 import { lookDirection } from './render/offhand-light';
-import { GroundItems } from './render/ground-items';
+import { PICKUP_REACH, GroundItems } from './render/ground-items';
 import { CharacterPreview } from './render/character-preview';
 import { requestArmor } from './render/armor-models';
 import { SlashEffects, type SlashPose } from './render/slash';
@@ -195,6 +195,18 @@ function aimPitch(dist: number): number {
  * the local player with the shared controller and interpolates everyone else. It never decides
  * game outcomes — the server's snapshot always wins.
  */
+/** Something within reach the player can use: where it is, what it is called, what it does. */
+interface Interactable {
+  kind: 'door' | 'chest' | 'ground' | 'revive' | 'talk' | 'life' | 'storage' | 'shop' | 'nurse' | 'cache' | 'vehicle';
+  x: number; y: number; z: number;
+  /** How close the cursor ray must pass (m). */
+  radius: number;
+  label: Msg;
+  name?: string;
+  ground?: { id: number; itemId: string; count?: number };
+  run: () => void;
+}
+
 export class GameEngine {
   private vehicles: VehicleRenderer | null = null;
   private drivingYaw: number | null = null;
@@ -282,8 +294,14 @@ export class GameEngine {
   private groundItems: GroundItems | null = null;
   private slashes: SlashEffects | null = null;
   private interact = '';
+  /** Everything within reach that can be used (refreshed with the station scan). */
+  private targets: Interactable[] = [];
+  /** The one the cursor / crosshair is on (TOP & third person), or the best one (first person). */
+  private hovered: Interactable | null = null;
+  /** Peeking round a corner while aiming (TOP & third person): −1 left, 1 right, since when. */
+  private autoLean = { side: 0, at: 0 };
+  private readonly reachHit = makeRayHit();
   private readonly doors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
-  private nearDoor: number | null = null;
   private lastStationScan = 0;
   private readonly shotRay = makeRayHit();
   private effects: CombatEffects | null = null;
@@ -308,7 +326,6 @@ export class GameEngine {
   private privateQuestRenderer: BaseLifeRenderer | null = null;
   private lifeRenderer: BaseLifeRenderer | null = null;
   private questNpcDefinitions: QuestNpcMessage['npcs'] = [];
-  private nearQuestNpc: { npc: string; name: string } | null = null;
   private nearStorage = false;
 
   /** The camp warehouse in world space (personal storage), if this world has one. */
@@ -471,10 +488,11 @@ export class GameEngine {
         this.hud.set({ pointerLocked: active });
         if (active) this.sounds?.unlock();
       },
-      openInventory: () => this.onInteract(),
+      openInventory: (key) => this.openBag(key),
+      secondary: () => this.useHovered(),
       attachments: () => this.openAttachments(),
       nightVision: () => this.toggleNightVision(),
-      vehicle: () => this.useVehicle(),
+      vehicle: () => this.onKeyF(),
       hotbar: (slot) => this.inventory.selectSlot(slot),
       // Through a night-vision scope the wheel switches night vision instead of weapons.
       cycleHotbar: (dir) => { if (!this.toggleNightVision()) this.inventory.cycle(dir); },
@@ -1770,6 +1788,7 @@ export class GameEngine {
       (local.state.climbing ? EntityFlags.Climbing : 0) |
       (local.state.mantle ? EntityFlags.Mantling : 0);
     this.scanStations(px, pz, now);
+    this.updateHover();
     // Zombies: interpolated like players, but only visible inside the vision cone (or very close).
     for (const zb of this.zombies.values()) {
       const pose = zb.entity.sample(renderTime);
@@ -2069,6 +2088,9 @@ export class GameEngine {
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
     // Infection zombies only run, jump and swing (the server enforces the same).
+    // TOP / third person: aiming at a wall's edge leans out past it by itself.
+    const peek = this.peek(performance.now());
+    if (peek && !(buttons & (Buttons.LeanLeft | Buttons.LeanRight))) buttons |= peek < 0 ? Buttons.LeanLeft : Buttons.LeanRight;
     if (this.selfInfected) buttons &= ~(Buttons.Roll | Buttons.Prone | Buttons.Crouch | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Aim | Buttons.ThrowC4 | Buttons.Heal);
     if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Crouch);
     if ((buttons & Buttons.Crouch) || local.state.crouched) buttons &= ~(Buttons.Sprint | Buttons.Roll);
@@ -2480,7 +2502,6 @@ export class GameEngine {
     this.toast(box ? { key: 'toast.out_of_ammo_box', vars: { item: box } } : { key: 'toast.out_of_ammo' });
   }
 
-  private nearChest: string | null = null;
 
   /** Is the player next to an ammo cache station? Scanned a few times a second. */
   private scanStations(px: number, pz: number, now: number): void {
@@ -2489,35 +2510,15 @@ export class GameEngine {
     const id = CAMP_ASSET['zion-ammo-cache-station'];
     const camp = this.welcome?.world.camp;
     let near: 'field' | 'camp' | null = null;
-    let closestChest = CHEST_REACH * CHEST_REACH;
-    this.nearChest = null;
-    this.nearDoor = null;
     for (const chunk of this.store.chunks.values()) {
       if (chunk.lod !== 0) continue;
       for (const prop of chunk.props) {
-        if (prop.asset !== id && !CHEST_ASSETS.has(prop.asset)) continue;
-        const t = propTransform(chunk, prop);
-        const chestDistance = (t.x - px) ** 2 + (t.z - pz) ** 2;
-        const inCampChest = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
-        if (CHEST_ASSETS.has(prop.asset) && !this.infection && !(prop.asset === id && inCampChest) && chestDistance <= closestChest && Math.abs(t.y - (this.local?.state.y ?? t.y)) <= 2.5) {
-          closestChest = chestDistance; this.nearChest = chestKey(prop.asset, t.x, t.y, t.z);
-        }
         if (prop.asset !== id) continue;
+        const t = propTransform(chunk, prop);
         if ((t.x - px) ** 2 + (t.z - pz) ** 2 >= STATION_REACH * STATION_REACH) continue;
         const inCamp = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
         near = inCamp ? 'camp' : null;
       }
-    }
-    for (const crate of this.deathCrates.values()) {
-      const distance = (crate.x - px) ** 2 + (crate.z - pz) ** 2;
-      if (distance <= closestChest && Math.abs(crate.y - (this.local?.state.y ?? crate.y)) <= 2.5) {
-        closestChest = distance; this.nearChest = crate.id;
-      }
-    }
-    let doorDistance = 2.4;
-    for (const [id, door] of this.doors) {
-      const d = Math.hypot(door.x - px, door.z - pz);
-      if (d < doorDistance && Math.abs(door.y - (this.local?.state.y ?? door.y)) < 2) { doorDistance = d; this.nearDoor = id; }
     }
     this.station = near;
     let merchant = false;
@@ -2539,7 +2540,6 @@ export class GameEngine {
       const def = this.questNpcDefinitions.find((n) => n.id === r.entity.id);
       if (def) talk = { npc: def.key, name: def.name };
     }
-    this.nearQuestNpc = talk;
     const store = this.storagePos();
     this.nearStorage = !!store && Math.hypot(store.x - px, store.z - pz) <= store.radius;
     const life = this.hud.get().life;
@@ -2549,22 +2549,175 @@ export class GameEngine {
     if (onPlot !== this.hud.get().plot) this.hud.set({ plot: onPlot });
     const open = this.hud.get().dialogue;
     if (open && open.npc !== talk?.npc) this.hud.set({ dialogue: null });
-    const ground = this.groundItems?.nearest(px, pz);
-    const lifeHere = this.lifeTarget(px, pz);
-    const label: Msg | null = this.hud.get().downed !== null ? null : this.nearDoor !== null ? { key: 'raw', vars: { text: this.doors.get(this.nearDoor)?.open ? 'E · Đóng cửa' : 'E · Mở cửa' } } : lifeHere ? lifeHere.label : ground
-      ? { key: 'interact.pickup', vars: { item: ground.itemId } }
-      : this.downedNear() ? { key: 'interact.revive', vars: { item: this.remoteName(this.downedNear()!.id, EntityKind.Player) } }
-      : talk ? { key: 'interact.talk', vars: { item: talk.name } }
-      : this.nearChest ? { key: 'interact.chest' }
-      : this.nearStorage && !merchant ? { key: 'interact.storage' }
-      : merchant ? { key: 'interact.shop' }
-      : nurse ? { key: 'interact.nurse' }
-      : near === 'camp' ? { key: 'interact.camp_cache' } : near ? { key: 'interact.cache' } : null;
-    const sig = JSON.stringify(label);
-    if (sig !== this.interact) {
-      this.interact = sig;
-      this.hud.set({ interact: label });
+    this.targets = this.collectTargets(px, pz, { talk, merchant, nurse, near });
+    // Loose items at our feet: two or more get a list to pick from.
+    const items = this.targets.filter((t) => t.kind === 'ground').map((t) => t.ground!);
+    const sig = JSON.stringify(items.map((g) => g.id));
+    if (sig !== this.groundSig) { this.groundSig = sig; this.hud.set({ groundNear: items.map((g) => ({ id: g.id, itemId: g.itemId, count: g.count })) }); }
+  }
+  private groundSig = '';
+
+  /** Clear line from our chest to a point (no floor, wall or ceiling in between). */
+  private canReach(x: number, y: number, z: number, slack = .75): boolean {
+    const s = this.local?.state, col = this.store?.collision;
+    if (!s || !col) return false;
+    const ey = s.y + 1.1, ty = y + .35, dx = x - s.x, dy = ty - ey, dz = z - s.z, d = Math.hypot(dx, dy, dz);
+    if (d < .3) return true;
+    if (!col.raycast(s.x, ey, s.z, dx / d, dy / d, dz / d, d, Mask.CharacterMovement, this.reachHit)) return true;
+    return this.reachHit.t >= d - slack;
+  }
+
+  /**
+   * Everything usable within reach, each with what it is called and what using it does. Items,
+   * chests and crates count only on the player's own floor with nothing solid in between.
+   */
+  private collectTargets(px: number, pz: number, near: { talk: { npc: string; name: string } | null; merchant: boolean; nurse: boolean; near: 'field' | 'camp' | null }): Interactable[] {
+    const out: Interactable[] = [];
+    const local = this.local;
+    if (!local || local.dead || this.hud.get().downed !== null || local.state.flight || !this.store) return out;
+    const py = local.state.y;
+    const lang = settingsStore.get().lang;
+    for (const [id, door] of this.doors) {
+      if (Math.hypot(door.x - px, door.z - pz) > 2.4 || Math.abs(door.y - py) >= 2) continue;
+      out.push({ kind: 'door', x: door.x, y: door.y + 1, z: door.z, radius: .9, label: { key: 'raw', vars: { text: door.open ? 'Đóng cửa' : 'Mở cửa' } }, run: () => this.conn.sendDoor(id) });
     }
+    const down = this.downedNear();
+    if (down) {
+      const p = this.remotes.get(down.id)?.avatar.root.position;
+      if (p) out.push({ kind: 'revive', x: p.x, y: p.y + .3, z: p.z, radius: 1, label: { key: 'interact.revive', vars: { item: this.remoteName(down.id, EntityKind.Player) } }, run: () => this.conn.sendRevive(down.id) });
+    }
+    const life = this.lifeTarget(px, pz);
+    if (life) out.push({ kind: 'life', x: px, y: py, z: pz, radius: 1.5, label: life.label, run: () => life.run?.() });
+    for (const g of this.groundItems?.items ?? []) {
+      if (Math.hypot(g.x - px, g.z - pz) > PICKUP_REACH || Math.abs(g.y - py) > 1.3 || !this.canReach(g.x, g.y, g.z, .3)) continue;
+      out.push({ kind: 'ground', ground: g, x: g.x, y: g.y + .1, z: g.z, radius: .6, label: { key: 'interact.pickup', vars: { item: g.itemId } }, run: () => this.pickUp(g.id) });
+    }
+    if (near.talk) {
+      const npc = [...this.remotes.values()].find((r) => r.entity.kind === EntityKind.QuestNpc && this.questNpcDefinitions.find((n) => n.id === r.entity.id)?.key === near.talk!.npc);
+      const p = npc?.entity.pose;
+      if (p) out.push({ kind: 'talk', x: p.x, y: p.y + 1, z: p.z, radius: 1, label: { key: 'interact.talk', vars: { item: near.talk.name } }, run: () => this.hud.set({ dialogue: near.talk }) });
+    }
+    for (const r of this.remotes.values()) {
+      if (r.entity.kind !== EntityKind.Merchant && r.entity.kind !== EntityKind.Nurse) continue;
+      const p = r.entity.pose;
+      if (Math.hypot(p.x - px, p.z - pz) >= MERCHANT_REACH) continue;
+      const shop = r.entity.kind === EntityKind.Merchant;
+      out.push({ kind: shop ? 'shop' : 'nurse', x: p.x, y: p.y + 1, z: p.z, radius: 1, label: { key: shop ? 'interact.shop' : 'interact.nurse' }, run: () => this.inventory.setOpen(true, shop ? 'shop' : 'nurse') });
+    }
+    // Chests and crates on our floor, in sight.
+    if (!this.infection) {
+      const camp = this.welcome?.world.camp, cache = CAMP_ASSET['zion-ammo-cache-station'];
+      for (const chunk of this.store.chunks.values()) {
+        if (chunk.lod !== 0) continue;
+        for (const prop of chunk.props) {
+          if (!CHEST_ASSETS.has(prop.asset)) continue;
+          const t = propTransform(chunk, prop);
+          if (Math.hypot(t.x - px, t.z - pz) > CHEST_REACH || Math.abs(t.y - py) > 2.5) continue;
+          if (prop.asset === cache && !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4) continue;
+          if (!this.canReach(t.x, t.y + .2, t.z)) continue;
+          const key = chestKey(prop.asset, t.x, t.y, t.z), name = this.registry.byNumericId(prop.asset)?.name;
+          out.push({ kind: 'chest', x: t.x, y: t.y + .5, z: t.z, radius: 1, label: { key: 'interact.chest' }, name, run: () => this.inventory.openChest(key) });
+        }
+      }
+      for (const crate of this.deathCrates.values()) {
+        if (Math.hypot(crate.x - px, crate.z - pz) > CHEST_REACH || Math.abs(crate.y - py) > 2.5 || !this.canReach(crate.x, crate.y, crate.z)) continue;
+        out.push({ kind: 'chest', x: crate.x, y: crate.y + .4, z: crate.z, radius: 1, label: { key: 'interact.chest' }, run: () => this.inventory.openChest(crate.id) });
+      }
+    }
+    const store = this.storagePos();
+    if (store && Math.hypot(store.x - px, store.z - pz) <= store.radius && !near.merchant) out.push({ kind: 'storage', x: store.x, y: py + 1, z: store.z, radius: 1.5, label: { key: 'interact.storage' }, run: () => this.inventory.setOpen(true, 'stash') });
+    if (near.near) out.push({ kind: 'cache', x: px, y: py + 1, z: pz, radius: 1.5, label: { key: near.near === 'camp' ? 'interact.camp_cache' : 'interact.cache' }, run: () => this.inventory.setOpen(true, near.near) });
+    const v = this.vehicles?.nearest(px, py, pz);
+    if (v && !local.riding) out.push({ kind: 'vehicle', x: v.x, y: v.y + 1, z: v.z, radius: 2.4, label: { key: 'raw', vars: { text: `Lên ${VEHICLES[v.kind]?.name ?? 'xe'}` } }, run: () => this.conn.sendVehicle(v.id) });
+    void lang;
+    return out;
+  }
+
+  /**
+   * Which target is in focus. TOP view: the one under the mouse cursor; third person: under the
+   * crosshair (both exactly; nothing in focus means right click aims as usual). First person:
+   * under the crosshair, else the nearest (used with F).
+   */
+  private updateHover(): void {
+    const local = this.local;
+    let pick: Interactable | null = null;
+    if (local && this.targets.length && !this.inventory.get().open) {
+      const top = this.cameraMode === 'top-down';
+      this.raycaster.setFromCamera(top ? this.ndc.set(this.input.pointer.x, this.input.pointer.y) : this.ndc.set(0, 0), this.camera);
+      const ray = this.raycaster.ray;
+      let best = Infinity;
+      for (const t of this.targets) {
+        const d = ray.distanceToPoint(this.tmpA.set(t.x, t.y, t.z));
+        const reach = t.radius * (top ? 1.4 : 1);
+        if (d <= reach && d < best) { best = d; pick = t; }
+      }
+      if (!pick && this.firstPerson) pick = [...this.targets].sort((a, b) => Math.hypot(a.x - local.state.x, a.z - local.state.z) - Math.hypot(b.x - local.state.x, b.z - local.state.z))[0] ?? null;
+    }
+    this.hovered = pick;
+    const label = pick ? (pick.name && pick.kind === 'chest' ? { key: 'raw', vars: { text: `${this.translate(pick.label)} · ${pick.name}` } } as Msg : pick.label) : null;
+    const input: 'mouse' | 'key' = this.firstPerson ? 'key' : 'mouse';
+    let at: [number, number] | null = null;
+    if (pick && this.cameraMode === 'top-down') {
+      const p = this.tmpA.set(pick.x, pick.y + .6, pick.z).project(this.camera);
+      at = [Math.round((p.x + 1) / 2 * this.container.clientWidth), Math.round((1 - p.y) / 2 * this.container.clientHeight)];
+    }
+    const sig = JSON.stringify([label, input, at]);
+    if (sig !== this.interact) { this.interact = sig; this.hud.set({ interact: label, interactInput: input, interactAt: at }); }
+  }
+
+  private translate(m: Msg): string {
+    return translateMsg(settingsStore.get().lang, m);
+  }
+
+  /** Pick up one loose item (the server checks reach and room). */
+  pickUp(id: number): void {
+    const g = this.groundItems?.items.find((i) => i.id === id);
+    if (!g) return;
+    this.inventory.pickUpGround(id);
+    this.sounds?.play(weaponSpec(WEAPON_BY_ITEM[g.itemId] ?? 0) ? 'pickupWeapon' : 'pickup', { volume: .7 });
+  }
+
+  /** Right click in TOP / third person on something usable: use it (true = the click is taken). */
+  private useHovered(): boolean {
+    if (this.firstPerson || !this.hovered || this.inventory.get().open) return false;
+    if (this.local?.dead || this.hud.get().downed !== null) return false;
+    this.hovered.run();
+    return true;
+  }
+
+  /** F: get in / out of a vehicle; in first person also use what is in focus. */
+  private onKeyF(): void {
+    if (this.firstPerson && !this.local?.riding && this.hovered && this.hovered.kind !== 'vehicle') { this.hovered.run(); return; }
+    this.useVehicle();
+  }
+
+  /** E opens the inventory in first person; Tab / I in every view. */
+  private openBag(key: 'KeyE' | 'other'): void {
+    if (key === 'KeyE' && !this.firstPerson) return;
+    if (!this.local || this.local.dead || this.hud.get().downed !== null || this.local.state.flight) return;
+    if (this.hud.get().dialogue) { this.closeDialogue(); return; }
+    this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearStorage ? 'stash' : this.station);
+  }
+
+  /**
+   * TOP / third person, aiming: standing at a wall's edge with the way ahead blocked, lean out
+   * past the side that is open (kept a moment so it does not flicker).
+   */
+  private peek(now: number): number {
+    const local = this.local, col = this.store?.collision;
+    if (!local || !col || this.firstPerson || !this.aiming || !local.state.grounded || local.state.prone) { this.autoLean.side = 0; return 0; }
+    const s = local.state, yaw = this.shotYaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), ey = s.y + 1.45;
+    const blocked = (ox: number, oz: number, len: number) => col.raycast(s.x + ox, ey, s.z + oz, fx, 0, fz, len, Mask.CharacterMovement, this.reachHit);
+    let side = 0;
+    if (blocked(0, 0, 1.1)) {
+      const right = !blocked(rx * .6, rz * .6, 1.8), left = !blocked(-rx * .6, -rz * .6, 1.8);
+      side = right && (!left || this.autoLean.side >= 0) ? 1 : left ? -1 : 0;
+    }
+    if (side !== this.autoLean.side) {
+      if (side === 0 && now - this.autoLean.at < 250) return this.autoLean.side;
+      this.autoLean = { side, at: now };
+    }
+    return side;
   }
 
   /** Farming, cooking, livestock loot and private quest pick-ups within reach (in that order). */
@@ -2601,37 +2754,15 @@ export class GameEngine {
     return null;
   }
 
-  /** E: pick up a nearby dropped item, otherwise open the inventory (with the cache if near one). */
+  /** Touch "use" button: the target in focus or the nearest one, otherwise the inventory. */
   private onInteract(): void {
-    // The dead can't rummage through bags or talk.
     if (!this.local || this.local.dead || this.hud.get().downed !== null) return;
     if (this.local.state.flight) return;
-    if (this.nearDoor !== null) { this.conn.sendDoor(this.nearDoor); return; }
-    const down = this.downedNear();
-    if (down) {
-      this.conn.sendRevive(down.id);
-      return;
-    }
-    if (this.hud.get().dialogue) {
-      this.closeDialogue();
-      return;
-    }
-    const s = this.local?.state;
-    const life = s && !this.local!.dead ? this.lifeTarget(s.x, s.z) : null;
-    if (life) { life.run?.(); return; }
-    const ground = s && !this.local!.dead ? this.groundItems?.nearest(s.x, s.z) : null;
-    if (ground) {
-      // The server checks reach and room; its 'inv' / 'groundGone' messages follow.
-      this.inventory.pickUpGround(ground.id);
-      this.sounds?.play(weaponSpec(WEAPON_BY_ITEM[ground.itemId] ?? 0) ? 'pickupWeapon' : 'pickup', { volume: .7 });
-      return;
-    }
-    if (this.nearQuestNpc) {
-      this.hud.set({ dialogue: this.nearQuestNpc });
-      return;
-    }
-    if (this.nearChest) { this.inventory.openChest(this.nearChest); return; }
-    this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearStorage ? 'stash' : this.station);
+    if (this.hud.get().dialogue) { this.closeDialogue(); return; }
+    const s = this.local.state;
+    const t = this.hovered ?? [...this.targets].sort((a, b) => Math.hypot(a.x - s.x, a.z - s.z) - Math.hypot(b.x - s.x, b.z - s.z))[0];
+    if (t) { t.run(); return; }
+    this.openBag('other');
   }
 
   /** The server's copy of our inventory: show it and adopt its magazine counts. */
