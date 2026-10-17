@@ -43,7 +43,7 @@ export interface ShotInfo {
   muzzle: Vector3;
   dir: Vector3;
   /** Ejection port (for casings) and the gun's right side. */
-  eject: Vector3 | null;
+  eject: Vector3 |null;
   right: Vector3 | null;
   /** Pellet end points, flattened xyz. */
   ends: ArrayLike<number>;
