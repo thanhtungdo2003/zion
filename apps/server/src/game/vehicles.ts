@@ -269,7 +269,7 @@ function battleParking(gen: WorldGenerator): Array<{ x: number; y: number; z: nu
   const sites = allStructures(gen).filter(s => s.radius > 10 && s.parts.length > 2);
   const spots: Array<{ x: number; y: number; z: number; yaw: number }> = [];
   for (const segment of gen.roads?.segments ?? []) {
-    if (segment.bridge || segment.halfWidth > 8) continue;
+    if (segment.bridge || segment.halfWidth > 14) continue;
     const dx = segment.b.x - segment.a.x, dz = segment.b.z - segment.a.z, length = Math.hypot(dx, dz);
     if (length < 1) continue;
     // Park on the verge, beside the carriageway.
