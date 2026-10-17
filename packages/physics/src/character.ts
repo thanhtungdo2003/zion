@@ -96,6 +96,9 @@ export interface CharacterState {
   rollYaw: number;
   /** On a ladder this tick (derived each step from contacts; drives the climb animation). */
   climbing: boolean;
+  /** Outside shove (m/s, e.g. a zombie hit by bullets): added to the move, fades by itself, never blocks steering. */
+  pushX?: number;
+  pushZ?: number;
 }
 
 export interface CharacterInput {
@@ -112,6 +115,8 @@ export interface CharacterInput {
   crouch?: boolean;
   /** Movement speed multiplier (armour and held weapon); 1 when omitted. */
   speedMul?: number;
+  /** Jump height multiplier (take-off speed); 1 when omitted. */
+  jumpMul?: number;
 }
 
 export interface StepInfo {
@@ -155,6 +160,8 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.climbing = src.climbing;
   dst.prone = src.prone;
   dst.crouched = src.crouched;
+  dst.pushX = src.pushX;
+  dst.pushZ = src.pushZ;
   return dst;
 }
 
@@ -288,7 +295,7 @@ export class CharacterController {
       s.vy = vy < -2.5 ? -2.5 : vy > 2 ? 2 : vy;
       s.grounded = false;
     } else if (s.grounded && input.jump && !rolling && !s.prone) {
-      s.vy = p.jumpVelocity;
+      s.vy = p.jumpVelocity * (input.jumpMul ?? 1);
       s.grounded = false;
       info.jumped = true;
     } else {
@@ -297,8 +304,14 @@ export class CharacterController {
     }
 
     const wasGrounded = this.start.grounded;
-    const moveX = s.vx * dt;
-    const moveZ = s.vz * dt;
+    const pushX = s.pushX ?? 0, pushZ = s.pushZ ?? 0;
+    const moveX = (s.vx + pushX) * dt;
+    const moveZ = (s.vz + pushZ) * dt;
+    if (pushX || pushZ) {
+      const fade = Math.exp(-7 * dt);
+      s.pushX = Math.abs(pushX * fade) < .05 ? 0 : pushX * fade;
+      s.pushZ = Math.abs(pushZ * fade) < .05 ? 0 : pushZ * fade;
+    }
     s.grounded = false;
     this.move(s, moveX, s.vy * dt, moveZ, info);
 

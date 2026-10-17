@@ -32,3 +32,4 @@ export * from './handbook';
 export * from './leaderboard';
 export * from './battle-royale';
 export * from './vehicles';
+export * from './infection';

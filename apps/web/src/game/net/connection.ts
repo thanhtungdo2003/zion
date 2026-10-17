@@ -55,6 +55,7 @@ export class GameConnection {
     }
     if (this.closedByUser) return;
     const url = new URL(t.wsUrl);
+    if (this.mode === 'infection') url.searchParams.set('mode', this.mode);
     if (this.mode === 'battle-royale') {
       url.searchParams.set('mode', this.mode);
       // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.
@@ -174,6 +175,11 @@ export class GameConnection {
   /** Battle royale automatic jump point (negative = clear). */
   sendJumpPoint(x: number, z: number): void {
     this.send({ t: 'jumppoint', x: Math.round(x), z: Math.round(z) });
+  }
+
+  /** Infection: weapons to carry in the next life. */
+  sendLoadout(loadout: { primary: string; secondary: string; melee: string }): void {
+    this.send({ t: 'loadout', ...loadout });
   }
 
   sendHeal(uid: number): void {

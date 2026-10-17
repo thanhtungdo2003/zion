@@ -64,6 +64,10 @@ const en = {
   'mode.battle': 'Battle Royale',
   'mode.battle_sub': 'Solo · Red zone · Last survivor wins',
   'mode.survival_sub': 'Multiplayer · Random spawn',
+  'mode.infection': 'Infection',
+  'mode.infection_sub': 'Friday the 13th · Humans vs zombies · Unlimited ammo',
+  'mode.pick': 'Choose a mode',
+  'mode.new': 'New',
 
   // settings modal
   'settings.title': 'Settings',
@@ -529,6 +533,10 @@ const vi: Record<TKey, string> = {
   'mode.battle': 'Battle Royale',
   'mode.battle_sub': 'Solo · Bo đỏ · Sống sót cuối cùng',
   'mode.survival_sub': 'Nhiều người chơi · Điểm xuất phát ngẫu nhiên',
+  'mode.infection': 'Lây Nhiễm',
+  'mode.infection_sub': 'Thứ 6 Ngày 13 · Người và zombie · Vô hạn đạn',
+  'mode.pick': 'Chọn chế độ',
+  'mode.new': 'Mới',
 
   // settings modal
   'settings.title': 'Cài đặt',

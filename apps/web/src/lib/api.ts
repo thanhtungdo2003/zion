@@ -15,12 +15,12 @@ export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
 
 export async function getWorldAtlas(mode?: GameMode): Promise<WorldAtlas> {
   await ensureAccess();
-  return request<WorldAtlas>(`/api/game/atlas${mode === 'battle-royale' ? '?mode=battle-royale' : ''}`, { auth: true });
+  return request<WorldAtlas>(`/api/game/atlas${mode && mode !== 'survival' ? `?mode=${mode}` : ''}`, { auth: true });
 }
 
 export async function getAtlasTile(x: number, z: number, mode?: GameMode): Promise<AtlasTile> {
   await ensureAccess();
-  return request<AtlasTile>(`/api/game/atlas/${x}/${z}${mode === 'battle-royale' ? '?mode=battle-royale' : ''}`, { auth: true });
+  return request<AtlasTile>(`/api/game/atlas/${x}/${z}${mode && mode !== 'survival' ? `?mode=${mode}` : ''}`, { auth: true });
 }
 
 export interface AccountInfo {

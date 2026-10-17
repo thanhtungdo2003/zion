@@ -39,6 +39,7 @@ export class GameGateway {
     private readonly game: GameServer,
     private readonly audit: AuditLog,
     private readonly battleGame?: GameServer,
+    private readonly infectionGame?: GameServer,
   ) {
     this.log = logger.child({ module: 'gateway' });
     this.allowedOrigins = new Set(config.CORS_ORIGINS);
@@ -89,9 +90,9 @@ export class GameGateway {
     if (this.sessions.size >= this.config.MAX_CONNECTIONS) return this.reject(socket, 503, 'capacity');
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
     const query = new URL(url, 'http://localhost').searchParams, mode = query.get('mode'), squad = mode === 'battle-royale' && query.get('squad') === '1';
-    if (mode && mode !== 'survival' && mode !== 'battle-royale') return this.reject(socket, 400, 'mode');
-    if (mode === 'battle-royale' && !this.battleGame) return this.reject(socket, 503, 'mode_unavailable');
-    const game = mode === 'battle-royale' ? this.battleGame! : this.game;
+    if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection') return this.reject(socket, 400, 'mode');
+    if ((mode === 'battle-royale' && !this.battleGame) || (mode === 'infection' && !this.infectionGame)) return this.reject(socket, 503, 'mode_unavailable');
+    const game = mode === 'battle-royale' ? this.battleGame! : mode === 'infection' ? this.infectionGame! : this.game;
     this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, game, squad));
   }
 

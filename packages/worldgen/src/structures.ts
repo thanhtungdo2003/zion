@@ -4,6 +4,7 @@ import { makeColumnSample, type ColumnSample, type WorldGenerator } from './gene
 import type { CampPart } from './camp';
 import { authoredWorld } from './maps/authored';
 import { battleStructures } from './battle-map';
+import { friday13Structures } from './maps/friday13';
 import { importedRoofAccess, importedSettlement, importedSpawns } from './imported-buildings';
 import { survivalTown, type SpawnSpot } from './survival-town';
 
@@ -522,6 +523,7 @@ function flatBase(gen: WorldGenerator, x: number, z: number, r: number, toleranc
 /** Structures whose footprint may reach a point or area. */
 export function structuresNear(gen: WorldGenerator, x: number, z: number, extra = 0): Structure[] {
   if (gen.config.mode === 'battle-royale') return authoredWorld(gen).near(x, z, extra);
+  if (gen.config.mode === 'infection') return friday13Structures(gen).filter((s) => Math.hypot(s.x - x, s.z - z) <= s.radius + extra);
   allStructures(gen);
   const extraCells = extraCache.get(gen);
   const out: Structure[] = [];
@@ -543,6 +545,7 @@ const allCache = new WeakMap<WorldGenerator, Structure[]>();
 const extraCache = new WeakMap<WorldGenerator, Map<string, Structure[]>>();
 export function allStructures(gen: WorldGenerator): Structure[] {
   if (gen.config.mode === 'battle-royale') return battleStructures(gen);
+  if (gen.config.mode === 'infection') return friday13Structures(gen);
   let list = allCache.get(gen);
   if (list) return list;
   list = [];

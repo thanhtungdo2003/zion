@@ -1,5 +1,5 @@
 import type { LifeWorld } from './game/base-life';
-import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, validateContent } from '@zion/shared';
+import { BATTLE_MAP, INFECTION_MAP, SQUAD_LIMIT, STARTING_ZCOIN, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -108,10 +108,16 @@ async function main(): Promise<void> {
   // Battle royale squads are separate from survival teams: three players, kept in memory.
   const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
   const battleGame = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+  // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
+  const infectionWorld = new WorldService({ seed: normalizeSeed(INFECTION_MAP.seed), sizeChunks: INFECTION_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection' }, registry, 1, config.CHUNK_CACHE_SIZE, logger);
+  await infectionWorld.start();
+  const infectionGame = new GameServer({ config, logger, metrics: new Metrics(), audit, world: infectionWorld, registry, playerStates, worlds, worldId: INFECTION_MAP.id, initialWorldTimeMs: 0, mode: 'infection' });
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
   const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
   const battleTiles = atlasTileProvider(battleWorld.generator, BATTLE_MAP.id);
+  const infectionAtlas = atlasProvider(infectionWorld.generator, INFECTION_MAP.id);
+  const infectionTiles = atlasTileProvider(infectionWorld.generator, INFECTION_MAP.id);
 
   const savedLife = await db.query<{ state: LifeWorld }>('SELECT state FROM world_base_life WHERE world_id = $1', [config.WORLD_ID]);
   if (savedLife.rows[0]) game.lifeWorld = savedLife.rows[0].state;
@@ -154,8 +160,8 @@ async function main(): Promise<void> {
     news: new NewsRepository(db),
     customWeapons,
     progression,
-    atlas: mode => mode === 'battle-royale' ? battleAtlas() : survivalAtlas(),
-    atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : survivalTiles(x, z),
+    atlas: mode => mode === 'battle-royale' ? battleAtlas() : mode === 'infection' ? infectionAtlas() : survivalAtlas(),
+    atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : mode === 'infection' ? infectionTiles(x, z) : survivalTiles(x, z),
     teams,
     battleTeams,
     config,
@@ -266,10 +272,11 @@ async function main(): Promise<void> {
     },
   });
 
-  gateway = new GameGateway(config, logger, metrics, auth, game, audit, battleGame);
+  gateway = new GameGateway(config, logger, metrics, auth, game, audit, battleGame, infectionGame);
   gateway.attach(app.server);
   game.start();
   battleGame.start();
+  infectionGame.start();
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
@@ -292,10 +299,12 @@ async function main(): Promise<void> {
       gateway?.stopAccepting();
       await game.stop();
       await battleGame.stop();
+      await infectionGame.stop();
       await gateway?.close();
       await app.close();
       await world.close();
       await battleWorld.close();
+      await infectionWorld.close();
       await audit.close();
       await kv.close();
       await db.end();

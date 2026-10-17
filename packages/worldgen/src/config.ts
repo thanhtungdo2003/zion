@@ -10,7 +10,7 @@ export const GENERATOR_VERSION = 7;
 export const worldConfigSchema = z
   .object({
     seed: z.number().int().min(0).max(0xffffffff),
-    mode: z.enum(['survival', 'battle-royale']).optional(),
+    mode: z.enum(['survival', 'battle-royale', 'infection']).optional(),
     /** World edge length in chunks (32 m each). 128 → 4.096 km. */
     sizeChunks: z.number().int().min(16).max(512),
     seaLevel: z.number().min(0).max(100).default(20),

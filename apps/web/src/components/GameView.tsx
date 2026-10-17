@@ -15,6 +15,8 @@ import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
 import { WorldMap } from './WorldMap';
 import { WorldMapStore } from '@/game/world-map';
 import { BattleHud } from './BattleHud';
+import { InfectionHud } from './InfectionHud';
+import { LoadoutPanel } from './LoadoutPanel';
 
 export default function GameView() {
   const router = useRouter();
@@ -45,7 +47,8 @@ export default function GameView() {
   useEffect(() => {
     const el = container.current;
     if (!el) return;
-    const mode = new URLSearchParams(window.location.search).get('mode') === 'battle-royale' ? 'battle-royale' : 'survival';
+    const query = new URLSearchParams(window.location.search).get('mode');
+    const mode = query === 'battle-royale' || query === 'infection' ? query : 'survival';
     const engine = new GameEngine(el, store, inventory, worldMap, mode);
     engineRef.current = engine;
     void engine.start();
@@ -132,15 +135,17 @@ export default function GameView() {
       />
       {inWorld && <QuestTracker quests={hud.quests} position={hud.position} onCancel={(q) => engineRef.current?.quest('cancel', q.npc, q.id)} />}
       {inWorld && hud.dialogue && !inv.open && <NpcDialogue side={rail('quests')} npc={hud.dialogue.npc} name={hud.dialogue.name} quests={hud.quests} onOp={(op, q) => engineRef.current?.quest(op, hud.dialogue!.npc, q)} trades={hud.life?.config.trades.filter((t) => t.npc === hud.dialogue!.npc) ?? []} owned={(item) => inv.items.filter((i) => i.itemId === item).reduce((n, i) => n + (i.count ?? 1), 0)} coins={hud.coins} onTrade={(side, id) => engineRef.current?.lifeAction(side, id)} onClose={() => engineRef.current?.closeDialogue()} />}
-      {inWorld && hud.life && <StaminaBar life={hud.life} />}
+      {inWorld && hud.life && hud.mode !== 'infection' && <StaminaBar life={hud.life} />}
       {inWorld && hud.downed !== null && <DownedPanel bleed={hud.downed} onHelp={() => engineRef.current?.callForHelp()} onGiveUp={() => engineRef.current?.giveUp()} />}
       {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
-      {inWorld && hud.mode !== 'battle-royale' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
+      {inWorld && hud.mode === 'survival' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
+      {inWorld && hud.infection && <InfectionHud state={hud.infection} health={hud.health} onLeave={() => router.push('/')} />}
       {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => router.push('/')} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
-      {inWorld && inv.open && <InventoryPanel state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
+      {inWorld && inv.open && hud.mode === 'infection' && <LoadoutPanel store={inventory} locked={!!hud.infection?.infected} onChange={(l) => engineRef.current?.setLoadout(l)} />}
+      {inWorld && inv.open && hud.mode !== 'infection' && <InventoryPanel state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
       {inWorld && hud.mapOpen && <WorldMap store={worldMap} hud={hud} onClose={() => engineRef.current?.setMapOpen(false)} />}
     </div>
   );

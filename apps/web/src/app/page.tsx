@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
-import { ModeArt } from '@/components/ModeArt';
+import { ModeModal } from '@/components/ModeModal';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
@@ -25,7 +25,13 @@ import { SQUAD_LIMIT, TEAM_LIMIT, type TeamAction, type TeamLobby as Lobby } fro
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
 
 const MODE_KEY = 'zion.gameMode';
-const GAME_MODES = [{ id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub' }, { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub' }] as const;
+const GAME_MODES = [
+  { id: 'infection', name: 'mode.infection', sub: 'mode.infection_sub', image: '/images/modes/infection.webp', icon: 'game-icons:biohazard', isNew: true },
+  { id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub', image: '/images/modes/survival.webp', icon: 'game-icons:campfire' },
+  { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale.webp', icon: 'game-icons:parachute' },
+] as const;
+/** Where "Play" goes for a mode (squads only exist in battle royale). */
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -42,6 +48,7 @@ export default function MainMenu() {
   const doneLoading = useCallback(() => setLoading(false), []);
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
+  const closeModes = useCallback(() => setModeOpen(false), []);
   const [gameMode, setGameModeState] = useState<(typeof GAME_MODES)[number]['id']>('survival');
   // The chosen mode is remembered between visits.
   useEffect(() => {
@@ -168,7 +175,7 @@ export default function MainMenu() {
     setError(null);
     try {
       await fn();
-      router.push(gameMode === 'battle-royale' ? `/play?mode=battle-royale${squad ? '&squad=1' : ''}` : '/play');
+      router.push(playUrl(gameMode, squad));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('menu.server_error'));
       setBusy(false);
@@ -205,7 +212,7 @@ export default function MainMenu() {
       await playAsGuest(name);
       setSession(true);
       if (entryIntent === 'team') { setNameOpen(false); setTeamOpen(true); setBusy(false); }
-      else router.push(gameMode === 'battle-royale' ? '/play?mode=battle-royale' : '/play');
+      else router.push(playUrl(gameMode));
     } catch (err) {
       if (err instanceof ApiError && err.code === 'username_taken') setNameError(t('menu.name_taken'));
       else if (err instanceof ApiError && err.code === 'invalid_request') setNameError(t('menu.name_rules'));
@@ -346,31 +353,12 @@ export default function MainMenu() {
             unoptimized
           />
         </a>
-        {modeOpen && (
-          <ul className="menu-modes" role="listbox">
-            {GAME_MODES.map((m) => (
-              <li key={m.id}>
-                <button
-                  role="option"
-                  aria-selected={m.id === gameMode}
-                  onClick={() => {
-                    setGameMode(m.id);
-                    setModeOpen(false);
-                  }}
-                >
-                  <ModeArt mode={m.id} />
-                  <span><b>{t(m.name)}</b>
-                  <small>{t(m.sub)}</small></span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <button className="menu-mode" onClick={() => setModeOpen((v) => !v)} aria-expanded={modeOpen}>
-          <ModeArt mode={gameMode} />
+        {modeOpen && <ModeModal modes={GAME_MODES} current={gameMode} onPick={(m) => setGameMode(m as (typeof GAME_MODES)[number]['id'])} onClose={closeModes} />}
+        <button className="menu-mode" onClick={() => setModeOpen(true)} aria-haspopup="dialog" aria-expanded={modeOpen}>
+          <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === gameMode)!.image})` }} />
           <small>{t('menu.mode')}</small>
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
-          <span className="menu-mode-caret"><Icon name={modeOpen ? 'lucide:chevron-down' : 'lucide:chevron-up'} /></span>
+          <span className="menu-mode-caret"><Icon name="lucide:layout-grid" /></span>
         </button>
         {battleMode && session && team ? <div className="menu-play-pair">
           <button className="menu-play" disabled={busy || teamBusy || !sessionReady || team.leaderId !== currentAccount()?.id} onClick={() => { void playSquad(); }} title={team.leaderId === currentAccount()?.id ? `Cả tiểu đội ${team.members.length} người cùng vào trận` : 'Chờ đội trưởng cho tiểu đội xuất phát'}>

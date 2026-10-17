@@ -142,14 +142,14 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         <>
           <div className="hud-panel hud-minimap">
             <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><span><Icon name="lucide:expand" /> M</span></button>
-            {state.mode !== 'battle-royale' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
+            {state.mode === 'survival' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
               <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
             </button>}
-            {state.mode !== 'battle-royale' && <div className="hud-clock">
+            {state.mode === 'survival' && <div className="hud-clock">
               <b>{clock(state.timeOfDay)}</b>
               <span>{t(phase(state.timeOfDay))}</span>
             </div>}
-            {process.env.NODE_ENV !== 'production' && state.mode !== 'battle-royale' && <div className="hud-times">
+            {process.env.NODE_ENV !== 'production' && state.mode === 'survival' && <div className="hud-times">
               {TIME_PRESETS.map(([label, tod]) => (
                 <button key={label} className="hud-time-btn" onClick={() => onSetTime(tod)} title={t('time.jump', { label: t(label) })}>
                   {t(label)}
@@ -249,7 +249,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
               <span>Sinh cảnh</span><em>{state.biome} · {state.surface}</em>
             </div>
           )}
-          {state.mode !== 'battle-royale' && <Coins n={state.coins} className="hud-coins" />}
+          {state.mode === 'survival' && <Coins n={state.coins} className="hud-coins" />}
           {state.guides.map((g, i) => (
             <div key={`${g.role}${i}`} className="hud-guide" style={{ left: g.x, top: g.y }}>
               <i className="hud-guide-arrow" style={{ transform: `rotate(${g.angle}rad)` }} />
@@ -334,7 +334,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       )}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} onCameraChange={onResume}>
-        {state.status === 'playing' && state.mode !== 'battle-royale' && (
+        {state.status === 'playing' && state.mode === 'survival' && (
           <section className="set-section">
             <h3>
               <span>06</span> {t('settings.tutorial')}
@@ -374,7 +374,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}
-      {state.status === 'dead' && !(state.mode === 'battle-royale' && state.spectating) && (
+      {state.status === 'dead' && state.mode !== 'infection' && !(state.mode === 'battle-royale' && state.spectating) && (
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>

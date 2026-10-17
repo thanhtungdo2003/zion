@@ -1,5 +1,6 @@
 import type { ChestStateMessage } from '../chests';
 import type { BattleState, GameMode } from '../battle-royale';
+import type { InfectionState } from '../infection';
 import type { BaseLifeConfig } from '../base-life';
 import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
@@ -267,6 +268,7 @@ export interface RevivingMessage { t: 'reviving'; target: number; durationMs: nu
 export type ServerJsonMessage =
   | import('../vehicles').VehiclesMessage
   | BattleState
+  | InfectionState
   | { t: 'pvp'; enabled: boolean; remainingMs: number }
   | RankUpdate
   | TutorialStateMessage

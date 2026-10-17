@@ -99,7 +99,7 @@ export class SettingsStore {
   private loaded = false;
   private manualTouch = false;
   private mode: GameMode = 'survival';
-  private cameras: Record<GameMode, CameraMode> = { survival: 'top-down', 'battle-royale': 'first-person' };
+  private cameras: Record<GameMode, CameraMode> = { survival: 'top-down', 'battle-royale': 'first-person', infection: 'first-person' };
 
   get = (): SettingsState => this.state;
 
@@ -120,6 +120,8 @@ export class SettingsStore {
       const saved = JSON.parse(localStorage.getItem('zion.camera.v1') ?? '{}') as Record<string, unknown>;
       const battle = saved['battle-royale'];
       if (battle === 'first-person' || battle === 'third-person' || battle === 'top-down') this.cameras['battle-royale'] = battle;
+      const infection = saved.infection;
+      if (infection === 'first-person' || infection === 'third-person' || infection === 'top-down') this.cameras.infection = infection;
     } catch { /* keep the first-person BR default */ }
     this.state = { ...state, cameraMode: this.cameras[this.mode] };
     if (typeof document !== 'undefined') document.documentElement.lang = state.lang;

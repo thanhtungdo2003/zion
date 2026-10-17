@@ -1,6 +1,9 @@
 import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
+import { InfectionMatch } from './infection';
+import { DEFAULT_INFECTION_LOADOUT, INFECTION, INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
+import { F13, friday13Spawns } from '@zion/worldgen';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec } from '@zion/shared';
 import { loadHitMeshes } from '../world/hit-meshes';
@@ -17,7 +20,7 @@ import { BaseLife, type AnimalRecord, type LifeWorld } from './base-life';
 import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCost, type CookingBatch } from '@zion/shared';
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
-import { authoredWorld, battleStructures } from '@zion/worldgen';
+import { authoredWorld } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { characterEyeHeight, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
@@ -241,6 +244,14 @@ export class GameServer {
   private lastPersist = Date.now();
   private persisting: Promise<void> | null = null;
   private battle: BattleRoyaleMatch | null = null;
+  /** Infection mode: round rules (null in the other modes). */
+  private infection: InfectionMatch | null = null;
+  private readonly infectionLoadouts = new Map<number, InfectionLoadout>();
+  private infectionSpawnIndex = 0;
+  private nextInfectionBotAt = 0;
+  /** Battle royale or infection: a match server, no persistent survival world. */
+  private get arena(): boolean { return !!this.battle || !!this.infection; }
+  private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : 'survival'; }
   private readonly battleChests = new Map<string, ChestData>();
   /** Battle royale bots (null in survival). */
   private readonly bots: BattleBotDirector | null;
@@ -253,7 +264,8 @@ export class GameServer {
 
   constructor(private readonly deps: GameServerDeps) {
     if (deps.mode === 'battle-royale') this.battle = this.newBattleMatch();
-    if (this.battle) for (const site of battleStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
+    if (deps.mode === 'infection') this.infection = new InfectionMatch();
+    if (this.arena) for (const site of allStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
       const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
       this.battleDoors.set(site.gid * 10000 + i, { x: site.x + part.x * c + part.z * s, y: site.y + part.y, z: site.z - part.x * s + part.z * c, yaw: site.yaw + part.yaw, open: false });
     }
@@ -306,13 +318,17 @@ export class GameServer {
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now),
     });
-    this.bots = this.battle ? new BattleBotDirector(this.collision, {
+    this.bots = this.arena ? new BattleBotDirector(this.collision, {
       shot: (e) => this.broadcastAt(e.ox, e.oz, e),
       projectile: (e) => this.broadcastAt(e.x, e.z, e),
       projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
       hitPlayer: (bot, player, damage, zone, x, y, z, now) => {
         this.damage(bot.id, player, damage, zone, x, y, z, now, bot.name);
       },
+      ...(deps.mode === 'infection' ? {
+        enemy: (bot: BattleBot, id: number) => !!this.infection?.entrants.has(id) && this.infection.isZombie(bot.id) !== this.infection.isZombie(id),
+        botHitsBot: (attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number) => { this.infectionBotDamage(target, damage, attacker.id, attacker.state, zone, now); return true; },
+      } : {}),
       died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
@@ -340,17 +356,18 @@ export class GameServer {
     this.nurse = new CampNpc(NURSE_ID, EntityKind.Nurse, gen.camp, NPC_STALLS.nurse, this.collision);
     this.worldTimeMs = deps.initialWorldTimeMs;
     this.applyContent(this.content);
+    if (this.infection) this.vehicles.available = false;
   }
 
   applyContent(content: GameContent): void {
-    if (this.battle) content = { ...content, npcs: [], quests: [], baseLife: { ...DEFAULT_BASE_LIFE, animals: [], plots: [], crops: [], stations: [], trades: [], recipes: [], decorations: [], stamina: { ...DEFAULT_BASE_LIFE.stamina, capacityDecay: 0 } } };
+    if (this.arena) content = { ...content, npcs: [], quests: [], baseLife: { ...DEFAULT_BASE_LIFE, animals: [], plots: [], crops: [], stations: [], trades: [], recipes: [], decorations: [], stamina: { ...DEFAULT_BASE_LIFE.stamina, capacityDecay: 0 } } };
     this.content = structuredClone(content);
     // Add the chef's new stock to worlds with an older saved Camp Studio catalogue.
     if (this.content.baseLife && this.content.npcs.some((n) => n.id === 'chef') &&
         !this.content.baseLife.trades.some((t) => t.npc === 'chef' && t.item === 'coal_carton')) {
       this.content.baseLife.trades.push(structuredClone(DEFAULT_BASE_LIFE.trades.find((t) => t.id === 'chef_coal_carton')!));
     }
-    if (!this.battle) for (const quest of COLONEL_SEARCH_QUESTS) if (!this.content.quests.some((q) => q.id === quest.id)) this.content.quests.push(structuredClone(quest));
+    if (!this.arena) for (const quest of COLONEL_SEARCH_QUESTS) if (!this.content.quests.some((q) => q.id === quest.id)) this.content.quests.push(structuredClone(quest));
     this.life = new BaseLife(this.content.baseLife ?? DEFAULT_BASE_LIFE);
     this.configureAnimals();
     this.quests = new QuestEngine(this.content);
@@ -495,13 +512,13 @@ export class GameServer {
     finally { this.finishQuestMutation(p); }
   }
 
-  private allied(a: Player, b: Player): boolean { return this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+  private allied(a: Player, b: Player): boolean { return this.infection ? this.infection.allies(a.id, b.id) : this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
   /** Battle royale: only players who dropped in with their squad see and share the team. */
-  private squadOf(p: Player) { return this.battle && !p.session.squad ? undefined : this.deps.teams?.forAccount(p.accountId); }
+  private squadOf(p: Player) { return this.infection || (this.battle && !p.session.squad) ? undefined : this.deps.teams?.forAccount(p.accountId); }
 
   private sendTeam(p: Player): void {
     const team = this.squadOf(p) ? this.deps.teams?.view(p.accountId) ?? null : null;
-    p.session.sendJson({ t: 'teamState', team, quests: this.battle ? [] : this.deps.teams?.questViews(p.accountId) ?? [] });
+    p.session.sendJson({ t: 'teamState', team, quests: this.arena ? [] : this.deps.teams?.questViews(p.accountId) ?? [] });
   }
 
   private async onTeamQuest(p: Player, msg: Extract<ClientMessage, { t: 'quest' }>): Promise<void> {
@@ -656,13 +673,13 @@ export class GameServer {
   private finishQuestMutation(p: Player): void {
     p.questBusy = false;
     for (const deferred of p.afterQuest.splice(0)) deferred();
-    if (this.battle) return;
+    if (this.arena) return;
     if (p.questBusy) return;
     if (!p.session.open || p.onLeaveSaved) void this.deps.playerStates.saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }]).catch((err: unknown) => this.log.error({ err }, 'post-disconnect transaction save failed')).finally(() => { p.onLeaveSaved?.(); p.onLeaveSaved = null; });
   }
 
   private queueQuestEvent(p: Player, event: QuestEvent): void {
-    if (this.battle) return;
+    if (this.arena) return;
     p.questEvents.push(event);
     if (!p.questBusy) void this.flushQuestEvents(p);
   }
@@ -946,6 +963,7 @@ export class GameServer {
   timeOfDay(): number {
     // Battle royale is always played at 14:00: steady daylight, no night.
     if (this.battle) return BATTLE_TIME_OF_DAY;
+    if (this.infection) return INFECTION.timeOfDay;
     const t = this.worldTimeMs / this.dayLengthMs + 0.3;
     return t - Math.floor(t);
   }
@@ -953,7 +971,7 @@ export class GameServer {
   worldInfo(): WorldInfo {
     const gen = this.deps.world.generator;
     return {
-      mode: this.battle ? 'battle-royale' : 'survival',
+      mode: this.mode,
       worldId: this.deps.worldId,
       sizeChunks: gen.config.sizeChunks,
       chunkSize: CHUNK_SIZE,
@@ -1015,6 +1033,10 @@ export class GameServer {
   /* ------------------------------------ join/leave --------------------------------------- */
 
   async join(session: ClientSession): Promise<void> {
+    if (this.infection && (!this.infection.accepting || this.players.size + this.joiningAccounts.size >= INFECTION_MAP.maxPlayers)) {
+      session.sendError('server_full', 'Phòng Lây Nhiễm đã đủ người. Hãy thử lại sau.', true);
+      session.close(CloseCode.ServerFull, 'infection full'); return;
+    }
     if (this.battle && (!this.battle.accepting || this.players.size + this.joiningAccounts.size >= BATTLE_MAP.maxPlayers)) {
       session.sendError('server_full', 'Trận Battle Royale đang diễn ra hoặc đã đủ 32 người. Hãy quay lại sảnh và thử trận sau.', true);
       session.close(CloseCode.ServerFull, 'battle unavailable'); return;
@@ -1048,7 +1070,7 @@ export class GameServer {
     }
 
     await this.pendingSaves.get(acc.accountId);
-    let saved = this.battle ? null : await this.deps.playerStates.load(acc.accountId);
+    let saved = this.arena ? null : await this.deps.playerStates.load(acc.accountId);
     let pos: ValidatedPosition | null = null;
     let health = PLAYER_MAX_HEALTH;
     const pin = saved ? ([Math.floor(saved.x / CHUNK_SIZE), Math.floor(saved.z / CHUNK_SIZE)] as [number, number]) : null;
@@ -1059,6 +1081,7 @@ export class GameServer {
         if (pos) health = saved.health;
         else this.log.info({ accountId: acc.accountId }, 'saved position invalid; respawning');
       }
+      if (this.infection) { await this.physics.ensureArea(Math.floor(F13.centre / CHUNK_SIZE), Math.floor(F13.centre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
       pos ??= await this.spawns.pickSpawn();
       if (this.battle) {
         for (let attempt = 0; attempt < 16 && [...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 50); attempt++) pos = await this.spawns.pickSpawn();
@@ -1081,7 +1104,7 @@ export class GameServer {
     const player = new Player(this.nextEntityId++, acc.accountId, acc.username, session, pos.x, pos.y, pos.z);
     player.yaw = saved?.yaw ?? 0;
     player.health = health;
-    player.coins = this.battle ? 0 : Math.max(0, Math.round(saved?.coins ?? STARTING_ZCOIN));
+    player.coins = this.arena ? 0 : Math.max(0, Math.round(saved?.coins ?? STARTING_ZCOIN));
     player.life = saved?.life?.quotas ? saved.life : this.life.initial();
     player.life.capacity = Math.min(this.life.config.stamina.maximum, Math.max(this.life.config.stamina.minimumCapacity, player.life.capacity));
     player.life.stamina = Math.max(0, Math.min(player.life.capacity, player.life.stamina));
@@ -1089,7 +1112,7 @@ export class GameServer {
     player.suspendedZombies = saved?.suspendedZombies ?? [];
     if (joinedRank) player.rank = joinedRank;
     this.quests.reset(player, Date.now());
-    player.inv.load(this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
+    player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
     // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
     player.inv.load({ ...player.inv.toJSON(), items: player.inv.items.filter(item => {
       if (item.itemId !== 'c4_detonator') return true;
@@ -1112,11 +1135,12 @@ export class GameServer {
       this.battle.join(player.id, player.username, squad ? { id: squad.id, name: squad.name, size: squad.members.length } : undefined);
       this.battleWasOccupied = true;
     }
+    if (this.infection) { this.infection.join(player.id, player.username); this.syncLoadout(player); }
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
       t: 'welcome',
-      mode: this.battle ? 'battle-royale' : 'survival',
+      mode: this.mode,
       playerId: player.id,
       username: player.username,
       world: this.worldInfo(),
@@ -1129,11 +1153,12 @@ export class GameServer {
     this.zombies.restore(player);
     this.syncVegetation(player);
     this.sendInv(player);
-    if (this.battle) for (const [id, door] of this.battleDoors) session.sendJson({ t: 'door', id, ...door });
+    if (this.arena) for (const [id, door] of this.battleDoors) session.sendJson({ t: 'door', id, ...door });
     this.sendQuests(player);
     this.sendTeam(player);
     this.sendLife(player);
-    if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
+    if (this.infection) this.broadcastInfection();
+    else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
     if (this.battle) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
@@ -1161,7 +1186,9 @@ export class GameServer {
     // The final save is tracked per account: a re-login waits for it before loading, so it can
     // never start from a stale row (no rollback / duplication by quick reconnects).
     this.battle?.leave(p.id);
-    const saved = this.battle ? Promise.resolve() : p.questBusy
+    this.infection?.leave(p.id);
+    if (this.infection) this.infectionLoadouts.delete(p.id);
+    const saved = this.arena ? Promise.resolve() : p.questBusy
       ? new Promise<void>((resolve) => { p.onLeaveSaved = resolve; })
       : this.deps.playerStates
         .saveMany([{ accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory: p.inv.toJSON(), journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies }])
@@ -1181,6 +1208,9 @@ export class GameServer {
     const p = session.player;
     if (this.battle && !['in', 'ping', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
+    if (this.infection && !['in', 'ping', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
+    if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
+    if (msg.t === 'loadout') { if (p && this.infection) this.onLoadout(p, msg); return; }
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
     if (p && msg.t === 'tutorial') {
       updateTutorial(p, msg, this.serverTime);
@@ -1191,7 +1221,7 @@ export class GameServer {
     switch (msg.t) {
       case 'door': {
         const door = this.battleDoors.get(msg.id);
-        if (!this.battle || !door || p.dead || p.downed || Math.hypot(p.state.x - door.x, p.state.z - door.z) > 3 || Math.abs(p.state.y - door.y) > 2) return;
+        if (!this.arena || !door || p.dead || p.downed || Math.hypot(p.state.x - door.x, p.state.z - door.z) > 3 || Math.abs(p.state.y - door.y) > 2) return;
         if (this.serverTime - (this.doorUsedAt.get(p.id) ?? -Infinity) < 250) return;
         this.doorUsedAt.set(p.id, this.serverTime);
         if (door.open && [...this.players.values()].some(other => {
@@ -1357,7 +1387,7 @@ export class GameServer {
       this.reply(p, this.vehicles.spawn(p, vehicleCommand[1], this.serverTime));
       this.vehicles.send(p, this.serverTime); return;
     }
-    if (this.battle) { this.reply(p, 'Lệnh sinh tồn không dùng trong Battle Royale.'); return; }
+    if (this.arena) { this.reply(p, 'Lệnh sinh tồn không dùng trong chế độ này.'); return; }
     const [cmd = '', ...args] = line.split(/\s+/);
     switch (cmd.toLowerCase()) {
       case 'locate':
@@ -1466,7 +1496,7 @@ export class GameServer {
   }
 
   private onRespawn(p: Player): void {
-    if (this.battle) return;
+    if (this.arena) return;
     if (!p.dead || this.respawning.has(p.id)) return;
     if (this.serverTime - p.deadAt < RESPAWN_DELAY_MS) return;
     this.respawning.add(p.id);
@@ -1611,6 +1641,222 @@ export class GameServer {
     return bot;
   }
 
+
+  /* ------------------------------------ infection ---------------------------------------- */
+
+  /** Open ground on the infection map, spread round the town (checked against collision). */
+  private infectionSpot(): ValidatedPosition {
+    const spots = friday13Spawns();
+    for (let i = 0; i < spots.length; i++) {
+      const spot = spots[(this.infectionSpawnIndex++ * 7) % spots.length]!;
+      const pos = this.spawns.validateAt(spot.x + (Math.random() - .5) * 3, spot.z + (Math.random() - .5) * 3);
+      if (pos) return pos;
+    }
+    const spot = spots[Math.floor(Math.random() * spots.length)]!;
+    return { x: spot.x, y: this.deps.world.generator.heightAt(spot.x, spot.z) + .05, z: spot.z };
+  }
+
+  /** Human gear: the chosen loadout, full magazines, fresh throwables. */
+  private makeHuman(p: Player): void {
+    p.cancelReload();
+    p.inv.load(infectionInventory(this.infectionLoadouts.get(p.id) ?? DEFAULT_INFECTION_LOADOUT));
+    p.health = PLAYER_MAX_HEALTH;
+    this.syncLoadout(p); this.sendInv(p);
+  }
+
+  /** Zombie: an axe and nothing else; the body stands up out of any stance. */
+  private makeZombie(p: Player): void {
+    p.cancelReload();
+    p.inv.load(zombieInventory());
+    p.health = PLAYER_MAX_HEALTH;
+    p.state.prone = false; p.state.crouched = false; p.aiming = false; p.bandaging = false;
+    this.syncLoadout(p); this.sendInv(p);
+  }
+
+  /** Back on the map at a spawn point, alive, as a human or a zombie. */
+  private infectionPlace(p: Player, zombie: boolean): void {
+    const pos = this.infectionSpot();
+    this.teleport(p, pos);
+    p.dead = false; p.downed = false; p.killerId = null; p.state.pushX = 0; p.state.pushZ = 0;
+    if (zombie) this.makeZombie(p); else this.makeHuman(p);
+    this.broadcastNear(p, { t: 'respawn', playerId: p.id, x: pos.x, y: pos.y, z: pos.z });
+    p.session.sendJson({ t: 'respawn', playerId: p.id, x: pos.x, y: pos.y, z: pos.z });
+  }
+
+  private onLoadout(p: Player, msg: { primary: string; secondary: string; melee: string }): void {
+    const loadout = sanitizeInfectionLoadout(msg);
+    this.infectionLoadouts.set(p.id, loadout);
+    // Before the outbreak a living human swaps gear on the spot.
+    const m = this.infection!;
+    if (!p.dead && !m.isZombie(p.id) && (m.phase !== 'running' || !m.joinsAsZombie)) this.makeHuman(p);
+  }
+
+  /** Turned: a human becomes a zombie where they stand. */
+  private turnPlayer(t: Player, attackerId: number | null): void {
+    const m = this.infection!;
+    if (m.isZombie(t.id)) return;
+    m.infect(t.id);
+    this.makeZombie(t);
+    const by = attackerId === null ? undefined : this.players.get(attackerId)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name;
+    this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: by ? `${t.username} đã bị ${by} lây nhiễm!` : `${t.username} đã hóa zombie!` });
+    this.broadcastInfection();
+  }
+
+  /** Where an attacker stands (player or bot). */
+  private combatantAt(id: number | null): { x: number; z: number } | null {
+    if (id === null) return null;
+    return this.players.get(id)?.state ?? this.bots?.bots.find((b) => b.id === id)?.state ?? null;
+  }
+
+  /** Shoved back along the shot, on top of the zombie's own movement (it keeps steering). */
+  private shove(state: CharacterState, from: { x: number; z: number } | null, x: number, z: number, amount: number): { kx: number; kz: number; force: number } | undefined {
+    if (!from) return undefined;
+    const dx = state.x - from.x, dz = state.z - from.z, l = Math.hypot(dx, dz) || 1;
+    const k = Math.min(INFECTION.knockMax, amount * INFECTION.knockPerDamage);
+    let px = (state.pushX ?? 0) + dx / l * k, pz = (state.pushZ ?? 0) + dz / l * k;
+    const m = Math.hypot(px, pz);
+    if (m > INFECTION.knockMax) { px *= INFECTION.knockMax / m; pz *= INFECTION.knockMax / m; }
+    state.pushX = px; state.pushZ = pz;
+    void x; void z;
+    return { kx: +(dx / l).toFixed(3), kz: +(dz / l).toFixed(3), force: +k.toFixed(2) };
+  }
+
+  /**
+   * Infection damage to a player: a zombie's blow turns a human at once; zombies soak bullets
+   * (health scaled by INFECTION.zombieHealth) and are shoved back by every hit.
+   */
+  private infectionDamage(attackerId: number | null, t: Player, amount: number, zone: string, x: number, y: number, z: number, now: number, weapon?: number | string): void {
+    const m = this.infection!;
+    if (!m.canFight(t.id) || t.dead) return;
+    const fromZombie = attackerId !== null && m.isZombie(attackerId);
+    if (!m.isZombie(t.id)) {
+      if (attackerId !== null && attackerId !== t.id && !fromZombie) return;
+      this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: fromZombie ? PLAYER_MAX_HEALTH : amount, x, y, z });
+      if (fromZombie) { this.turnPlayer(t, attackerId); return; }
+      t.health = Math.max(0, t.health - amount); t.dirty = true;
+      if (t.health <= 0) this.turnPlayer(t, null);
+      return;
+    }
+    if (fromZombie) return;
+    const knock = zone === 'fall' ? undefined : this.shove(t.state, this.combatantAt(attackerId), x, z, amount);
+    t.health = Math.max(0, t.health - amount * PLAYER_MAX_HEALTH / INFECTION.zombieHealth); t.dirty = true;
+    this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z, ...knock });
+    if (t.health <= 0) this.killPlayer(t, attackerId, now, weapon);
+  }
+
+  /** Infection damage to a bot (from a player, a bot or a blast). */
+  private infectionBotDamage(bot: BattleBot, amount: number, attackerId: number | null, from: { x: number; z: number } | null, zone: string, now: number): void {
+    const m = this.infection!;
+    if (bot.dead || !m.canFight(bot.id) || amount <= 0) return;
+    const fromZombie = attackerId !== null && m.isZombie(attackerId);
+    if (!bot.zombie) {
+      if (!fromZombie) return;
+      this.broadcastAt(bot.state.x, bot.state.z, { t: 'hit', attackerId: attackerId ?? 0, targetId: bot.id, zone, damage: PLAYER_MAX_HEALTH, x: bot.state.x, y: bot.state.y + 1.2, z: bot.state.z });
+      m.infect(bot.id);
+      this.dressBot(bot, true);
+      const by = this.players.get(attackerId!)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name;
+      this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: `${bot.name} đã bị ${by ?? 'zombie'} lây nhiễm!` });
+      this.broadcastInfection();
+      return;
+    }
+    if (fromZombie) return;
+    const knock = this.shove(bot.state, from, bot.state.x, bot.state.z, amount);
+    bot.health = Math.max(0, bot.health - amount * 100 / INFECTION.zombieHealth);
+    if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
+    this.broadcastAt(bot.state.x, bot.state.z, { t: 'hit', attackerId: attackerId ?? 0, targetId: bot.id, zone, damage: amount, x: bot.state.x, y: bot.state.y + 1.2, z: bot.state.z, ...knock });
+    if (bot.health > 0) return;
+    bot.dead = true; bot.deadAt = now; bot.target = null;
+    m.respawnAt.set(bot.id, now + INFECTION.zombieRespawnMs);
+    this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId: attackerId });
+    const by = attackerId === null ? undefined : this.players.get(attackerId)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name;
+    this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: by ? `${by} đã hạ zombie ${bot.name}.` : `Zombie ${bot.name} đã gục.` });
+    this.broadcastInfection();
+  }
+
+  /** Gear and team for a bot: a random gun pair as a human, the axe as a zombie. */
+  private dressBot(bot: BattleBot, zombie: boolean): void {
+    const pick = (list: string[], fallback: string) => list.length ? list[Math.floor(Math.random() * list.length)]! : fallback;
+    const loadout = { primary: pick(infectionChoices('primary'), DEFAULT_INFECTION_LOADOUT.primary), secondary: pick(infectionChoices('secondary'), DEFAULT_INFECTION_LOADOUT.secondary), melee: DEFAULT_INFECTION_LOADOUT.melee };
+    const inv = zombie ? zombieInventory() : infectionInventory(loadout);
+    Object.assign(bot, {
+      zombie, squad: zombie ? 'infection-zombies' : 'infection-humans', health: 100, dead: false, downed: false, target: null, mode: 'idle', goal: null,
+      reloadUntil: 0, alert: null, campUntil: 0, healUntil: 0, infiniteAmmo: !zombie, speedMul: zombie ? INFECTION.zombieSpeed : 1, jumpMul: zombie ? INFECTION.zombieJump : 1,
+      items: inv.items.map((i) => ({ ...i })),
+    });
+    bot.gunItem = zombie ? null : bot.items.find((i) => i.container === 'primary') ?? null;
+    bot.weapon = bot.gunItem ? WEAPON_BY_ITEM[bot.gunItem.itemId] ?? 0 : 0;
+    bot.meleeItem = bot.items.find((i) => i.container === 'heavy') ?? null;
+    bot.state.prone = false;
+  }
+
+  private placeBot(bot: BattleBot): void {
+    const pos = this.infectionSpot();
+    Object.assign(bot.state, { x: pos.x, y: pos.y, z: pos.z, vx: 0, vy: 0, vz: 0, pushX: 0, pushZ: 0, prone: false, crouched: false, flight: 0, grounded: false });
+    bot.yaw = Math.random() * Math.PI * 2;
+  }
+
+  private broadcastInfection(): void {
+    const m = this.infection!, now = this.serverTime;
+    for (const p of this.players.values()) p.session.sendJson(m.state(now, p.id));
+  }
+
+  /** Bots keep the room at INFECTION_MAP.botFill entrants while someone is playing. */
+  private fillInfectionBots(m: InfectionMatch, now: number): void {
+    if (!this.bots) return;
+    if (!this.players.size) {
+      if (this.bots.bots.length) { for (const bot of this.bots.bots) m.leave(bot.id); this.bots.clear(); this.broadcastPlayerList(); }
+      return;
+    }
+    if (m.entrants.size >= INFECTION_MAP.botFill || !m.accepting || now < this.nextInfectionBotAt) return;
+    this.nextInfectionBotAt = now + 500 + Math.random() * 700;
+    const bot = this.bots.spawn(F13.centre, F13.ground, F13.centre);
+    if (!m.join(bot.id, bot.name)) { this.bots.bots.pop(); return; }
+    this.dressBot(bot, m.isZombie(bot.id));
+    this.placeBot(bot);
+    this.broadcastPlayerList();
+  }
+
+  private stepInfection(now: number): void {
+    const m = this.infection!;
+    this.fillInfectionBots(m, now);
+    const ev = m.tick(now, this.players.size);
+    const bots = this.bots?.bots ?? [];
+    if (ev.reset) {
+      for (const p of this.players.values()) this.infectionPlace(p, false);
+      for (const bot of bots) { this.dressBot(bot, false); this.placeBot(bot); }
+      for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); this.broadcast({ t: 'door', id, ...door }); }
+      this.rounds.length = 0; this.grenades.length = 0;
+      this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: `Vòng ${m.round} · ${INFECTION_MAP.name}: chọn vũ khí, tìm chỗ nấp. Mầm bệnh sẽ bùng phát sau khi trận bắt đầu!` });
+    }
+    if (ev.outbreak?.length) {
+      for (const id of ev.outbreak) {
+        const p = this.players.get(id);
+        if (p) { if (p.dead) this.infectionPlace(p, true); else this.makeZombie(p); continue; }
+        const bot = bots.find((b) => b.id === id);
+        if (bot) this.dressBot(bot, true);
+      }
+      const names = ev.outbreak.map((id) => m.entrants.get(id) ?? '?').join(', ');
+      this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: `Mầm bệnh bùng phát! ${names} đã hóa zombie.` });
+    }
+    if (ev.finished) this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: ev.finished === 'humans' ? 'Con người đã cầm cự tới bình minh. Con người thắng!' : 'Không còn ai sống sót. Zombie thắng!' });
+    if (ev.reset || ev.outbreak?.length || ev.finished) this.broadcastInfection();
+    for (const [id, at] of m.respawnAt) {
+      if (now < at) continue;
+      m.respawnAt.delete(id);
+      const p = this.players.get(id);
+      if (p) { this.infectionPlace(p, m.isZombie(id)); continue; }
+      const bot = bots.find((b) => b.id === id);
+      if (bot) { this.dressBot(bot, m.isZombie(id)); this.placeBot(bot); }
+    }
+    // No stamina in this mode: run and swing as long as you like.
+    for (const p of this.players.values()) p.life.stamina = p.life.capacity;
+    if (this.bots) {
+      const circle = { x: F13.centre, z: F13.centre, radius: F13.half - 6 };
+      this.bots.step(now, this.tick, { phase: m.phase, circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, [...this.players.values()]);
+    }
+    if (this.tick % TICK_RATE === 0) this.broadcastInfection();
+  }
+
   /** Every match draws its own zone sequence over land. */
   private newBattleMatch(): BattleRoyaleMatch {
     const gen = this.deps.world.generator;
@@ -1664,6 +1910,7 @@ export class GameServer {
     this.worldTimeMs += TICK_MS;
     const now = this.serverTime;
     if (this.battle) this.stepBattle(now);
+    if (this.infection) this.stepInfection(now);
 
     this.chests.step();
 
@@ -1728,7 +1975,7 @@ export class GameServer {
         p.wireReadyAt = now + WIRE_INTERVAL_MS;
         this.damage(null, p, WIRE_DAMAGE, 'barbed_wire', p.state.x, p.state.y + 0.8, p.state.z, now);
       }
-      if (!this.battle && this.tick % TICK_RATE === 0) {
+      if (!this.arena && this.tick % TICK_RATE === 0) {
         this.resolveQuestLocations(p);
         this.queueQuestEvent(p, { type: 'visit', x: p.state.x, z: p.state.z });
       }
@@ -1790,7 +2037,7 @@ export class GameServer {
     this.stepGrenades(now);
     this.activeScratch.length = 0;
     for (const p of this.players.values()) if (p.active) this.activeScratch.push(p);
-    if (!this.battle) {
+    if (!this.arena) {
       this.zombies.step(this.activeScratch, now, this.timeOfDay());
       this.guards.step(this.zombies.zombies.values(), this.activeScratch, now);
     }
@@ -1802,7 +2049,7 @@ export class GameServer {
         for (const p of this.players.values()) this.sendLife(p);
       }
     }
-    if (!this.battle && this.tick % (TICK_RATE * 4) === 0) this.stepWildlife(now);
+    if (!this.arena && this.tick % (TICK_RATE * 4) === 0) this.stepWildlife(now);
     if (!this.lifeBusy) for (const animal of this.animals.values()) animal.step(now, (target, amount) => {
       // Livestock retaliation uses the same server damage path as hostile creatures.
       this.damage(null, target, amount, 'bite', target.state.x, target.state.y + 0.5, target.state.z, now);
@@ -1824,7 +2071,7 @@ export class GameServer {
         else p.session.sendJson(speech);
       }
     }
-    if (!this.battle && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
+    if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
@@ -1887,6 +2134,9 @@ export class GameServer {
     const px = s.x;
     const pz = s.z;
     let buttons = input.b;
+    // Infection zombies only run, jump and swing.
+    const zombie = !!this.infection?.isZombie(p.id);
+    if (zombie) buttons &= ~(Buttons.Roll | Buttons.Prone | Buttons.Crouch | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Aim | Buttons.ThrowC4 | Buttons.Heal);
     if (s.swimming) buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
     if (tutorialProtected(p, this.serverTime)) buttons &= ~(Buttons.Attack | Buttons.ThrowC4);
     // Downed: can't do anything but lie there (and call for help).
@@ -1915,7 +2165,7 @@ export class GameServer {
     const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1), jumpMul: zombie ? INFECTION.zombieJump : 1 },
       TICK_DT,
       this.stepInfo,
     );
@@ -2108,6 +2358,7 @@ export class GameServer {
 
   private playerAttackAllowed(attacker: Player, target: Player, now: number): boolean {
     if (attacker === target || attacker.dead || attacker.downed) return false;
+    if (this.infection) return this.infection.canHarm(attacker.id, target.id);
     if (this.battle) return this.battle.canFight(attacker.id) && this.battle.canFight(target.id);
     // A real player hit reveals the control even when damage is disabled.
     if (attacker.pvpUntil <= now && attacker.pvpEnabled) {
@@ -2124,17 +2375,18 @@ export class GameServer {
     if (target instanceof Zombie) this.hitZombie(attacker, target, amount, zone, x, y, z, dirX, dirZ, impulse, now);
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else if (target instanceof BattleBot) {
+      if (this.infection) { this.infectionBotDamage(target, amount, attacker.id, attacker.state, zone, now); return; }
       if (!this.battle?.canFight(attacker.id)) return;
       this.broadcastAt(x, z, { t: 'hit', attackerId: attacker.id, targetId: target.id, zone, damage: amount, x, y, z });
       this.bots?.hit(target, amount, attacker.username, { x: attacker.state.x, z: attacker.state.z }, now, zone, attacker.id);
     }
     else {
       const t = target as Player;
-      if (!this.playerAttackAllowed(attacker, t, now) || (!this.battle && tutorialProtected(t, this.serverTime))) return;
+      if (!this.playerAttackAllowed(attacker, t, now) || (!this.arena && tutorialProtected(t, this.serverTime))) return;
       this.damage(attacker.id, t, amount, zone, x, y, z, now, weapon);
       // Bullets do not shove the target: the server-only push and stun fought the victim's own
       // prediction and made them rubber-band while under fire. Melee and blasts still knock back.
-      if (amount > 0 && weaponSpec(weapon)?.kind !== 'gun' && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
+      if (amount > 0 && !this.infection && weaponSpec(weapon)?.kind !== 'gun' && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
     }
   }
 
@@ -2196,8 +2448,9 @@ export class GameServer {
     if (attackerId !== null && !isZombieId(attackerId) && attackerId < NPC_ID_BASE) {
       if (!attacker || !this.playerAttackAllowed(attacker, t, now)) return;
     }
-    if (t.dead || amount <= 0 || (!this.battle && tutorialProtected(t, this.serverTime))) return;
+    if (t.dead || amount <= 0 || (!this.arena && tutorialProtected(t, this.serverTime))) return;
     if (this.battle && !this.battle.canFight(t.id)) return;
+    if (this.infection) { this.infectionDamage(attackerId, t, amount, zone, x, y, z, now, weapon); return; }
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now, weapon, knock)); return; }
     if (t.downed) {
       // Hitting someone who is down drains what is left of their bleed-out.
@@ -2271,6 +2524,13 @@ export class GameServer {
     this.cancelLifeAction(t);
     t.deadAt = now;
     t.killerId = attackerId;
+    if (this.infection) {
+      // A zombie went down: it rises again at a spawn point a few seconds later.
+      this.infection.respawnAt.set(t.id, now + INFECTION.zombieRespawnMs);
+      const killer = attackerId === null ? undefined : this.players.get(attackerId)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name;
+      this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: killer ? `${killer} đã hạ zombie ${t.username}.` : `Zombie ${t.username} đã gục.` });
+      this.broadcastInfection();
+    }
     if (this.battle) {
       this.battle.eliminate(t.id);
       this.squadWipe(t, now);
@@ -2530,7 +2790,8 @@ export class GameServer {
     }
     for (const bot of this.bots?.near(x, z, radius) ?? []) {
       const d = Math.hypot(bot.state.x - x, bot.state.y + .9 - (y + .3), bot.state.z - z);
-      if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now, 'blast', owner?.id ?? null);
+      if (d < radius && this.infection) this.infectionBotDamage(bot, Math.round(damage * (1 - d / radius)), owner?.id ?? null, { x, z }, 'blast', now);
+      else if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now, 'blast', owner?.id ?? null);
     }
     if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
     // Livestock caught in the blast (credited to the thrower).
@@ -2727,7 +2988,7 @@ export class GameServer {
   private syncLoadout(p: Player): void {
     if (p.reloadUid && p.inv.equippedItem()?.uid !== p.reloadUid) p.cancelReload();
     p.armor = p.inv.worn();
-    p.speedMul = armorSpeedFactor(p.armor) * weaponSpeedFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
+    p.speedMul = this.infection?.isZombie(p.id) ? INFECTION.zombieSpeed : armorSpeedFactor(p.armor) * weaponSpeedFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
     const back = p.inv.backItem();
     p.backWeapon = back ? (WEAPON_BY_ITEM[back.itemId] ?? 0) : 0;
     p.dirty = true;
@@ -2753,7 +3014,7 @@ export class GameServer {
     const gun = p.inv.equippedItem();
     const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
     if (!gun || spec?.kind !== 'gun' || p.reloadAt || p.dead) return;
-    if ((gun.mag ?? 0) >= spec.magazine || p.inv.ammoFor(gun.itemId) <= 0) return;
+    if ((gun.mag ?? 0) >= spec.magazine || (!this.infection && p.inv.ammoFor(gun.itemId) <= 0)) return;
     p.reloadUid = gun.uid;
     // Lenient: clients time reloads to their sound, so the server only enforces half the time.
     p.reloadAt = this.serverTime + spec.reloadMs * 0.5;
@@ -2768,7 +3029,8 @@ export class GameServer {
       const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
       // Swapping weapons cancels the reload.
       if (!gun || gun.uid !== reloadUid || spec?.kind !== 'gun') continue;
-      gun.mag = (gun.mag ?? 0) + p.inv.takeAmmo(gun.itemId, spec.magazine - (gun.mag ?? 0));
+      // Infection: unlimited ammunition, but the magazine still has to be reloaded.
+      gun.mag = this.infection ? spec.magazine : (gun.mag ?? 0) + p.inv.takeAmmo(gun.itemId, spec.magazine - (gun.mag ?? 0));
       p.dirty = true;
       this.sendInv(p);
     }
@@ -3142,7 +3404,7 @@ export class GameServer {
   /* ------------------------------------ persistence -------------------------------------- */
 
   private async persistAll(all: boolean): Promise<void> {
-    if (this.battle) return;
+    if (this.arena) return;
     const batch = [];
     for (const p of this.players.values()) {
       if (p.questBusy || (!all && !p.dirty)) continue;

@@ -23,6 +23,7 @@ import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
 import { RoadNetwork } from './roads';
 import { authoredWorld } from './maps/authored';
+import { F13, friday13Height, friday13Spawns, friday13Street } from './maps/friday13';
 
 export const enum WaterKind {
   None = 0,
@@ -104,7 +105,7 @@ export class WorldGenerator {
     this.seaLevel = this.config.seaLevel;
     this.fields = new WorldFields(this.config.seed, this.worldSize, this.config.generatorVersion >= 3 ? .42 : 1);
     this.hydrology = new Hydrology(this.fields, this.worldSize, this.seaLevel);
-    if (this.config.mode !== 'battle-royale' && this.config.generatorVersion >= 2) this.camp = findCampSite(this);
+    if ((this.config.mode ?? 'survival') === 'survival' && this.config.generatorVersion >= 2) this.camp = findCampSite(this);
     this.rawTerrain = false;
   }
 
@@ -126,6 +127,13 @@ export class WorldGenerator {
   /* --------------------------------- column sampling -------------------------------------- */
 
   sampleColumn(x: number, z: number, out: ColumnSample = makeColumnSample()): ColumnSample {
+    if (this.config.mode === 'infection') {
+      this.fields.base(x, z, out.base);
+      out.height = friday13Height(x, z); out.water = NaN; out.waterKind = WaterKind.None;
+      out.river = 0; out.temperature = .45; out.humidity = .6;
+      out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
+      return out;
+    }
     if (this.config.mode === 'battle-royale') {
       const roads = this.roads, world = authoredWorld(this);
       this.fields.base(x, z, out.base);
@@ -343,6 +351,13 @@ export class WorldGenerator {
         const slope = Math.sqrt(gx * gx + gz * gz);
         const x = ox + i * step;
         const z = oz + j * step;
+        if (this.config.mode === 'infection') {
+          const idx = j * n + i, inside = Math.max(Math.abs(x - F13.centre), Math.abs(z - F13.centre)) < F13.half;
+          biome[idx] = inside ? Biome.Plains : Biome.Mountain;
+          surface[idx] = friday13Street(x, z) ? Surface.BrokenAsphalt : inside ? ((x * 7 + z * 13) % 11 < 3 ? Surface.Mud : Surface.Dirt) : slope > .9 ? Surface.Rock : Surface.DryGrass;
+          temperature[idx] = Math.round(s.temperature * 255); humidity[idx] = Math.round(s.humidity * 255); water[idx] = 0;
+          continue;
+        }
         const b = battle ? battle.biome(s.height, slope, x, z) : this.classifyBiome(s, slope);
         const idx = j * n + i;
         biome[idx] = b;
@@ -357,7 +372,7 @@ export class WorldGenerator {
       }
     }
 
-    const props: PropInstance[] = lod > PROPS_MAX_LOD ? [] : battle ? battle.chunkProps(cx, cz, (x, z) => {
+    const props: PropInstance[] = lod > PROPS_MAX_LOD || this.config.mode === 'infection' ? [] : battle ? battle.chunkProps(cx, cz, (x, z) => {
       const g = this.sampleColumn(x, z, this.scratch), height = g.height, road = g.roadDistance - (g.roadHalfWidth ?? 2.4);
       return { height, slope: this.slopeAt(x, z, height, 1.5), road };
     }) : scatterChunkProps(this, cx, cz);
@@ -387,6 +402,7 @@ export class WorldGenerator {
    * The server re-validates each against collision before use.
    */
   findSpawnPoints(count: number, minSpacing = 180): SpawnPoint[] {
+    if (this.config.mode === 'infection') return friday13Spawns().slice(0, count).map((p) => ({ ...p, y: friday13Height(p.x, p.z) }));
     const rng = new Rng(hashCombine(this.seed, hashString('spawn')));
     const out: SpawnPoint[] = [];
     const s = makeColumnSample();

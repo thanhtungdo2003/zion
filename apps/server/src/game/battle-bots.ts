@@ -99,6 +99,12 @@ export class BattleBot implements Combatant {
   campUntil = 0;
   campYaw = 0;
   doorAt = 0;
+  /** Infection: a zombie (axe only, hunts humans), and the rules for everyone in that mode. */
+  zombie = false;
+  /** Infection: magazines refill from nothing. */
+  infiniteAmmo = false;
+  speedMul = 1;
+  jumpMul = 1;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -117,7 +123,7 @@ export class BattleBot implements Combatant {
     const gun = this.gunItem?.itemId;
     return gun ? this.items.filter(i => ITEMS[i.itemId]?.ammo?.guns.includes(gun) && (i.count ?? 0) > 0) : [];
   }
-  get reserve(): number { return this.ammoItems().reduce((n, i) => n + (i.count ?? 0), 0); }
+  get reserve(): number { return this.infiniteAmmo ? 999 : this.ammoItems().reduce((n, i) => n + (i.count ?? 0), 0); }
 }
 
 /** Bot gunplay tuning (battle royale). Slower than a sharp human, so fights are winnable. */
@@ -141,6 +147,10 @@ export interface BotHooks {
   loot(id: string, choose: (items: readonly PlacedItem[]) => number[]): PlacedItem[];
   /** Opens a closed door just ahead of a walking bot (houses, blocks). */
   openDoor?(x: number, y: number, z: number, yaw: number): void;
+  /** Infection: who counts as an enemy of this bot (players and other bots). */
+  enemy?(bot: BattleBot, id: number): boolean;
+  /** Infection: a bot's blow or bullet on another bot, settled by the game (true = handled). */
+  botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
 }
 
 export interface BotWorld {
@@ -291,8 +301,9 @@ export class BattleBotDirector {
 
   private enemies(bot: BattleBot, players: readonly Player[]): Array<Combatant & { state: CharacterState; id: number }> {
     const list: Array<Combatant & { state: CharacterState; id: number }> = [];
-    for (const p of players) if (!p.dead && !p.state.flight && p.active) list.push(p);
-    for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (!bot.squad || other.squad !== bot.squad)) list.push(other);
+    const enemy = this.hooks.enemy;
+    for (const p of players) if (!p.dead && !p.state.flight && p.active && (!enemy || enemy(bot, p.id))) list.push(p);
+    for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (enemy ? enemy(bot, other.id) : !bot.squad || other.squad !== bot.squad)) list.push(other);
     return list;
   }
 
@@ -344,6 +355,7 @@ export class BattleBotDirector {
   private decide(bot: BattleBot, now: number, world: BotWorld, players: readonly Player[]): void {
     const s = bot.state;
     if (bot.reloadUntil && now >= bot.reloadUntil) this.finishReload(bot);
+    if (bot.zombie) { this.hunt(bot, players, world); return; }
     // Target: keep the current one while visible, otherwise the nearest visible enemy.
     const alerted = !!bot.alert && now < bot.alert.until;
     if (bot.target && (bot.target.dead || !this.visible(bot, bot.target, true))) bot.target = null;
@@ -434,6 +446,23 @@ export class BattleBotDirector {
     bot.mode = world.phase === 'running' ? 'roam' : 'idle';
   }
 
+  /** Zombie: always on the nearest human it can reach, sensed through walls; otherwise prowl. */
+  private hunt(bot: BattleBot, players: readonly Player[], world: BotWorld): void {
+    const s = bot.state;
+    let best = Infinity;
+    bot.target = null;
+    for (const e of this.enemies(bot, players)) {
+      const d = Math.hypot(e.state.x - s.x, e.state.z - s.z) + Math.abs(e.state.y - s.y) * 2;
+      if (d < best && d < 140) { best = d; bot.target = e; }
+    }
+    if (bot.target) { bot.mode = 'brawl'; bot.reactAt = 0; return; }
+    if (bot.mode !== 'roam' || !bot.goal || Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 3) {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * world.circle.radius * .8;
+      bot.goal = { x: world.circle.x + Math.cos(a) * r, y: s.y, z: world.circle.z + Math.sin(a) * r };
+    }
+    bot.mode = 'roam';
+  }
+
   /* ------------------------------------------------------------------------------ movement */
 
   private move(bot: BattleBot, now: number, world: BotWorld): void {
@@ -446,6 +475,13 @@ export class BattleBotDirector {
       const reach = bot.melee?.range ?? MELEE.range;
       if (now > bot.strafeUntil) { bot.strafe = Math.random() < .5 ? -1 : 1; bot.strafeUntil = now + 500 + Math.random() * 700; }
       mz = d > reach * .8 ? 1 : 0; mx = d < reach * 1.5 ? bot.strafe * .4 : 0; sprint = d > 4;
+      // Far off or on another level: path round the walls and up the stairs.
+      if (d > 4 || Math.abs(t.y - s.y) > 1.2) {
+        const way = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: t.x, y: t.y, z: t.z }, now);
+        if (way) yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
+        mx = 0; mz = 1;
+        if (now >= bot.doorAt) { bot.doorAt = now + 700; this.hooks.openDoor?.(s.x, s.y, s.z, bot.yaw); }
+      }
     } else if (bot.mode === 'fight' && bot.target) {
       const t = bot.target.state, dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
       yaw = Math.atan2(-dx, -dz);
@@ -493,11 +529,12 @@ export class BattleBotDirector {
     // Movement axes are relative to the facing; recompute so a partly turned bot still heads to `yaw`.
     const rel = yaw - bot.yaw, c = Math.cos(rel), sn = Math.sin(rel);
     const rmx = mx * c - mz * sn, rmz = mx * sn + mz * c;
-    const roll = bot.rollRequest && !prone && s.grounded;
+    if (bot.zombie) prone = false;
+    const roll = bot.rollRequest && !prone && s.grounded && !bot.zombie;
     bot.rollRequest = false;
     // Roll sideways (relative to the facing) when dodging.
     const rx = roll ? (bot.strafe || 1) : rmx, rz = roll ? 0 : rmz;
-    this.controller.step(s, { mx: rx, mz: rz, yaw: bot.yaw, jump: detour && Math.random() < .08, sprint: sprint && !prone, prone, roll }, TICK_DT);
+    this.controller.step(s, { mx: rx, mz: rz, yaw: bot.yaw, jump: detour && Math.random() < .08, sprint: sprint && !prone, prone, roll, speedMul: bot.speedMul, jumpMul: bot.jumpMul }, TICK_DT);
   }
 
   /* ------------------------------------------------------------------------------- looting */
@@ -542,6 +579,7 @@ export class BattleBotDirector {
     bot.reloadUntil = 0;
     const gun = bot.gun, item = bot.gunItem;
     if (!gun || !item) return;
+    if (bot.infiniteAmmo) { item.mag = gun.magazine; return; }
     let need = gun.magazine - (item.mag ?? 0);
     for (const ammo of bot.ammoItems()) {
       const take = Math.min(need, ammo.count ?? 0);
@@ -600,7 +638,7 @@ export class BattleBotDirector {
     bot.fireAt = now + (melee?.cooldownMs ?? MELEE.cooldownMs) + Math.random() * 150;
     bot.attackingUntil = now + (melee?.swingMs ?? MELEE.swingMs);
     const damage = melee?.damage ?? MELEE.baseDamage;
-    if (target instanceof BattleBot) this.hit(target, damage, bot.name, { x: s.x, z: s.z }, now, 'torso', bot.id);
+    if (target instanceof BattleBot) { if (!this.hooks.botHitsBot?.(bot, target, damage, 'torso', now)) this.hit(target, damage, bot.name, { x: s.x, z: s.z }, now, 'torso', bot.id); }
     else this.hooks.hitPlayer(bot, target as Player, damage, 'torso', t.x, t.y + 1.1, t.z, now);
   }
 
@@ -622,6 +660,7 @@ export class BattleBotDirector {
       if (!hit.target || !hit.zone) continue;
       const damage = Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]);
       if (hit.target instanceof BattleBot && r.bot.squad && hit.target.squad === r.bot.squad) continue;
+      if (hit.target instanceof BattleBot && this.hooks.botHitsBot?.(r.bot, hit.target, damage, hit.zone, now)) continue;
       if (hit.target instanceof BattleBot) this.hit(hit.target, damage, r.bot.name, { x: r.bot.state.x, z: r.bot.state.z }, now, hit.zone, r.bot.id);
       else this.hooks.hitPlayer(r.bot, hit.target as Player, damage, hit.zone, r.x, r.y, r.z, now);
     }

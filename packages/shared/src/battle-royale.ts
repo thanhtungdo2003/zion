@@ -1,4 +1,4 @@
-export type GameMode = 'survival' | 'battle-royale';
+export type GameMode = 'survival' | 'battle-royale' | 'infection';
 export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ', seed: 'zion-red-valley-02', sizeChunks: 128, maxPlayers: 48, minPlayers: 2 } as const;
 export interface BattleCircle { x: number; z: number; radius: number }
 /** Fixed battle royale clock (14:00) as a fraction of the day. */

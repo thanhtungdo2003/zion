@@ -13,3 +13,4 @@ export * from './bridges';
 export * from './battle-map';
 export * from './maps/authored';
 export * from './maps/island';
+export * from './maps/friday13';

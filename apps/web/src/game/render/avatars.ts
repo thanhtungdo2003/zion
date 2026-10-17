@@ -1,5 +1,5 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, CanvasTexture, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -84,6 +84,9 @@ const SLASH_CLIPS = ['sword_slash_vertical', 'sword_slash_horizontal', 'sword_sl
 const BACK_SCALE = 1.3;
 
 /** Player character built from the preloaded Blockbench model, driven by its own animation clips. */
+const INFECTED_TINT = new Color(1, .42, .4);
+const INFECTED_MATERIALS = new WeakMap<Material, Material>();
+
 export class Avatar {
   private drivingActive = false;
   drivingPose(quad: boolean | null, yaw: number, pitch=0, roll=0): void {
@@ -159,6 +162,35 @@ export class Avatar {
   private backId: string | null = null;
   private backObj: Object3D | null = null;
 
+  /** The character's own meshes (not weapons or armour), for the infection tint. */
+  private readonly bodyMeshes: Mesh[] = [];
+  private infected = false;
+
+  /**
+   * Infection zombie: the same skin under a faint red veil over the whole body (materials are
+   * shared between avatars, so tinted copies are cached per original).
+   */
+  setInfected(on: boolean): void {
+    if (on === this.infected) return;
+    this.infected = on;
+    for (const mesh of this.bodyMeshes) {
+      const swap = (m: Material): Material => {
+        if (!on) return (m.userData.untinted as Material | undefined) ?? m;
+        let tinted = INFECTED_MATERIALS.get(m);
+        if (!tinted) {
+          tinted = m.clone();
+          const t = tinted as Material & { color?: Color; emissive?: Color };
+          t.color?.multiply(INFECTED_TINT);
+          t.emissive?.setRGB(.3, .015, .01);
+          tinted.userData = { ...m.userData, untinted: m };
+          INFECTED_MATERIALS.set(m, tinted);
+        }
+        return tinted;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
+    }
+  }
+
   constructor(
     private readonly template: CharacterTemplate,
     isLocal: boolean,
@@ -166,6 +198,7 @@ export class Avatar {
     this.model = template.root.clone(true);
     this.model.traverse((o) => {
       if (o instanceof Mesh) {
+        this.bodyMeshes.push(o);
         o.castShadow = true;
         o.receiveShadow = !isLocal;
       } else if (o.userData.restPos) {

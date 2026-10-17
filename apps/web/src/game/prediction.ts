@@ -53,6 +53,8 @@ export class LocalPlayer {
   /** Advances prediction by one fixed tick and returns the message to send. */
   /** Armour and held-weapon movement multiplier (mirrors the server's). */
   speedMul = 1;
+  /** Jump height multiplier (infection zombies jump higher). */
+  jumpMul = 1;
   /** Thrown by a vehicle (server flag): no control, the body just flies. */
   knocked = false;
 
@@ -71,6 +73,7 @@ export class LocalPlayer {
       prone: (buttons & Buttons.Prone) !== 0,
       crouch: (buttons & Buttons.Crouch) !== 0,
       speedMul: this.speedMul * (buttons & Buttons.Aim ? .65 : 1),
+      jumpMul: this.jumpMul,
     };
     this.seq++;
     if (!this.dead) {

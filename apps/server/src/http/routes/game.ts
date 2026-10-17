@@ -3,7 +3,7 @@ import { PROTOCOL_VERSION, type GameMode } from '@zion/shared';
 import type { HttpDeps } from '../app';
 
 export function registerGameRoutes(app: FastifyInstance, deps: HttpDeps): void {
-  const schema = { querystring: { type: 'object', properties: { mode: { type: 'string', enum: ['survival', 'battle-royale'] } }, additionalProperties: false } };
+  const schema = { querystring: { type: 'object', properties: { mode: { type: 'string', enum: ['survival', 'battle-royale', 'infection'] } }, additionalProperties: false } };
   if (deps.atlas) app.get<{ Querystring: { mode?: GameMode } }>('/api/game/atlas', { schema, preHandler: app.requireAuth, config: { rateLimit: { max: 12, timeWindow: '1 minute' } } }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
     return deps.atlas!(req.query.mode);

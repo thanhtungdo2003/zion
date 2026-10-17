@@ -5,6 +5,8 @@ import { VEHICLES, vehicleSeatOf } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
+import { INFECTION } from '@zion/shared';
+import { loadInfectionLoadout } from '@/lib/infection-loadout';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
@@ -336,6 +338,10 @@ export class GameEngine {
   vision: VisionCone | null = null;
 
   private welcome: WelcomeMessage | null = null;
+  /** Infection: every zombie in the room, and whether we are one. */
+  private infectedIds = new Set<number>();
+  private selfInfected = false;
+  private get infection(): boolean { return this.welcome?.mode === 'infection'; }
   private store: ChunkStore | null = null;
   private local: LocalPlayer | null = null;
   private localAvatar: Avatar | null = null;
@@ -426,9 +432,10 @@ export class GameEngine {
     mode: GameMode = 'survival',
   ) {
     this.weaponCtl = new WeaponController({
-      available: (w) => this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? ''),
+      // Infection: unlimited ammunition (the magazine still needs reloading).
+      available: (w) => this.infection ? Infinity : this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? ''),
       // Rounds actually move on the server (it answers with the new inventory).
-      take: (w, n) => Math.min(n, this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? '')),
+      take: (w, n) => this.infection ? n : Math.min(n, this.inventory.ammoFor(ITEM_BY_WEAPON[w] ?? '')),
     });
     this.renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost);
@@ -988,7 +995,10 @@ export class GameEngine {
   private onWelcome(m: WelcomeMessage): void {
     this.welcome = m;
     settingsStore.setGameMode(m.mode ?? 'survival');
-    this.hud.set({ mode: m.mode ?? 'survival', battle: null, tutorial: null });
+    this.hud.set({ mode: m.mode ?? 'survival', battle: null, infection: null, tutorial: null });
+    this.infectedIds.clear(); this.selfInfected = false;
+    // Infection: the weapons this browser picked last time.
+    if (m.mode === 'infection') this.conn.sendLoadout(loadInfectionLoadout());
     if (m.mode === 'battle-royale') {
       this.battleZone = new BattleZone(this.scene);
       this.battleFlight = new BattleFlightRenderer(this.scene);
@@ -1233,6 +1243,8 @@ export class GameEngine {
 
   /** Testing aid: jump the world clock (0…1, 0.5 = noon). */
   setPvp(enabled: boolean): void { this.conn.sendPvp(enabled); }
+  /** Infection: choose the weapons for this and every later human life. */
+  setLoadout(loadout: { primary: string; secondary: string; melee: string }): void { this.conn.sendLoadout(loadout); }
 
   setTimeOfDay(tod: number): void {
     this.conn.sendSetTime(tod);
@@ -1267,6 +1279,19 @@ export class GameEngine {
       case 'pvp':
         this.hud.set({ pvpEnabled: m.enabled, pvpRemaining: Math.ceil(m.remainingMs / 1000) });
         break;
+      case 'infection': {
+        const before = this.hud.get().infection;
+        this.infectedIds = new Set(m.zombieIds);
+        const turned = !!m.infected && !this.selfInfected;
+        this.selfInfected = !!m.infected;
+        if (this.local) this.local.jumpMul = this.selfInfected ? INFECTION.zombieJump : 1;
+        this.syncArmor();
+        // A new round: the weapon picker opens by itself while the countdown runs.
+        if (m.phase === 'countdown' && before?.phase !== 'countdown' && !m.infected) this.inventory.setOpen(true);
+        this.hud.set({ infection: m });
+        if (turned) { this.inventory.setOpen(false); this.hud.set({ hurtAt: performance.now(), hurtAmount: 1 }); this.sounds?.play('knockdown', { volume: .9 }); }
+        break;
+      }
       case 'battle':
         this.hud.set({ battle: m });
         this.planeReceivedAt = performance.now();
@@ -1359,6 +1384,14 @@ export class GameEngine {
             const relative = Math.atan2(Math.sin(bearing - this.input.yaw), Math.cos(bearing - this.input.yaw));
             this.hud.set({ damageDirAt: performance.now(), damageDir: relative });
           }
+        }
+        // Infection: bullets shove a zombie back; mirror the server's push in our own prediction.
+        if (m.targetId === this.welcome?.playerId && this.selfInfected && this.local && m.kx !== undefined && m.kz !== undefined && m.force) {
+          const st = this.local.state;
+          let px = (st.pushX ?? 0) + m.kx * m.force, pz = (st.pushZ ?? 0) + m.kz * m.force;
+          const len = Math.hypot(px, pz);
+          if (len > INFECTION.knockMax) { px *= INFECTION.knockMax / len; pz *= INFECTION.knockMax / len; }
+          st.pushX = px; st.pushZ = pz;
         }
         if (m.zone === 'decapitation') this.zombies.get(m.targetId)?.avatar.severHead(m.kx ?? 0, m.kz ?? 1, m.force ?? 4);
         if (m.zone === 'slash' && m.damage > 0) this.sounds?.play('hitFlesh', { at: { x: m.x, y: m.y, z: m.z }, volume: 0.8, maxDistance: 25 });
@@ -1660,6 +1693,7 @@ export class GameEngine {
       r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
       r.avatar.setAimPitch(pose.pitch);
+      r.avatar.setInfected(this.infectedIds.has(r.entity.id));
       r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
@@ -1734,6 +1768,7 @@ export class GameEngine {
     this.localAvatar?.setOffhand(offhand, this.weapons);
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
+    this.localAvatar?.setInfected(this.selfInfected);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the
     // rendered body when it is streamed in, else the last reported team position.
@@ -1779,7 +1814,7 @@ export class GameEngine {
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
-    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
+    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' ? INFECTION.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
@@ -2006,13 +2041,15 @@ export class GameEngine {
     // The trigger becomes an attack only on ticks where the weapon actually fires.
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
+    // Infection zombies only run, jump and swing (the server enforces the same).
+    if (this.selfInfected) buttons &= ~(Buttons.Roll | Buttons.Prone | Buttons.Crouch | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Aim | Buttons.ThrowC4 | Buttons.Heal);
     if ((buttons & Buttons.Prone) || local.state.prone) buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Crouch);
     if ((buttons & Buttons.Crouch) || local.state.crouched) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     if (local.state.swimming || local.state.climbing || local.state.prone) buttons &= ~(Buttons.LeanLeft | Buttons.LeanRight);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
     // Aim is separate from the trigger and available with iron sights as well as optics.
     const equippedSpec = weaponSpec(weapon);
-    this.aiming = equippedSpec?.kind === 'gun' && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
+    this.aiming = equippedSpec?.kind === 'gun' && !this.selfInfected && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
     // Magnified optics take over the view; iron sights and red dots aim through the gun itself.
     this.scoped = this.aiming && equippedSpec?.kind === 'gun' && (opticOf(this.inventory.equippedAttachments())?.magnification ?? 1) > 1;
     // Raising and lowering the sights: a short cloth-and-metal shuffle.
@@ -2310,7 +2347,7 @@ export class GameEngine {
   private syncArmor(): void {
     const loadout = this.inventory.wornArmor();
     const key = ARMOR_SLOTS.map((s) => loadout[s]).join(',');
-    if (this.local) this.local.speedMul = armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
+    if (this.local) this.local.speedMul = this.selfInfected ? INFECTION.zombieSpeed : armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
     if (key === this.armorKey) return;
     const first = this.armorKey === '';
     this.armorKey = key;
@@ -2435,7 +2472,7 @@ export class GameEngine {
         const t = propTransform(chunk, prop);
         const chestDistance = (t.x - px) ** 2 + (t.z - pz) ** 2;
         const inCampChest = !!camp && Math.max(Math.abs(t.x - camp.x), Math.abs(t.z - camp.z)) <= camp.halfSize + 4;
-        if (CHEST_ASSETS.has(prop.asset) && !(prop.asset === id && inCampChest) && chestDistance <= closestChest && Math.abs(t.y - (this.local?.state.y ?? t.y)) <= 2.5) {
+        if (CHEST_ASSETS.has(prop.asset) && !this.infection && !(prop.asset === id && inCampChest) && chestDistance <= closestChest && Math.abs(t.y - (this.local?.state.y ?? t.y)) <= 2.5) {
           closestChest = chestDistance; this.nearChest = chestKey(prop.asset, t.x, t.y, t.z);
         }
         if (prop.asset !== id) continue;

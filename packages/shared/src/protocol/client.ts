@@ -143,8 +143,12 @@ export const questMessageSchema = z.object({ t: z.literal('quest'), op: z.enum([
 /** Battle royale: where to leave the plane automatically (a point on its flight path), or clear it. */
 export const jumpPointMessageSchema = z.object({ t: z.literal('jumppoint'), x: z.number().finite().min(-1).max(100_000), z: z.number().finite().min(-1).max(100_000) }).strict();
 
+/** Infection: the weapons to carry (each validated against the allowed list by the server). */
+export const loadoutMessageSchema = z.object({ t: z.literal('loadout'), primary: itemId, secondary: itemId, melee: itemId }).strict();
+
 const plainClientMessageSchema = z.discriminatedUnion('t', [
   jumpPointMessageSchema,
+  loadoutMessageSchema,
   z.object({ t: z.literal('pvp'), enabled: z.boolean() }).strict(),
   z.object({ t: z.literal('tutorial'), op: z.enum(['open', 'close', 'heartbeat']), id: z.enum(TUTORIAL_IDS).optional(), replay: z.boolean().optional() }).strict(),
   distressMessageSchema,
