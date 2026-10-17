@@ -2735,9 +2735,8 @@ export class GameEngine {
     this.useVehicle();
   }
 
-  /** E opens the inventory in first person; Tab / I in every view. */
-  private openBag(key: 'KeyE' | 'other'): void {
-    if (key === 'KeyE' && !this.firstPerson) return;
+  /** E, Tab or I: open the inventory, in every view. */
+  private openBag(_key: 'KeyE' | 'other'): void {
     if (!this.local || this.local.dead || this.hud.get().downed !== null || this.local.state.flight) return;
     if (this.hud.get().dialogue) { this.closeDialogue(); return; }
     this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearStorage ? 'stash' : this.station);
