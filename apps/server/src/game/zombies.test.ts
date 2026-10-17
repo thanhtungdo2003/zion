@@ -9,6 +9,21 @@ import type { Player } from './player';
 const director = new ZombieDirector({} as CollisionWorld, {} as SpawnService, { attackPlayer: () => undefined });
 
 describe('zombie damage', () => {
+  it('a bucket over the head takes head hits until 50 damage breaks it; armour soaks body hits', () => {
+    const z = new Zombie(1_000_031, 10, 0, 10, ZombieVariant.Rotting);
+    z.bucket = 50;
+    const attacker = { dead: false } as Player;
+    expect(director.hit(z, 'head', 30, 0, 1, 0, 100, attacker)).toMatchObject({ killed: false, shield: 'bucket' });
+    expect(z.health).toBe(70);
+    expect(director.hit(z, 'head', 30, 0, 1, 0, 200, attacker)).toMatchObject({ killed: false, shield: 'bucketBroke' });
+    expect(z.bucket).toBe(0);
+    expect(director.hit(z, 'head', 10, 0, 1, 0, 300, attacker).killed).toBe(true);
+    const armored = new Zombie(1_000_032, 10, 0, 10, ZombieVariant.Gaunt);
+    armored.armor = { head: 11, chest: 12, legs: 13, feet: 14 }; armored.armorDurability = 300; armored.helmetDurability = 160;
+    director.hit(armored, 'torso', 40, 0, 1, 0, 100, attacker);
+    expect(armored.health).toBeGreaterThan(70 - 40);
+    expect(director.hit(armored, 'head', 20, 0, 1, 0, 200, attacker).killed).toBe(false);
+  });
   it('keeps brute movement intact under hits and prevents decapitation without blocking damage', () => {
     const zombie = new Zombie(1_000_021, 10, 0, 10, ZombieVariant.Brute);
     const attacker = { dead: false } as Player;
@@ -16,7 +31,7 @@ describe('zombie damage', () => {
     zombie.state.vz = -3;
     zombie.staggerUntil = 50;
     expect(director.hit(zombie, 'decapitation', 30, 1, 1, 20, 100, attacker).killed).toBe(false);
-    expect(zombie.health).toBe(250);
+    expect(zombie.health).toBe(170);
     expect(zombie.limbs & Limb.Head).toBe(0);
     expect(zombie.state.vx).toBe(2);
     expect(zombie.state.vz).toBe(-3);
@@ -79,7 +94,7 @@ describe('zombie damage', () => {
       expect(part.r).toBeCloseTo(ZOMBIE_RIG[i]!.r * 1.5);
       expect(part.a[1]).toBeCloseTo(ZOMBIE_RIG[i]!.a[1] * 1.5);
     }
-    expect(brute.maxHealth).toBe(280);
+    expect(brute.maxHealth).toBe(200);
   });
   it('accepts headshots at the scaled head height through combat broad phase', () => {
     const world = new CollisionWorld({ worldSize: 100, seaLevel: -10 });

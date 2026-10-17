@@ -2,6 +2,7 @@ import { Box3, Group, Matrix4, Mesh, Vector3, type Euler, type Object3D, type Sc
 import { EntityFlags, Limb, isCrawling, ZombieVariant } from '@zion/shared';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { Ragdoll } from './ragdoll';
+import { armorPieces } from './armor-models';
 
 export const ZOMBIE_MODEL_URL = '/models/mobs/hunched-rotting-zombie.bbmodel';
 export const ZOMBIE_MODEL_URLS = [ZOMBIE_MODEL_URL, '/models/mobs/gaunt-zombie.bbmodel', '/models/mobs/brute-zombie.bbmodel', '/models/mobs/crimson-eyed-zombie.bbmodel'] as const;
@@ -95,6 +96,48 @@ export class ZombieAvatar {
     this.root.scale.setScalar(scale);
     this.root.add(this.model);
     this.root.visible = false;
+  }
+
+  private readonly armor = new Map<string, Object3D[]>();
+  private restWorld: Map<string, Vector3> | null = null;
+  private bucket: Object3D | null = null;
+
+  /** Armour off a dead survivor (same pieces as the players'), riding on this zombie's bones. */
+  setArmor(slot: string, template: CharacterTemplate | null): void {
+    for (const o of this.armor.get(slot) ?? []) o.removeFromParent();
+    this.armor.delete(slot);
+    if (!template) return;
+    if (!this.restWorld) {
+      // Bone rest positions in model space (taken once, before any animation moved them).
+      const saved = this.model.parent;
+      this.model.removeFromParent(); this.model.updateMatrixWorld(true);
+      this.restWorld = new Map([...this.bones].map(([name, b]) => [name, b.node.getWorldPosition(new Vector3())]));
+      saved?.add(this.model);
+    }
+    const objs: Object3D[] = [];
+    for (const { bone, object } of armorPieces(template, (b) => this.restWorld!.get(b))) {
+      this.bones.get(bone)?.node.add(object);
+      objs.push(object);
+    }
+    this.armor.set(slot, objs);
+  }
+
+  /** An iron bucket upside down over the head (`model`: the bucket prop), or none. */
+  setBucket(model: Object3D | null): void {
+    this.bucket?.removeFromParent();
+    this.bucket = null;
+    const head = this.bones.get('head')?.node;
+    if (!model || !head) return;
+    // Fit it over the head: a little wider than the skull, sitting down to the brow.
+    const box = new Box3().setFromObject(model), size = box.getSize(new Vector3());
+    const holder = new Group();
+    model.position.sub(box.getCenter(new Vector3()));
+    holder.add(model);
+    holder.scale.setScalar(.62 / Math.max(size.x, size.z, .01));
+    holder.rotation.x = Math.PI;
+    holder.position.set(0, .26, 0);
+    head.add(holder);
+    this.bucket = holder;
   }
 
   /** Bone world position (for gore at a severed limb). */

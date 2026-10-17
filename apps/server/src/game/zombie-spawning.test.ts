@@ -104,7 +104,7 @@ describe('crimson zombie leap', () => {
     director.step([p], 50, .5);
     expect(z.state.grounded).toBe(true);
     director.step([p], 700, .5);
-    expect(z.health).toBe(65);
+    expect(z.health).toBe(50);
     expect(z.state.vy).toBeGreaterThan(0);
     expect(z.state.vz).toBeLessThan(0);
     const entities: EntityState[] = [];

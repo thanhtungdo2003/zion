@@ -43,7 +43,7 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
           <Icon name="game-icons:biohazard" />
           <span>Mầm bệnh bùng phát sau khi trận bắt đầu</span>
           <b>{Math.ceil(left / 1000)}</b>
-          <small><kbd>Tab</kbd> chọn vũ khí</small>
+          <small><kbd>E</kbd> chọn vũ khí</small>
         </div>
       )}
       {state.phase === 'running' && state.infected && respawn === null && health > 0 && (

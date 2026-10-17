@@ -1,6 +1,10 @@
 import { ITEMS } from './items';
 import { WEAPON_BY_ITEM, weaponSpec } from './weapons';
 import type { InventoryData, PlacedItem } from './inventory';
+import { compatibleSlot } from './attachments';
+
+/** Bolt-action and marksman rifles: Infection hands them out scoped. */
+const SNIPERS = new Set(['svd', 'awm', 'kar98k']);
 
 /**
  * Infection ("Lây Nhiễm"): a small, dense night map; everyone starts human with a chosen loadout
@@ -75,7 +79,9 @@ export function infectionInventory(loadout: InfectionLoadout): InventoryData {
   let uid = 1;
   const item = (itemId: string, container: PlacedItem['container'], x: number): PlacedItem => {
     const spec = weaponSpec(WEAPON_BY_ITEM[itemId] ?? 0);
-    return { uid: uid++, itemId, container, x, y: 0, rotated: false, ...(spec?.kind === 'gun' ? { mag: spec.magazine } : {}) };
+    // Sniper rifles come with a 4× scope already fitted.
+    const scoped = SNIPERS.has(itemId) && compatibleSlot(itemId, 'scope_4x') === 'optic';
+    return { uid: uid++, itemId, container, x, y: 0, rotated: false, ...(spec?.kind === 'gun' ? { mag: spec.magazine } : {}), ...(scoped ? { attachments: { optic: 'scope_4x' } } : {}) };
   };
   const items = [item(loadout.primary, 'primary', 0), item(loadout.secondary, 'secondary', 0), item(loadout.melee, 'heavy', 0), ...INFECTION_THROWABLES.map((id, i) => item(id, 'grenades', i))];
   return { items, equipped: 1 };

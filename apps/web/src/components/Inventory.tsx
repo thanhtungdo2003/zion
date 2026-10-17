@@ -416,7 +416,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
     const onMove = (e: MouseEvent) => setMouse({ x: e.clientX, y: e.clientY });
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'KeyR') store.rotateHeld();
-      else if (e.code === 'KeyE' || e.code === 'Tab' || e.code === 'KeyI' || e.code === 'Escape') {
+      else if (e.code === 'KeyE' || e.code === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         if (state.held && e.code === 'Escape') store.returnHeld();

@@ -47,8 +47,14 @@ export function zombieVariant(packed: number): ZombieVariant {
   const value = (packed >>> 4) & 3;
   return value === 1 || value === 2 || value === 3 ? value : 0;
 }
+/** Health per kind: the big one 200, the leaper 50, the rest 70. */
 export function zombieMaxHealth(variant: ZombieVariant): number {
-  return variant === ZombieVariant.Brute ? 280 : variant === ZombieVariant.Crimson ? 65 : ZOMBIE_MAX_HEALTH;
+  return variant === ZombieVariant.Brute ? 200 : variant === ZombieVariant.Crimson ? 50 : 70;
 }
+
+/** A zombie's head slot (snapshot `armor` byte 0) holding an iron bucket instead of a helmet. */
+export const ZOMBIE_BUCKET = 250;
+/** How much a bucket takes before it breaks (one 50-damage round does it). */
+export const ZOMBIE_BUCKET_DURABILITY = 50;
 
 export function zombieScale(variant: ZombieVariant): number { return variant === ZombieVariant.Brute ? 1.5 : 1; }

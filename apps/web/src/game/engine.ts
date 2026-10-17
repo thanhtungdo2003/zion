@@ -8,7 +8,7 @@ import type { GameMode } from '@zion/shared';
 import { INFECTION } from '@zion/shared';
 import { loadInfectionLoadout } from '@/lib/infection-loadout';
 import { clearActiveMatch, markActiveMatch, rejoinAttempt, rejoinSucceeded } from '@/lib/rejoin';
-import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
+import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey, ZOMBIE_BUCKET } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
@@ -381,7 +381,7 @@ export class GameEngine {
   private nurseTemplate: CharacterTemplate | null = null;
   private zombieTemplate: CharacterTemplate | null = null;
   private zombieTemplates: CharacterTemplate[] = [];
-  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; limbs: number; variant: ZombieVariant; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
+  private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; armor?: number; limbs: number; variant: ZombieVariant; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
   private debris: DebrisSystem | null = null;
   private weapons: WeaponLibrary | null = null;
   /** Character field of view; monsters should use `vision.canSee(...)`. */
@@ -1180,6 +1180,7 @@ export class GameEngine {
         }
         zb.entity.push(s.serverTime, e);
         zb.limbs = e.weapon & (15 | Limb.Head);
+        if ((e.armor ?? 0) !== zb.armor) { zb.armor = e.armor ?? 0; this.dressZombie(zb.avatar, zb.armor); }
         continue;
       }
       let r = this.remotes.get(e.id);
@@ -1483,6 +1484,12 @@ export class GameEngine {
         if (m.zone === 'red_zone') {
           // The zone burns steadily: a faint flash, no blood, and first aid keeps going.
           if (m.targetId === this.welcome?.playerId) this.hud.set({ hurtAt: performance.now(), hurtAmount: 0.25 });
+          break;
+        }
+        // A bucket over a zombie's head rings (and flies off when it breaks): no blood.
+        if (m.zone === 'bucket' || m.zone === 'bucket_break') {
+          this.sounds?.play('bulletHit', { at: { x: m.x, y: m.y, z: m.z }, volume: 1, rate: .55, maxDistance: 40 });
+          if (this.effects) ParticleFX.burning(this.effects.particles, m.x, m.y, m.z);
           break;
         }
         this.bloodAt(m);
@@ -2415,6 +2422,28 @@ export class GameEngine {
   }
 
   /** Dresses an avatar in a loadout (models load on demand; re-dressed when they arrive). */
+  private bucketModel: Promise<Group | null> | null = null;
+  /** A zombie's gear: a bucket over the head, or a survivor's armour pieces. */
+  private dressZombie(avatar: ZombieAvatar, packed: number): void {
+    if (this.disposed) return;
+    const loadout = unpackArmor(packed), bucket = loadout.head === ZOMBIE_BUCKET;
+    if (bucket) {
+      this.bucketModel ??= (this.library.load(CAMP_ASSET['old-iron-bucket']) ?? Promise.resolve(undefined)).then((v) => {
+        if (!v) return null;
+        const g = new Group();
+        for (const part of v.parts) g.add(new Mesh(part.geometry, part.material));
+        return g;
+      }).catch(() => null);
+      void this.bucketModel.then((g) => { if (g && this.zombies.size) avatar.setBucket(g.clone(true)); });
+    } else avatar.setBucket(null);
+    for (const slot of ARMOR_SLOTS) {
+      const id = slot === 'head' && bucket ? 0 : loadout[slot];
+      if (!id) { avatar.setArmor(slot, null); continue; }
+      const t = requestArmor(id, () => this.dressZombie(avatar, packed));
+      if (t !== undefined) avatar.setArmor(slot, t);
+    }
+  }
+
   private dressAvatar(avatar: Avatar, loadout: ArmorLoadout): void {
     if (this.disposed) return;
     for (const slot of ARMOR_SLOTS) {

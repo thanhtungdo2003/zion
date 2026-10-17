@@ -114,10 +114,15 @@ export class InputController {
         this.onChat();
         return;
       }
-      // Inventory: E in first person, Tab / I in every view (the engine decides by camera).
-      if (e.code === 'KeyE' || e.code === 'Tab' || e.code === 'KeyI') {
+      // Inventory: E. Tab switches to the next weapon.
+      if (e.code === 'KeyE') {
         e.preventDefault();
-        if (!e.repeat) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory(e.code === 'KeyE' ? 'KeyE' : 'other'); }
+        if (!e.repeat) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory('KeyE'); }
+        return;
+      }
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        if (!e.repeat) this.handlers.cycleHotbar(1);
         return;
       }
       if (e.code === 'KeyX' && !e.repeat) { this.crouch = !this.crouch; if (this.crouch) this.prone = false; }

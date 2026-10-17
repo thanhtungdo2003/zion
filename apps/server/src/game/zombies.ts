@@ -1,3 +1,4 @@
+import { ARMOR_BY_ID, NO_ARMOR, ZOMBIE_BUCKET, ZOMBIE_BUCKET_DURABILITY, armorProtection, packArmor, type ArmorLoadout } from '@zion/shared';
 import type { SuspendedZombie } from '@zion/shared';
 import { zombieScale } from '@zion/shared';
 import {
@@ -110,6 +111,12 @@ export class Zombie {
   jumpingUntil = 0;
   jumpWindupUntil = 0;
   leapYaw = 0;
+  /** An iron bucket over the head (no headshots while it holds): what it can still take. */
+  bucket = 0;
+  /** Armour off a dead survivor: worn pieces (wire ids) and what the set and the helmet can still take. */
+  armor: ArmorLoadout = { ...NO_ARMOR };
+  armorDurability = 0;
+  helmetDurability = 0;
   /** Half of all zombies can climb ladders to reach prey up on a roof or a tower. */
   readonly climber = Math.random() < .5;
   /** Ladder this climber is heading for: where to stand at its foot and its centre. */
@@ -295,6 +302,18 @@ export class ZombieDirector {
     const roll = Math.random();
     const variant = roll < .03 ? ZombieVariant.Brute : roll < .23 ? ZombieVariant.Crimson : roll < .58 ? ZombieVariant.Gaunt : ZombieVariant.Rotting;
     const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, variant);
+    // Some wear a bucket over the head, some the armour of a survivor they caught.
+    if (variant !== ZombieVariant.Brute) {
+      const kit = Math.random();
+      if (kit < .14) z.bucket = ZOMBIE_BUCKET_DURABILITY;
+      else if (kit < .26) {
+        const sets = [[1, 2, 3, 4], [8, 5, 6, 7], [8, 9, 10, 7], [11, 12, 13, 14]] as const;
+        const [head, chest, legs, feet] = sets[Math.floor(Math.random() * sets.length)]!;
+        z.armor = { head: Math.random() < .6 ? head : 0, chest, legs, feet };
+        z.armorDurability = [chest, legs, feet].reduce((n, id) => n + (ARMOR_BY_ID.get(id)?.durability ?? 0), 0);
+        z.helmetDurability = z.armor.head ? ARMOR_BY_ID.get(z.armor.head)?.durability ?? 0 : 0;
+      }
+    }
     this.zombies.set(z.id, z);
     return z;
   }
@@ -566,8 +585,29 @@ export class ZombieDirector {
     z.attackReadyAt = Math.max(z.attackReadyAt, z.staggerUntil);
   }
 
-  hit(z: Zombie, zone: string, damage: number, dirX: number, dirZ: number, impulse: number, now: number, attacker: Player | null): { killed: boolean; broke: number } {
+  hit(z: Zombie, zone: string, damage: number, dirX: number, dirZ: number, impulse: number, now: number, attacker: Player | null): { killed: boolean; broke: number; shield?: 'bucket' | 'bucketBroke' | 'helmet' | 'armor' } {
     if (z.dead) return { killed: false, broke: 0 };
+    const head = zone === 'head' || zone === 'decapitation';
+    let shield: 'bucket' | 'bucketBroke' | 'helmet' | 'armor' | undefined;
+    // The bucket takes the head hit (no damage gets through) until it breaks.
+    if (head && z.bucket > 0) {
+      z.bucket = Math.max(0, z.bucket - damage);
+      if (attacker && !attacker.dead) z.target = attacker;
+      z.staggerUntil = Math.max(z.staggerUntil, now + 200);
+      return { killed: false, broke: 0, shield: z.bucket > 0 ? 'bucket' : 'bucketBroke' };
+    }
+    // A helmet stops the instant kill: part of the hit gets through, the helmet wears down.
+    if (head && z.armor.head && zone !== 'decapitation') {
+      const p = ARMOR_BY_ID.get(z.armor.head)?.protection ?? .1;
+      z.helmetDurability -= damage;
+      if (z.helmetDurability <= 0) z.armor = { ...z.armor, head: 0 };
+      zone = 'torso'; damage = damage * (1 - p) * 1.5; shield = 'helmet';
+    } else if (!head && z.armorDurability > 0) {
+      // Body armour soaks a share of every body / limb hit while it lasts.
+      const p = armorProtection({ ...z.armor, head: 0 }), absorbed = damage * p;
+      z.armorDurability -= absorbed; damage -= absorbed; shield = 'armor';
+      if (z.armorDurability <= 0) z.armor = { ...z.armor, chest: 0, legs: 0, feet: 0 };
+    }
     // Knockback: shove along the shot direction and briefly stagger.
     if (z.variant !== ZombieVariant.Brute) {
       const s = z.state;
@@ -596,9 +636,9 @@ export class ZombieDirector {
       z.biteTarget = null;
       z.deadAt = now;
       z.health = 0;
-      return { killed: true, broke };
+      return { killed: true, broke, shield };
     }
-    return { killed: false, broke };
+    return { killed: false, broke, shield };
   }
 
   /** Gunfire is loud: zombies within earshot come to investigate. */
@@ -639,7 +679,7 @@ export class ZombieDirector {
       // Head pitch: looking up at prey on a roof or down at someone below.
       const t = z.target && !z.dead ? z.target.state : null;
       const pitch = t ? Math.max(-1, Math.min(1, Math.atan2(t.y + 1.5 - (z.state.y + 1.55 * zombieScale(z.variant)), Math.hypot(t.x - z.state.x, t.z - z.state.z) || .01))) : 0;
-      out.push({ id: z.id, kind: EntityKind.Zombie, x: z.state.x, y: z.state.y, z: z.state.z, yaw: z.yaw, pitch, flags, health: Math.max(0, Math.round(z.health / z.maxHealth * 100)), weapon: z.limbs | (z.variant << 4) });
+      out.push({ id: z.id, kind: EntityKind.Zombie, x: z.state.x, y: z.state.y, z: z.state.z, yaw: z.yaw, pitch, flags, health: Math.max(0, Math.round(z.health / z.maxHealth * 100)), weapon: z.limbs | (z.variant << 4), armor: packArmor({ ...z.armor, head: z.bucket > 0 ? ZOMBIE_BUCKET : z.armor.head }) });
     }
   }
 }

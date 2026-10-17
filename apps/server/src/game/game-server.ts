@@ -235,7 +235,7 @@ export class GameServer {
   readonly merchant: CampNpc;
   readonly nurse: CampNpc;
   /** Launcher rounds in flight (40 mm grenades, rockets, bolts). */
-  private readonly rounds: Array<{ id: number; owner: Player; w: number; spec: ProjectileSpec; damage: number; knockback: number; traveled: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; dieAt: number }> = [];
+  private readonly rounds: Array<{ id: number; owner: Player; w: number; spec: ProjectileSpec; damage: number; knockback: number; traveled: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; dieAt: number; /** Zombies this round already went through. */ pierced?: Set<Combatant> }> = [];
   private readonly activeScratch: Player[] = [];
   private readonly blastHit = makeRayHit();
   /** ZCoin lying on the ground, waiting to be picked up. */
@@ -2645,8 +2645,9 @@ export class GameServer {
       t: 'hit' as const,
       attackerId: sourceId,
       targetId: zb.id,
-      zone,
-      damage: Math.round(amount),
+      // A bucket over the head rings instead of bleeding (and flies off when it breaks).
+      zone: res.shield === 'bucket' ? 'bucket' : res.shield === 'bucketBroke' ? 'bucket_break' : zone,
+      damage: res.shield === 'bucket' || res.shield === 'bucketBroke' ? 0 : Math.round(amount),
       x,
       y,
       z,
@@ -3087,7 +3088,7 @@ export class GameServer {
       const dx = sx / fullLen, dy = sy / fullLen, dz = sz / fullLen;
       const candidates: Combatant[] = [
         ...this.grid.query(Math.floor(r.x / CHUNK_SIZE), Math.floor(r.z / CHUNK_SIZE), Math.ceil((len + 3) / CHUNK_SIZE), this.scratch).filter((t) => !this.allied(r.owner, t)),
-        ...this.zombies.near(r.x, r.z, len + 3),
+        ...this.zombies.near(r.x, r.z, len + 3).filter((z) => !r.pierced?.has(z)),
         ...this.animals.values(),
         ...(this.bots?.near(r.x, r.z, len + 3) ?? []),
       ];
@@ -3095,6 +3096,17 @@ export class GameServer {
       const npcHit = this.npcOnRay(r.x, r.y, r.z, dx, dy, dz, hit.t);
       if (npcHit && this.players.get(r.owner.id) === r.owner) this.provokeNpc(npcHit.npc, r.owner, now);
       const t = npcHit ? npcHit.t : hit.t;
+      // Survival: a heavy round (40+ damage) goes through an ordinary zombie and flies on weaker.
+      const owner0 = this.players.get(r.owner.id) === r.owner ? r.owner : null;
+      if (!this.arena && !npcHit && owner0 && hit.zone && hit.target instanceof Zombie && hit.target.variant !== ZombieVariant.Brute && r.spec.kind === 'bullet' && !r.spec.blast && r.damage >= 40) {
+        const k = Math.hypot(r.vx, r.vz) || 1;
+        const px = r.x + dx * t, py = r.y + dy * t, pz = r.z + dz * t;
+        this.hitTarget(owner0, hit.target, Math.round(r.damage * ZONE_DAMAGE_MULTIPLIER[hit.zone]), hit.zone, px, py, pz, r.vx / k, r.vz / k, r.damage * .12 * r.knockback, now, r.knockback, r.w);
+        (r.pierced ??= new Set()).add(hit.target);
+        r.damage = Math.round(r.damage * .6);
+        r.x = px; r.y = py; r.z = pz; r.traveled += t;
+        continue;
+      }
       let stopped = !!npcHit || !!hit.target || hit.t < len - 1e-4;
       const nx = r.x + dx * t;
       const ny = r.y + dy * t;
