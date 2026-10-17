@@ -2687,11 +2687,13 @@ export class GameEngine {
         const reach = t.radius * (top ? 1.4 : 1);
         if (d <= reach && d < best) { best = d; pick = t; }
       }
-      if (!pick && this.firstPerson) pick = [...this.targets].sort((a, b) => Math.hypot(a.x - local.state.x, a.z - local.state.z) - Math.hypot(b.x - local.state.x, b.z - local.state.z))[0] ?? null;
+      // First person: nothing under the crosshair → the nearest loose item (F picks it up).
+      if (!pick && this.firstPerson) pick = this.targets.filter((t) => t.kind === 'ground').sort((a, b) => Math.hypot(a.x - local.state.x, a.z - local.state.z) - Math.hypot(b.x - local.state.x, b.z - local.state.z))[0] ?? null;
     }
     this.hovered = pick;
     const label = pick ? (pick.name && pick.kind === 'chest' ? { key: 'raw', vars: { text: `${this.translate(pick.label)} · ${pick.name}` } } as Msg : pick.label) : null;
-    const input: 'mouse' | 'key' = this.firstPerson ? 'key' : 'mouse';
+    // First person: right click opens chests and doors (and the like); F picks up items and boards vehicles.
+    const input: 'mouse' | 'key' = this.firstPerson && pick && (pick.kind === 'ground' || pick.kind === 'vehicle') ? 'key' : 'mouse';
     let at: [number, number] | null = null;
     if (pick && this.cameraMode === 'top-down') {
       const p = this.tmpA.set(pick.x, pick.y + .6, pick.z).project(this.camera);
@@ -2715,15 +2717,21 @@ export class GameEngine {
 
   /** Right click in TOP / third person on something usable: use it (true = the click is taken). */
   private useHovered(): boolean {
-    if (this.firstPerson || !this.hovered || this.inventory.get().open) return false;
+    if (!this.hovered || this.inventory.get().open) return false;
+    // First person: right click is for chests, doors and the like; items and vehicles are F.
+    if (this.firstPerson && (this.hovered.kind === 'ground' || this.hovered.kind === 'vehicle')) return false;
     if (this.local?.dead || this.hud.get().downed !== null) return false;
     this.hovered.run();
     return true;
   }
 
-  /** F: get in / out of a vehicle; in first person also use what is in focus. */
+  /** F: quick pick-up of a loose item (the one in focus, else the nearest), otherwise in / out of a vehicle. */
   private onKeyF(): void {
-    if (this.firstPerson && !this.local?.riding && this.hovered && this.hovered.kind !== 'vehicle') { this.hovered.run(); return; }
+    const local = this.local;
+    if (local && !local.riding && !local.dead) {
+      const ground = this.hovered?.kind === 'ground' ? this.hovered : this.targets.filter((t) => t.kind === 'ground').sort((a, b) => Math.hypot(a.x - local.state.x, a.z - local.state.z) - Math.hypot(b.x - local.state.x, b.z - local.state.z))[0];
+      if (ground) { ground.run(); return; }
+    }
     this.useVehicle();
   }
 
