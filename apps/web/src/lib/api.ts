@@ -1,5 +1,5 @@
 import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
-import type { AtlasTile, CustomWeapon, GameContent, GameMode, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
+import type { AtlasTile, CustomWeapon, GameContent, GameMode, InfectionMapDef, InfectionMaps, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
 import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
@@ -313,6 +313,19 @@ export function studioSaveContent(content: GameContent): Promise<GameContent> {
 }
 
 export interface PlayerProgress { id: string; username: string; journal: Record<string, { status: string; stage: number; progress: number }> }
+/** Infection maps (Studio "Lây nhiễm"). */
+export interface InfectionMapPreview {
+  half: number; step: number; size: number; origin: number; heights: number[]; grass: number[];
+  base: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
+  wall: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
+  nature: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
+  spawns: Array<{ x: number; z: number }>; zombieSpawns: Array<{ x: number; z: number }>;
+}
+export function studioInfectionMaps(): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps'); }
+export function studioSaveInfectionMap(map: InfectionMapDef): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps', { method: 'PUT', body: JSON.stringify(map) }); }
+export function studioActivateInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps/active', { method: 'POST', body: JSON.stringify({ id }) }); }
+export function studioDeleteInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest(`/api/studio/infection-maps/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }); }
+export function studioPreviewInfectionMap(map: InfectionMapDef): Promise<InfectionMapPreview> { return studioRequest('/api/studio/infection-maps/preview', { method: 'POST', body: JSON.stringify(map) }); }
 export function studioVehiclePhysics(): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics'); }
 export function studioSetVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics', { method: 'POST', body: JSON.stringify({ jolt }) }); }
 export type StudioWeapon = CustomWeapon & { modelUrl: string | null };
@@ -322,7 +335,7 @@ export function studioSaveWeapon(def: Omit<CustomWeapon, 'weaponId'> & { weaponI
   return studioRequest('/api/studio/weapons', { method: 'POST', body: JSON.stringify({ def, ...(model ? { model } : {}) }) });
 }
 export function studioResetWeapons(password: string, id?: string): Promise<{ ok: true; reset: string[] }> { return studioRequest('/api/studio/weapons/reset', { method: 'POST', body: JSON.stringify({ password, ...(id ? { id } : {}) }) }); }
-export function studioDeleteWeapon(id: string): Promise<{ ok: true }> { return studioRequest(`/api/studio/weapons/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+export function studioDeleteWeapon(id: string): Promise<{ ok: true }> { return studioRequest(`/api/studio/weapons/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }); }
 export function studioPlayers(): Promise<PlayerProgress[]> { return studioRequest('/api/studio/players'); }
 export function studioPlayerCounts(): Promise<{ online: number; total: number }> { return studioRequest('/api/studio/player-counts'); }
 export function studioCurrencyPlayers(search = ''): Promise<StudioCurrencyPlayer[]> { return studioRequest(`/api/studio/currency/players?search=${encodeURIComponent(search)}`); }

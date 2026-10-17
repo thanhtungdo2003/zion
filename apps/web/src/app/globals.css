@@ -2970,3 +2970,45 @@ kbd {
   .lo-bento { flex-direction: column; }
   .lo-side { width: auto; }
 }
+
+/* ------------------------------------------------------------ Studio: Infection map editor */
+.ix-page { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: var(--sans); }
+.ix-page .btn { width: auto; flex: none; }
+.ix-map-select { background: var(--panel-solid); color: var(--text); border: 1px solid var(--line); padding: 6px 8px; min-width: 200px; }
+.ix-error { margin: 6px 12px; }
+.ix-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; }
+.ix-panel { min-height: 0; overflow-y: auto; background: var(--panel-solid); border-right: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.ix-settings { border-right: 0; border-left: 1px solid var(--line); }
+.ix-tools, .ix-groups { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; background: var(--line); border: 1px solid var(--line); }
+.ix-tools button, .ix-groups button { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 4px; border: 0; border-radius: 0; background: #16181a; color: var(--text); cursor: pointer; font-size: 12px; }
+.ix-tools button svg { width: 20px; height: 20px; }
+.ix-tools button.on, .ix-groups button.on { background: #2a2414; color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
+.ix-tools button.zombie.on { color: var(--danger); box-shadow: inset 0 -2px 0 var(--danger); background: #2a1414; }
+.ix-search { background: #101213; color: var(--text); border: 1px solid var(--line); padding: 6px 8px; }
+.ix-list { flex: 1; min-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ix-list button { display: flex; flex-direction: column; align-items: flex-start; padding: 6px 8px; border: 0; border-left: 3px solid transparent; border-radius: 0; background: #16181a; color: var(--text); text-align: left; cursor: pointer; }
+.ix-list button:hover { background: #1d2022; }
+.ix-list button.on { border-left-color: var(--accent); background: #2a2414; }
+.ix-list b { font-size: 13px; font-weight: 600; }
+.ix-list small { font-size: 11px; color: var(--muted); }
+.ix-hint { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.ix-plan { position: relative; min-width: 0; min-height: 0; }
+.ix-plan canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.ix-legend { position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 10px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; pointer-events: none; }
+.ix-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+.ix-section { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #16181a; border: 1px solid var(--line); border-top: 2px solid var(--line); }
+.ix-selected { border-top-color: var(--accent); }
+.ix-section h3 { margin: 0; font: 700 12px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.ix-selected h3 { color: var(--accent); }
+.ix-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ix-field > span { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.ix-field b { color: var(--text); font-variant-numeric: tabular-nums; }
+.ix-field input[type='range'] { width: 100%; accent-color: var(--accent); }
+.ix-field input:not([type]), .ix-field select, .ix-xyz input { background: #101213; color: var(--text); border: 1px solid var(--line); padding: 5px 7px; width: 100%; }
+.ix-seed { display: flex; gap: 4px; }
+.ix-xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ix-xyz label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); }
+.ix-row { display: flex; gap: 6px; }
+.ix-create { display: flex; flex-direction: column; gap: 8px; min-width: 340px; }
+.ix-create h2 { margin: 0 0 4px; }
+@media (max-width: 1100px) { .ix-layout { grid-template-columns: 220px minmax(0, 1fr) 280px; } }

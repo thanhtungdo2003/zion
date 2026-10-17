@@ -27,6 +27,12 @@ export interface StudioBackend {
   terrain(): { size: number; step: number; origin: number; heights: number[]; water: number } | null;
   reset(): Promise<void>;
   /** Vehicle physics engine for every game server (Jolt or the built-in arcade model). */
+  /** Infection maps (Studio "Lây nhiễm" tab). */
+  infectionMaps(): unknown;
+  saveInfectionMap(map: unknown): Promise<unknown>;
+  deleteInfectionMap(id: string): Promise<unknown>;
+  activateInfectionMap(id: string): Promise<unknown>;
+  previewInfectionMap(map: unknown): unknown;
   vehiclePhysics(): { jolt: boolean };
   setVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }>;
 }
@@ -241,6 +247,20 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     return t;
   });
 
+  const fail = (reply: { code(n: number): { send(b: unknown): unknown } }, err: unknown) => reply.code(400).send({ error: 'invalid_request', message: err instanceof z.ZodError ? err.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') : (err as Error).message });
+  app.get('/api/studio/infection-maps', { preHandler: guard }, async () => studio.infectionMaps());
+  app.put('/api/studio/infection-maps', { preHandler: guard, bodyLimit: 4 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try { return await studio.saveInfectionMap(req.body); } catch (err) { return fail(reply, err); }
+  });
+  app.post('/api/studio/infection-maps/preview', { preHandler: guard, bodyLimit: 4 * 1024 * 1024, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try { return studio.previewInfectionMap(req.body); } catch (err) { return fail(reply, err); }
+  });
+  app.post('/api/studio/infection-maps/active', { preHandler: guard }, async (req, reply) => {
+    try { return await studio.activateInfectionMap(z.object({ id: z.string() }).strict().parse(req.body).id); } catch (err) { return fail(reply, err); }
+  });
+  app.delete<{ Params: { id: string } }>('/api/studio/infection-maps/:id', { preHandler: guard }, async (req, reply) => {
+    try { return await studio.deleteInfectionMap(req.params.id); } catch (err) { return fail(reply, err); }
+  });
   app.get('/api/studio/vehicle-physics', { preHandler: guard }, async () => studio.vehiclePhysics());
   app.post('/api/studio/vehicle-physics', { preHandler: guard }, async (req) => studio.setVehiclePhysics(z.object({ jolt: z.boolean() }).strict().parse(req.body).jolt));
 

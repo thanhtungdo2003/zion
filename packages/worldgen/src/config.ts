@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hashString } from '@zion/shared';
+import { hashString, infectionMapSchema } from '@zion/shared';
 
 /**
  * Bump whenever generation output changes for the same seed. Persisted worlds record the version
@@ -11,6 +11,8 @@ export const worldConfigSchema = z
   .object({
     seed: z.number().int().min(0).max(0xffffffff),
     mode: z.enum(['survival', 'battle-royale', 'infection']).optional(),
+    /** Infection: the Studio map this world is built from (the built-in map when absent). */
+    infection: infectionMapSchema.optional(),
     /** World edge length in chunks (32 m each). 128 → 4.096 km. */
     sizeChunks: z.number().int().min(16).max(512),
     seaLevel: z.number().min(0).max(100).default(20),

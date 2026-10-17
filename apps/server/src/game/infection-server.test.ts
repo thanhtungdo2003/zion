@@ -31,7 +31,7 @@ interface Harness {
 
 describe('infection rules', () => {
   it('counts down, turns a patient zero, and ends when the humans are gone or the clock runs out', () => {
-    const m = new InfectionMatch(() => 0);
+    const m = new InfectionMatch(undefined, undefined, () => 0);
     m.join(1, 'a'); m.join(2, 'b'); m.join(3, 'c');
     // One player waits for a second one; after the lobby timeout the match starts anyway.
     expect(m.tick(0, 1).reset).toBeUndefined();

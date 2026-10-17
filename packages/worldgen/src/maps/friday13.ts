@@ -38,6 +38,7 @@ export function friday13Street(x: number, z: number): boolean {
 type Site = Structure;
 const cache = new WeakMap<object, Site[]>();
 
+/** The town districts and streets (world coordinates; the walls and nature are added per map). */
 export function friday13Structures(key: object): Site[] {
   const cached = cache.get(key);
   if (cached) return cached;
@@ -48,11 +49,8 @@ export function friday13Structures(key: object): Site[] {
 
   // ---- Perimeter wall and streets ----------------------------------------------------------
   {
+    // (The perimeter wall comes from the map settings, see infection-map.ts.)
     const parts: CampPart[] = [];
-    for (let o = -F13.half + 4; o <= F13.half - 4; o += 8) for (const side of [-1, 1]) {
-      parts.push({ asset: CAMP_ASSET['mossy-concrete-wall'], x: o, y: 0, z: side * F13.half, yaw: 0, scale: 2, group: 1 });
-      parts.push({ asset: CAMP_ASSET['mossy-concrete-wall'], x: side * F13.half, y: 0, z: o, yaw: Math.PI / 2, scale: 2, group: 1 });
-    }
     // Street tiles, one snapped grid so crossings never overlap.
     const tiles = new Set<string>();
     const tile = (x: number, z: number) => { const k = `${x}:${z}`; if (tiles.has(k)) return; tiles.add(k); parts.push({ asset: BATTLE_ASSET.street, x, y: .12, z, yaw: 0, scale: 1 }); };

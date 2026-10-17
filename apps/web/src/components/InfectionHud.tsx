@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { INFECTION, type InfectionState } from '@zion/shared';
+import type { InfectionState } from '@zion/shared';
 import { Icon } from './Icon';
 
 const clock = (ms: number) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -33,7 +33,7 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
       {state.phase === 'waiting' && (
         <div className="ifx-banner" role="status">
           <Icon name="lucide:users" />
-          <span>Đang ghép trận · {state.players}/{INFECTION.minPlayers} người</span>
+          <span>Đang ghép trận · {state.players}/{state.rules.minPlayers} người</span>
           <b>{left > 0 ? Math.ceil(left / 1000) : '…'}</b>
           <small>Đủ người là bắt đầu; hết giờ chờ thì vào trận cùng bot</small>
         </div>

@@ -342,6 +342,8 @@ export class GameEngine {
   private infectedIds = new Set<number>();
   private selfInfected = false;
   private get infection(): boolean { return this.welcome?.mode === 'infection'; }
+  /** The infection map's rules (sent with every round state), defaults until the first one. */
+  private get infectionRules() { return this.hud.get().infection?.rules ?? INFECTION; }
   private store: ChunkStore | null = null;
   private local: LocalPlayer | null = null;
   private localAvatar: Avatar | null = null;
@@ -1281,10 +1283,11 @@ export class GameEngine {
         break;
       case 'infection': {
         const before = this.hud.get().infection;
+        this.hud.set({ infection: m });
         this.infectedIds = new Set(m.zombieIds);
         const turned = !!m.infected && !this.selfInfected;
         this.selfInfected = !!m.infected;
-        if (this.local) this.local.jumpMul = this.selfInfected ? INFECTION.zombieJump : 1;
+        if (this.local) this.local.jumpMul = this.selfInfected ? this.infectionRules.zombieJump : 1;
         this.syncArmor();
         // A new round: the weapon picker opens by itself while the countdown runs.
         if (m.phase === 'countdown' && before?.phase !== 'countdown' && !m.infected) this.inventory.setOpen(true);
@@ -1390,7 +1393,7 @@ export class GameEngine {
           const st = this.local.state;
           let px = (st.pushX ?? 0) + m.kx * m.force, pz = (st.pushZ ?? 0) + m.kz * m.force;
           const len = Math.hypot(px, pz);
-          if (len > INFECTION.knockMax) { px *= INFECTION.knockMax / len; pz *= INFECTION.knockMax / len; }
+          if (len > this.infectionRules.knockMax) { px *= this.infectionRules.knockMax / len; pz *= this.infectionRules.knockMax / len; }
           st.pushX = px; st.pushZ = pz;
         }
         if (m.zone === 'decapitation') this.zombies.get(m.targetId)?.avatar.severHead(m.kx ?? 0, m.kz ?? 1, m.force ?? 4);
@@ -1814,7 +1817,7 @@ export class GameEngine {
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
-    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' ? INFECTION.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
+    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' ? this.infectionRules.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
@@ -2347,7 +2350,7 @@ export class GameEngine {
   private syncArmor(): void {
     const loadout = this.inventory.wornArmor();
     const key = ARMOR_SLOTS.map((s) => loadout[s]).join(',');
-    if (this.local) this.local.speedMul = this.selfInfected ? INFECTION.zombieSpeed : armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
+    if (this.local) this.local.speedMul = this.selfInfected ? this.infectionRules.zombieSpeed : armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
     if (key === this.armorKey) return;
     const first = this.armorKey === '';
     this.armorKey = key;

@@ -23,7 +23,8 @@ export const INFECTION = {
   finishedMs: 9_000,
   /** One patient zero per this many entrants (at least one). */
   perZombie: 8,
-  zombieHealth: 1500,
+  /** Zombie health (a human has 100); bullets keep their full damage. */
+  zombieHealth: 200,
   zombieSpeed: 1.3,
   zombieJump: 1.4,
   zombieRespawnMs: 4_000,
@@ -102,6 +103,8 @@ export interface InfectionState {
   players: number;
   /** The last round is over: the match ends. */
   over?: boolean;
+  /** The map's rules the client needs (prediction, light, HUD). */
+  rules: { zombieSpeed: number; zombieJump: number; timeOfDay: number; knockMax: number; minPlayers: number };
   /** The receiving player is a zombie. */
   infected?: boolean;
   /** Zombie waiting to rise again: ms left. */

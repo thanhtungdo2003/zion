@@ -65,6 +65,14 @@ export class MatchPool {
     }
   }
 
+  /** The map changed: empty matches (still on the old one) close, a fresh one opens. */
+  async retireIdle(): Promise<void> {
+    const idle = this.games.filter((g) => g.headcount === 0);
+    for (const game of idle) { this.games.splice(this.games.indexOf(game), 1); this.idleSince.delete(game); }
+    this.open();
+    await Promise.all(idle.map((g) => g.stop().catch((err: unknown) => this.log.error({ err }, 'match stop failed'))));
+  }
+
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     await Promise.all(this.games.map((g) => g.stop()));

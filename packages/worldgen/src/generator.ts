@@ -23,7 +23,7 @@ import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
 import { RoadNetwork } from './roads';
 import { authoredWorld } from './maps/authored';
-import { F13, friday13Height, friday13Spawns, friday13Street } from './maps/friday13';
+import { infectionHeight, infectionSpawns, infectionSurface, infectionInside } from './maps/infection-map';
 
 export const enum WaterKind {
   None = 0,
@@ -129,7 +129,7 @@ export class WorldGenerator {
   sampleColumn(x: number, z: number, out: ColumnSample = makeColumnSample()): ColumnSample {
     if (this.config.mode === 'infection') {
       this.fields.base(x, z, out.base);
-      out.height = friday13Height(x, z); out.water = NaN; out.waterKind = WaterKind.None;
+      out.height = infectionHeight(this, x, z); out.water = NaN; out.waterKind = WaterKind.None;
       out.river = 0; out.temperature = .45; out.humidity = .6;
       out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
       return out;
@@ -352,9 +352,9 @@ export class WorldGenerator {
         const x = ox + i * step;
         const z = oz + j * step;
         if (this.config.mode === 'infection') {
-          const idx = j * n + i, inside = Math.max(Math.abs(x - F13.centre), Math.abs(z - F13.centre)) < F13.half;
-          biome[idx] = inside ? Biome.Plains : Biome.Mountain;
-          surface[idx] = friday13Street(x, z) ? Surface.BrokenAsphalt : inside ? ((x * 7 + z * 13) % 11 < 3 ? Surface.Mud : Surface.Dirt) : slope > .9 ? Surface.Rock : Surface.DryGrass;
+          const idx = j * n + i;
+          biome[idx] = infectionInside(this, x, z) ? Biome.Plains : Biome.Mountain;
+          surface[idx] = infectionSurface(this, x, z, slope);
           temperature[idx] = Math.round(s.temperature * 255); humidity[idx] = Math.round(s.humidity * 255); water[idx] = 0;
           continue;
         }
@@ -402,7 +402,7 @@ export class WorldGenerator {
    * The server re-validates each against collision before use.
    */
   findSpawnPoints(count: number, minSpacing = 180): SpawnPoint[] {
-    if (this.config.mode === 'infection') return friday13Spawns().slice(0, count).map((p) => ({ ...p, y: friday13Height(p.x, p.z) }));
+    if (this.config.mode === 'infection') return infectionSpawns(this).slice(0, count).map((p) => ({ ...p, y: infectionHeight(this, p.x, p.z) }));
     const rng = new Rng(hashCombine(this.seed, hashString('spawn')));
     const out: SpawnPoint[] = [];
     const s = makeColumnSample();
