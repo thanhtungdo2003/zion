@@ -7,6 +7,7 @@ import { loadConfig } from './config';
 import { defaultMigrationsDir, migrate } from './db/migrate';
 import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
+import { MatchPool } from './game/match-pool';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
 import { CustomWeaponStore } from './repositories/custom-weapons';
@@ -107,11 +108,18 @@ async function main(): Promise<void> {
   await battleWorld.start();
   // Battle royale squads are separate from survival teams: three players, kept in memory.
   const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
-  const battleGame = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+  // Battle royale and infection run many matches at once over one shared world each; every
+  // "Play" is matched into a match still gathering players (see MatchPool).
+  let vehicleJolt: boolean | null = null;
+  const battlePool = new MatchPool(() => {
+    const match = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+    if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
+    return match;
+  }, logger.child({ module: 'battle-matches' }));
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
   const infectionWorld = new WorldService({ seed: normalizeSeed(INFECTION_MAP.seed), sizeChunks: INFECTION_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection' }, registry, 1, config.CHUNK_CACHE_SIZE, logger);
   await infectionWorld.start();
-  const infectionGame = new GameServer({ config, logger, metrics: new Metrics(), audit, world: infectionWorld, registry, playerStates, worlds, worldId: INFECTION_MAP.id, initialWorldTimeMs: 0, mode: 'infection' });
+  const infectionPool = new MatchPool(() => new GameServer({ config, logger, metrics: new Metrics(), audit, world: infectionWorld, registry, playerStates, worlds, worldId: INFECTION_MAP.id, initialWorldTimeMs: 0, mode: 'infection' }), logger.child({ module: 'infection-matches' }));
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
   const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
@@ -132,7 +140,7 @@ async function main(): Promise<void> {
   try {
     const physics = await db.query<{ value: { jolt?: boolean } }>(`SELECT value FROM server_settings WHERE key = 'vehicle_physics'`);
     const jolt = physics.rows[0]?.value.jolt;
-    if (typeof jolt === 'boolean') game.vehicleJolt = battleGame.vehicleJolt = jolt;
+    if (typeof jolt === 'boolean') { game.vehicleJolt = jolt; vehicleJolt = jolt; }
   } catch (err) {
     logger.error({ err }, 'failed to load server settings (using defaults)');
   }
@@ -207,7 +215,8 @@ async function main(): Promise<void> {
       },
       vehiclePhysics: () => ({ jolt: game.vehicleJolt }),
       setVehiclePhysics: async (jolt) => {
-        game.vehicleJolt = battleGame.vehicleJolt = jolt;
+        game.vehicleJolt = jolt; vehicleJolt = jolt;
+        for (const match of battlePool.matches) match.vehicleJolt = jolt;
         await db.query(`INSERT INTO server_settings (key, value) VALUES ('vehicle_physics', $1::jsonb)
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ jolt })]);
         audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
@@ -272,11 +281,11 @@ async function main(): Promise<void> {
     },
   });
 
-  gateway = new GameGateway(config, logger, metrics, auth, game, audit, battleGame, infectionGame);
+  gateway = new GameGateway(config, logger, metrics, auth, game, audit, { 'battle-royale': battlePool, infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
   gateway.attach(app.server);
   game.start();
-  battleGame.start();
-  infectionGame.start();
+  battlePool.start();
+  infectionPool.start();
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
@@ -298,8 +307,8 @@ async function main(): Promise<void> {
     try {
       gateway?.stopAccepting();
       await game.stop();
-      await battleGame.stop();
-      await infectionGame.stop();
+      await battlePool.stop();
+      await infectionPool.stop();
       await gateway?.close();
       await app.close();
       await world.close();

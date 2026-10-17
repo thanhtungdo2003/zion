@@ -33,21 +33,43 @@ describe('infection rules', () => {
   it('counts down, turns a patient zero, and ends when the humans are gone or the clock runs out', () => {
     const m = new InfectionMatch(() => 0);
     m.join(1, 'a'); m.join(2, 'b'); m.join(3, 'c');
-    expect(m.tick(0, 1).reset).toBe(true);
+    // One player waits for a second one; after the lobby timeout the match starts anyway.
+    expect(m.tick(0, 1).reset).toBeUndefined();
+    expect(m.phase).toBe('waiting');
+    expect(m.tick(1000, 2).reset).toBe(true);
     expect(m.phase).toBe('countdown');
+    expect(m.accepting).toBe(true);
     expect(m.canHarm(1, 2)).toBe(false);
-    m.tick(INFECTION.countdownMs, 1);
+    m.tick(INFECTION.countdownMs + 1000, 1);
     expect(m.phase).toBe('running');
-    const ev = m.tick(INFECTION.countdownMs + INFECTION.outbreakMs, 1);
+    expect(m.accepting).toBe(false);
+    const ev = m.tick(INFECTION.countdownMs + 1000 + INFECTION.outbreakMs, 1);
     expect(ev.outbreak).toEqual([1]);
     expect(m.canHarm(1, 2)).toBe(true);
     expect(m.allies(2, 3)).toBe(true);
     expect(m.joinsAsZombie).toBe(true);
     m.infect(2); m.infect(3);
-    expect(m.tick(INFECTION.countdownMs + INFECTION.outbreakMs + 1, 1).finished).toBe('zombies');
-    expect(m.tick(INFECTION.countdownMs + INFECTION.outbreakMs + 1 + INFECTION.finishedMs, 1).reset).toBe(true);
+    let t = INFECTION.countdownMs + 1000 + INFECTION.outbreakMs + 1;
+    expect(m.tick(t, 1).finished).toBe('zombies');
+    expect(m.tick(t += INFECTION.finishedMs, 1).reset).toBe(true);
     expect(m.zombies.size).toBe(0);
     expect(m.round).toBe(2);
+    // Later rounds run on; after the last one the match is over.
+    for (let round = 2; round <= INFECTION.rounds; round++) {
+      m.tick(t += INFECTION.countdownMs, 1);
+      expect(m.tick(t += INFECTION.roundMs, 1).finished).toBeDefined();
+      const next = m.tick(t += INFECTION.finishedMs, 1);
+      expect(round < INFECTION.rounds ? next.reset : next.over).toBe(true);
+    }
+    expect(m.state(t).over).toBe(true);
+  });
+
+  it('starts a lone player after the lobby wait', () => {
+    const m = new InfectionMatch();
+    m.join(1, 'a');
+    m.tick(0, 1);
+    expect(m.phase).toBe('waiting');
+    expect(m.tick(INFECTION.lobbyWaitMs, 1).reset).toBe(true);
   });
 });
 

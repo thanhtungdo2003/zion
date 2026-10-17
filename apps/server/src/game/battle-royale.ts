@@ -1,6 +1,9 @@
 import { BATTLE_MAP, BATTLE_FLIGHT, battlePlaneAt, Rng, clamp, type BattleCircle, type BattleState } from '@zion/shared';
 
 // Long enough to land, loot a house or two and move before the first circle closes.
+/** A lobby short of players starts anyway this long after its first player arrived. */
+export const BATTLE_LOBBY_WAIT_MS = 60_000;
+
 export const BATTLE_STAGES = [
   { ratio: .72, wait: 180_000, shrink: 120_000, damage: 1 },
   { ratio: .48, wait: 120_000, shrink: 90_000, damage: 2 },
@@ -31,6 +34,10 @@ export class BattleRoyaleMatch {
   private readonly rng: Rng;
   private readonly initialRadius: number;
   startedAt: number | null = null;
+  /** When the first player entered the lobby (null while it is empty). */
+  private lobbySince: number | null = null;
+  /** The countdown began on the lobby timeout, short of players. */
+  private forced = false;
 
   /** `isLand`: dry-ground test; safe circles are drawn at random over land. */
   constructor(seed: number, private readonly size: number, private readonly isLand: (x: number, z: number) => boolean = () => true) {
@@ -91,10 +98,20 @@ export class BattleRoyaleMatch {
     }
     return land / total;
   }
-  tick(now: number): void {
-    if (this.phase === 'waiting' && this.alive >= BATTLE_MAP.minPlayers) { this.phase = 'countdown'; this.deadline = now + 30_000; }
+  /**
+   * `humans`: real players in the match (bots never count towards starting it). The countdown
+   * starts once enough people are in, or after BATTLE_LOBBY_WAIT_MS with whoever came.
+   */
+  tick(now: number, humans = this.alive): void {
+    if (this.phase === 'waiting') {
+      if (!humans) this.lobbySince = null;
+      else this.lobbySince ??= now;
+      this.deadline = this.lobbySince === null ? 0 : this.lobbySince + BATTLE_LOBBY_WAIT_MS;
+      if (humans >= BATTLE_MAP.minPlayers || (humans > 0 && now >= this.deadline)) { this.forced = humans < BATTLE_MAP.minPlayers; this.phase = 'countdown'; this.deadline = now + 30_000; }
+    }
     if (this.phase === 'countdown') {
-      if (this.alive < BATTLE_MAP.minPlayers) { this.phase = 'waiting'; this.deadline = 0; }
+      // Someone left before the drop: back to the lobby (a lobby that timed out keeps going while anyone is in).
+      if (!humans || (humans < BATTLE_MAP.minPlayers && !this.forced)) { this.phase = 'waiting'; this.deadline = 0; if (!humans) this.lobbySince = null; }
       else if (now >= this.deadline) { this.phase = 'running'; this.startedAt = now; this.plan(now + BATTLE_FLIGHT.durationMs); }
     }
     if (this.phase !== 'running') return;

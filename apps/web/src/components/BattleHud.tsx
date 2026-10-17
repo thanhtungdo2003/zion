@@ -1,5 +1,5 @@
 'use client';
-import { BATTLE_FLIGHT, type BattleState } from '@zion/shared';
+import { BATTLE_FLIGHT, BATTLE_MAP, type BattleState } from '@zion/shared';
 
 export function BattleHud({ state, position, onLeave }: { state: BattleState; position: readonly number[]; onLeave(): void }) {
   const outside = Math.hypot(position[0]! - state.circle.x, position[2]! - state.circle.z) >= state.circle.radius;
@@ -7,7 +7,7 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
   return <>
     {state.phase === 'running' && !state.placement && state.drop && state.drop.phase !== 'landed' && <DropHud state={state} drop={state.drop} />}
     <div className="battle-zone-info" role="status">
-      {state.phase === 'waiting' && <><b>Chờ người chơi</b><span>{state.total}/32 · cần ≥ 2</span></>}
+      {state.phase === 'waiting' && <><b>Chờ người chơi</b><span>{state.total}/{BATTLE_MAP.maxPlayers} · cần {BATTLE_MAP.minPlayers} người{state.remainingMs > 0 ? ` · tự bắt đầu sau ${Math.ceil(state.remainingMs / 1000)}s` : ''}</span></>}
       {state.phase === 'countdown' && <><b>Bắt đầu sau</b><span>{seconds}s · {state.total} người</span></>}
       {state.phase === 'running' && <>
         <div><span>Còn sống</span><b>{state.alive}/{state.total}</b></div>

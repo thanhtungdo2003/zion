@@ -9,6 +9,7 @@ import type { AuditLog } from '../repositories/audit';
 import type { AuthService } from '../security/auth-service';
 import { ConcurrencyCounter, KeyedWindowLimiter } from '../security/rate-limit';
 import type { GameServer } from './game-server';
+import type { MatchPool } from './match-pool';
 import { ClientSession, CloseCode } from './session';
 
 const AUTH_TIMEOUT_MS = 5_000;
@@ -23,6 +24,8 @@ export class GameGateway {
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
   private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
+  /** Match-mode sessions are assigned a match once authenticated (the squad is known then). */
+  private readonly sessionPools = new WeakMap<ClientSession, MatchPool>();
   private readonly perIp = new ConcurrencyCounter();
   private readonly upgradeLimiter: KeyedWindowLimiter;
   private readonly allowedOrigins: Set<string>;
@@ -38,8 +41,10 @@ export class GameGateway {
     private readonly auth: AuthService,
     private readonly game: GameServer,
     private readonly audit: AuditLog,
-    private readonly battleGame?: GameServer,
-    private readonly infectionGame?: GameServer,
+    /** Match modes: each "Play" is matched into one of many concurrent matches. */
+    private readonly pools: { 'battle-royale'?: MatchPool; infection?: MatchPool } = {},
+    /** Battle royale squad of an account (squadmates are matched into the same match). */
+    private readonly squadOf: (accountId: string) => string | undefined = () => undefined,
   ) {
     this.log = logger.child({ module: 'gateway' });
     this.allowedOrigins = new Set(config.CORS_ORIGINS);
@@ -91,15 +96,16 @@ export class GameGateway {
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
     const query = new URL(url, 'http://localhost').searchParams, mode = query.get('mode'), squad = mode === 'battle-royale' && query.get('squad') === '1';
     if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection') return this.reject(socket, 400, 'mode');
-    if ((mode === 'battle-royale' && !this.battleGame) || (mode === 'infection' && !this.infectionGame)) return this.reject(socket, 503, 'mode_unavailable');
-    const game = mode === 'battle-royale' ? this.battleGame! : mode === 'infection' ? this.infectionGame! : this.game;
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, game, squad));
+    const pool = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
+    if ((mode === 'battle-royale' || mode === 'infection') && !pool) return this.reject(socket, 503, 'mode_unavailable');
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, pool ? undefined : this.game, squad, pool));
   }
 
-  private onConnection(ws: WebSocket, ip: string, game = this.game, squad = false): void {
+  private onConnection(ws: WebSocket, ip: string, game: GameServer | undefined, squad = false, pool?: MatchPool): void {
     const session = new ClientSession(this.nextSessionId++, ws, ip, this.metrics);
     session.squad = squad;
-    this.sessionGames.set(session, game);
+    if (game) this.sessionGames.set(session, game);
+    if (pool) this.sessionPools.set(session, pool);
     this.sessions.add(session);
     this.perIp.inc(ip);
     this.metrics.connections = this.sessions.size;
@@ -186,6 +192,12 @@ export class GameGateway {
       }
       if (!session.open) return;
       session.account = account;
+      const pool = this.sessionPools.get(session);
+      if (pool) {
+        const match = pool.pick(session.squad ? this.squadOf(account.accountId) : undefined);
+        if (!match) { session.sendError('server_full', 'Mọi trận đều đang đầy. Hãy thử lại sau ít phút.', true); session.close(CloseCode.ServerFull, 'no match'); return; }
+        this.sessionGames.set(session, match);
+      }
       await (this.sessionGames.get(session) ?? this.game).join(session);
     } catch (err) {
       this.log.error({ err, sid: session.id }, 'join failed');

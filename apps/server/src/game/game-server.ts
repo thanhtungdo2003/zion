@@ -248,9 +248,17 @@ export class GameServer {
   private infection: InfectionMatch | null = null;
   private readonly infectionLoadouts = new Map<number, InfectionLoadout>();
   private infectionSpawnIndex = 0;
-  private nextInfectionBotAt = 0;
+  private infectionOccupied = false;
   /** Battle royale or infection: a match server, no persistent survival world. */
   private get arena(): boolean { return !!this.battle || !!this.infection; }
+  /** Players in or joining this server (matchmaking load). */
+  get headcount(): number { return this.players.size + this.joiningAccounts.size; }
+  /** Matchmaking: may one more player join (a match still gathering players, with room)? */
+  canAdmit(): boolean {
+    if (this.battle) return this.battle.accepting && this.headcount < BATTLE_MAP.maxPlayers;
+    if (this.infection) return this.infection.accepting && this.headcount < INFECTION_MAP.maxPlayers;
+    return true;
+  }
   private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : 'survival'; }
   private readonly battleChests = new Map<string, ChestData>();
   /** Battle royale bots (null in survival). */
@@ -1135,7 +1143,7 @@ export class GameServer {
       this.battle.join(player.id, player.username, squad ? { id: squad.id, name: squad.name, size: squad.members.length } : undefined);
       this.battleWasOccupied = true;
     }
-    if (this.infection) { this.infection.join(player.id, player.username); this.syncLoadout(player); }
+    if (this.infection) { this.infection.join(player.id, player.username); this.syncLoadout(player); this.infectionOccupied = true; }
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
@@ -1548,7 +1556,7 @@ export class GameServer {
       this.battleWasOccupied = false; return;
     }
     this.joinBots(match, now);
-    match.tick(now);
+    match.tick(now, this.players.size);
     // Vehicles exist only once everyone is on the ground: hidden in the lobby and the plane.
     const vehicles = match.phase === 'running' && match.startedAt !== null && now - match.startedAt >= BATTLE_FLIGHT.durationMs;
     if (vehicles !== this.vehicles.available) {
@@ -1807,16 +1815,29 @@ export class GameServer {
       if (this.bots.bots.length) { for (const bot of this.bots.bots) m.leave(bot.id); this.bots.clear(); this.broadcastPlayerList(); }
       return;
     }
-    if (m.entrants.size >= INFECTION_MAP.botFill || !m.accepting || now < this.nextInfectionBotAt) return;
-    this.nextInfectionBotAt = now + 500 + Math.random() * 700;
-    const bot = this.bots.spawn(F13.centre, F13.ground, F13.centre);
-    if (!m.join(bot.id, bot.name)) { this.bots.bots.pop(); return; }
-    this.dressBot(bot, m.isZombie(bot.id));
-    this.placeBot(bot);
-    this.broadcastPlayerList();
+    // Bots take the empty places only at the end of the first countdown, so they never hold a
+    // seat a real player could have had while the match was gathering.
+    if (m.phase !== 'countdown' || m.round !== 1 || m.state(now).remainingMs > 3000) return;
+    let added = 0;
+    while (m.entrants.size < INFECTION_MAP.botFill && m.accepting) {
+      const bot = this.bots.spawn(F13.centre, F13.ground, F13.centre);
+      if (!m.join(bot.id, bot.name)) { this.bots.bots.pop(); break; }
+      this.dressBot(bot, m.isZombie(bot.id));
+      this.placeBot(bot);
+      added++;
+    }
+    if (added) this.broadcastPlayerList();
   }
 
   private stepInfection(now: number): void {
+    // Everyone left: the server is a fresh lobby for the next match.
+    if (!this.players.size && !this.joiningAccounts.size && this.infectionOccupied) {
+      this.infection = new InfectionMatch();
+      this.bots?.clear(); this.infectionLoadouts.clear(); this.infectionOccupied = false;
+      this.rounds.length = 0; this.grenades.length = 0;
+      for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); }
+      return;
+    }
     const m = this.infection!;
     this.fillInfectionBots(m, now);
     const ev = m.tick(now, this.players.size);
@@ -1840,6 +1861,11 @@ export class GameServer {
     }
     if (ev.finished) this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: ev.finished === 'humans' ? 'Con người đã cầm cự tới bình minh. Con người thắng!' : 'Không còn ai sống sót. Zombie thắng!' });
     if (ev.reset || ev.outbreak?.length || ev.finished) this.broadcastInfection();
+    if (ev.over) {
+      this.broadcastInfection();
+      for (const p of [...this.players.values()]) { this.leave(p.session, 'match over'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
+      return;
+    }
     for (const [id, at] of m.respawnAt) {
       if (now < at) continue;
       m.respawnAt.delete(id);

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { InfectionState } from '@zion/shared';
+import { INFECTION, type InfectionState } from '@zion/shared';
 import { Icon } from './Icon';
 
 const clock = (ms: number) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -24,12 +24,20 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
       <div className={`ifx-score${state.infected ? ' zombie' : ''}`} role="status" aria-label={`${state.humans} người, ${state.zombies} zombie`}>
         <div className="ifx-side human"><Icon name="lucide:users" /><b>{state.humans}</b></div>
         <div className="ifx-clock">
-          <small>{state.map}</small>
+          <small>{state.map}{state.round ? ` · ${state.round}/${state.rounds}` : ''}</small>
           <b>{state.phase === 'waiting' ? '—' : clock(left)}</b>
           <i className="ifx-split"><span style={{ width: `${state.humans / total * 100}%` }} /></i>
         </div>
         <div className="ifx-side zombie"><b>{state.zombies}</b><Icon name="game-icons:shambling-zombie" /></div>
       </div>
+      {state.phase === 'waiting' && (
+        <div className="ifx-banner" role="status">
+          <Icon name="lucide:users" />
+          <span>Đang ghép trận · {state.players}/{INFECTION.minPlayers} người</span>
+          <b>{left > 0 ? Math.ceil(left / 1000) : '…'}</b>
+          <small>Đủ người là bắt đầu; hết giờ chờ thì vào trận cùng bot</small>
+        </div>
+      )}
       {state.phase === 'countdown' && (
         <div className="ifx-banner" role="status">
           <Icon name="game-icons:biohazard" />
@@ -48,7 +56,7 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
         <div className={`ifx-result ${state.winner}`} role="status">
           <Icon name={state.winner === 'humans' ? 'lucide:shield' : 'game-icons:shambling-zombie'} />
           <h2>{state.winner === 'humans' ? 'Con người chiến thắng' : 'Zombie chiến thắng'}</h2>
-          <p>Vòng mới bắt đầu sau {Math.ceil(left / 1000)} giây</p>
+          <p>{state.over ? 'Trận đấu kết thúc' : `Vòng ${state.round + 1}/${state.rounds} bắt đầu sau ${Math.ceil(left / 1000)} giây`}</p>
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}

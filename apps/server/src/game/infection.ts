@@ -8,6 +8,8 @@ export interface InfectionEvents {
   outbreak?: number[];
   /** The round was just decided. */
   finished?: 'humans' | 'zombies';
+  /** The last round's result screen ended: the match is over, everyone leaves. */
+  over?: boolean;
 }
 
 /**
@@ -25,10 +27,14 @@ export class InfectionMatch {
   private outbreakAt = 0;
   private outbroke = false;
   private winner: InfectionState['winner'] = null;
+  private lobbySince: number | null = null;
+  private humansPresent = 0;
+  private ended = false;
 
   constructor(private readonly random: () => number = Math.random) {}
 
-  get accepting(): boolean { return this.entrants.size < INFECTION_MAP.maxPlayers; }
+  /** Matchmaking: players join while the lobby gathers and through the first countdown only. */
+  get accepting(): boolean { return this.entrants.size < INFECTION_MAP.maxPlayers && (this.phase === 'waiting' || (this.phase === 'countdown' && this.round === 1)); }
   get humans(): number { let n = 0; for (const id of this.entrants.keys()) if (!this.zombies.has(id)) n++; return n; }
   /** Someone joining now starts as a zombie (the outbreak already happened). */
   get joinsAsZombie(): boolean { return this.phase === 'running' && this.outbroke; }
@@ -52,10 +58,15 @@ export class InfectionMatch {
 
   tick(now: number, humansPresent: number): InfectionEvents {
     const ev: InfectionEvents = {};
+    this.humansPresent = humansPresent;
     if (this.phase === 'waiting') {
-      if (humansPresent >= INFECTION.minPlayers) { this.begin(now); ev.reset = true; }
+      if (!humansPresent) this.lobbySince = null;
+      else this.lobbySince ??= now;
+      this.deadline = this.lobbySince === null ? 0 : this.lobbySince + INFECTION.lobbyWaitMs;
+      if (humansPresent >= INFECTION.minPlayers || (humansPresent > 0 && now >= this.deadline)) { this.begin(now); ev.reset = true; }
       return ev;
     }
+    if (this.ended) return ev;
     if (!humansPresent && this.phase !== 'finished') { this.phase = 'waiting'; this.zombies.clear(); this.respawnAt.clear(); return ev; }
     if (this.phase === 'countdown' && now >= this.deadline) {
       this.phase = 'running'; this.deadline = now + INFECTION.roundMs; this.outbreakAt = now + INFECTION.outbreakMs; this.outbroke = false;
@@ -67,7 +78,8 @@ export class InfectionMatch {
       if (this.outbroke && this.humans === 0) this.finish(now, 'zombies', ev);
       else if (now >= this.deadline) this.finish(now, 'humans', ev);
     } else if (this.phase === 'finished' && now >= this.deadline) {
-      this.begin(now); ev.reset = true;
+      if (this.round >= INFECTION.rounds) { this.ended = true; ev.over = true; }
+      else { this.begin(now); ev.reset = true; }
     }
     return ev;
   }
@@ -98,6 +110,7 @@ export class InfectionMatch {
     return {
       t: 'infection', phase: this.phase, map: INFECTION_MAP.name, round: this.round, remainingMs: Math.max(0, this.deadline - now),
       humans: this.humans, zombies: this.zombies.size, zombieIds: [...this.zombies], winner: this.winner,
+      rounds: INFECTION.rounds, players: this.humansPresent, ...(this.ended || (this.phase === 'finished' && this.round >= INFECTION.rounds) ? { over: true } : {}),
       ...(id !== undefined ? { infected: this.zombies.has(id) } : {}),
       ...(respawn !== undefined ? { respawnMs: Math.max(0, respawn - now) } : {}),
     };

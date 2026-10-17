@@ -51,6 +51,8 @@ function phase(tod: number): TKey {
 
 export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
+  // Match modes: the server sends everyone back when the match ends; "reconnect" finds a new one.
+  const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over;
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -388,11 +390,11 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       {state.status === 'disconnected' && (
         <div className="overlay">
           <div className="overlay-card">
-            <h2>{t('hud.disconnected')}</h2>
-            <p>{tm(state.statusDetail)}</p>
+            <h2>{matchOver ? 'Trận đã kết thúc' : t('hud.disconnected')}</h2>
+            {!matchOver && <p>{tm(state.statusDetail)}</p>}
             <div className="overlay-row">
               <button className="btn btn-primary" onClick={() => window.location.reload()}>
-                {t('hud.reconnect')}
+                {matchOver ? 'Tìm trận mới' : t('hud.reconnect')}
               </button>
               <button className="btn" onClick={onLeave}>
                 {t('hud.main_menu')}

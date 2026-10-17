@@ -10,8 +10,12 @@ import type { InventoryData, PlacedItem } from './inventory';
 export const INFECTION_MAP = { id: 'friday-13', name: 'Thứ 6 Ngày 13', seed: 'zion-friday-13', sizeChunks: 16, maxPlayers: 16, botFill: 12 } as const;
 
 export const INFECTION = {
-  /** Players needed before a round counts down (bots fill the rest). */
-  minPlayers: 1,
+  /** Real players needed before the match counts down (bots fill the rest)... */
+  minPlayers: 2,
+  /** ...or this long after the first player entered the lobby, with whoever came. */
+  lobbyWaitMs: 45_000,
+  /** Rounds in one match; then everyone goes back to the menu. */
+  rounds: 3,
   countdownMs: 20_000,
   /** After the round starts, the first zombies are chosen this much later. */
   outbreakMs: 12_000,
@@ -93,6 +97,11 @@ export interface InfectionState {
   zombieIds: number[];
   /** Set once the round is decided. */
   winner: 'humans' | 'zombies' | null;
+  /** Rounds in the match, and real players in it (the lobby waits for `minPlayers`). */
+  rounds: number;
+  players: number;
+  /** The last round is over: the match ends. */
+  over?: boolean;
   /** The receiving player is a zombie. */
   infected?: boolean;
   /** Zombie waiting to rise again: ms left. */
