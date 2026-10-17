@@ -363,7 +363,7 @@ export class WorldGenerator {
         biome[idx] = b;
         surface[idx] = this.camp && campDistance(this.camp, x, z) <= CAMP_PAD
           ? (Math.abs(x - this.camp.x) < 5 || Math.abs(z - this.camp.z - 30) < 3 ? Surface.Gravel : Surface.Dirt)
-          : battle ? this.roads?.surface(s, x, z) ?? battle.surface(s.height, slope, x, z, battle.near(x, z, 0)[0])
+          : battle ? this.roads?.surface(s, x, z) ?? battle.surface(s.height, slope, x, z, battle.near(x, z, 0, false)[0])
           // From v7 a town's main street is paved right through it.
           : (this.config.generatorVersion >= 7 ? this.roads?.surface(s, x, z) : null) ?? (insideStructure(this, x, z, 0) ? Surface.Dirt : this.roads?.surface(s, x, z) ?? this.classifySurface(s, b, slope, x, z));
         temperature[idx] = Math.round(s.temperature * 255);

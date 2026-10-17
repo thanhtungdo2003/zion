@@ -7,7 +7,7 @@
 
 export type Point = readonly [number, number];
 
-export type ZoneKind = 'port' | 'town' | 'military' | 'power_plant' | 'airfield' | 'village' | 'radar' | 'substation' | 'farm' | 'lighthouse';
+export type ZoneKind = 'port' | 'town' | 'military' | 'power_plant' | 'airfield' | 'village' | 'radar' | 'substation' | 'farm' | 'lighthouse' | 'school' | 'church' | 'station';
 
 export interface MapZone {
   id: string;
@@ -81,31 +81,43 @@ export const ISLAND: AuthoredMap = {
     { id: 'substation', name: 'Trạm biến áp Thạch Lâm', kind: 'substation', x: 2240, z: 2300, radius: 50 },
     { id: 'eastvillage', name: 'Xóm Đồi Thông', kind: 'village', x: 2850, z: 2250, radius: 90 },
     { id: 'lighthouse', name: 'Mũi Hải Đăng', kind: 'lighthouse', x: 3480, z: 2700, radius: 40 },
+    // Everyday island life: a school, a church, a fuel station, farms and hamlets along the roads.
+    { id: 'school', name: 'Trường Thạch Lâm', kind: 'school', x: 2175, z: 2700, radius: 60 },
+    { id: 'church', name: 'Nhà thờ Thạch Lâm', kind: 'church', x: 1815, z: 2700, radius: 45 },
+    { id: 'fuel', name: 'Cây xăng Đèo Gió', kind: 'station', x: 2195, z: 2185, radius: 35 },
+    { id: 'westfarm', name: 'Trang trại Đồng Cỏ', kind: 'farm', x: 1380, z: 2440, radius: 70 },
+    { id: 'southfarm', name: 'Trang trại Bãi Nam', kind: 'farm', x: 1610, z: 3010, radius: 70 },
+    { id: 'eastfarm', name: 'Trang trại Đồi Thông', kind: 'farm', x: 2600, z: 2360, radius: 70 },
+    { id: 'northfarm', name: 'Trang trại Gió Bắc', kind: 'farm', x: 3130, z: 1680, radius: 60 },
+    { id: 'pinehamlet', name: 'Xóm Bãi Cát', kind: 'village', x: 1300, z: 2930, radius: 60 },
+    { id: 'creek', name: 'Xóm Suối', kind: 'village', x: 2420, z: 2720, radius: 60 },
+    { id: 'ridge', name: 'Xóm Sườn Đồi', kind: 'village', x: 3060, z: 2460, radius: 55 },
+    { id: 'northbay', name: 'Xóm Vịnh Bắc', kind: 'village', x: 2480, z: 990, radius: 55 },
   ],
   roads: [
     // Main avenue: harbour gate → town high street → mountain pass → base.
-    { paved: true, width: 5.67, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
+    { paved: true, width: 11.34, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
     // East road: town → substation → power plant.
-    { paved: true, width: 5.13, points: [[2120, 2602], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
+    { paved: true, width: 10.26, points: [[2120, 2602], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
     // West road: town → airfield.
-    { paved: true, width: 4.86, points: [[1840, 2602], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
+    { paved: true, width: 9.72, points: [[1840, 2602], [1650, 2470], [1450, 2330], [1250, 2200], [1060, 2060], [960, 2000]] },
     // South coast road: port → fishing village → airfield.
-    { paved: false, width: 3.78, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
+    { paved: true, width: 7.56, points: [[1880, 3060], [1700, 3120], [1500, 3170], [1320, 3220], [1200, 3200], [1020, 3080], [880, 2900], [760, 2650], [700, 2400], [720, 2150]] },
     // North coast road: base → highland village → plant.
-    { paved: false, width: 3.78, points: [[2240, 880], [2450, 850], [2700, 880], [2880, 940], [3060, 1060], [3220, 1300], [3330, 1550], [3360, 1800]] },
+    { paved: true, width: 7.56, points: [[2240, 880], [2450, 850], [2700, 880], [2880, 940], [3060, 1060], [3220, 1300], [3330, 1550], [3360, 1800]] },
     // Radar spur.
-    { paved: false, width: 3.24, points: [[1850, 1300], [1720, 1270], [1610, 1250]] },
+    { paved: true, width: 6.48, points: [[1850, 1300], [1720, 1270], [1610, 1250]] },
     // East village and the lighthouse.
-    { paved: false, width: 3.51, points: [[2620, 2160], [2760, 2230], [2850, 2260]] },
-    { paved: false, width: 3.24, points: [[3200, 1990], [3330, 2150], [3420, 2400], [3470, 2650]] },
+    { paved: true, width: 7.02, points: [[2620, 2160], [2760, 2230], [2850, 2260]] },
+    { paved: true, width: 6.48, points: [[3200, 1990], [3330, 2150], [3420, 2400], [3470, 2650]] },
     // Airfield runway and taxiway.
     { paved: true, width: 20.25, points: [[800, 1640], [806, 1950], [812, 2260]] },
     { paved: true, width: 8.1, points: [[806, 1950], [900, 1950], [960, 2000]] },
     // Port quay road.
-    { paved: true, width: 4.86, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
+    { paved: true, width: 9.72, points: [[1880, 3060], [2080, 3020], [2300, 3040], [2420, 3120]] },
     // Town cross streets either side of the high street.
-    { paved: true, width: 4.05, points: [[1840, 2602], [1980, 2602], [2120, 2602]] },
-    { paved: true, width: 4.05, points: [[1840, 2760], [1980, 2760], [2120, 2760]] },
+    { paved: true, width: 8.1, points: [[1840, 2602], [1980, 2602], [2120, 2602]] },
+    { paved: true, width: 8.1, points: [[1840, 2760], [1980, 2760], [2120, 2760]] },
   ],
   power: [
     // Transmission line from the power station to the town substation.

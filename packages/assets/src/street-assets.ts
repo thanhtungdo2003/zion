@@ -13,6 +13,7 @@ export const STREET_ASSET = {
   sidewalk: 2516, curb: 2517, laneDash: 2518, zebra: 2519,
   trafficPole: 2520, trafficArm: 2521, trafficHead: 2522, lampRed: 2523, lampAmber: 2524, lampGreen: 2525,
   wreckCar: 2526, awning: 2527, plank: 2528, crate: 2529,
+  court: 2530, courtLine: 2531, hoopPole: 2532, backboard: 2533, rim: 2534, canopy: 2535, pump: 2536, bench: 2537, flagPole: 2538, flag: 2539, cross: 2540, stopLine: 2541,
 } as const;
 
 /** Storey height, slab thickness and the wall heights that make the openings. */
@@ -44,6 +45,20 @@ const boxes: Box[] = [
   ['street.awning', 2527, 'Shop awning', 1, .08, 1.4, '#7a2e26'],
   ['street.plank', 2528, 'Plank bridge', 1, .12, 1, '#756047'],
   ['street.crate', 2529, 'Crate stack', 1.2, 1.2, 1.2, '#6a5434'],
+  // Basketball court (15 × 28 m) with lines, hoops and backboards.
+  ['street.court', 2530, 'Basketball court', 15, .06, 28, '#2f6680'],
+  ['street.court_line', 2531, 'Court line', .08, .01, 1, '#e9e6dc', false],
+  ['street.hoop_pole', 2532, 'Hoop pole', .16, 3.35, .16, '#3b3f42'],
+  ['street.backboard', 2533, 'Backboard', 1.8, 1.05, .06, '#e8e8e2'],
+  ['street.rim', 2534, 'Hoop rim', .46, .04, .46, '#e05a1e', false],
+  // Fuel station canopy, pumps; benches, flagpole, chapel cross.
+  ['street.canopy', 2535, 'Fuel station canopy', 14, .45, 9, '#d9d6cc'],
+  ['street.pump', 2536, 'Fuel pump', .7, 1.7, .9, '#b8352a'],
+  ['street.bench', 2537, 'Park bench', 1.8, .45, .5, '#6b5236'],
+  ['street.flag_pole', 2538, 'Flagpole', .12, 8, .12, '#c4c6c4'],
+  ['street.flag', 2539, 'Flag', 1.8, 1.2, .03, '#c8102e', false],
+  ['street.cross', 2540, 'Chapel cross', .25, 2.6, .25, '#d6d2c4'],
+  ['street.stop_line', 2541, 'Stop line', .4, .02, 1, '#e3dfd0', false],
 ];
 
 export const STREET_ASSETS: readonly AssetDefinitionInput[] = [

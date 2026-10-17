@@ -469,6 +469,11 @@ export class RoadNetwork {
     if (this.improved) {
       const patch = this.wear.noise(x * .13, z * .13), fine = this.wear.noise(x * .63 + 91, z * .63 - 37);
       const edge = smoothstep(width * .45, width, d);
+      if (sample.roadPaved && this.authored) {
+        // The island's roads are kept up: smooth asphalt, a little wear only along the edges.
+        if (edge > .85 && patch > .45) return Surface.MossyAsphalt;
+        return Surface.Asphalt;
+      }
       if (sample.roadPaved) {
         if (patch > .35 - edge * .18) return Surface.MossyAsphalt;
         if (patch < -.38 + edge * .14 || (fine > .55 && edge > .25)) return Surface.BrokenAsphalt;

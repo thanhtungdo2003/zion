@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, Rng, Surface, Biome, hash3, smoothstep, quantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type PropInstance } from '@zion/shared';
-import { BATTLE_ASSET, BRIDGE_ASSET, BUILDING_ASSET, CAMP_ASSET } from '@zion/assets';
+import { BATTLE_ASSET, BRIDGE_ASSET, BUILDING_ASSET, CAMP_ASSET, STREET_ASSET } from '@zion/assets';
 import type { CampPart } from '../camp';
 import type { Structure } from '../structures';
 import { Simplex2 } from '../noise';
@@ -33,7 +33,8 @@ interface Host {
   readonly roads?: { query(x: number, z: number, out: RoadProbe): void } | null;
 }
 
-type GroundStructure = Structure & { ground?: Surface };
+/** `decal`: road markings and the like: placed on the ground as it is, no levelled pad. */
+type GroundStructure = Structure & { ground?: Surface; decal?: boolean };
 
 /**
  * A hand-authored map: terrain from a coastline and hills, a fixed road network, planned
@@ -112,17 +113,17 @@ export class AuthoredWorld {
   }
 
   /** Sites whose pad (plus `extra`) reaches (x, z). */
-  near(x: number, z: number, extra = 0): GroundStructure[] {
+  near(x: number, z: number, extra = 0, decals = true): GroundStructure[] {
     this.structures();
     const list = extra > 20 ? this.sites! : this.grid.get(`${Math.floor(x / 64)}:${Math.floor(z / 64)}`);
     if (!list) return [];
-    return list.filter(s => this.padDistance(s, x, z) <= extra);
+    return list.filter(s => (decals || !s.decal) && this.padDistance(s, x, z) <= extra);
   }
 
   /** Natural ground levelled by the district pads that reach it. */
   levelled(x: number, z: number): number {
     let height = this.terrain(x, z);
-    for (const site of this.near(x, z, 16)) height += (site.y - height) * (1 - smoothstep(0, 16, this.padDistance(site, x, z)));
+    for (const site of this.near(x, z, 16, false)) height += (site.y - height) * (1 - smoothstep(0, 16, this.padDistance(site, x, z)));
     return height;
   }
 
@@ -249,7 +250,7 @@ export class AuthoredWorld {
       out.push({ asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(y), rot: quantizeRotation(yaw), scale: quantizeScale(scale) });
     const pick = <T>(list: readonly T[]) => list[Math.floor(rng.next() * list.length)]!;
     const clear = (x: number, z: number, margin: number, road: number, roadMargin: number) =>
-      this.near(x, z, margin).length === 0 && road > roadMargin && !this.pylonList!.some(p => Math.abs(p.x - x) < 9 && Math.abs(p.z - z) < 9);
+      this.near(x, z, margin, false).length === 0 && road > roadMargin && !this.pylonList!.some(p => Math.abs(p.x - x) < 9 && Math.abs(p.z - z) < 9);
     // Trees on a jittered 8 m lattice; density from the forest map.
     for (let gz = 0; gz < CHUNK_SIZE; gz += 6.4) for (let gx = 0; gx < CHUNK_SIZE; gx += 6.4) {
       const x = ox + gx + rng.next() * 5.6, z = oz + gz + rng.next() * 5.6, roll = rng.next(), species = rng.next(), size = rng.next(), turn = rng.next() * Math.PI * 2;
@@ -298,6 +299,17 @@ function along(points: readonly Point[], spacing: number): Array<[number, number
 }
 
 /* ------------------------------------------------------------------------------ districts */
+
+/** A traffic light: pole, an arm reaching over the road towards (dx, dz), the head with its lights. */
+function trafficLight(k: Kit, x: number, z: number, dx: number, dz: number): void {
+  const l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l, armYaw = Math.atan2(-uz, ux);
+  k.put(STREET_ASSET.trafficPole, x, z);
+  k.put(STREET_ASSET.trafficArm, x + ux * 1.6, z + uz * 1.6, 4.2, armYaw);
+  const hx = x + ux * 3.1, hz = z + uz * 3.1, fx = -uz, fz = ux;
+  k.put(STREET_ASSET.trafficHead, hx, hz, 3.05, armYaw);
+  for (const [asset, h] of [[STREET_ASSET.lampRed, 3.85], [STREET_ASSET.lampAmber, 3.55], [STREET_ASSET.lampGreen, 3.25]] as const)
+    k.put(asset, hx + fx * .19, hz + fz * .19, h, armYaw + Math.PI / 2);
+}
 
 /** Site-local building kit: every part placed relative to the site centre. */
 class Kit {
@@ -436,19 +448,54 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
         z += width + 2 + rand.next() * 4;
       }
     };
-    const road = 5.67 + 3; // street half-width plus pavement
+    const road = 11.34 + 3.5; // street half-width plus the sidewalk
     // High street, both sides; a gap at each cross street.
     for (const [a, b] of [[2505, 2592], [2612, 2748], [2770, 2875]] as const) {
       row(a, b, -1, street - road, -Math.PI / 2);
       row(a, b, 1, street + road, Math.PI / 2);
     }
     // Apartment blocks and a square behind the frontage.
-    build('apartment', street - 52, 2660, -Math.PI / 2);
-    build('apartment', street + 52, 2820, Math.PI / 2);
+    build('apartment', street - 58, 2660, -Math.PI / 2);
+    build('apartment', street + 58, 2820, Math.PI / 2);
     const square = new Kit(gid * 31);
     for (const [x, z] of [[-10, -10], [10, -10], [-10, 10], [10, 10]] as const) square.put(CAMP_ASSET['straight-lamp-post'], x, z);
     square.house(BUILDING_ASSET.bench, 0, -8); square.house(BUILDING_ASSET.bench, 0, 8, Math.PI);
-    site('town', street + 40, 2660, 14, square, { level: townLevel });
+    site('town', street + 44, 2660, 14, square, { level: townLevel });
+    // Sidewalks along the high street and the cross streets, kerb-high, with street lamps.
+    const walks = new Kit(gid * 31);
+    for (let z = 2502; z <= 2878; z += 2) for (const side of [-1, 1]) {
+      if (Math.abs(z - 2602) < 9 || Math.abs(z - 2760) < 9) continue;
+      walks.put(STREET_ASSET.sidewalk, side * 12.6, z - 2690); walks.put(STREET_ASSET.sidewalk, side * 14.4, z - 2690);
+      if ((z - 2502) % 30 === 0) walks.put(CAMP_ASSET['straight-lamp-post'], side * 14.6, z - 2690, .15, side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    }
+    for (const cz of [2602, 2760]) for (let x = 1842; x <= 2118; x += 2) for (const side of [-1, 1]) {
+      if (Math.abs(x - street) < 16) continue;
+      walks.put(STREET_ASSET.sidewalk, x - street, cz - 2690 + side * 9.1); walks.put(STREET_ASSET.sidewalk, x - street, cz - 2690 + side * 10.9);
+    }
+    // Traffic lights on the two crossroads of the high street.
+    for (const cz of [2602, 2760]) {
+      trafficLight(walks, 13.5, cz - 2690 - 10.5, -1, 0);
+      trafficLight(walks, -13.5, cz - 2690 + 10.5, 1, 0);
+      trafficLight(walks, -13.5, cz - 2690 - 10.5, 0, 1);
+      trafficLight(walks, 13.5, cz - 2690 + 10.5, 0, -1);
+    }
+    site('town', street, 2690, 4, walks, { level: townLevel });
+    // A basketball court behind the west frontage, benches along its side.
+    const court = new Kit(gid * 31);
+    court.put(STREET_ASSET.court, 0, 0, .02);
+    const line = (x: number, z: number, along: boolean) => court.put(STREET_ASSET.courtLine, x, z, .09, along ? 0 : Math.PI / 2, 1);
+    for (let z = -13.5; z <= 13.5; z += 1) { line(-7.2, z, true); line(7.2, z, true); }
+    for (let x = -6.7; x <= 6.7; x += 1) { line(x, -13.8, false); line(x, 13.8, false); line(x, 0, false); }
+    for (const end of [-1, 1]) {
+      for (let z = 0; z <= 5; z += 1) { line(-2.4, end * (13.3 - z), true); line(2.4, end * (13.3 - z), true); }
+      for (let x = -1.9; x <= 1.9; x += 1) line(x, end * 8.1, false);
+      court.put(STREET_ASSET.hoopPole, 0, end * 15.1);
+      court.put(STREET_ASSET.backboard, 0, end * 14.6, 2.9);
+      court.put(STREET_ASSET.rim, 0, end * 14.3, 3.05);
+    }
+    for (const z of [-8, 0, 8]) court.put(STREET_ASSET.bench, -9.5, z, 0, Math.PI / 2);
+    court.rect(0, 0, 10, 16.5, CAMP_ASSET['iron-fence'], 2.25, 'w');
+    site('town', street - 52, 2836, [11, 17.5], court, { level: townLevel, ground: Surface.Asphalt });
     // Back lanes: the cross streets carry a few houses each, set diagonally at the corners.
     for (const z of [2602, 2760]) for (const side of [-1, 1] as const) {
       let x = street + side * 18;
@@ -456,7 +503,7 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
         const lot = pickLot(), [, width] = size[lot];
         x += side * (width + 4 + rand.next() * 4);
         const corner = i === 0 ? side * .6 : 0;
-        build(lot, x, z + (i % 2 ? 14 : -14) + (rand.next() - .5) * 3, (i % 2 ? Math.PI : 0) + corner);
+        build(lot, x, z + (i % 2 ? 22 : -22) + (rand.next() - .5) * 3, (i % 2 ? Math.PI : 0) + corner);
         x += side * width;
       }
     }
@@ -488,7 +535,7 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
       const cp = new Kit();
       cp.tower(0, 0); for (const dx of [-14, -11]) cp.put(CAMP_ASSET['sandbag-wall'], dx, 6);
       cp.put(CAMP_ASSET['field-tent'], -2, -12);
-      site('watchtower', x + 20, z, [14, 14], cp, { ground: Surface.Gravel });
+      site('watchtower', x + 34, z, [14, 14], cp, { ground: Surface.Gravel });
     }
   }
 
@@ -563,6 +610,143 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     light.tower(0, 0); light.put(BATTLE_ASSET.waterTank, 0, 0, 10.8, 0, .6);
     light.house(BUILDING_ASSET.barrack, 14, 6, Math.PI / 2, 1.3); light.block(-16, 10, 1);
     site('watchtower', zone('lighthouse').x, zone('lighthouse').z, 26, light);
+  }
+
+  /* --- Everyday island life: school, church, fuel station, farms, hamlets. */
+  {
+    const school = new Kit(gid * 31);
+    school.block(-18, -20, 2); school.block(10, -20, 2); school.block(-18, 8, 1);
+    school.put(STREET_ASSET.court, 18, 18, .02, Math.PI / 2);
+    for (const end of [-1, 1]) { school.put(STREET_ASSET.hoopPole, 18 + end * 15.1, 18, 0, Math.PI / 2); school.put(STREET_ASSET.backboard, 18 + end * 14.6, 18, 2.9, Math.PI / 2); school.put(STREET_ASSET.rim, 18 + end * 14.3, 18, 3.05); }
+    school.put(STREET_ASSET.flagPole, -4, 30); school.put(STREET_ASSET.flag, -3.1, 30, 6.6);
+    for (const x of [-30, -26]) school.put(STREET_ASSET.bench, x, 26, 0, 0);
+    school.rect(0, 2, 40, 38, CAMP_ASSET['iron-fence'], 2.25, 'w');
+    site('town', zone('school').x, zone('school').z, [42, 40], school, { ground: Surface.Gravel });
+
+    const church = new Kit(gid * 31);
+    church.house(BUILDING_ASSET.barn, 0, -6, Math.PI / 2, 1.6);
+    church.tower(0, 16);
+    church.put(STREET_ASSET.cross, 0, 16, 10.8);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 6; c++) church.put(CAMP_ASSET['large-stone-brick-wall'], -24 + c * 3, 22 + r * 4, 0, 0, .2);
+    church.rect(-14, 8, 30, 26, CAMP_ASSET['large-stone-brick-wall'], 4, 'e');
+    site('hamlet', zone('church').x, zone('church').z, [36, 32], church);
+
+    const fuel = new Kit(gid * 31);
+    for (const [x, z] of [[-6, -3.5], [6, -3.5], [-6, 3.5], [6, 3.5]] as const) fuel.put(BATTLE_ASSET.balconyPost, x, z, 0, 0, 1.45);
+    fuel.put(STREET_ASSET.canopy, 0, 0, 4.6);
+    for (const x of [-3, 3]) for (const z of [-1.2, 1.2]) fuel.put(STREET_ASSET.pump, x, z, .15);
+    fuel.block(0, -20, 1);
+    fuel.put(STREET_ASSET.wreckCar, 6.5, 6, 0, .2, 1.2);
+    fuel.put(CAMP_ASSET['straight-lamp-post'], -10, 8); fuel.put(CAMP_ASSET['straight-lamp-post'], 10, 8);
+    site('house_small', zone('fuel').x, zone('fuel').z, [18, 28], fuel, { ground: Surface.Asphalt });
+
+    const farmKit = (seed: number, barns: number) => {
+      const r = new Rng(seed), k = new Kit(seed);
+      k.block(-20, -16, 1 + Math.floor(r.next() * 2));
+      k.house(BUILDING_ASSET.barn, 18, -18, r.next() * .3);
+      if (barns > 1) k.house(BUILDING_ASSET.barnWide, 20, 12, Math.PI / 2);
+      k.house(BUILDING_ASSET.tank, -24, 10, 0, 1.2);
+      for (let x = -30; x <= 30; x += 7) {
+        k.put(BATTLE_ASSET.farmBed, x, 40, .02);
+        for (let z = 34; z <= 46; z += 3) k.put(BATTLE_ASSET.crop, x, z, .1, r.next() * Math.PI);
+      }
+      k.wall(-38, 52, 38, 52, CAMP_ASSET['wooden-fence'], 4); k.wall(-38, 28, -38, 52, CAMP_ASSET['wooden-fence'], 4); k.wall(38, 28, 38, 52, CAMP_ASSET['wooden-fence'], 4);
+      k.house(BUILDING_ASSET.trailer, 0, 0, r.next() * Math.PI);
+      return k;
+    };
+    for (const [id, seed, barns] of [['westfarm', 11, 2], ['southfarm', 23, 1], ['eastfarm', 37, 2], ['northfarm', 41, 1]] as const)
+      site('farm', zone(id).x, zone(id).z, [42, 56], farmKit(seed, barns));
+
+    const hamletKit = (seed: number) => {
+      const r = new Rng(seed), k = new Kit(seed), homes = [BUILDING_ASSET.house, BUILDING_ASSET.houseSmall, BUILDING_ASSET.favela, BUILDING_ASSET.houseLarge];
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * Math.PI * 2 + r.next() * .3, d = 16 + r.next() * 10;
+        if (i === 2) k.block(Math.cos(a) * d, Math.sin(a) * d, 1 + Math.floor(r.next() * 2));
+        else k.house(homes[Math.floor(r.next() * homes.length)]!, Math.cos(a) * d, Math.sin(a) * d, a + Math.PI / 2);
+      }
+      k.put(BATTLE_ASSET.waterTank, 0, 0); k.put(CAMP_ASSET['straight-lamp-post'], 4, 4);
+      return k;
+    };
+    for (const [id, seed] of [['pinehamlet', 5], ['creek', 7], ['ridge', 9], ['northbay', 13]] as const) site('hamlet', zone(id).x, zone(id).z, 34, hamletKit(seed));
+  }
+
+  // Lone homes along every road: a house or a block every few hundred metres, set back from it.
+  {
+    const r = new Rng(0x40e5);
+    const taken = sites.map(s => ({ x: s.x, z: s.z, r: s.radius }));
+    for (const rd of map.roads) {
+      if (rd.width > 12) continue;
+      for (const [x, z, dx, dz] of along(rd.points, 260)) {
+        const side = r.next() < .5 ? -1 : 1, off = rd.width + 22 + r.next() * 10;
+        const hx = x - dz * side * off, hz = z + dx * side * off;
+        if (taken.some(t => Math.hypot(t.x - hx, t.z - hz) < t.r + 45) || world.coastDistance(hx, hz) < 60 || world.terrain(hx, hz) < sea + 3) continue;
+        // Clear of every road (and its graded verge), not just the one it stands by.
+        const clearOfRoads = map.roads.every(o => o.points.every((pt, i) => {
+          if (i === 0) return true;
+          const [ax, az] = o.points[i - 1]!, [bx, bz] = pt, ddx = bx - ax, ddz = bz - az, l2 = ddx * ddx + ddz * ddz;
+          const t = Math.max(0, Math.min(1, ((hx - ax) * ddx + (hz - az) * ddz) / l2));
+          return Math.hypot(hx - ax - ddx * t, hz - az - ddz * t) > o.width + 22;
+        }));
+        if (!clearOfRoads) continue;
+        const k = new Kit(Math.round(hx * 7 + hz));
+        const face = Math.atan2(dz * side, -dx * side);
+        if (r.next() < .35) k.block(0, 0, 1 + Math.floor(r.next() * 2), false, face);
+        else k.house([BUILDING_ASSET.house, BUILDING_ASSET.houseSmall, BUILDING_ASSET.houseLarge, BUILDING_ASSET.favela][Math.floor(r.next() * 4)]!, 0, 0, face);
+        if (r.next() < .5) k.put(CAMP_ASSET['wooden-fence'], 0, 9, 0, face);
+        site('house_small', hx, hz, 13, k);
+        taken.push({ x: hx, z: hz, r: 13 });
+      }
+    }
+  }
+
+  // Road markings: a broken centre line on every road, zebra crossings and stop lines at each
+  // junction, laid straight on the road surface (small decal sites, no pad).
+  {
+    const tiles = new Map<string, Kit>();
+    const mark = (asset: number, x: number, z: number, yaw: number, scale = 1) => {
+      const key = `${Math.floor(x / 12)}:${Math.floor(z / 12)}`;
+      let k = tiles.get(key); if (!k) tiles.set(key, k = new Kit());
+      k.put(asset, x, z, .03, yaw, scale);
+    };
+    const runway = (rd: { width: number }) => rd.width > 12;
+    // Junctions: where a road's point meets another road.
+    const junctions: Array<{ x: number; z: number }> = [];
+    map.roads.forEach((a, i) => map.roads.forEach((b, j) => {
+      if (j <= i || runway(a) || runway(b)) return;
+      for (const [px, pz] of a.points) for (let k = 1; k < b.points.length; k++) {
+        const [ax, az] = b.points[k - 1]!, [bx, bz] = b.points[k]!, dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)), d = Math.hypot(px - ax - dx * t, pz - az - dz * t);
+        if (d < b.width + 2 && !junctions.some(q => Math.hypot(q.x - px, q.z - pz) < 40)) junctions.push({ x: px, z: pz });
+      }
+    }));
+    const nearJunction = (x: number, z: number, pad: number) => junctions.some(q => Math.hypot(q.x - x, q.z - z) < pad);
+    for (const rd of map.roads) {
+      if (runway(rd)) continue;
+      // Centre line: 3 m dashes every 9 m (none across the junctions themselves).
+      for (const [x, z, dx, dz] of along(rd.points, 9)) if (!nearJunction(x, z, rd.width + 14)) mark(STREET_ASSET.laneDash, x, z, Math.atan2(dx, dz), 1.5);
+      // At each junction this road reaches: a zebra crossing and a stop line on every approach.
+      for (const q of junctions) {
+        for (let k = 1; k < rd.points.length; k++) {
+          const [ax, az] = rd.points[k - 1]!, [bx, bz] = rd.points[k]!, len = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / len, dz = (bz - az) / len;
+          const t = (q.x - ax) * dx + (q.z - az) * dz, off = Math.hypot(q.x - ax - dx * t, q.z - az - dz * t);
+          if (off > 8) continue;
+          for (const dir of [-1, 1]) {
+            const at = t + dir * (rd.width + 12);
+            if (at < 0 || at > len) continue;
+            const cx = ax + dx * at, cz = az + dz * at, px = -dz, pz = dx;
+            for (let w = -rd.width + .8; w <= rd.width - .8; w += 1.3) mark(STREET_ASSET.zebra, cx + px * w, cz + pz * w, Math.atan2(dx, dz));
+            const sx = cx + dx * dir * 2.6, sz = cz + dz * dir * 2.6;
+            for (let w = -rd.width + .5; w <= rd.width - .5; w += 1) mark(STREET_ASSET.stopLine, sx + px * w, sz + pz * w, Math.atan2(-dz, dx));
+          }
+        }
+      }
+    }
+    for (const [key, k] of tiles) {
+      const [tx, tz] = key.split(':').map(Number) as [number, number];
+      const cx = tx * 12 + 6, cz = tz * 12 + 6;
+      for (const part of k.parts) { part.x -= cx; part.z -= cz; }
+      sites.push({ kind: 'ruined_camp', x: cx, z: cz, y: 0, yaw: 0, radius: 1, parts: k.parts, gid: gid++, decal: true });
+    }
   }
 
   // Lone shelters along the coast roads give early loot outside the districts.

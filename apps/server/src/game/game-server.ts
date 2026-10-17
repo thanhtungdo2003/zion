@@ -8,7 +8,7 @@ import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec } from '@zion/shared';
 import { loadHitMeshes } from '../world/hit-meshes';
-import { attachmentModifier, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
+import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
@@ -2860,7 +2860,8 @@ export class GameServer {
     p.gunHeat = Math.min(1.5, p.gunHeat + .22);
     p.lastGunShotAt = now;
     const proj = bulletSpec(p.weapon, spec);
-    if (p.eyeAim) [ax, ay, az] = zeroedDirection(ax, ay, az, oy, s.y + characterEyeHeight(s), zeroDistance(spec, !!opticOf(attachments)), proj.speed, proj.gravity);
+    // Mouse-look aim already runs from the muzzle to the crosshair point: only the drop to the zero is added.
+    if (p.eyeAim) [ax, ay, az] = droppedDirection(ax, ay, az, zeroDistance(spec, !!opticOf(attachments)), proj.speed, proj.gravity);
     this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [], ...(attachmentModifier(attachments, 'flash') === 0 ? { sup: 1 as const } : {}) });
     for (let i = 0; i < spec.pellets; i++) {
       const [dx, dy, dz] = spreadDirection(ax, ay, az, spread, Math.random);

@@ -355,8 +355,7 @@ export class InputController {
     if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) b |= Buttons.Sprint;
     if (this.mouseButtons & 1) b |= Buttons.Attack;
     if (this.keys.has(settingsStore.get().rollKey)) b |= Buttons.Roll;
-    // Lean left while Q is held (TOP / third person also lean out by themselves when aiming at a wall's edge).
-    if (this.keys.has('KeyQ')) b |= Buttons.LeanLeft;
+    // No lean keys: aiming at a wall's edge leans out past it by itself (see the engine).
     return b;
   }
 

@@ -225,7 +225,8 @@ export class SkySystem {
       this.light.intensity = 0.9 + 1.7 * day + 0.6 * twilight;
     } else {
       this.light.color.copy(MOON);
-      this.light.intensity = 0.8 + 0.35 * smooth(0.0, 0.25, moonUp) + 0.6 * twilight;
+      // Moonlight is the night's key light: strong enough against the fill to cast clear shadows.
+      this.light.intensity = 1.25 + 0.65 * smooth(0.0, 0.25, moonUp) + 0.6 * twilight;
     }
     // Shadow camera follows the focus point, snapped to shadow texels to prevent shimmering.
     const texel = 140 / 2048;
@@ -240,7 +241,7 @@ export class SkySystem {
     this.hemi.groundColor.setRGB(0.23, 0.2, 0.15);
     // Ambient never drops to black: twilight keeps sky fill, moonlit nights stay readable.
     // Bright enough to play comfortably at night; dusk and dawn are nearly as clear as day.
-    this.hemi.intensity = 0.75 + 0.25 * day + 0.6 * this.night + 1.1 * twilight;
+    this.hemi.intensity = 0.75 + 0.25 * day + 0.2 * this.night + 1.1 * twilight;
     this.lightLevel = Math.min(1, 0.5 + 0.5 * day + 0.5 * twilight);
 
     this.fog.color.copy(this.horizon).multiplyScalar(0.92);

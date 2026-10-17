@@ -19,9 +19,10 @@ export function advanceBallistic(s: BallisticState, gravity: number, drag: numbe
 
 /** Ballistic ammunition; existing effective ranges and damage remain weapon-specific. */
 export function bulletSpec(weapon: number, gun: GunSpec): ProjectileSpec {
-  const speed = gun.pellets > 1 ? 330
-    : [WeaponId.GL18, WeaponId.Revolver, WeaponId.MP5, WeaponId.Uzi, WeaponId.Deagle].some(id => id === weapon) ? 360
-    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD, WeaponId.Kar98k].some(id => id === weapon) ? 850 : 620;
+  // Game-paced muzzle speeds: rounds visibly arc and drop past their zero (real ones are ~2× faster).
+  const speed = gun.pellets > 1 ? 260
+    : [WeaponId.GL18, WeaponId.Revolver, WeaponId.MP5, WeaponId.Uzi, WeaponId.Deagle].some(id => id === weapon) ? 270
+    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD, WeaponId.Kar98k].some(id => id === weapon) ? 560 : 400;
   return { kind: 'bullet', speed, gravity: 9.81, drag: .12, maxFlightSec: gun.range / speed * 1.5, maxRange: gun.range };
 }
 
@@ -36,6 +37,18 @@ export function zeroedDirection(ax: number, ay: number, az: number, muzzleY: num
   const pitch = Math.atan2(ty, flat) + Math.atan(gravity * distance / (2 * speed * speed));
   const c = Math.cos(pitch);
   return [tx / flat * c, Math.sin(pitch), tz / flat * c];
+}
+
+/**
+ * The shot already points from the muzzle at what the crosshair is on (third / first person):
+ * lift it just enough for the drop over the zero distance, so the round lands on the crosshair
+ * there (a few centimetres high before it) and falls below it further out.
+ */
+export function droppedDirection(ax: number, ay: number, az: number, distance: number, speed: number, gravity: number): [number, number, number] {
+  const flat = Math.hypot(ax, az) || 1e-6;
+  const pitch = Math.atan2(ay, flat) + Math.atan(gravity * distance / (2 * speed * speed));
+  const c = Math.cos(pitch);
+  return [ax / flat * c, Math.sin(pitch), az / flat * c];
 }
 
 /** Zero range: 100 m through an optic (capped by the gun's reach), 50 m on iron sights. */

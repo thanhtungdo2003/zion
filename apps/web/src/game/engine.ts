@@ -2123,7 +2123,7 @@ export class GameEngine {
     const weapon = this.equippedWeapon();
     let buttons = this.input.buttons();
     // Infection zombies only run, jump and swing (the server enforces the same).
-    // TOP / third person: aiming at a wall's edge leans out past it by itself.
+    // Aiming at a wall's edge leans out past it by itself (every view; there are no lean keys).
     const peek = this.peek(performance.now());
     if (peek && !(buttons & (Buttons.LeanLeft | Buttons.LeanRight))) buttons |= peek < 0 ? Buttons.LeanLeft : Buttons.LeanRight;
     if (this.selfInfected) buttons &= ~(Buttons.Roll | Buttons.Prone | Buttons.Crouch | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Aim | Buttons.ThrowC4 | Buttons.Heal);
@@ -2160,7 +2160,8 @@ export class GameEngine {
     let yaw = this.shotYaw;
     let throwDist: number | undefined;
     // Swimming blocks every attack; guns also cannot fire mid-jump.
-    const airborne = !local.state.grounded && !local.state.swimming;
+    // (On a ladder the gun still fires from the hip; aiming needs both feet down.)
+    const airborne = !local.state.grounded && !local.state.swimming && !local.state.climbing;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
     const action = this.weaponCtl.tick(actionTime, weapon, trigger, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
@@ -2740,7 +2741,7 @@ export class GameEngine {
    */
   private peek(now: number): number {
     const local = this.local, col = this.store?.collision;
-    if (!local || !col || this.firstPerson || !this.aiming || !local.state.grounded || local.state.prone) { this.autoLean.side = 0; return 0; }
+    if (!local || !col || !this.aiming || !local.state.grounded || local.state.prone) { this.autoLean.side = 0; return 0; }
     const s = local.state, yaw = this.shotYaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), ey = s.y + 1.45;
     const blocked = (ox: number, oz: number, len: number) => col.raycast(s.x + ox, ey, s.z + oz, fx, 0, fz, len, Mask.CharacterMovement, this.reachHit);
     let side = 0;
