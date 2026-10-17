@@ -105,6 +105,8 @@ export class BattleBot implements Combatant {
   infiniteAmmo = false;
   speedMul = 1;
   jumpMul = 1;
+  /** Infection: the high, sheltered spot this bot's group holds (with its own offset). */
+  holdAt: { x: number; y: number; z: number; faceX: number; faceZ: number } | null = null;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -184,7 +186,8 @@ export class BattleBotDirector {
 
   constructor(private readonly collision: CollisionWorld, private readonly hooks: BotHooks) {
     this.controller = new CharacterController(collision);
-    this.navigation = new ZombieNavigation(collision);
+    // Bots are few and route through buildings and up stairs: a larger search budget each.
+    this.navigation = new ZombieNavigation(collision, 4096, 600, 30_000);
   }
 
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
@@ -378,6 +381,13 @@ export class BattleBotDirector {
     const armed = !!bot.gun && (bot.gunItem?.mag ?? 0) + bot.reserve > 0;
 
     if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) { bot.mode = 'fight'; bot.campUntil = 0; return; }
+    // Infection: the group makes for its high ground before the outbreak and holds it, watching out.
+    if (bot.holdAt && !bot.zombie && world.phase !== 'waiting') {
+      const h = bot.holdAt, d = Math.hypot(h.x - s.x, h.z - s.z), up = Math.abs(h.y - s.y);
+      if (d > 1.6 || up > 1.2) { bot.mode = 'roam'; bot.goal = { x: h.x, y: h.y, z: h.z }; bot.roamUntil = now + 4000; return; }
+      bot.mode = 'camp'; bot.campUntil = now + 3000; bot.campYaw = Math.atan2(-(h.faceX), -(h.faceZ));
+      return;
+    }
     // A squadmate is down: go and pick them up (unless the zone is about to take us).
     const down = this.squad(bot).filter(m => m.downed).sort((a, b) => Math.hypot(a.state.x - s.x, a.state.z - s.z) - Math.hypot(b.state.x - s.x, b.state.z - s.z))[0];
     if (down && !outsideNow && Math.hypot(down.state.x - s.x, down.state.z - s.z) < 120) {
@@ -492,9 +502,11 @@ export class BattleBotDirector {
       if (!prone) { mx = bot.strafe; mz = d > close * 1.6 ? .8 : d < close * .6 ? -.8 : 0; }
       // Reloading up close: back off sideways.
       if (bot.reloadUntil && d < 15) { mz = -1; mx = bot.strafe; }
+      // Holding high ground (infection): stand fast and shoot down, never step off the edge.
+      if (bot.holdAt && Math.hypot(bot.holdAt.x - s.x, bot.holdAt.z - s.z) < 3) { mx = 0; mz = 0; prone = false; }
     } else if (bot.mode === 'camp') {
-      // Ambush: prone and still, slowly scanning the approach.
-      prone = true;
+      // Ambush: prone and still, slowly scanning the approach (standing guard on held ground).
+      prone = !bot.holdAt;
       yaw = bot.campYaw + Math.sin(now / 2600) * .5;
     } else if (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8) {
       yaw = Math.atan2(-(bot.goal.x - s.x), -(bot.goal.z - s.z));
@@ -503,9 +515,10 @@ export class BattleBotDirector {
       if (goal.chest && d < 1.8) { this.lootChest(bot, goal.chest); bot.goal = null; }
       else {
         const ground = this.collision.terrainHeight(goal.x, goal.z);
-        const way = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now) ?? goal;
+        const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now), way = steer ?? goal;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
-        mz = 1; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25;
+        // Up on another floor and no route yet: wait for one rather than walk into the wall below.
+        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25;
         // Houses: open the door in the way.
         if (now >= bot.doorAt) { bot.doorAt = now + 700; this.hooks.openDoor?.(s.x, s.y, s.z, bot.yaw); }
         // A crate up on a floor it cannot find a way to: try another one.
@@ -679,7 +692,8 @@ export class BattleBotDirector {
         | (s.flight === 1 ? EntityFlags.InPlane : s.flight === 2 ? EntityFlags.Freefall : s.flight === 3 ? EntityFlags.Parachute : 0)
         | (bot.mode === 'fight' && !bot.dead ? EntityFlags.Aiming : 0) | (now < bot.attackingUntil && !bot.dead ? EntityFlags.Attacking : 0)
         | (Math.hypot(s.vx, s.vz) > 5 ? EntityFlags.Sprinting : 0)
-        | (now < bot.knockedUntil && !bot.dead ? EntityFlags.Knocked : 0);
+        | (now < bot.knockedUntil && !bot.dead ? EntityFlags.Knocked : 0)
+        | (s.mantle ? EntityFlags.Mantling : 0);
       out.push({ id: bot.id, kind: EntityKind.Player, x: s.x, y: s.y, z: s.z, yaw: bot.yaw, pitch: bot.pitch, flags, health: bot.health, weapon: bot.dead ? 0 : bot.mode === 'brawl' || !bot.gunItem ? (bot.meleeItem ? WEAPON_BY_ITEM[bot.meleeItem.itemId] ?? 0 : 0) : bot.weapon, armor: packArmor(bot.armor) });
     }
   }

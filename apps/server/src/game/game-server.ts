@@ -2,6 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
+import { WalkingMap, WalkingSearch } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
@@ -21,6 +22,7 @@ import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCos
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
 import { authoredWorld } from '@zion/worldgen';
+import { BRIDGE_ASSET } from '@zion/assets';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { characterEyeHeight, copyCharacterState, createCharacterState, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
@@ -186,6 +188,9 @@ function throwBody(s: CharacterState, v: { kind: keyof typeof VEHICLES }, dx: nu
 
 /** Names of the bot squads in squad matches. */
 const BOT_SQUAD_NAMES = ['Sói Xám', 'Bão Cát', 'Rắn Hổ'];
+
+interface HoldSpot { x: number; y: number; z: number; tiles: Array<{ x: number; y: number; z: number }> }
+const HOLD_SPOTS = new WeakMap<object, HoldSpot[]>();
 
 /** How long a dropped player's place in a running match is held (ms). */
 export const REJOIN_GRACE_MS = 150_000;
@@ -1860,16 +1865,98 @@ export class GameServer {
     for (const p of this.players.values()) p.session.sendJson(m.state(now, p.id));
   }
 
+  /** High ground of the map once worked out (shared by every match on the same world). */
+  private holdSpots(): HoldSpot[] {
+    const gen = this.deps.world.generator;
+    if (!HOLD_SPOTS.has(gen)) { HOLD_SPOTS.set(gen, []); void this.prepareHoldSpots().catch((err: unknown) => this.log.error({ err }, 'hold spots failed')); }
+    return HOLD_SPOTS.get(gen)!;
+  }
+
+  /** Loads the map's physics, then keeps the high spots a walker can actually reach from the streets. */
+  private async prepareHoldSpots(): Promise<void> {
+    const gen = this.deps.world.generator, c = Math.floor(this.infectionCentre / CHUNK_SIZE);
+    await this.physics.ensureArea(c, c, Math.ceil((this.infectionMap.half + 8) / CHUNK_SIZE));
+    const map = new WalkingMap(this.collision), spawns = infectionSpawns(gen);
+    const kept = this.highSpots().filter((spot) => {
+      // From the nearest open spawn points (a spawn spot may sit on clutter; validated ones do not).
+      const near = spawns.slice().sort((a, b) => Math.hypot(a.x - spot.x, a.z - spot.z) - Math.hypot(b.x - spot.x, b.z - spot.z)).slice(0, 3);
+      return near.some((sp) => {
+        const from = this.spawns.validateAt(sp.x, sp.z);
+        if (!from) return false;
+        const search = new WalkingSearch(map, { x: from.x, y: from.y + .01, z: from.z }, spot.tiles[0]!, 50_000);
+        for (let n = 0; !search.done && n < 60_000;) n += search.advance(2000);
+        return search.path.length > 0;
+      });
+    });
+    HOLD_SPOTS.set(gen, kept);
+    this.log.info({ spots: kept.length }, 'infection high ground ready');
+  }
+
+  /**
+   * High ground worth holding on this map: upper floors and roof terraces of buildings with
+   * stairs, one spot per building level (its floor tiles, nearest the middle first), highest first.
+   */
+  private highSpots(): HoldSpot[] {
+    const levels = new Map<string, Array<{ x: number; y: number; z: number }>>();
+    for (const site of allStructures(this.deps.world.generator)) {
+      const c = Math.cos(site.yaw), sn = Math.sin(site.yaw);
+      for (const part of site.parts) {
+        // Building floors only (3.2 m storeys reached by stairs); tower decks need a ladder.
+        const storey = (part.y - .24) / 3.2;
+        if (part.asset !== BRIDGE_ASSET.woodenDeck || part.scale !== 1 || part.y < 2.5 || Math.abs(storey - Math.round(storey)) > .02) continue;
+        const key = `${site.gid}:${part.group ?? 0}:${Math.round(part.y)}`, l = levels.get(key) ?? [];
+        // Stand on a real floor tile (its centre), never a centroid that may fall in the stairwell.
+        l.push({ x: site.x + part.x * c + part.z * sn, y: site.y + part.y + .15, z: site.z - part.x * sn + part.z * c });
+        levels.set(key, l);
+      }
+    }
+    const free = (t: { x: number; y: number; z: number }) => !!this.spawns && this.controller.isFree(t.x, t.y, t.z);
+    return [...levels.values()].filter((l) => l.length >= 3).flatMap((l) => {
+      const cx = l.reduce((n, t) => n + t.x, 0) / l.length, cz = l.reduce((n, t) => n + t.z, 0) / l.length;
+      const tiles = l.filter(free).sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
+      return tiles.length ? [{ ...tiles[0]!, tiles }] : [];
+    }).sort((a, b) => b.y - a.y);
+  }
+
+  /** Infection humans (bots) form groups of 3–5, each taking a different high spot to hold together. */
+  private groupInfectionBots(): void {
+    const humans = (this.bots?.bots ?? []).filter((b) => !b.dead && !b.zombie);
+    for (let i = humans.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [humans[i], humans[j]] = [humans[j]!, humans[i]!]; }
+    const spots = this.holdSpots();
+    let g = 0;
+    const taken = new Set<{ x: number; y: number; z: number }>();
+    for (let i = 0; i < humans.length; g++) {
+      const left = humans.length - i, size = left <= 5 ? left : left === 6 ? 3 : 3 + Math.floor(Math.random() * 3);
+      const group = humans.slice(i, i + size); i += size;
+      // No high ground on this map: the group still sticks together round a spawn point.
+      const spawn = infectionSpawns(this.deps.world.generator)[g % Math.max(1, infectionSpawns(this.deps.world.generator).length)]!;
+      // The group's nearest high spot not taken yet (spread over the map when there are enough).
+      const cx = group.reduce((n, b) => n + b.state.x, 0) / group.length, cz = group.reduce((n, b) => n + b.state.z, 0) / group.length;
+      const free = spots.filter((p) => !taken.has(p)), best = (free.length ? free : spots).slice().sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz))[0];
+      if (best) taken.add(best);
+      const spot = best ?? { x: spawn.x, y: this.deps.world.generator.heightAt(spawn.x, spawn.z), z: spawn.z };
+      const fx = spot.x - this.infectionCentre || 1, fz = spot.z - this.infectionCentre, fl = Math.hypot(fx, fz) || 1;
+      const tiles = 'tiles' in spot ? spot.tiles : [];
+      group.forEach((bot, k) => {
+        const a = k / group.length * Math.PI * 2, r = group.length > 1 ? 1.4 : 0, tile = tiles[k % Math.max(1, tiles.length)];
+        bot.squad = `infection-group-${g}`;
+        bot.role = k === 0 ? 'lead' : k === 1 ? 'gunner' : 'looter';
+        // Each one faces a different way out, so the group covers every approach.
+        bot.holdAt = { x: tile ? tile.x : spot.x + Math.cos(a) * r, y: tile ? tile.y : spot.y, z: tile ? tile.z : spot.z + Math.sin(a) * r, faceX: Math.cos(a + Math.atan2(fz / fl, fx / fl)), faceZ: Math.sin(a + Math.atan2(fz / fl, fx / fl)) };
+      });
+    }
+  }
+
   /** Bots keep the room at this.infectionRules.botFill entrants while someone is playing. */
-  private fillInfectionBots(m: InfectionMatch, now: number): void {
+  private fillInfectionBots(m: InfectionMatch): void {
     if (!this.bots) return;
     if (!this.players.size) {
       if (this.bots.bots.length) { for (const bot of this.bots.bots) m.leave(bot.id); this.bots.clear(); this.broadcastPlayerList(); }
       return;
     }
-    // Bots take the empty places only at the end of the first countdown, so they never hold a
-    // seat a real player could have had while the match was gathering.
-    if (m.phase !== 'countdown' || m.round !== 1 || m.state(now).remainingMs > 3000) return;
+    // Bots take empty places once the first countdown starts (never while the lobby gathers), up
+    // to botFill, which leaves room for late real players; they need the countdown to take cover.
+    if (m.phase !== 'countdown' || m.round !== 1) return;
     let added = 0;
     while (m.entrants.size < this.infectionRules.botFill && m.accepting) {
       const bot = this.bots.spawn(this.infectionCentre, INFECTION_GROUND, this.infectionCentre);
@@ -1878,7 +1965,7 @@ export class GameServer {
       this.placeBot(bot);
       added++;
     }
-    if (added) this.broadcastPlayerList();
+    if (added) { this.groupInfectionBots(); this.broadcastPlayerList(); }
   }
 
   private stepInfection(now: number): void {
@@ -1892,12 +1979,13 @@ export class GameServer {
       return;
     }
     const m = this.infection!;
-    this.fillInfectionBots(m, now);
+    this.fillInfectionBots(m);
     const ev = m.tick(now, this.players.size);
     const bots = this.bots?.bots ?? [];
     if (ev.reset) {
       for (const p of this.players.values()) this.infectionPlace(p, false);
       for (const bot of bots) { this.dressBot(bot, false); this.placeBot(bot); }
+      this.groupInfectionBots();
       for (const [id, door] of this.battleDoors) { door.open = false; this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door)); this.broadcast({ t: 'door', id, ...door }); }
       this.rounds.length = 0; this.grenades.length = 0;
       this.broadcast({ t: 'chat', from: 'LÂY NHIỄM', fromId: 0, system: true, text: `Vòng ${m.round} · ${this.infectionMap.name}: chọn vũ khí, tìm chỗ nấp. Mầm bệnh sẽ bùng phát sau khi trận bắt đầu!` });
@@ -3457,6 +3545,7 @@ export class GameServer {
     if (p.aiming && !p.dead && !p.downed) f |= EntityFlags.Aiming;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
+    if (p.state.mantle) f |= EntityFlags.Mantling;
     if (p.downed) f |= EntityFlags.Downed;
     if (p.reviving) f |= EntityFlags.Reviving;
     if (now < p.knockedUntil && !p.dead) f |= EntityFlags.Knocked;

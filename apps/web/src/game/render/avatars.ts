@@ -356,6 +356,10 @@ export class Avatar {
     }
     if (busy) return;
     if (this.healing && !swimming) return this.play('bandage_wrap', 1, 0, 0.3);
+    if ((flags & EntityFlags.Mantling) !== 0) {
+      // Mantle: hands on the edge, pulling up and over, quick.
+      return this.play(this.template.clips.has('climb_ladder') ? 'climb_ladder' : 'jump', 1.8, 0, 0.12);
+    }
     if ((flags & EntityFlags.Climbing) !== 0) {
       // Rungs at the climbing pace; frozen while hanging still.
       return this.play(this.template.clips.has('climb_ladder') ? 'climb_ladder' : 'walk', Math.abs(vy) > 0.3 ? Math.min(1.6, Math.abs(vy) / 2.2) : 0, 0, 0.25);
@@ -455,8 +459,8 @@ export class Avatar {
     if (prone) {
       this.bodyYaw = yaw;
       this.headYaw = 0;
-    } else if ((flags & EntityFlags.Climbing) !== 0) {
-      // On a ladder: keep facing the rungs.
+    } else if ((flags & (EntityFlags.Climbing | EntityFlags.Mantling)) !== 0) {
+      // On a ladder or over a ledge: keep facing the wall.
       this.headYaw = 0;
     } else if ((flags & EntityFlags.Swimming) !== 0 && speed > 0.4) {
       // Swimming: the body turns smoothly into the direction it swims.

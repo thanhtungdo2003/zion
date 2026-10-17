@@ -1,5 +1,5 @@
 import { Layer, Mask } from './layers';
-import { makeContact, type Contact } from './shapes';
+import { makeContact, makeRayHit, type Contact } from './shapes';
 import type { CollisionWorld } from './world';
 
 export interface CharacterParams {
@@ -99,7 +99,15 @@ export interface CharacterState {
   /** Outside shove (m/s, e.g. a zombie hit by bullets): added to the move, fades by itself, never blocks steering. */
   pushX?: number;
   pushZ?: number;
+  /** Mantling over a ledge: elapsed and total time, where the climb started and where it ends. */
+  mantle?: Mantle;
 }
+
+export interface Mantle { t: number; dur: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number }
+
+/** Ledges a character can mantle onto (m above the feet): above a plain jump, below arm's reach. */
+export const MANTLE_MIN = 0.85;
+export const MANTLE_MAX = 2.3;
 
 export interface CharacterInput {
   /** Strafe axis −1..1. */
@@ -125,6 +133,8 @@ export interface StepInfo {
   hitWall: boolean;
   jumped: boolean;
   steppedUp: boolean;
+  /** A mantle started this step. */
+  mantled?: boolean;
   /** The move ended in penetration and was rolled back. */
   reverted: boolean;
 }
@@ -162,6 +172,7 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.crouched = src.crouched;
   dst.pushX = src.pushX;
   dst.pushZ = src.pushZ;
+  dst.mantle = src.mantle ? { ...src.mantle } : undefined;
   return dst;
 }
 
@@ -201,6 +212,7 @@ export class CharacterController {
       return info;
     }
     copyCharacterState(s, this.start);
+    if (s.mantle) { this.stepMantle(s, dt); return info; }
 
     // --- Horizontal intent ------------------------------------------------------------------
     let mx = input.mx;
@@ -245,6 +257,11 @@ export class CharacterController {
       s.rollYaw = wishX * wishX + wishZ * wishZ > 0.01 ? Math.atan2(-wishX, -wishZ) : input.yaw;
     }
     const rolling = s.rollTicks > 0;
+    // --- Mantle: jump into a ledge too high to jump onto (W + Space) and climb over it ------
+    if (input.jump && (s.grounded || s.vy > -2) && !rolling && !s.prone && !s.swimming && !s.climbing && mz > 0.3 && this.tryMantle(s, input.yaw, s.grounded ? 0 : this.risen(s, input.jumpMul ?? 1))) {
+      info.mantled = true;
+      return info;
+    }
 
     if (rolling) {
       s.vx = -Math.sin(s.rollYaw) * p.rollSpeed;
@@ -394,6 +411,54 @@ export class CharacterController {
       return { nx: c.nx / l, nz: c.nz / l };
     }
     return null;
+  }
+
+  private readonly ledgeHit = makeRayHit();
+
+  /**
+   * Starts a mantle when a wall stands right in front, its top is between MANTLE_MIN and
+   * MANTLE_MAX above the feet, the top is walkable and there is room to stand there (and to rise
+   * up beside the wall on the way). Deterministic: server and client prediction agree.
+   */
+  /** Height gained since take-off, from the jump speed left (the reach limit counts from the ground). */
+  private risen(s: CharacterState, jumpMul: number): number {
+    const v0 = this.params.jumpVelocity * jumpMul, g = this.params.gravity;
+    return s.vy >= 0 ? (v0 * v0 - s.vy * s.vy) / (2 * g) : (v0 * v0) / (2 * g);
+  }
+
+  tryMantle(s: CharacterState, yaw: number, risen = 0): boolean {
+    const p = this.params, w = this.world, hit = this.ledgeHit;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    // A face ahead at waist height (not a slope or a step).
+    if (!w.raycast(s.x, s.y + 0.6, s.z, fx, 0, fz, p.radius + 0.55, this.mask, hit) || Math.abs(hit.ny) > 0.5) return false;
+    const reach = hit.t;
+    // The top of it, a body-width past the face.
+    const ax = s.x + fx * (reach + p.radius + 0.12), az = s.z + fz * (reach + p.radius + 0.12);
+    const from = s.y + MANTLE_MAX + 0.4;
+    if (!w.raycast(ax, from, az, 0, -1, 0, MANTLE_MAX + 0.4 - MANTLE_MIN + 0.05, this.mask, hit) || hit.ny < p.walkableNormalY) return false;
+    const top = hit.y, h = top - s.y;
+    if (h + risen < MANTLE_MIN || h + risen > MANTLE_MAX || h < 0.3) return false;
+    // Room to rise beside the wall, and to stand on top.
+    if (!this.isFree(s.x, top + 0.03, s.z, 0.001) || !this.isFree(ax, top + 0.03, az, 0.001)) return false;
+    s.mantle = { t: 0, dur: 0.42 + h * 0.2, fx: s.x, fy: s.y, fz: s.z, tx: ax, ty: top + 0.02, tz: az };
+    s.vx = s.vz = s.vy = 0; s.pushX = s.pushZ = 0;
+    s.grounded = false;
+    return true;
+  }
+
+  /** Hands on the edge, body pulled up (first two thirds), then over onto the top. */
+  private stepMantle(s: CharacterState, dt: number): void {
+    const m = s.mantle!;
+    m.t += dt;
+    const k = Math.min(1, m.t / m.dur), rise = Math.min(1, k / 0.62), over = Math.max(0, (k - 0.5) / 0.5);
+    const ease = (v: number) => v * v * (3 - 2 * v);
+    s.y = m.fy + (m.ty - m.fy) * ease(rise);
+    s.x = m.fx + (m.tx - m.fx) * ease(over);
+    s.z = m.fz + (m.tz - m.fz) * ease(over);
+    s.vx = s.vy = s.vz = 0;
+    s.climbing = false;
+    if (k >= 1) { s.mantle = undefined; s.grounded = true; s.x = m.tx; s.y = m.ty; s.z = m.tz; }
+    else s.grounded = false;
   }
 
   /** Is a character standing at (x,y,z) free of solid overlap? */

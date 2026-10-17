@@ -112,6 +112,9 @@ export class LocalPlayer {
     s.rollTicks = server.rollTicks;
     s.rollCooldown = server.rollCooldown;
     s.rollYaw = server.rollYaw;
+    // A mantle in progress at the acknowledged tick: the same climb, rewound to that tick (the
+    // server only reports that one is running; both sides start it from the same inputs).
+    s.mantle = server.flags & EntityFlags.Mantling && before.mantle ? { ...before.mantle, t: Math.max(0, before.mantle.t - this.pending.length * TICK_DT) } : undefined;
     // Freefall time is local only: rewind it to the acknowledged tick before replaying.
     s.freefall = s.flight === 2 ? Math.max(0, (before.freefall ?? 0) - this.pending.length * TICK_DT) : 0;
     if (!this.dead) for (const p of this.pending) this.simulate(p.input);

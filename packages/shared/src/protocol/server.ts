@@ -357,6 +357,8 @@ export const EntityFlags = {
   LeanLeft: 1 << 18,
   LeanRight: 1 << 19,
   Crouching: 1 << 20,
+  /** Climbing over a ledge (mantle). */
+  Mantling: 1 << 21,
 } as const;
 
 export interface SelfState {

@@ -11,6 +11,8 @@ const CLEARANCE = 0.04;
 const MAX_NODES = 12_000;
 const DETOUR_MARGIN = 18;
 const NEIGHBORS = [-1, 0, 1] as const;
+/** Door colliders (frames and leaves) carry the door asset id. */
+const DOOR_TAG = 2202;
 
 /** Local, single-surface walking navigation using the same solids and dimensions as physics. */
 export class WalkingMap {
@@ -33,29 +35,70 @@ export class WalkingMap {
           px > this.world.worldSize - p.boundsMargin || pz > this.world.worldSize - p.boundsMargin) return null;
       const margin = p.radius + 1.5;
       if (!this.world.isAreaLoaded(px - margin, pz - margin, px + margin, pz + margin)) return null;
-      if (!this.world.raycast(px, y + p.stepHeight + 0.02, pz, 0, -1, 0,
-        p.stepHeight + p.snapDistance + 0.04, Mask.CharacterMovement, this.hit)) return null;
+      // The capsule's foot bridges a narrow gap (between a stair and the floor beside it).
+      if (!this.support(px, y + p.stepHeight + 0.02, pz, p.stepHeight + p.snapDistance + 0.04, p.radius * 0.8)) return null;
       if (this.hit.ny < p.walkableNormalY) return null;
       const floor = this.hit.y;
       if (this.world.waterLevel(px, pz) - floor > p.wadeDepth) return null;
       // A capsule stands slightly above the heightfield on slopes because its foot is rounded.
       y = floor + p.radius * (1 / this.hit.ny - 1) + 0.01;
       const radius = p.radius + CLEARANCE;
-      const blocked = (feet: number) => this.world.overlapsCapsule(px, feet + radius, pz,
-        px, feet + p.height - radius, pz, radius, Mask.CharacterMovement & ~Layer.Terrain, 0.001, this.contacts);
+      // A door leaf is no wall: walkers open it on the way (bots and zombies push doors open).
+      const blocked = (feet: number) => {
+        const n = this.world.capsuleContacts(px, feet + radius, pz, px, feet + p.height - radius, pz, radius, Mask.CharacterMovement & ~Layer.Terrain, this.contacts);
+        for (let k = 0; k < n; k++) if (this.contacts[k]!.depth > 0.04 && this.contacts[k]!.tag !== DOOR_TAG) return true;
+        return false;
+      };
       if (blocked(y)) {
         // The rounded foot touches a step before its centre reaches the top. Probe the leading
         // edge, as the controller does, and retain the previous height while leaving a step.
         const lead = (radius + SAMPLE / 2) / Math.max(distance, 0.001);
         let raised = Math.max(y, previousY);
-        if (this.world.raycast(px + (x - from.x) * lead, previousY + p.stepHeight + 0.02,
-          pz + (z - from.z) * lead, 0, -1, 0, p.stepHeight + 0.04, Mask.CharacterMovement, this.hit) &&
-          this.hit.ny >= p.walkableNormalY) raised = Math.max(raised, this.hit.y + 0.01);
+        // The step's top may begin a little further on (a lip, a gap at a threshold): look ahead.
+        for (const k of [1, 1.6, 2.3]) {
+          if (this.down(px + (x - from.x) * lead * k, previousY + p.stepHeight + 0.02, pz + (z - from.z) * lead * k, p.stepHeight + 0.04) &&
+            this.hit.ny >= p.walkableNormalY && this.hit.y + 0.01 > raised) { raised = this.hit.y + 0.01; break; }
+        }
         if (raised <= y || raised - previousY > p.stepHeight + 0.01 || blocked(raised)) return null;
         y = raised;
       }
     }
     return { x, y, z };
+  }
+
+  /** Ground under (x, z), or under the foot's rim within `rim` when the centre is over a gap. */
+  private support(x: number, y: number, z: number, length: number, rim: number): boolean {
+    if (this.down(x, y, z, length)) return true;
+    let best = -Infinity, nx = 0, ny = 0, nz = 0, hx = 0, hz = 0;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4;
+      if (this.down(x + Math.cos(a) * rim, y, z + Math.sin(a) * rim, length) && this.hit.y > best) { best = this.hit.y; nx = this.hit.nx; ny = this.hit.ny; nz = this.hit.nz; hx = this.hit.x; hz = this.hit.z; }
+    }
+    if (best === -Infinity) return false;
+    Object.assign(this.hit, { y: best, nx, ny, nz, x: hx, z: hz });
+    return true;
+  }
+
+  /** Downward ray to walkable ground that looks through door leaves (they swing open). */
+  private down(x: number, y: number, z: number, length: number): boolean {
+    let top = y;
+    for (let i = 0; i < 24; i++) {
+      if (!this.world.raycast(x, top, z, 0, -1, 0, y - length - top < 0 ? top - (y - length) : 0, Mask.CharacterMovement, this.hit)) return false;
+      if (this.hit.tag !== DOOR_TAG) return true;
+      top = this.hit.t > 0.001 ? this.hit.y - 0.001 : top - 0.04;
+      if (top <= y - length) return false;
+    }
+    return false;
+  }
+
+  /** `p`, or the closest point within 0.4 m that a walker can leave from. */
+  freeNear(p: NavPoint): NavPoint {
+    if (this.trace(p, p.x + .01, p.z)) return p;
+    for (const r of [.15, .3, .4]) for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4, q = this.trace(p, p.x + Math.cos(a) * r, p.z + Math.sin(a) * r);
+      if (q) return q;
+    }
+    return p;
   }
 
   reaches(from: NavPoint, to: NavPoint): boolean {
@@ -122,7 +165,9 @@ export class WalkingSearch {
   done = false;
   path: NavPoint[] = [];
 
-  constructor(private readonly map: WalkingMap, private readonly start: NavPoint, readonly goal: NavPoint) {
+  constructor(private readonly map: WalkingMap, private start: NavPoint, readonly goal: NavPoint, private readonly maxNodes = MAX_NODES) {
+    // A walker pressed against a wall has no clearance at its feet: start from the nearest free spot.
+    this.start = start = map.freeNear(start);
     const first: Node = { ...start, key: 'start', g: 0, h: distance(start, goal), parent: null };
     this.open.push(first);
     this.best.set(first.key, first);
@@ -132,7 +177,7 @@ export class WalkingSearch {
     let used = 0;
     while (!this.done && used < budget) {
       const node = this.open.pop();
-      if (!node || this.visited >= MAX_NODES) {
+      if (!node || this.visited >= this.maxNodes) {
         this.done = true;
         break;
       }
@@ -159,10 +204,11 @@ export class WalkingSearch {
             z < Math.min(this.start.z, this.goal.z) - DETOUR_MARGIN ||
             z > Math.max(this.start.z, this.goal.z) + DETOUR_MARGIN) continue;
         const g = node.g + Math.hypot(x - node.x, z - node.z);
-        const key = `${ix + dx},${iz + dz}`;
-        if ((this.best.get(key)?.g ?? Infinity) <= g) continue;
+        // Cells are per floor: a stair over the same ground as the room below is its own node.
         const point = this.map.trace(node, x, z);
         if (!point) continue;
+        const key = `${ix + dx},${iz + dz},${Math.round(point.y / 0.6)}`;
+        if ((this.best.get(key)?.g ?? Infinity) <= g) continue;
         const next: Node = { ...point, key, g, h: distance(point, this.goal), parent: node };
         this.best.set(key, next);
         this.open.push(next);
@@ -186,16 +232,17 @@ export class ZombieNavigation {
   readonly map: WalkingMap;
   private readonly pending = new Set<NavigationState>();
 
-  constructor(world: CollisionWorld) { this.map = new WalkingMap(world); }
+  /** `budget`: search nodes per tick for everyone, `perAgent`: for one walker per tick. */
+  constructor(world: CollisionWorld, private readonly budget = 512, private readonly perAgent = 64, private readonly maxNodes = MAX_NODES) { this.map = new WalkingMap(world); }
 
   beginTick(): void {
-    let budget = 512;
+    let budget = this.budget;
     // Rotate the queue so later mobs also get time when the whole horde is blocked.
     for (const nav of [...this.pending]) {
       if (budget <= 0) break;
       this.pending.delete(nav);
       if (nav.search && !nav.search.done) {
-        budget -= nav.search.advance(Math.min(64, budget));
+        budget -= nav.search.advance(Math.min(this.perAgent, budget));
         if (!nav.search.done) this.pending.add(nav);
       }
     }
@@ -228,7 +275,7 @@ export class ZombieNavigation {
       }
       else if (moved || nav.path.length === 0) {
         nav.goal = { ...goal };
-        nav.search = new WalkingSearch(this.map, { ...from }, { ...goal });
+        nav.search = new WalkingSearch(this.map, { ...from }, { ...goal }, this.maxNodes);
         this.pending.add(nav);
       }
     }

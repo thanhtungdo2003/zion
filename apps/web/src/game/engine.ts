@@ -1755,7 +1755,7 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming | EntityFlags.Crouching | EntityFlags.LeanLeft | EntityFlags.LeanRight;
+    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming | EntityFlags.Crouching | EntityFlags.LeanLeft | EntityFlags.LeanRight | EntityFlags.Mantling;
     const selfLean = leanOf(local.lastButtons);
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
@@ -1767,7 +1767,8 @@ export class GameEngine {
       (selfLean < 0 ? EntityFlags.LeanLeft : selfLean > 0 ? EntityFlags.LeanRight : 0) |
       (this.aiming ? EntityFlags.Aiming : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
-      (local.state.climbing ? EntityFlags.Climbing : 0);
+      (local.state.climbing ? EntityFlags.Climbing : 0) |
+      (local.state.mantle ? EntityFlags.Mantling : 0);
     this.scanStations(px, pz, now);
     // Zombies: interpolated like players, but only visible inside the vision cone (or very close).
     for (const zb of this.zombies.values()) {

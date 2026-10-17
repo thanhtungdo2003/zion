@@ -1881,21 +1881,7 @@ export const CAMP_ASSETS: readonly AssetDefinitionInput[] = [
         3.24
       ]
     },
-    "colliders": [
-      {
-        "type": "box",
-        "center": [
-          0,
-          3.6,
-          0
-        ],
-        "halfExtents": [
-          4.2,
-          3.6,
-          9
-        ]
-      }
-    ],
+    "colliders": [{"type":"box","center":[0,1.575,3.24],"halfExtents":[2.625,0.675,4.32]},{"type":"box","center":[0,1.35,-1.44],"halfExtents":[2.625,0.45,0.36]},{"type":"box","center":[0,2.475,2.88],"halfExtents":[2.1,0.225,2.52]},{"type":"box","center":[0,2.475,6.48],"halfExtents":[1.575,0.225,1.08]},{"type":"box","center":[1.05,2.475,-0.36],"halfExtents":[0.525,0.225,0.72]},{"type":"box","center":[-1.05,2.475,-0.72],"halfExtents":[0.525,0.225,0.36]},{"type":"box","center":[-1.312,2.925,4.68],"halfExtents":[0.788,0.225,0.72]},{"type":"box","center":[-1.838,2.025,-1.44],"halfExtents":[0.262,0.225,0.36]},{"type":"box","center":[1.838,2.025,-1.44],"halfExtents":[0.262,0.225,0.36]},{"type":"box","center":[-1.838,1.125,-2.16],"halfExtents":[0.262,0.225,0.36]},{"type":"box","center":[1.838,1.125,-2.16],"halfExtents":[0.262,0.225,0.36]},{"type":"box","center":[0,1.575,-2.16],"halfExtents":[1.05,0.225,0.36]},{"type":"box","center":[-1.312,2.025,8.28],"halfExtents":[0.263,0.225,0.72]},{"type":"box","center":[1.313,2.025,8.28],"halfExtents":[0.263,0.225,0.72]},{"type":"box","center":[-2.362,2.7,6.12],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[2.363,2.7,6.12],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[2.363,2.475,2.52],"halfExtents":[0.262,0.225,1.44]},{"type":"box","center":[-3.15,0.675,3.24],"halfExtents":[0.525,0.675,5.04]},{"type":"box","center":[-3.937,0.45,-0.36],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[-3.937,0.45,1.8],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[-3.937,0.45,3.96],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[-3.937,0.45,6.12],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[-3.937,0.9,7.56],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[3.15,0.675,3.24],"halfExtents":[0.525,0.675,5.04]},{"type":"box","center":[3.938,0.45,-0.36],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[3.938,0.45,1.8],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[3.938,0.45,3.96],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[3.938,0.45,6.12],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[3.938,0.9,7.56],"halfExtents":[0.262,0.45,0.72]},{"type":"box","center":[0,2.925,2.52],"halfExtents":[1.05,0.225,1.44]},{"type":"box","center":[0,3.825,2.52],"halfExtents":[1.575,0.675,2.16]},{"type":"box","center":[0,3.6,5.4],"halfExtents":[1.05,0.45,0.72]},{"type":"box","center":[0.788,4.725,1.8],"halfExtents":[0.788,0.225,0.72]},{"type":"box","center":[-0.262,4.725,3.6],"halfExtents":[0.788,0.225,1.08]},{"type":"box","center":[-0.525,5.175,3.24],"halfExtents":[0.525,0.225,0.72]},{"type":"box","center":[0.263,5.175,2.16],"halfExtents":[0.263,0.225,1.08]},{"type":"box","center":[0,4.05,0],"halfExtents":[1.05,0.45,0.36]},{"type":"box","center":[0,4.05,-1.44],"halfExtents":[0.525,0.45,1.08]},{"type":"box","center":[0,4.05,-5.4],"halfExtents":[0.263,0.225,2.88]},{"type":"box","center":[0,4.05,-8.64],"halfExtents":[0.525,0.45,0.36]}],
     "bounds": {
       "radius": 9.931768,
       "height": 7.2
