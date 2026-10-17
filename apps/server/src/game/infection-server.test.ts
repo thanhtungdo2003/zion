@@ -169,15 +169,17 @@ describe('isolated infection server', () => {
       const m = harness.infection;
       // The map's reachable high ground is worked out once per world (in the background in play).
       await (game as unknown as { prepareHoldSpots(): Promise<void> }).prepareHoldSpots();
-      let infected = 0, up = 0;
+      let infected = 0, up = 0, worst = 0;
       const groups = new Map<string, number>();
       for (let t = 0; t < (INFECTION.countdownMs + INFECTION.outbreakMs + 60_000) / 50; t++) {
         harness.tick++;
-        harness.stepInfection(t * 50);
+        { const t0 = performance.now(); harness.stepInfection(t * 50); const dt = performance.now() - t0; if (dt > worst) worst = dt; }
         if (m.phase === 'running') infected = Math.max(infected, m.zombies.size);
         if (m.phase === 'running' && !m.zombies.size && !groups.size) for (const b of harness.bots.bots) if (b.holdAt) groups.set(b.squad!, (groups.get(b.squad!) ?? 0) + 1);
         if (m.phase === 'running') up = Math.max(up, ...harness.bots.bots.filter((b) => !b.zombie).map((b) => b.state.y));
       }
+      // No tick may stall the simulation (bots' route searches are spread over many ticks).
+      expect(worst).toBeLessThan(150);
       // Before the outbreak the bots split into groups of 3–5 and climb to high ground.
       expect(groups.size).toBeGreaterThan(1);
       expect([...groups.values()].every((n) => n >= 3 && n <= 5)).toBe(true);

@@ -258,6 +258,8 @@ export class GameServer {
   private readonly infectionLoadouts = new Map<number, InfectionLoadout>();
   private infectionSpawnIndex = 0;
   private infectionOccupied = false;
+  /** When a tick last overran its budget (inputs pile up then through no fault of the player). */
+  private lastSlowTickAt = -Infinity;
   private readonly pickupHit = makeRayHit();
   /**
    * Match modes: players who dropped out mid-match (closed tab, crash, lost connection) keep their
@@ -1388,7 +1390,8 @@ export class GameServer {
     p.lastReceivedSeq = msg.s;
     if (p.inputs.length >= MAX_QUEUED_INPUTS) {
       p.inputs.shift();
-      this.flag(p, 'input_overflow');
+      // A backlog the server caused itself (a slow tick) is no sign of cheating.
+      if (performance.now() - this.lastSlowTickAt > 2000) this.flag(p, 'input_overflow');
     }
     p.inputs.push(msg);
   }
@@ -1878,17 +1881,21 @@ export class GameServer {
     const gen = this.deps.world.generator, c = Math.floor(this.infectionCentre / CHUNK_SIZE);
     await this.physics.ensureArea(c, c, Math.ceil((this.infectionMap.half + 8) / CHUNK_SIZE));
     const map = new WalkingMap(this.collision), spawns = infectionSpawns(gen);
-    const kept = this.highSpots().filter((spot) => {
+    // Searched a slice at a time between ticks: the simulation never stalls for it.
+    let sliceStart = performance.now();
+    const pause = async () => { if (performance.now() - sliceStart > 4) { await new Promise<void>((r) => setTimeout(r, 0)); sliceStart = performance.now(); } };
+    const kept: HoldSpot[] = [];
+    for (const spot of this.highSpots()) {
       // From the nearest open spawn points (a spawn spot may sit on clutter; validated ones do not).
       const near = spawns.slice().sort((a, b) => Math.hypot(a.x - spot.x, a.z - spot.z) - Math.hypot(b.x - spot.x, b.z - spot.z)).slice(0, 3);
-      return near.some((sp) => {
+      for (const sp of near) {
         const from = this.spawns.validateAt(sp.x, sp.z);
-        if (!from) return false;
+        if (!from) continue;
         const search = new WalkingSearch(map, { x: from.x, y: from.y + .01, z: from.z }, spot.tiles[0]!, 50_000);
-        for (let n = 0; !search.done && n < 60_000;) n += search.advance(2000);
-        return search.path.length > 0;
-      });
-    });
+        for (let n = 0; !search.done && n < 60_000;) { n += search.advance(150); await pause(); }
+        if (search.path.length) { kept.push(spot); break; }
+      }
+    }
     HOLD_SPOTS.set(gen, kept);
     this.log.info({ spots: kept.length }, 'infection high ground ready');
   }
@@ -2273,7 +2280,9 @@ export class GameServer {
         this.persisting = null;
       });
     }
-    this.deps.metrics.recordTick(performance.now() - t0, TICK_MS);
+    const spent = performance.now() - t0;
+    if (spent > TICK_MS) this.lastSlowTickAt = performance.now();
+    this.deps.metrics.recordTick(spent, TICK_MS);
   }
 
   private applyInput(p: Player, input: InputMessage, now: number): void {

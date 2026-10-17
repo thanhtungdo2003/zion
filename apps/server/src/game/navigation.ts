@@ -225,6 +225,7 @@ export class NavigationState {
   refreshAt = 0;
   progressAt = 0;
   progress: NavPoint | null = null;
+  shortcutTick = 0;
 }
 
 /** Per-director budget prevents a horde of blocked mobs from searching an entire map in one tick. */
@@ -288,8 +289,9 @@ export class ZombieNavigation {
     while (nav.path.length && distance(from, nav.path[0]!) < 0.2) nav.path.shift();
     if (!nav.path.length) return null;
 
-    // Skip nearby waypoints only when the whole capsule can take the shortcut.
-    for (let i = Math.min(nav.path.length - 1, 6); i > 0; i--) {
+    // Skip nearby waypoints only when the whole capsule can take the shortcut (checked a few
+    // times a second: each check traces whole corridors).
+    if (++nav.shortcutTick % 4 === 0) for (let i = Math.min(nav.path.length - 1, 6); i > 0; i--) {
       if (this.map.reaches(from, nav.path[i]!)) {
         nav.path.splice(0, i);
         break;

@@ -186,8 +186,9 @@ export class BattleBotDirector {
 
   constructor(private readonly collision: CollisionWorld, private readonly hooks: BotHooks) {
     this.controller = new CharacterController(collision);
-    // Bots are few and route through buildings and up stairs: a larger search budget each.
-    this.navigation = new ZombieNavigation(collision, 4096, 600, 30_000);
+    // Bots route through buildings and up stairs: long searches, spread over many ticks so a
+    // tick never stalls (a stalled tick makes every player's movement stutter).
+    this.navigation = new ZombieNavigation(collision, 260, 60, 20_000);
   }
 
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
