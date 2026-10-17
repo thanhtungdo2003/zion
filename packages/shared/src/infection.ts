@@ -7,7 +7,7 @@ import type { InventoryData, PlacedItem } from './inventory';
  * and unlimited ammunition, a few are turned at random, and every zombie hit turns a human. The
  * humans win by holding out until the clock runs down, the zombies by turning everyone.
  */
-export const INFECTION_MAP = { id: 'friday-13', name: 'Thứ 6 Ngày 13', seed: 'zion-friday-13', sizeChunks: 16, maxPlayers: 16, botFill: 12 } as const;
+export const INFECTION_MAP = { id: 'friday-13', name: 'The Street', seed: 'zion-friday-13', sizeChunks: 16, maxPlayers: 16, botFill: 0 } as const;
 
 export const INFECTION = {
   /** Real players needed before the match counts down (bots fill the rest)... */

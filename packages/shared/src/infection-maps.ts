@@ -87,7 +87,7 @@ export const infectionMapsSchema = z.object({
   .refine((v) => new Set(v.maps.map((m) => m.id)).size === v.maps.length, { message: 'map ids must be unique' });
 export type InfectionMaps = z.infer<typeof infectionMapsSchema>;
 
-/** The built-in map: Friday the 13th as it ships. */
+/** The built-in map: The Street as it ships. */
 export const DEFAULT_INFECTION_MAP: InfectionMapDef = {
   id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'friday13', seed: INFECTION_MAP.seed, half: 46,
   terrain: { hills: 0, banks: 54, wall: 'mossy', wallScale: 2 },

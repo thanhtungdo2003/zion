@@ -3,7 +3,7 @@ import type { CampPart } from '../camp';
 import type { Structure } from '../structures';
 
 /**
- * "Thứ 6 Ngày 13" (Friday the 13th): a night street that turns right. Road A runs north to a
+ * "The Street": a night street that turns right. Road A runs north to a
  * crossroads with traffic lights and turns east as road B; both have raised sidewalks, kerbs,
  * lane markings, zebra crossings, street lamps and abandoned cars. Two- and three-storey houses
  * line every frontage: real doors and French windows, stairs inside up to flat roofs with

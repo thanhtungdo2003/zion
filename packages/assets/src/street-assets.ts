@@ -1,7 +1,7 @@
 import type { AssetDefinitionInput } from './schema';
 
 /**
- * Street kit (Infection's "Thứ 6 Ngày 13"): plain boxes at true human scale. Houses are built from
+ * Street kit (Infection's "The Street"): plain boxes at true human scale. Houses are built from
  * 1 m wall pieces on 3.2 m storeys, so doors (1.0 × 2.4 m) and French windows (1.85 m clear above a
  * 0.6 m sill) are real openings a player walks or climbs through, and colliders match the boxes.
  */

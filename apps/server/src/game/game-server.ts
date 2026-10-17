@@ -351,7 +351,8 @@ export class GameServer {
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now),
     });
-    this.bots = this.arena ? new BattleBotDirector(this.collision, {
+    // Bots play battle royale only (Infection is people against people).
+    this.bots = this.battle ? new BattleBotDirector(this.collision, {
       shot: (e) => this.broadcastAt(e.ox, e.oz, e),
       projectile: (e) => this.broadcastAt(e.x, e.z, e),
       projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
@@ -1968,6 +1969,7 @@ export class GameServer {
 
   /** Infection humans (bots): about four escort the real players; the rest form groups of 3–5 on high ground. */
   private groupInfectionBots(): void {
+    if (!this.bots) return;
     const all = (this.bots?.bots ?? []).filter((b) => !b.dead && !b.zombie);
     for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j]!, all[i]!]; }
     const people = [...this.players.values()].filter((p) => !p.dead && !this.infection?.isZombie(p.id));

@@ -33,9 +33,9 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
       {state.phase === 'waiting' && (
         <div className="ifx-banner" role="status">
           <Icon name="lucide:users" />
-          <span>Đang ghép trận · {state.players}/{state.rules.minPlayers} người</span>
-          <b>{left > 0 ? Math.ceil(left / 1000) : '…'}</b>
-          <small>Đủ người là bắt đầu; hết giờ chờ thì vào trận cùng bot</small>
+          <span>Đang ghép trận · {state.players}/{Math.max(2, state.rules.minPlayers)} người</span>
+          <b>…</b>
+          <small>Trận bắt đầu khi đủ {Math.max(2, state.rules.minPlayers)} người chơi</small>
         </div>
       )}
       {state.phase === 'countdown' && (

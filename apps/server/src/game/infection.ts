@@ -31,7 +31,7 @@ export class InfectionMatch {
   private humansPresent = 0;
   private ended = false;
 
-  constructor(readonly rules: InfectionRules = DEFAULT_INFECTION_RULES, readonly name = 'Thứ 6 Ngày 13', private readonly random: () => number = Math.random) {}
+  constructor(readonly rules: InfectionRules = DEFAULT_INFECTION_RULES, readonly name = 'The Street', private readonly random: () => number = Math.random) {}
 
   /** Matchmaking: players join while the lobby gathers and through the first countdown only. */
   get accepting(): boolean { return this.entrants.size < this.rules.maxPlayers && (this.phase === 'waiting' || (this.phase === 'countdown' && this.round === 1)); }
@@ -62,8 +62,9 @@ export class InfectionMatch {
     if (this.phase === 'waiting') {
       if (!humansPresent) this.lobbySince = null;
       else this.lobbySince ??= now;
-      this.deadline = this.lobbySince === null ? 0 : this.lobbySince + this.rules.lobbyWaitMs;
-      if (humansPresent >= this.rules.minPlayers || (humansPresent > 0 && now >= this.deadline)) { this.begin(now); ev.reset = true; }
+      // No bots: a match needs enough real players (it waits for them as long as it takes).
+      this.deadline = 0;
+      if (humansPresent >= Math.max(2, this.rules.minPlayers)) { this.begin(now); ev.reset = true; }
       return ev;
     }
     if (this.ended) return ev;

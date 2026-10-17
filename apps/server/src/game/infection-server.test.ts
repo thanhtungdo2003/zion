@@ -11,7 +11,6 @@ import type { WorldRepository } from '../repositories/worlds';
 import { WorldService } from '../world/world-service';
 import { GameServer } from './game-server';
 import { InfectionMatch } from './infection';
-import type { BattleBotDirector } from './battle-bots';
 import type { ClientSession } from './session';
 import type { Player } from './player';
 
@@ -19,7 +18,6 @@ interface Harness {
   physics: { ensureArea(cx: number, cz: number, radius: number): Promise<void> };
   applyInput(player: Player, input: InputMessage, now: number): void;
   infection: InfectionMatch;
-  bots: BattleBotDirector;
   tick: number;
   stepInfection(now: number): void;
   playerAttackAllowed(a: Player, b: Player, now: number): boolean;
@@ -64,12 +62,13 @@ describe('infection rules', () => {
     expect(m.state(t).over).toBe(true);
   });
 
-  it('starts a lone player after the lobby wait', () => {
+  it('never starts with a lone player (no bots to fill in)', () => {
     const m = new InfectionMatch();
     m.join(1, 'a');
     m.tick(0, 1);
     expect(m.phase).toBe('waiting');
-    expect(m.tick(INFECTION.lobbyWaitMs, 1).reset).toBe(true);
+    expect(m.tick(INFECTION.lobbyWaitMs * 10, 1).reset).toBeUndefined();
+    expect(m.tick(INFECTION.lobbyWaitMs * 10, 2).reset).toBe(true);
   });
 });
 
@@ -104,7 +103,6 @@ describe('isolated infection server', () => {
       harness.stepInfection(0);
       expect(m.phase).toBe('countdown');
       expect(harness.playerAttackAllowed(pa, pb, 1)).toBe(false);
-      harness.bots.clear();
       for (const id of [...m.entrants.keys()]) if (id !== pa.id && id !== pb.id) m.leave(id);
       m.tick(INFECTION.countdownMs, 2);
       m.infect(pb.id);
@@ -165,29 +163,11 @@ describe('isolated infection server', () => {
       harness.stepReloads(p.reloadAt + 1);
       expect(gun.mag).toBe(30);
 
-      // A whole round with bots: the room fills, the outbreak spreads, nothing throws.
+      // No bots in Infection: a lone player waits in the lobby, nobody joins on their behalf.
       const m = harness.infection;
-      // The map's reachable high ground is worked out once per world (in the background in play).
-      await (game as unknown as { prepareHoldSpots(): Promise<void> }).prepareHoldSpots();
-      let infected = 0, up = 0, worst = 0;
-      const groups = new Map<string, number>();
-      for (let t = 0; t < (INFECTION.countdownMs + INFECTION.outbreakMs + 60_000) / 50; t++) {
-        harness.tick++;
-        { const t0 = performance.now(); harness.stepInfection(t * 50); const dt = performance.now() - t0; if (dt > worst) worst = dt; }
-        if (m.phase === 'running') infected = Math.max(infected, m.zombies.size);
-        if (m.phase === 'running' && !m.zombies.size && !groups.size) for (const b of harness.bots.bots) if (b.holdAt) groups.set(b.squad!, (groups.get(b.squad!) ?? 0) + 1);
-        if (m.phase === 'running') up = Math.max(up, ...harness.bots.bots.filter((b) => !b.zombie).map((b) => b.state.y));
-      }
-      // No tick may stall the simulation (bots' route searches are spread over many ticks).
-      expect(worst).toBeLessThan(150);
-      // About four bots escort the player.
-      expect(harness.bots.bots.filter((b) => b.follow === p.id).length).toBe(4);
-      // Before the outbreak the bots split into groups of 3–5 and climb to high ground.
-      expect(groups.size).toBeGreaterThan(1);
-      expect([...groups.values()].every((n) => n >= 3 && n <= 5)).toBe(true);
-      expect(up).toBeGreaterThan(33);
-      expect(m.entrants.size).toBe(INFECTION_MAP.botFill);
-      expect(infected).toBeGreaterThan(1);
+      for (let t = 0; t < 2000; t++) { harness.tick++; harness.stepInfection(t * 50); }
+      expect(m.phase).toBe('waiting');
+      expect(m.entrants.size).toBe(1);
     } finally {
       await game.stop();
       await world.close();

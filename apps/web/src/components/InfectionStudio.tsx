@@ -38,9 +38,7 @@ const RULES: Array<{ key: keyof InfectionRules; label: string; min: number; max:
   { key: 'knockMax', label: 'Đẩy lùi tối đa (m/s)', min: 0, max: 30, step: .5 },
   { key: 'perZombie', label: 'Số người / 1 zombie đầu tiên', min: 1, max: 32, step: 1 },
   { key: 'maxPlayers', label: 'Số người chơi tối đa', min: 2, max: 32, step: 1 },
-  { key: 'botFill', label: 'Bot lấp đầy tới', min: 0, max: 32, step: 1 },
   { key: 'minPlayers', label: 'Người thật cần để bắt đầu', min: 1, max: 32, step: 1 },
-  { key: 'lobbyWaitMs', label: 'Chờ ghép trận tối đa', min: 5, max: 600, step: 5, scale: 1000, unit: 's' },
   { key: 'rounds', label: 'Số vòng mỗi trận', min: 1, max: 20, step: 1 },
   { key: 'countdownMs', label: 'Đếm ngược đầu vòng', min: 3, max: 120, step: 1, scale: 1000, unit: 's' },
   { key: 'outbreakMs', label: 'Bùng phát sau', min: 1, max: 120, step: 1, scale: 1000, unit: 's' },
@@ -430,7 +428,7 @@ export default function InfectionStudio() {
             <label className="ix-field"><span>Nền bản đồ</span>
               <select value={draft.base} onChange={(e) => patch((d) => { d.base = e.target.value as InfectionMapDef['base']; })}>
                 <option value="empty">Trống (chỉ những gì bạn đặt)</option>
-                <option value="friday13">Thị trấn Thứ 6 Ngày 13</option>
+                <option value="friday13">The Street</option>
               </select>
             </label>
             {num('Kích thước (nửa cạnh)', draft.half, (v) => patch((d) => { d.half = v; }), 30, 170, 1, ' m')}
