@@ -230,6 +230,47 @@ export class Avatar {
     return true;
   }
 
+  private mantleArms = false;
+  private readonly gripTarget = new Vector3();
+  private readonly gripShoulder = new Vector3();
+  private readonly gripHand = new Vector3();
+  /**
+   * Mantling over a ledge (call after update): both hands planted on the edge at `left` / `right`
+   * (world points that stay put while the body rises: the arms swing and shorten to keep them
+   * there), the chest leaning in, the legs kicking up the wall in turn. `k`: progress 0..1.
+   */
+  poseMantle(grip: { left: Vector3; right: Vector3 } | null, k: number): void {
+    const arms = [['left', grip?.left], ['right', grip?.right]] as const;
+    if (!grip) {
+      if (this.mantleArms) { for (const [side] of arms) this.bones.get(`arm_${side}`)?.node.scale.set(1, 1, 1); this.mantleArms = false; const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined; if (held) held.obj.visible = true; }
+      return;
+    }
+    this.mantleArms = true;
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
+    if (held) held.obj.visible = false;
+    const body = this.bones.get('body')?.node;
+    // Lean in over the edge while pulling, straighten as the hips come over.
+    if (body) body.rotation.x -= .35 * Math.sin(Math.min(1, k * 1.3) * Math.PI);
+    // Legs: one knee drives up the wall while the other pushes, then they swap; both tuck at the end.
+    const kick = Math.sin(k * Math.PI * 2.2);
+    const legL = this.bones.get('leg_left')?.node, legR = this.bones.get('leg_right')?.node;
+    if (legL) legL.rotation.x = -.25 - .95 * Math.max(0, kick) - .5 * k;
+    if (legR) legR.rotation.x = -.25 - .95 * Math.max(0, -kick) - .5 * k;
+    this.root.updateWorldMatrix(true, true);
+    for (const [side, target] of arms) {
+      const arm = this.bones.get(`arm_${side}`)?.node, hand = this.bones.get(`hand_${side}`)?.node;
+      if (!arm || !hand || !target) continue;
+      arm.scale.set(1, 1, 1);
+      arm.updateWorldMatrix(true, true);
+      reachFor(arm, hand, this.gripTarget.copy(target), 1);
+      // The hand stays exactly on the edge: the arm takes the shoulder-to-edge length (within reason).
+      arm.getWorldPosition(this.gripShoulder); hand.getWorldPosition(this.gripHand);
+      const rest = this.gripShoulder.distanceTo(this.gripHand), want = this.gripShoulder.distanceTo(target);
+      if (rest > .01) arm.scale.y = Math.max(.45, Math.min(1.35, want / rest));
+      arm.updateWorldMatrix(false, true);
+    }
+  }
+
   /** Puts on (or takes off, null) the armour piece for a slot; its parts ride on the body bones. */
   setArmor(slot: string, template: CharacterTemplate | null): void {
     for (const o of this.armor.get(slot) ?? []) o.removeFromParent();

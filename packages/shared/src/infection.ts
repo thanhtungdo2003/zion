@@ -24,7 +24,7 @@ export const INFECTION = {
   /** One patient zero per this many entrants (at least one). */
   perZombie: 8,
   /** Zombie health (a human has 100); bullets keep their full damage. */
-  zombieHealth: 200,
+  zombieHealth: 100,
   zombieSpeed: 1.3,
   zombieJump: 1.4,
   zombieRespawnMs: 4_000,

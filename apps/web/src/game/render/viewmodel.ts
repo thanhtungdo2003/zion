@@ -114,6 +114,18 @@ export class ViewModel {
     }
   }
 
+  private readonly gripLocal = new Vector3();
+  /** Each bare arm's fist on a world point (the ledge), its forearm running back to the shoulder. */
+  private poseGripArms(left: Vector3, right: Vector3): void {
+    this.swimRoot.updateWorldMatrix(true, false);
+    for (const a of this.swimArms) {
+      const fist = this.swimRoot.worldToLocal(this.gripLocal.copy(a.side < 0 ? left : right));
+      const shoulder = new Vector3(.24 * a.side, -.34, .12);
+      a.arm.quaternion.setFromUnitVectors(a.toShoulder, shoulder.sub(fist).normalize());
+      a.arm.position.copy(fist).sub(a.fist.clone().applyQuaternion(a.arm.quaternion));
+    }
+  }
+
   set(itemId: string | null, weapons: WeaponLibrary | null, attachments?: Attachments): void {
     if (itemId === 'c4') itemId = 'c4_detonator';
     // Each attachment combination is its own dressed model (cached).
@@ -271,7 +283,14 @@ export class ViewModel {
     this.throwT = 0;
   }
 
-  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean; swimming?: boolean }): void {
+  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean; swimming?: boolean; mantle?: { left: Vector3; right: Vector3 } | null }): void {
+    // Mantling: both hands come up onto the ledge and stay planted on it while the view rises.
+    if (s.mantle && s.visible && this.swimArms.length) {
+      this.root.visible = false;
+      this.swimRoot.visible = true;
+      this.poseGripArms(s.mantle.left, s.mantle.right);
+      return;
+    }
     // Swimming: the weapon sinks out of view while the swimming arms come up, and back again.
     this.swimBlend += ((s.swimming ? 1 : 0) - this.swimBlend) * (1 - Math.exp(-dt * 6));
     const swim = this.swimBlend;

@@ -3,7 +3,9 @@ import {
   type CollisionWorld, type Contact,
 } from '@zion/physics';
 
-export interface NavPoint { x: number; y: number; z: number }
+export interface NavPoint { x: number; y: number; z: number; /** Reached by climbing a ladder from the previous point. */ ladder?: boolean }
+/** A ladder: its foot on the ground and its top (both standing points). */
+export interface NavPortal { a: NavPoint; b: NavPoint }
 
 const CELL = 0.5;
 const SAMPLE = 0.2;
@@ -13,11 +15,14 @@ const DETOUR_MARGIN = 18;
 const NEIGHBORS = [-1, 0, 1] as const;
 /** Door colliders (frames and leaves) carry the door asset id. */
 const DOOR_TAG = 2202;
+const HEURISTIC_WEIGHT = 1.6;
 
 /** Local, single-surface walking navigation using the same solids and dimensions as physics. */
 export class WalkingMap {
   private readonly hit = makeRayHit();
   private readonly contacts: Contact[] = [];
+  /** Ladders: searches may climb up (or down) them. */
+  portals: NavPortal[] = [];
 
   constructor(private readonly world: CollisionWorld) {}
 
@@ -153,7 +158,10 @@ class OpenSet {
     return first;
   }
   private before(a: Node, b: Node): boolean {
-    return a.g + a.h < b.g + b.h || (a.g + a.h === b.g + b.h && a.h < b.h);
+    // Weighted A*: a slightly greedy pull towards the goal finds a near-shortest route while
+    // expanding a fraction of the nodes (each costs several collision traces).
+    const fa = a.g + a.h * HEURISTIC_WEIGHT, fb = b.g + b.h * HEURISTIC_WEIGHT;
+    return fa < fb || (fa === fb && a.h < b.h);
   }
 }
 
@@ -173,9 +181,10 @@ export class WalkingSearch {
     this.best.set(first.key, first);
   }
 
-  advance(budget: number): number {
+  advance(budget: number, deadline = Infinity): number {
     let used = 0;
     while (!this.done && used < budget) {
+      if ((used & 7) === 7 && performance.now() > deadline) break;
       const node = this.open.pop();
       if (!node || this.visited >= this.maxNodes) {
         this.done = true;
@@ -187,7 +196,7 @@ export class WalkingSearch {
       if (node.h <= 1 && this.map.canStopNear(node, this.goal)) {
         // A player hugging a wall may not have the extra navigation clearance at its exact feet.
         this.path = this.map.reaches(node, this.goal) ? [this.goal] : [];
-        for (let n: Node | null = node; n?.parent; n = n.parent) this.path.push(n);
+        for (let n: Node | null = node; n?.parent; n = n.parent) this.path.push({ x: n.x, y: n.y, z: n.z, ...(n.ladder ? { ladder: true } : {}) });
         this.path.reverse();
         this.done = true;
         break;
@@ -213,6 +222,17 @@ export class WalkingSearch {
         this.best.set(key, next);
         this.open.push(next);
       }
+      // Ladders: from a foot to its top and back down.
+      for (const [i, portal] of this.map.portals.entries()) {
+        for (const [from, to, end] of [[portal.a, portal.b, 'b'], [portal.b, portal.a, 'a']] as const) {
+          if (Math.hypot(node.x - from.x, node.z - from.z) > .8 || Math.abs(node.y - from.y) > .6) continue;
+          const key = `ladder:${i}:${end}`, g = node.g + Math.abs(to.y - from.y) * 1.5 + 1;
+          if ((this.best.get(key)?.g ?? Infinity) <= g) continue;
+          const next: Node = { x: to.x, y: to.y, z: to.z, ladder: true, key, g, h: distance(to, this.goal), parent: node };
+          this.best.set(key, next);
+          this.open.push(next);
+        }
+      }
     }
     return used;
   }
@@ -234,16 +254,18 @@ export class ZombieNavigation {
   private readonly pending = new Set<NavigationState>();
 
   /** `budget`: search nodes per tick for everyone, `perAgent`: for one walker per tick. */
-  constructor(world: CollisionWorld, private readonly budget = 512, private readonly perAgent = 64, private readonly maxNodes = MAX_NODES) { this.map = new WalkingMap(world); }
+  constructor(world: CollisionWorld, private readonly budget = 512, private readonly perAgent = 64, private readonly maxNodes = MAX_NODES, private readonly maxMs = 6) { this.map = new WalkingMap(world); }
 
   beginTick(): void {
     let budget = this.budget;
+    // Also bounded in time: dense buildings make each node dearer, and a tick must never stall.
+    const deadline = performance.now() + this.maxMs;
     // Rotate the queue so later mobs also get time when the whole horde is blocked.
     for (const nav of [...this.pending]) {
-      if (budget <= 0) break;
+      if (budget <= 0 || performance.now() > deadline) break;
       this.pending.delete(nav);
       if (nav.search && !nav.search.done) {
-        budget -= nav.search.advance(Math.min(this.perAgent, budget));
+        budget -= nav.search.advance(Math.min(this.perAgent, budget), deadline);
         if (!nav.search.done) this.pending.add(nav);
       }
     }
@@ -291,13 +313,20 @@ export class ZombieNavigation {
 
     // Skip nearby waypoints only when the whole capsule can take the shortcut (checked a few
     // times a second: each check traces whole corridors).
-    if (++nav.shortcutTick % 4 === 0) for (let i = Math.min(nav.path.length - 1, 6); i > 0; i--) {
+    // (Never past a ladder: the climb is the only way there.)
+    const ladderAt = nav.path.findIndex((p) => p.ladder);
+    if (++nav.shortcutTick % 4 === 0) for (let i = Math.min(nav.path.length - 1, 6, ladderAt < 0 ? Infinity : ladderAt - 1); i > 0; i--) {
       if (this.map.reaches(from, nav.path[i]!)) {
         nav.path.splice(0, i);
         break;
       }
     }
     const next = nav.path[0]!;
+    // Climbing: the next point is up (or down) a ladder; the walking checks do not apply.
+    if (next.ladder) {
+      if (Math.abs(from.y - next.y) < .5 && Math.hypot(from.x - next.x, from.z - next.z) < .9) nav.path.shift();
+      return next;
+    }
     // Validate the immediate corridor every tick so newly placed solids stop the mob promptly.
     const d = distance(from, next);
     const fraction = Math.min(1, 0.8 / Math.max(d, 0.001));

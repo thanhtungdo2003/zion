@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
-import { WalkingMap, WalkingSearch } from './navigation';
+import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
@@ -22,7 +22,7 @@ import { DEFAULT_BASE_LIFE, planCooking, gunBlocksSprint, weaponAttackStaminaCos
 import { DEFAULT_CONTENT, InventoryModel, isStash, NPC_ID_BASE, objectiveText, type GameContent } from '@zion/shared';
 import { QuestEngine, type QuestEvent } from './quests';
 import { authoredWorld } from '@zion/worldgen';
-import { BRIDGE_ASSET } from '@zion/assets';
+import { BRIDGE_ASSET, CAMP_ASSET as CAMP_IDS, STREET_ASSET, STREET_KIT } from '@zion/assets';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 import { characterEyeHeight, copyCharacterState, createCharacterState, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
@@ -189,7 +189,7 @@ function throwBody(s: CharacterState, v: { kind: keyof typeof VEHICLES }, dx: nu
 /** Names of the bot squads in squad matches. */
 const BOT_SQUAD_NAMES = ['Sói Xám', 'Bão Cát', 'Rắn Hổ'];
 
-interface HoldSpot { x: number; y: number; z: number; tiles: Array<{ x: number; y: number; z: number }> }
+interface HoldSpot { x: number; y: number; z: number; tiles: Array<{ x: number; y: number; z: number }>; /** Worked-out walk from the street up to it (stairs, ladders). */ route?: NavPoint[] }
 const HOLD_SPOTS = new WeakMap<object, HoldSpot[]>();
 
 /** How long a dropped player's place in a running match is held (ms). */
@@ -1881,19 +1881,23 @@ export class GameServer {
     const gen = this.deps.world.generator, c = Math.floor(this.infectionCentre / CHUNK_SIZE);
     await this.physics.ensureArea(c, c, Math.ceil((this.infectionMap.half + 8) / CHUNK_SIZE));
     const map = new WalkingMap(this.collision), spawns = infectionSpawns(gen);
+    // Ladders: bots (and the reachability check) can climb them.
+    const ladders = this.ladderPortals();
+    map.portals = ladders;
+    this.bots?.setPortals(ladders);
     // Searched a slice at a time between ticks: the simulation never stalls for it.
     let sliceStart = performance.now();
-    const pause = async () => { if (performance.now() - sliceStart > 4) { await new Promise<void>((r) => setTimeout(r, 0)); sliceStart = performance.now(); } };
+    const pause = async () => { if (performance.now() - sliceStart > 8) { await new Promise<void>((r) => setTimeout(r, 0)); sliceStart = performance.now(); } };
     const kept: HoldSpot[] = [];
     for (const spot of this.highSpots()) {
       // From the nearest open spawn points (a spawn spot may sit on clutter; validated ones do not).
-      const near = spawns.slice().sort((a, b) => Math.hypot(a.x - spot.x, a.z - spot.z) - Math.hypot(b.x - spot.x, b.z - spot.z)).slice(0, 3);
+      const near = spawns.slice().sort((a, b) => Math.hypot(a.x - spot.x, a.z - spot.z) - Math.hypot(b.x - spot.x, b.z - spot.z)).slice(0, 2);
       for (const sp of near) {
         const from = this.spawns.validateAt(sp.x, sp.z);
         if (!from) continue;
-        const search = new WalkingSearch(map, { x: from.x, y: from.y + .01, z: from.z }, spot.tiles[0]!, 50_000);
-        for (let n = 0; !search.done && n < 60_000;) { n += search.advance(150); await pause(); }
-        if (search.path.length) { kept.push(spot); break; }
+        const search = new WalkingSearch(map, { x: from.x, y: from.y + .01, z: from.z }, spot.tiles[0]!, 25_000);
+        for (let n = 0; !search.done && n < 30_000;) { n += search.advance(150); await pause(); }
+        if (search.path.length) { kept.push({ ...spot, route: [{ x: from.x, y: from.y + .01, z: from.z }, ...search.path] }); break; }
       }
     }
     HOLD_SPOTS.set(gen, kept);
@@ -1909,32 +1913,78 @@ export class GameServer {
     for (const site of allStructures(this.deps.world.generator)) {
       const c = Math.cos(site.yaw), sn = Math.sin(site.yaw);
       for (const part of site.parts) {
-        // Building floors only (3.2 m storeys reached by stairs); tower decks need a ladder.
-        const storey = (part.y - .24) / 3.2;
-        if (part.asset !== BRIDGE_ASSET.woodenDeck || part.scale !== 1 || part.y < 2.5 || Math.abs(storey - Math.round(storey)) > .02) continue;
+        // Building floors and flat roofs (3.2 m storeys: modular blocks and street houses).
+        const street = part.asset === STREET_ASSET.slab || part.asset === STREET_ASSET.roof;
+        const storey = street ? part.y / 3.2 : (part.y - .24) / 3.2;
+        if ((part.asset !== BRIDGE_ASSET.woodenDeck && !street) || part.scale !== 1 || part.y < 2.5 || Math.abs(storey - Math.round(storey)) > .02) continue;
         const key = `${site.gid}:${part.group ?? 0}:${Math.round(part.y)}`, l = levels.get(key) ?? [];
         // Stand on a real floor tile (its centre), never a centroid that may fall in the stairwell.
-        l.push({ x: site.x + part.x * c + part.z * sn, y: site.y + part.y + .15, z: site.z - part.x * sn + part.z * c });
+        l.push({ x: site.x + part.x * c + part.z * sn, y: site.y + part.y + (street ? STREET_KIT.slab + .02 : .15), z: site.z - part.x * sn + part.z * c });
         levels.set(key, l);
       }
     }
     const free = (t: { x: number; y: number; z: number }) => !!this.spawns && this.controller.isFree(t.x, t.y, t.z);
-    return [...levels.values()].filter((l) => l.length >= 3).flatMap((l) => {
+    // One spot per building: its highest level (the roof terrace when it has one).
+    const best = new Map<string, Array<{ x: number; y: number; z: number }>>();
+    for (const [key, l] of levels) {
+      const building = key.slice(0, key.lastIndexOf(':'));
+      if (l.length >= 3 && (!best.has(building) || best.get(building)![0]!.y < l[0]!.y)) best.set(building, l);
+    }
+    return [...best.values()].flatMap((l) => {
       const cx = l.reduce((n, t) => n + t.x, 0) / l.length, cz = l.reduce((n, t) => n + t.z, 0) / l.length;
       const tiles = l.filter(free).sort((a, b) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b.x - cx, b.z - cz));
       return tiles.length ? [{ ...tiles[0]!, tiles }] : [];
-    }).sort((a, b) => b.y - a.y);
+    }).sort((a, b) => b.y - a.y).slice(0, 14);
   }
 
-  /** Infection humans (bots) form groups of 3–5, each taking a different high spot to hold together. */
+  /**
+   * Wall ladders as climbable links: the foot (on the ground in front) and the top (on the roof
+   * or platform behind the top rung), found by looking down at both ends.
+   */
+  private ladderPortals(): Array<{ a: { x: number; y: number; z: number }; b: { x: number; y: number; z: number } }> {
+    const columns = new Map<string, { x: number; z: number; yaw: number; top: number; base: number }>();
+    for (const site of allStructures(this.deps.world.generator)) {
+      const c = Math.cos(site.yaw), sn = Math.sin(site.yaw);
+      for (const part of site.parts) {
+        if (part.asset !== CAMP_IDS['rusty-iron-wall-ladder']) continue;
+        const x = site.x + part.x * c + part.z * sn, z = site.z - part.x * sn + part.z * c, key = `${Math.round(x * 2)}:${Math.round(z * 2)}`;
+        const col = columns.get(key) ?? { x, z, yaw: part.yaw + site.yaw, top: -Infinity, base: Infinity };
+        col.top = Math.max(col.top, site.y + part.y + 2 * part.scale); col.base = Math.min(col.base, site.y + part.y);
+        columns.set(key, col);
+      }
+    }
+    const hit = makeRayHit(), out: Array<{ a: { x: number; y: number; z: number }; b: { x: number; y: number; z: number } }> = [];
+    for (const col of columns.values()) {
+      // The wall is behind the ladder (local −Z of the rungs); the climber stands in front.
+      const wx = -Math.sin(col.yaw), wz = -Math.cos(col.yaw);
+      const foot = { x: col.x - wx * .6, z: col.z - wz * .6 }, top = { x: col.x + wx * .9, z: col.z + wz * .9 };
+      if (!this.collision.raycast(foot.x, col.base + 1.5, foot.z, 0, -1, 0, 4, Mask.CharacterMovement, hit)) continue;
+      const fy = hit.y + .02;
+      if (!this.collision.raycast(top.x, col.top + .5, top.z, 0, -1, 0, 3, Mask.CharacterMovement, hit) || hit.y < fy + 2) continue;
+      out.push({ a: { x: foot.x, y: fy, z: foot.z }, b: { x: top.x, y: hit.y + .02, z: top.z } });
+    }
+    return out;
+  }
+
+  /** Infection humans (bots): about four escort the real players; the rest form groups of 3–5 on high ground. */
   private groupInfectionBots(): void {
-    const humans = (this.bots?.bots ?? []).filter((b) => !b.dead && !b.zombie);
-    for (let i = humans.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [humans[i], humans[j]] = [humans[j]!, humans[i]!]; }
+    const all = (this.bots?.bots ?? []).filter((b) => !b.dead && !b.zombie);
+    for (let i = all.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [all[i], all[j]] = [all[j]!, all[i]!]; }
+    const people = [...this.players.values()].filter((p) => !p.dead && !this.infection?.isZombie(p.id));
+    const escorts = people.length ? all.splice(0, Math.min(4, all.length)) : [];
+    escorts.forEach((bot, k) => {
+      const p = people[k % people.length]!;
+      bot.follow = p.id; bot.holdAt = null; bot.squad = `infection-escort-${p.id}`; bot.role = 'gunner';
+      bot.followSlot = k;
+    });
+    for (const bot of all) bot.follow = null;
+    const humans = all;
     const spots = this.holdSpots();
     let g = 0;
     const taken = new Set<{ x: number; y: number; z: number }>();
     for (let i = 0; i < humans.length; g++) {
-      const left = humans.length - i, size = left <= 5 ? left : left === 6 ? 3 : 3 + Math.floor(Math.random() * 3);
+      // Groups of 3–5 that never leave a group smaller than three behind (fewer than 3 in all: one group).
+      const left = humans.length - i, size = left <= 5 ? left : left <= 10 ? Math.ceil(left / 2) : Math.min(5, left - 3, 3 + Math.floor(Math.random() * 3));
       const group = humans.slice(i, i + size); i += size;
       // No high ground on this map: the group still sticks together round a spawn point.
       const spawn = infectionSpawns(this.deps.world.generator)[g % Math.max(1, infectionSpawns(this.deps.world.generator).length)]!;
@@ -1950,6 +2000,8 @@ export class GameServer {
         bot.squad = `infection-group-${g}`;
         bot.role = k === 0 ? 'lead' : k === 1 ? 'gunner' : 'looter';
         // Each one faces a different way out, so the group covers every approach.
+        // The route up is known: walk it (the last stretch to this bot's own tile is short).
+        bot.holdRoute = 'route' in spot && spot.route ? spot.route.map((p) => ({ ...p })) : [];
         bot.holdAt = { x: tile ? tile.x : spot.x + Math.cos(a) * r, y: tile ? tile.y : spot.y, z: tile ? tile.z : spot.z + Math.sin(a) * r, faceX: Math.cos(a + Math.atan2(fz / fl, fx / fl)), faceZ: Math.sin(a + Math.atan2(fz / fl, fx / fl)) };
       });
     }

@@ -105,6 +105,11 @@ export class BattleBot implements Combatant {
   infiniteAmmo = false;
   speedMul = 1;
   jumpMul = 1;
+  /** Infection: the player this bot escorts (keeps close, climbs after them), and its place round them. */
+  follow: number | null = null;
+  /** Infection: waypoints from the street up to the held spot (worked out once per map). */
+  holdRoute: Array<{ x: number; y: number; z: number; ladder?: boolean }> = [];
+  followSlot = 0;
   /** Infection: the high, sheltered spot this bot's group holds (with its own offset). */
   holdAt: { x: number; y: number; z: number; faceX: number; faceZ: number } | null = null;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
@@ -192,6 +197,9 @@ export class BattleBotDirector {
   }
 
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
+
+  /** Ladders bots may climb (foot → top), for route searches. */
+  setPortals(portals: Array<{ a: { x: number; y: number; z: number }; b: { x: number; y: number; z: number } }>): void { this.navigation.map.portals = portals; }
 
   /** Adds a bot next to a point (the joining player); returns it so the match can enrol it. */
   spawn(x: number, y: number, z: number): BattleBot {
@@ -382,10 +390,29 @@ export class BattleBotDirector {
     const armed = !!bot.gun && (bot.gunItem?.mag ?? 0) + bot.reserve > 0;
 
     if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) { bot.mode = 'fight'; bot.campUntil = 0; return; }
+    // Infection escort: stay round the player wherever they go (up stairs, over ladders).
+    const escorted = bot.follow !== null ? players.find((p) => p.id === bot.follow && !p.dead && !this.hooks.enemy?.(bot, p.id)) : undefined;
+    if (escorted && !bot.zombie) {
+      const a = bot.followSlot * Math.PI / 2 + Math.PI / 4, ox = Math.cos(a) * 1.8, oz = Math.sin(a) * 1.8;
+      const t = escorted.state, d = Math.hypot(t.x - s.x, t.z - s.z), up = Math.abs(t.y - s.y);
+      if (d > 3.2 || up > 1.2) { bot.mode = 'roam'; bot.goal = { x: t.x + ox, y: t.y, z: t.z + oz }; bot.roamUntil = now + 2000; return; }
+      // Close by: stand guard facing out from the player.
+      bot.mode = 'camp'; bot.campUntil = now + 1500; bot.campYaw = Math.atan2(-ox, -oz);
+      return;
+    }
     // Infection: the group makes for its high ground before the outbreak and holds it, watching out.
     if (bot.holdAt && !bot.zombie && world.phase !== 'waiting') {
       const h = bot.holdAt, d = Math.hypot(h.x - s.x, h.z - s.z), up = Math.abs(h.y - s.y);
-      if (d > 1.6 || up > 1.2) { bot.mode = 'roam'; bot.goal = { x: h.x, y: h.y, z: h.z }; bot.roamUntil = now + 4000; return; }
+      if (d > 1.6 || up > 1.2) {
+        // Along the known route: drop the waypoints already passed (the nearest one on our level).
+        const r = bot.holdRoute;
+        let near = -1, best = Infinity;
+        for (let i = 0; i < r.length; i++) { const w = r[i]!, dd = Math.hypot(w.x - s.x, w.z - s.z); if (Math.abs(w.y - s.y) < .8 && dd < best) { best = dd; near = i; } }
+        if (near >= 0 && best < 2.5) r.splice(0, near + 1);
+        const next = r.length ? r[Math.min(r.length - 1, 0)]! : null;
+        const goal = next && (best < 2.5 || near < 0 || Math.hypot(next.x - s.x, next.z - s.z) < 40) ? next : h;
+        bot.mode = 'roam'; bot.goal = { x: goal.x, y: goal.y, z: goal.z }; bot.roamUntil = now + 4000; return;
+      }
       bot.mode = 'camp'; bot.campUntil = now + 3000; bot.campYaw = Math.atan2(-(h.faceX), -(h.faceZ));
       return;
     }
@@ -507,7 +534,7 @@ export class BattleBotDirector {
       if (bot.holdAt && Math.hypot(bot.holdAt.x - s.x, bot.holdAt.z - s.z) < 3) { mx = 0; mz = 0; prone = false; }
     } else if (bot.mode === 'camp') {
       // Ambush: prone and still, slowly scanning the approach (standing guard on held ground).
-      prone = !bot.holdAt;
+      prone = !bot.holdAt && bot.follow === null;
       yaw = bot.campYaw + Math.sin(now / 2600) * .5;
     } else if (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8) {
       yaw = Math.atan2(-(bot.goal.x - s.x), -(bot.goal.z - s.z));
@@ -519,7 +546,9 @@ export class BattleBotDirector {
         const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now), way = steer ?? goal;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
         // Up on another floor and no route yet: wait for one rather than walk into the wall below.
-        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt;
+        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt || (bot.follow !== null && d > 6);
+        // On the way up a ladder: face the rungs and keep pushing into them.
+        if (steer?.ladder) { yaw = Math.atan2(-(steer.x - s.x), -(steer.z - s.z)); mz = 1; sprint = false; }
         // Houses: open the door in the way.
         if (now >= bot.doorAt) { bot.doorAt = now + 700; this.hooks.openDoor?.(s.x, s.y, s.z, bot.yaw); }
         // A crate up on a floor it cannot find a way to: try another one.
@@ -528,7 +557,8 @@ export class BattleBotDirector {
     } else if (world.phase !== 'running' && Math.random() < .01) {
       yaw = bot.yaw + (Math.random() - .5) * 2;
     }
-    // Stuck against something: jump and sidestep for a moment.
+    // Stuck against something: jump and sidestep for a moment (climbing a ladder is progress).
+    if (s.climbing) bot.progress = { x: s.x, z: s.z, at: now };
     if (now > bot.progress.at + 1500) {
       const moved = Math.hypot(s.x - bot.progress.x, s.z - bot.progress.z);
       if ((mz || mx) && moved < .6 && !prone) { bot.detourUntil = now + 1200; bot.detourYaw = yaw + (Math.random() < .5 ? 1.3 : -1.3); }

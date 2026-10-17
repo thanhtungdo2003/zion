@@ -301,6 +301,38 @@ export class GameEngine {
   /** Peeking round a corner while aiming (TOP & third person): −1 left, 1 right, since when. */
   private autoLean = { side: 0, at: 0 };
   private readonly reachHit = makeRayHit();
+  /** Ledges being climbed: where each climber's hands are planted, and when it started. */
+  private readonly mantles = new Map<number, { left: Vector3; right: Vector3; start: number; dur: number }>();
+
+  /**
+   * Where a mantling character's hands grip the edge (world, fixed for the whole climb) and how
+   * far along it is. Our own climb is known exactly; others' edges are found by looking ahead.
+   */
+  private mantleGrip(id: number, flags: number, x: number, y: number, z: number, yaw: number, own?: { t: number; dur: number; fx: number; fz: number; tx: number; ty: number; tz: number }): { grip: { left: Vector3; right: Vector3 }; k: number } | null {
+    if (!(flags & EntityFlags.Mantling)) { this.mantles.delete(id); return null; }
+    let m = this.mantles.get(id);
+    if (!m) {
+      let ex: number, ez: number, ey: number, dx: number, dz: number;
+      if (own) {
+        dx = own.tx - own.fx; dz = own.tz - own.fz;
+        const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+        ex = own.tx - dx * .47; ez = own.tz - dz * .47; ey = own.ty;
+      } else {
+        dx = -Math.sin(yaw); dz = -Math.cos(yaw);
+        const col = this.store?.collision;
+        let reach = .5; ey = y + 1.5;
+        if (col && col.raycast(x, y + .6, z, dx, 0, dz, 1.2, Mask.CharacterMovement, this.reachHit)) reach = this.reachHit.t;
+        ex = x + dx * reach; ez = z + dz * reach;
+        if (col && col.raycast(ex + dx * .15, y + 2.8, ez + dz * .15, 0, -1, 0, 2.6, Mask.CharacterMovement, this.reachHit)) ey = this.reachHit.y;
+      }
+      // Hands a shoulder-width apart on the very edge.
+      const rx = -dz, rz = dx;
+      m = { left: new Vector3(ex - rx * .28, ey + .02, ez - rz * .28), right: new Vector3(ex + rx * .28, ey + .02, ez + rz * .28), start: performance.now(), dur: own ? own.dur : .42 + Math.max(0, ey - y) * .2 };
+      this.mantles.set(id, m);
+    }
+    const k = own ? own.t / own.dur : Math.min(1, (performance.now() - m.start) / 1000 / m.dur);
+    return { grip: m, k };
+  }
   private readonly doors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
   private lastStationScan = 0;
   private readonly shotRay = makeRayHit();
@@ -1741,6 +1773,7 @@ export class GameEngine {
       r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
+      { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0); }
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
       r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride && this.vehicles!.seatIndex(r.entity.id) === 0 ? ride.yaw : pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
@@ -1816,6 +1849,7 @@ export class GameEngine {
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.setInfected(this.selfInfected);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
+    { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the
     // rendered body when it is streamed in, else the last reported team position.
     this.squadMarkers.update(this.welcome?.mode !== 'battle-royale' ? [] : (this.hud.get().team?.members ?? []).flatMap((m) => {
@@ -1853,6 +1887,7 @@ export class GameEngine {
         firing: !local.state.swimming && weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
         aiming: this.aiming,
         swimming: local.state.swimming,
+        mantle: this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle)?.grip ?? null,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
       });

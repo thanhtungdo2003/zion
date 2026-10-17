@@ -180,6 +180,8 @@ describe('isolated infection server', () => {
       }
       // No tick may stall the simulation (bots' route searches are spread over many ticks).
       expect(worst).toBeLessThan(150);
+      // About four bots escort the player.
+      expect(harness.bots.bots.filter((b) => b.follow === p.id).length).toBe(4);
       // Before the outbreak the bots split into groups of 3–5 and climb to high ground.
       expect(groups.size).toBeGreaterThan(1);
       expect([...groups.values()].every((n) => n >= 3 && n <= 5)).toBe(true);

@@ -89,7 +89,7 @@ export type InfectionMaps = z.infer<typeof infectionMapsSchema>;
 
 /** The built-in map: Friday the 13th as it ships. */
 export const DEFAULT_INFECTION_MAP: InfectionMapDef = {
-  id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'friday13', seed: INFECTION_MAP.seed, half: 88,
+  id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'friday13', seed: INFECTION_MAP.seed, half: 46,
   terrain: { hills: 0, banks: 54, wall: 'mossy', wallScale: 2 },
   environment: { grass: 0, trees: 0, bushes: 0, rocks: 0, deadTrees: 1, ground: 'dirt' },
   parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES },

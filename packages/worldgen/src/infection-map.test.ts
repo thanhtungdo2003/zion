@@ -15,8 +15,8 @@ describe('studio infection maps', () => {
     expect(infectionMapSchema.safeParse(DEFAULT_INFECTION_MAP).success).toBe(true);
     expect(infectionHeight(gen, 256, 256)).toBeCloseTo(30);
     expect(infectionHeight(gen, 256 + 140, 256)).toBeGreaterThan(70);
-    expect(infectionLayers(gen).wall.length).toBeGreaterThan(80);
-    expect(infectionSpawns(gen).length).toBeGreaterThan(30);
+    expect(infectionLayers(gen).wall.length).toBeGreaterThan(40);
+    expect(infectionSpawns(gen).length).toBeGreaterThan(20);
   });
 
   it('builds a map from its seed, size, nature density, placed parts and spawn points', () => {
