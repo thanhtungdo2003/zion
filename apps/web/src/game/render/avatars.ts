@@ -254,8 +254,9 @@ export class Avatar {
     // Legs: one knee drives up the wall while the other pushes, then they swap; both tuck at the end.
     const kick = Math.sin(k * Math.PI * 2.2);
     const legL = this.bones.get('leg_left')?.node, legR = this.bones.get('leg_right')?.node;
-    if (legL) legL.rotation.x = -.25 - .95 * Math.max(0, kick) - .5 * k;
-    if (legR) legR.rotation.x = -.25 - .95 * Math.max(0, -kick) - .5 * k;
+    // (+X swings a leg forward/up, as when sitting: the knee comes up towards the wall.)
+    if (legL) legL.rotation.x = .25 + .95 * Math.max(0, kick) + .5 * k;
+    if (legR) legR.rotation.x = .25 + .95 * Math.max(0, -kick) + .5 * k;
     this.root.updateWorldMatrix(true, true);
     for (const [side, target] of arms) {
       const arm = this.bones.get(`arm_${side}`)?.node, hand = this.bones.get(`hand_${side}`)?.node;
