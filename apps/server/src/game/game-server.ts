@@ -8,7 +8,7 @@ import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec } from '@zion/shared';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { attachmentModifier, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, zeroedDirection, type Attachments } from '@zion/shared';
-import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type PlacedItem } from '@zion/shared';
+import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -23,7 +23,7 @@ import { QuestEngine, type QuestEvent } from './quests';
 import { authoredWorld } from '@zion/worldgen';
 import { BATTLE_ASSET } from '@zion/assets';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
-import { characterEyeHeight, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
+import { characterEyeHeight, copyCharacterState, createCharacterState, doorColliders, stepAirborne, type CharacterState } from '@zion/physics';
 import { type TeamService, TeamError } from './teams';
 import { TEAM_QUESTS } from '@zion/shared';
 import { chooseMissionStructure } from './mission-locations';
@@ -187,6 +187,10 @@ function throwBody(s: CharacterState, v: { kind: keyof typeof VEHICLES }, dx: nu
 /** Names of the bot squads in squad matches. */
 const BOT_SQUAD_NAMES = ['Sói Xám', 'Bão Cát', 'Rắn Hổ'];
 
+/** How long a dropped player's place in a running match is held (ms). */
+export const REJOIN_GRACE_MS = 150_000;
+interface Rejoin { id: number; name: string; until: number; state: CharacterState; yaw: number; health: number; inventory: InventoryData; jumpPoint: { x: number; z: number } | null }
+
 export class GameServer {
   readonly vehicles: Vehicles;
   private readonly vegetation: VegetationDamage;
@@ -249,6 +253,13 @@ export class GameServer {
   private readonly infectionLoadouts = new Map<number, InfectionLoadout>();
   private infectionSpawnIndex = 0;
   private infectionOccupied = false;
+  /**
+   * Match modes: players who dropped out mid-match (closed tab, crash, lost connection) keep their
+   * place for REJOIN_GRACE_MS; coming back puts them where they were with what they carried.
+   */
+  private readonly rejoins = new Map<string, Rejoin>();
+  /** A dropped player of this account is waiting to come back here. */
+  hasRejoin(accountId: string): boolean { return this.rejoins.has(accountId) || this.byAccount.has(accountId); }
   /** Infection: the Studio map this server's world was built from, and its rules. */
   private get infectionMap() { return this.deps.world.generator.config.infection ?? DEFAULT_INFECTION_MAP; }
   private get infectionRules() { return this.infectionMap.rules; }
@@ -258,7 +269,7 @@ export class GameServer {
   /** The world this server plays on. */
   get worldService(): WorldService { return this.deps.world; }
   /** Players in or joining this server (matchmaking load). */
-  get headcount(): number { return this.players.size + this.joiningAccounts.size; }
+  get headcount(): number { return this.players.size + this.joiningAccounts.size + this.rejoins.size; }
   /** Matchmaking: may one more player join (a match still gathering players, with room)? */
   canAdmit(): boolean {
     if (this.battle) return this.battle.accepting && this.headcount < BATTLE_MAP.maxPlayers;
@@ -1047,11 +1058,12 @@ export class GameServer {
   /* ------------------------------------ join/leave --------------------------------------- */
 
   async join(session: ClientSession): Promise<void> {
-    if (this.infection && (!this.infection.accepting || this.players.size + this.joiningAccounts.size >= this.infectionRules.maxPlayers)) {
+    const rejoining = this.arena && (this.rejoins.has(session.account?.accountId ?? '') || this.byAccount.has(session.account?.accountId ?? ''));
+    if (this.infection && !rejoining && (!this.infection.accepting || this.players.size + this.joiningAccounts.size >= this.infectionRules.maxPlayers)) {
       session.sendError('server_full', 'Phòng Lây Nhiễm đã đủ người. Hãy thử lại sau.', true);
       session.close(CloseCode.ServerFull, 'infection full'); return;
     }
-    if (this.battle && (!this.battle.accepting || this.players.size + this.joiningAccounts.size >= BATTLE_MAP.maxPlayers)) {
+    if (this.battle && !rejoining && (!this.battle.accepting || this.players.size + this.joiningAccounts.size >= BATTLE_MAP.maxPlayers)) {
       session.sendError('server_full', 'Trận Battle Royale đang diễn ra hoặc đã đủ 32 người. Hãy quay lại sảnh và thử trận sau.', true);
       session.close(CloseCode.ServerFull, 'battle unavailable'); return;
     }
@@ -1095,9 +1107,11 @@ export class GameServer {
         if (pos) health = saved.health;
         else this.log.info({ accountId: acc.accountId }, 'saved position invalid; respawning');
       }
-      if (this.infection) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
+      const back = this.arena ? this.rejoins.get(acc.accountId) : undefined;
+      if (back) { await this.physics.ensureArea(Math.floor(back.state.x / CHUNK_SIZE), Math.floor(back.state.z / CHUNK_SIZE), 1); pos = { x: back.state.x, y: back.state.y, z: back.state.z }; }
+      else if (this.infection) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
       pos ??= await this.spawns.pickSpawn();
-      if (this.battle) {
+      if (this.battle && !back) {
         for (let attempt = 0; attempt < 16 && [...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 50); attempt++) pos = await this.spawns.pickSpawn();
         if ([...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 30)) throw new Error('No separated battle spawn available');
       }
@@ -1105,7 +1119,8 @@ export class GameServer {
       this.joining.delete(session.id);
     }
     if (!session.open) return;
-    if (this.battle && !this.battle.accepting) { session.sendError('server_full', 'Trận đã bắt đầu. Hãy thử trận tiếp theo.', true); session.close(CloseCode.ServerFull, 'battle started'); return; }
+    const rejoin = this.arena ? this.rejoins.get(acc.accountId) : undefined;
+    if (this.battle && !this.battle.accepting && !rejoin) { session.sendError('server_full', 'Trận đã bắt đầu. Hãy thử trận tiếp theo.', true); session.close(CloseCode.ServerFull, 'battle started'); return; }
     if (this.deps.progression) saved = await this.deps.playerStates.deliverRequisitions({ accountId: acc.accountId, x: pos.x, y: pos.y, z: pos.z, yaw: saved?.yaw ?? 0, health, coins: saved?.coins ?? STARTING_ZCOIN, inventory: saved?.inventory ?? defaultLoadout(), journal: saved?.journal, life: saved?.life, suspendedZombies: saved?.suspendedZombies ?? [] });
     const joinedRank = await this.deps.progression?.title(acc.accountId);
     if (!session.open) return;
@@ -1115,7 +1130,9 @@ export class GameServer {
       return;
     }
 
-    const player = new Player(this.nextEntityId++, acc.accountId, acc.username, session, pos.x, pos.y, pos.z);
+    // Back in the same match: same entity (the match knows it by id), same body and kit.
+    const player = new Player(rejoin ? rejoin.id : this.nextEntityId++, acc.accountId, acc.username, session, pos.x, pos.y, pos.z);
+    if (rejoin) this.rejoins.delete(acc.accountId);
     player.yaw = saved?.yaw ?? 0;
     player.health = health;
     player.coins = this.arena ? 0 : Math.max(0, Math.round(saved?.coins ?? STARTING_ZCOIN));
@@ -1133,8 +1150,14 @@ export class GameServer {
       const charge = item.chargeId ? this.c4Charges.get(item.chargeId) : undefined;
       return charge?.accountId === player.accountId && charge.itemUid === item.uid;
     }) });
+    if (rejoin) {
+      Object.assign(player.state, rejoin.state);
+      player.yaw = rejoin.yaw; player.health = rejoin.health;
+      player.inv.load(this.infection ? (this.infection.isZombie(player.id) ? zombieInventory() : infectionInventory(this.infectionLoadouts.get(player.id) ?? DEFAULT_INFECTION_LOADOUT)) : rejoin.inventory);
+      if (rejoin.jumpPoint) player.jumpPoint = rejoin.jumpPoint;
+    }
     this.syncLoadout(player);
-    player.state.grounded = true;
+    if (!rejoin?.state.flight) player.state.grounded = true;
     player.streamer = new ChunkStreamer(session, this.deps.world, this.deps.world.generator.config.sizeChunks, this.deps.metrics);
     player.streamer.setCenter(player.chunkX, player.chunkZ);
     player.history.push(this.serverTime, pos.x, pos.y, pos.z, player.yaw);
@@ -1144,12 +1167,13 @@ export class GameServer {
     this.players.set(player.id, player);
     this.byAccount.set(acc.accountId, player);
     this.grid.update(player);
-    if (this.battle) {
+    if (this.battle && !rejoin) {
       const squad = session.squad ? this.deps.teams?.forAccount(acc.accountId) : undefined;
       this.battle.join(player.id, player.username, squad ? { id: squad.id, name: squad.name, size: squad.members.length } : undefined);
       this.battleWasOccupied = true;
     }
-    if (this.infection) { this.infection.join(player.id, player.username); this.syncLoadout(player); this.infectionOccupied = true; }
+    if (this.infection) { if (!rejoin) this.infection.join(player.id, player.username); this.syncLoadout(player); this.infectionOccupied = true; }
+    if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
@@ -1199,9 +1223,17 @@ export class GameServer {
     this.deps.metrics.players = this.players.size;
     // The final save is tracked per account: a re-login waits for it before loading, so it can
     // never start from a stale row (no rollback / duplication by quick reconnects).
-    this.battle?.leave(p.id);
-    this.infection?.leave(p.id);
-    if (this.infection) this.infectionLoadouts.delete(p.id);
+    // Dropped out of a running match (not eliminated, not sent home): hold the place a while.
+    const dropped = (reason === 'disconnect' || reason === 'duplicate_session') && !p.dead && !p.downed
+      && (!!this.battle?.canFight(p.id) || (!!this.infection && this.infection.phase !== 'waiting' && this.infection.entrants.has(p.id)));
+    if (dropped) {
+      this.rejoins.set(p.accountId, { id: p.id, name: p.username, until: this.serverTime + REJOIN_GRACE_MS, state: copyCharacterState(p.state, createCharacterState(0, 0, 0)), yaw: p.yaw, health: p.health, inventory: p.inv.toJSON(), jumpPoint: p.jumpPoint });
+      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${p.username} mất kết nối · giữ chỗ ${Math.round(REJOIN_GRACE_MS / 1000)} giây.` });
+    } else {
+      this.battle?.leave(p.id);
+      this.infection?.leave(p.id);
+      if (this.infection) this.infectionLoadouts.delete(p.id);
+    }
     const saved = this.arena ? Promise.resolve() : p.questBusy
       ? new Promise<void>((resolve) => { p.onLeaveSaved = resolve; })
       : this.deps.playerStates
@@ -1547,9 +1579,22 @@ export class GameServer {
 
   /* ------------------------------------ simulation --------------------------------------- */
 
+  /** Places held for dropped players run out: they are out of the match. */
+  private expireRejoins(now: number): void {
+    for (const [account, r] of this.rejoins) {
+      if (now < r.until && (!this.battle || this.battle.phase !== 'finished')) continue;
+      this.rejoins.delete(account);
+      this.battle?.leave(r.id);
+      this.infection?.leave(r.id);
+      this.infectionLoadouts.delete(r.id);
+      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${r.name} đã rời trận.` });
+    }
+  }
+
   private stepBattle(now: number): void {
+    this.expireRejoins(now);
     const match = this.battle!;
-    if (!this.players.size && !this.joiningAccounts.size && this.battleWasOccupied) {
+    if (!this.players.size && !this.joiningAccounts.size && !this.rejoins.size && this.battleWasOccupied) {
       this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear();
       this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
       this.battle = this.newBattleMatch();
@@ -1604,6 +1649,7 @@ export class GameServer {
     }
     for (const p of this.players.values()) p.session.sendJson({ ...match.state(now, p.id), drop: { phase: p.state.flight === 1 ? 'boarding' : p.state.flight === 2 ? 'falling' : p.state.flight === 3 ? 'parachute' : 'landed', altitude: Math.max(0, p.state.y - this.deps.world.generator.heightAt(p.state.x, p.state.z)), parachuteOpen: p.state.flight === 3 } });
     if (match.phase === 'finished' && match.state(now).remainingMs === 0) {
+      this.rejoins.clear();
       for (const p of [...this.players.values()]) { this.leave(p.session, 'battle finished'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
     }
   }
@@ -1837,7 +1883,8 @@ export class GameServer {
 
   private stepInfection(now: number): void {
     // Everyone left: the server is a fresh lobby for the next match.
-    if (!this.players.size && !this.joiningAccounts.size && this.infectionOccupied) {
+    this.expireRejoins(now);
+    if (!this.players.size && !this.joiningAccounts.size && !this.rejoins.size && this.infectionOccupied) {
       this.infection = new InfectionMatch(this.infectionRules, this.infectionMap.name);
       this.bots?.clear(); this.infectionLoadouts.clear(); this.infectionOccupied = false;
       this.rounds.length = 0; this.grenades.length = 0;
@@ -1869,6 +1916,7 @@ export class GameServer {
     if (ev.reset || ev.outbreak?.length || ev.finished) this.broadcastInfection();
     if (ev.over) {
       this.broadcastInfection();
+      this.rejoins.clear();
       for (const p of [...this.players.values()]) { this.leave(p.session, 'match over'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
       return;
     }

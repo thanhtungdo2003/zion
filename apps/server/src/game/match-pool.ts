@@ -29,7 +29,10 @@ export class MatchPool {
   }
 
   /** A match for one more player (and their squad), or null when every match is full or running and no more may open. */
-  pick(squad?: string): GameServer | null {
+  pick(squad?: string, accountId?: string): GameServer | null {
+    // Dropped out of a running match (or still connected from another tab): straight back in.
+    const home = accountId ? this.games.find((g) => g.hasRejoin(accountId)) : undefined;
+    if (home) return home;
     const now = Date.now();
     for (const [id, s] of this.squads) if (now - s.at > 120_000 || !this.games.includes(s.game)) this.squads.delete(id);
     const kept = squad ? this.squads.get(squad)?.game : undefined;

@@ -17,6 +17,7 @@ import { WorldMapStore } from '@/game/world-map';
 import { BattleHud } from './BattleHud';
 import { InfectionHud } from './InfectionHud';
 import { LoadoutPanel } from './LoadoutPanel';
+import { clearActiveMatch } from '@/lib/rejoin';
 
 export default function GameView() {
   const router = useRouter();
@@ -44,6 +45,8 @@ export default function GameView() {
   const spec = weaponSpec(equipped ? WEAPON_BY_ITEM[equipped.itemId] ?? 0 : 0);
   const touchVisible = touchControls && hud.status === 'playing' && hud.pointerLocked && !inv.open && !hud.dialogue && !hud.mapOpen && hud.downed === null && !chatOpen && !tutorialBlocked;
 
+  // Leaving on purpose gives the place up: the menu must not send the player back in.
+  const leaveMatch = useCallback(() => { clearActiveMatch(); router.push('/'); }, [router]);
   useEffect(() => {
     const el = container.current;
     if (!el) return;
@@ -129,7 +132,7 @@ export default function GameView() {
         onChat={(text, channel) => engineRef.current?.sendChat(text, channel)}
         onRespawn={() => engineRef.current?.requestRespawn()}
         onResume={() => engineRef.current?.lockPointer()}
-        onLeave={() => router.push('/')}
+        onLeave={() => leaveMatch()}
         inventoryOpen={inv.open || !!hud.dialogue || hud.mapOpen}
         onPvp={(enabled) => engineRef.current?.setPvp(enabled)} onSetTime={(tod) => engineRef.current?.setTimeOfDay(tod)}
       />
@@ -140,8 +143,8 @@ export default function GameView() {
       {inWorld && hud.reviving && <ReviveBar start={hud.reviving.start} end={hud.reviving.end} />}
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
       {inWorld && hud.mode === 'survival' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
-      {inWorld && hud.infection && <InfectionHud state={hud.infection} health={hud.health} onLeave={() => router.push('/')} />}
-      {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => router.push('/')} />}
+      {inWorld && hud.infection && <InfectionHud state={hud.infection} health={hud.health} onLeave={() => leaveMatch()} />}
+      {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && inv.open && hud.mode === 'infection' && <LoadoutPanel store={inventory} locked={!!hud.infection?.infected} onChange={(l) => engineRef.current?.setLoadout(l)} />}

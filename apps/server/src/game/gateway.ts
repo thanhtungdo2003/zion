@@ -194,7 +194,7 @@ export class GameGateway {
       session.account = account;
       const pool = this.sessionPools.get(session);
       if (pool) {
-        const match = pool.pick(session.squad ? this.squadOf(account.accountId) : undefined);
+        const match = pool.pick(session.squad ? this.squadOf(account.accountId) : undefined, account.accountId);
         if (!match) { session.sendError('server_full', 'Mọi trận đều đang đầy. Hãy thử lại sau ít phút.', true); session.close(CloseCode.ServerFull, 'no match'); return; }
         this.sessionGames.set(session, match);
       }

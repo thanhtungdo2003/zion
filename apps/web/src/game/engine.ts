@@ -7,6 +7,7 @@ import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
 import { INFECTION } from '@zion/shared';
 import { loadInfectionLoadout } from '@/lib/infection-loadout';
+import { clearActiveMatch, markActiveMatch, rejoinAttempt, rejoinSucceeded } from '@/lib/rejoin';
 import { ZombieVariant, zombieScale, CHEST_ASSETS, CHEST_REACH, chestKey } from '@zion/shared';
 import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
@@ -536,6 +537,19 @@ export class GameEngine {
       onMessage: (m) => { if (!this.disposed) this.onMessage(m); },
       onClose: (info) => {
         if (this.disposed) return;
+        // Match modes: a dropped connection (not a refusal from the server) rejoins the same match
+        // by itself; the server holds the place for a couple of minutes.
+        const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection';
+        const over = hud.battle?.phase === 'finished' || !!hud.infection?.over || (mode === 'battle-royale' && !!this.local?.dead);
+        if (arena && !info.message && !over) {
+          const attempt = rejoinAttempt();
+          if (attempt <= 8) {
+            this.hud.set({ status: 'connecting', statusDetail: { key: 'raw', vars: { text: `Mất kết nối · đang vào lại trận (lần ${attempt})…` } } });
+            window.setTimeout(() => { if (!this.disposed) window.location.reload(); }, Math.min(8000, 1200 * attempt));
+            return;
+          }
+        }
+        if (arena && over) clearActiveMatch();
         this.hud.set({
           status: 'disconnected',
           statusDetail: info.message
@@ -1001,6 +1015,7 @@ export class GameEngine {
     this.infectedIds.clear(); this.selfInfected = false;
     // Infection: the weapons this browser picked last time.
     if (m.mode === 'infection') this.conn.sendLoadout(loadInfectionLoadout());
+    if (m.mode === 'battle-royale' || m.mode === 'infection') { markActiveMatch(m.mode); rejoinSucceeded(); }
     if (m.mode === 'battle-royale') {
       this.battleZone = new BattleZone(this.scene);
       this.battleFlight = new BattleFlightRenderer(this.scene);
@@ -1081,7 +1096,15 @@ export class GameEngine {
 
   private snapshotCount = 0;
 
+  private lastMatchMark = 0;
   private onSnapshot(s: Snapshot): void {
+    // Keep the "playing a match" mark fresh, so a closed tab comes back here from the menu.
+    const mode = this.welcome?.mode;
+    if ((mode === 'battle-royale' || mode === 'infection') && performance.now() - this.lastMatchMark > 10_000) {
+      this.lastMatchMark = performance.now();
+      const hud = this.hud.get();
+      if (hud.battle?.phase === 'finished' || hud.infection?.over || (mode === 'battle-royale' && this.local?.dead)) clearActiveMatch(); else markActiveMatch(mode);
+    }
     this.snapshotCount++;
     const local = this.local;
     if (!local || !this.welcome) return;

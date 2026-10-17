@@ -10,6 +10,7 @@ import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ModeModal } from '@/components/ModeModal';
+import { activeMatch } from '@/lib/rejoin';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
@@ -49,6 +50,12 @@ export default function MainMenu() {
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
   const closeModes = useCallback(() => setModeOpen(false), []);
+  // A match was left by accident (tab closed, crash) a moment ago: go straight back into it.
+  useEffect(() => {
+    if (!sessionReady || !session) return;
+    const mode = activeMatch();
+    if (mode === 'battle-royale' || mode === 'infection') { setBusy(true); router.push(`/play?mode=${mode}`); }
+  }, [sessionReady, session, router]);
   const [gameMode, setGameModeState] = useState<(typeof GAME_MODES)[number]['id']>('survival');
   // The chosen mode is remembered between visits.
   useEffect(() => {
