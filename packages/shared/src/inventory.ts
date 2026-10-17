@@ -112,6 +112,31 @@ export function findSpot(items: readonly PlacedItem[], itemId: string, order: Co
   return null;
 }
 
+/**
+ * Auto-sort: repacks one container as tightly as it goes. Biggest items first (like ones side by
+ * side), each at the first free cell in reading order, turned whichever way fits earliest.
+ * Returns the new placements, or null if they would not all fit (the layout is then kept).
+ */
+export function packContainer(items: readonly PlacedItem[], container: ContainerId): PlacedItem[] | null {
+  const c = CONTAINERS[container];
+  const inside = items.filter((i) => i.container === container);
+  const others = items.filter((i) => i.container !== container);
+  const area = (i: PlacedItem) => { const d = ITEMS[i.itemId]!; return d.w * d.h; };
+  const order = [...inside].sort((a, b) => area(b) - area(a) || ITEMS[a.itemId]!.category.localeCompare(ITEMS[b.itemId]!.category) || a.itemId.localeCompare(b.itemId) || a.uid - b.uid);
+  const placed: PlacedItem[] = [...others];
+  for (const it of order) {
+    const def = ITEMS[it.itemId]!;
+    // Lying flat (wider than tall) first: rows stay low and the bottom of the bag stays free.
+    const turns = c.rotatable ? (def.w >= def.h ? [false, true] : [true, false]) : [false];
+    let spot: { x: number; y: number; rotated: boolean } | null = null;
+    for (let y = 0; y < c.rows && !spot; y++) for (let x = 0; x < c.cols && !spot; x++)
+      for (const rotated of turns) if (canPlace(placed, container, it.itemId, x, y, rotated)) { spot = { x, y, rotated }; break; }
+    if (!spot) return null;
+    placed.push({ ...it, ...spot });
+  }
+  return placed.filter((i) => i.container === container);
+}
+
 /** Where a newly received item goes: weapons/grenades to a free weapon slot, the rest in the backpack. */
 export function addOrder(def: ItemDef): ContainerId[] {
   return def.category === 'ammo' || def.category === 'medical' || def.category.startsWith('armor') || !WEAPON_BY_ITEM[def.id] ? ['backpack'] : [...EQUIP_ORDER, 'backpack'];
@@ -188,6 +213,15 @@ export class InventoryModel {
 
   equippedItem(): PlacedItem | undefined {
     return this.equipped === null ? undefined : this.get(this.equipped);
+  }
+
+  /** Auto-sort one container (see packContainer); false if nothing could be improved safely. */
+  sort(container: ContainerId): boolean {
+    const packed = packContainer(this.items, container);
+    if (!packed) return false;
+    const byUid = new Map(packed.map((i) => [i.uid, i]));
+    this.items = this.items.map((i) => byUid.get(i.uid) ?? i);
+    return true;
   }
 
   move(uid: number, container: ContainerId, x: number, y: number, rotated: boolean): boolean {

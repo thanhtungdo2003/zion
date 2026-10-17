@@ -3029,3 +3029,9 @@ kbd {
 .ground-panel.in-chest { position: static; width: auto; margin-top: 10px; }
 .ix-preview { height: 240px; flex: none; border: 1px solid var(--line); background: #101213; }
 .ix-preview .model-preview { height: 100%; }
+
+/* Auto-sort button in a bag / storage header. */
+.inv-sort { display: grid; place-items: center; width: 24px; height: 22px; margin: -3px 0 -3px 4px; padding: 0; border: 1px solid var(--line); border-radius: 0; background: #1d2022; color: var(--text); cursor: pointer; flex: none; }
+.inv-sort:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.inv-sort:disabled { opacity: .4; cursor: default; }
+.inv-sort svg { width: 15px; height: 15px; }

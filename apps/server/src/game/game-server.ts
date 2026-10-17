@@ -3296,6 +3296,10 @@ export class GameServer {
         changed = p.inv.move(msg.uid, msg.c, msg.x, msg.y, msg.r);
         break;
       }
+      case 'sort':
+        if (isStash(msg.c) && !this.atStorage(p)) break;
+        changed = p.inv.sort(msg.c);
+        break;
       case 'equip':
         changed = p.inv.equip(msg.uid);
         if (changed) p.cancelReload();

@@ -295,6 +295,12 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
       <header>
         <span>{t(`cont.${id}`)}</span>
         <small>{accepted}</small>
+        {(id === 'backpack' || isStash(id)) && (
+          <button type="button" className="inv-sort" aria-label="Tự động sắp xếp" title="Tự động sắp xếp"
+            disabled={!!held || !items.length} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.sortContainer(id)}>
+            <Icon name="lucide:arrow-down-wide-narrow" />
+          </button>
+        )}
       </header>
       <div
         className="inv-grid"

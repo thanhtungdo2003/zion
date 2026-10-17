@@ -125,6 +125,8 @@ export const invMessageSchema = z.discriminatedUnion('op', [
   z.object({ t: z.literal('inv'), op: z.literal('chestTake'), id: chestId, uid: u32, revision: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('move'), uid: u32, c: containerId, x: cell, y: cell, r: z.boolean() }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('equip'), uid: u32.nullable() }).strict(),
+  // Auto-sort a container (the backpack, a storage page) as tightly as it packs.
+  z.object({ t: z.literal('inv'), op: z.literal('sort'), c: containerId }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('drop'), uid: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('pickup'), id: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('cache'), item: itemId }).strict(),

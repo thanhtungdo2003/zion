@@ -86,6 +86,8 @@ export class InventoryStore {
   }
   private attachFromGame = false;
   /** Installs an attachment item on a gun (the server answers with the new inventory). */
+  /** Auto-sort a container; the server answers with the new layout. */
+  sortContainer(c: ContainerId): void { this.send?.({ t: 'inv', op: 'sort', c }); }
   attach(gun: number, uid: number): void { this.send?.({ t: 'inv', op: 'attach', gun, uid }); }
   detach(gun: number, slot: 'optic' | 'muzzle'): void { this.send?.({ t: 'inv', op: 'detach', gun, slot }); }
 
