@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-18T10:43:17.873Z",
+  "generatedAt": "2026-10-18T11:03:11.029Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1518,6 +1518,18 @@
       "url": "/assets/models/weapons_rocket-missile.36f2c50957f7.bbmodel",
       "sha256": "36f2c50957f712e533c3f9f60604522c7c4f62402fe14f508b8760087f63aed6",
       "bytes": 9784,
+      "kind": "bbmodel"
+    },
+    "weapons/rpg32-hashim-unloaded.bbmodel": {
+      "url": "/assets/models/weapons_rpg32-hashim-unloaded.f8ca09c05502.bbmodel",
+      "sha256": "f8ca09c0550274166f57d5b93186d7d39b346cc2fd2bb70fa0db501f91e6a298",
+      "bytes": 19065,
+      "kind": "bbmodel"
+    },
+    "weapons/rpg32-rocket.bbmodel": {
+      "url": "/assets/models/weapons_rpg32-rocket.1a6eb0c2c73a.bbmodel",
+      "sha256": "1a6eb0c2c73aa20c6f323d00c4fa39340fb46e8721c9b642fe5266e71c8d156b",
+      "bytes": 12375,
       "kind": "bbmodel"
     },
     "weapons/saiga-12-shotgun.bbmodel": {

@@ -168,8 +168,8 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
     projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
   },
   [WeaponId.RocketLauncher]: {
-    kind: 'gun', weight: 9, fire: 'projectile', fireMs: 600, damage: 0, pellets: 1, spread: 0.01, range: 90, magazine: 1, reloadMs: 3000, auto: false,
-    projectile: { kind: 'rocket', speed: 34, gravity: 0.6, blast: { radius: 7, damage: 180 }, maxFlightSec: 3 },
+    kind: 'gun', weight: 9, fire: 'projectile', fireMs: 600, damage: 0, pellets: 1, spread: 0.01, range: 90, magazine: 1, reloadMs: 1900, auto: false,
+    projectile: { kind: 'rocket', speed: 34, gravity: 0.6, blast: { radius: 9.5, damage: 260 }, maxFlightSec: 3 },
   },
   [WeaponId.Crossbow]: {
     kind: 'gun', weight: 3.2, fire: 'projectile', fireMs: 400, damage: 72, pellets: 1, spread: 0.004, range: 90, magazine: 1, reloadMs: 850, auto: false, scope: 4,

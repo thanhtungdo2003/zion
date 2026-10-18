@@ -116,6 +116,7 @@ import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
 import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
 import { BuildingController } from './building-controller';
+import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
 import { prepareGuardModel } from './render/guard-model';
 import { occlusionUniforms } from './render/occlusion-fade';
@@ -1354,6 +1355,11 @@ export class GameEngine {
     this.conn.sendSetTime(tod);
   }
 
+  /** The optic in use: the fitted attachment, else the weapon's own sight (rocket launcher). */
+  private currentOptic() {
+    return weaponOptic(this.inventory.equippedItemId(), this.inventory.equippedAttachments());
+  }
+
   private onMessage(m: ServerJsonMessage): void {
     if (this.building?.onMessage(m)) return;
     switch (m.t) {
@@ -1952,7 +1958,7 @@ export class GameEngine {
     this.updateFlashlights();
     for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
-    const optic = opticOf(this.inventory.equippedAttachments());
+    const optic = this.currentOptic();
     const scopeMagnification = this.scoped ? optic?.magnification ?? 1 : 1;
     // Red dot: the reticle is drawn on the aiming ray once the sight is up to the eye.
     const reticle = this.scoped ? optic?.reticle ?? null : (optic?.reticle === 'dot' || optic?.reticle === 'holo') && this.aiming && this.firstPerson && (this.viewModel?.aimed ?? 0) > .82 ? optic!.reticle! : null;
@@ -2177,7 +2183,7 @@ export class GameEngine {
     const equippedSpec = weaponSpec(weapon);
     this.aiming = equippedSpec?.kind === 'gun' && !this.selfInfected && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
     // Magnified optics take over the view; iron sights and red dots aim through the gun itself.
-    this.scoped = this.aiming && equippedSpec?.kind === 'gun' && (opticOf(this.inventory.equippedAttachments())?.magnification ?? 1) > 1;
+    this.scoped = this.aiming && equippedSpec?.kind === 'gun' && (this.currentOptic()?.magnification ?? 1) > 1;
     // Raising and lowering the sights: a short cloth-and-metal shuffle.
     if (this.aiming !== this.wasAiming) { this.sounds?.play(this.aiming ? 'aimIn' : 'aimOut', { volume: .35 }); this.wasAiming = this.aiming; }
     let moveX = mx;
@@ -3278,7 +3284,7 @@ export class GameEngine {
       this.scopeZoom += ((this.aiming ? 1 : 0) - this.scopeZoom) * (1 - Math.exp(-dt * SCOPE_PAN_RATE * 2));
       const spec = weaponSpec(this.equippedWeapon());
       // The optic's own power; iron sights and red dots get a slight focus zoom.
-      const opticPower = opticOf(this.inventory.equippedAttachments())?.magnification ?? 1;
+      const opticPower = this.currentOptic()?.magnification ?? 1;
       const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.firstPerson ? 1.25 : 1.35 : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
       const fov = scopeFov(FP_FOV, zoom);

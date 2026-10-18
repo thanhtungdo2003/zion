@@ -8,7 +8,7 @@ import { WEAPON_BY_ITEM, weaponSpec } from './weapons';
 export type AttachmentSlot = 'optic' | 'muzzle';
 export const ATTACHMENT_SLOTS: readonly AttachmentSlot[] = ['optic', 'muzzle'];
 
-export type ReticleKind = 'dot' | 'holo' | 'duplex' | 'mildot';
+export type ReticleKind = 'dot' | 'holo' | 'duplex' | 'mildot' | 'rocket';
 
 export interface AttachmentDef {
   id: string;
@@ -118,6 +118,16 @@ export function attachmentModifier(attachments: Attachments | undefined, stat: k
 }
 
 /** The installed optic (if any). */
+/** Sights built into a weapon (no attachment slot): the rocket launcher's 3× rangefinding sight. */
+export const BUILTIN_OPTICS: Readonly<Record<string, AttachmentDef>> = {
+  rocket_launcher: { id: 'rocket_sight', slot: 'optic', magnification: 3, reticle: 'rocket', modifiers: {} },
+};
+
+/** The optic a weapon aims through: the fitted attachment, else its built-in sight. */
+export function weaponOptic(itemId: string | null | undefined, attachments: Attachments | undefined): AttachmentDef | undefined {
+  return attachmentDef(attachments?.optic) ?? (itemId ? BUILTIN_OPTICS[itemId] : undefined);
+}
+
 export function opticOf(attachments: Attachments | undefined): AttachmentDef | undefined {
   return attachmentDef(attachments?.optic);
 }

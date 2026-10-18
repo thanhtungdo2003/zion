@@ -3109,3 +3109,6 @@ kbd {
 .supply-item { display: flex; align-items: center; gap: 8px; }
 .supply-row { cursor: pointer; }
 .supply-row.on { border-color: var(--tech); background: var(--tech-dim); }
+.fp-scope-rocket .fp-scope-chevron { stroke: #c4241c; stroke-width: .9; }
+.fp-scope-rocket .fp-scope-stadia { stroke-width: .5; }
+.fp-scope-label.small { font-size: 2.6px; }

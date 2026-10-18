@@ -142,7 +142,8 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_762x51: { url: '/models/weapons/ammo-box-762x54r.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [5, 6.5, 0] },
   grenade_launcher: { url: '/models/weapons/grenade-launcher.bbmodel', length: 0.75, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, -1.5, -5], muzzle: [0, 27, 0] },
   crossbow: { url: '/models/weapons/modern-crossbow.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 9.5, -4.5], muzzle: [0, 38, 0] },
-  rocket_launcher: { url: '/models/weapons/rocket-launcher.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 11.5, -7], muzzle: [0, 34, 0] },
+  // RPG-32 Hashim: tube along +Y, carry handle on top (+Z), pistol grip and foregrip below, sight on the left.
+  rocket_launcher: { url: '/models/weapons/rpg32-hashim-unloaded.bbmodel', length: 1, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6.5, -7], support: [0, 18.5, -7], muzzle: [0, 27, 0] },
   flamethrower: { url: '/models/weapons/flamethrower.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 8.5, -4.5], muzzle: [0, 34, 0] },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
   machete: { url: '/models/weapons/machete.bbmodel', length: 0.65, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 3, 0], edge: [-1, 0, 0], strikePoint: [0, 20, 0], fpHip: [0.3359, -0.235, -0.2537], fpSupport: [0, 0, 0], fpRot: [0.548, 0.0349] },
@@ -161,12 +162,12 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_762x54: { url: '/models/weapons/ammo-box-762x54r.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [5, 6.5, 0] },
   ammo_357: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_40mm: { url: '/models/weapons/grenade-40mm-retail-pack.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 6.5, 0.75] },
-  rocket: { url: '/models/weapons/rocket-missile.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 16, 0] },
+  rocket: { url: '/models/weapons/rpg32-rocket.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 20, 0] },
   bolts: { url: '/models/weapons/arrow-quiver.bbmodel', length: 0.6, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 14, -0.5] },
   fuel_tank: { url: '/models/weapons/flamethrower-fuel-tank.bbmodel', length: 0.45, barrel: [0, 1, 0], up: [1, 0, 0], grip: [2.5, 11.5, 0] },
   // Rounds in flight (nose → +X in the display model) and the ZCoin.
   proj_grenade40: { url: '/models/weapons/grenade-launcher-round.bbmodel', length: 0.22, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 0] },
-  proj_rocket: { url: '/models/weapons/rocket-missile.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 16, 0] },
+  proj_rocket: { url: '/models/weapons/rpg32-rocket.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 20, 0] },
   proj_bolt: { url: '/models/weapons/arrow.bbmodel', length: 0.6, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 16, 0] },
   medkit: { url: '/models/tools/first-aid-kit.bbmodel', length: 0.35, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5.5, 0] },
   zcoin: { url: '/models/materias/gold-coin-z.bbmodel', length: 0.05, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 7, 0] },

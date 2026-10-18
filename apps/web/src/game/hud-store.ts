@@ -97,7 +97,7 @@ export interface HudState {
   aiming: boolean;
   scopeMagnification: number;
   /** Reticle to draw: optic reticle while scoped, or a red dot while aimed through one. */
-  reticle: 'dot' | 'holo' | 'duplex' | 'mildot' | null;
+  reticle: 'dot' | 'holo' | 'duplex' | 'mildot' | 'rocket' | null;
   /** Looking through a night-vision scope, and whether night vision is on. */
   nvScope: boolean;
   nightVision: boolean;
