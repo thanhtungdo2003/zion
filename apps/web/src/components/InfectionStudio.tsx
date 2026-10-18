@@ -62,6 +62,15 @@ function footprint(asset: number): Array<{ cx: number; cz: number; hx: number; h
  * from the catalogue on a top-down plan, set human and zombie spawn points and tune every round
  * rule. The active map is what new Infection matches are played on.
  */
+/** 06:30-style clock for a time of day (0…1). */
+const clockOf = (t: number) => { const m = Math.round(t * 24 * 60) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+/** A sky gradient for the time of day (night blue, dawn orange, day blue). */
+function skyColour(t: number): string {
+  const h = t * 24, day = Math.max(0, Math.min(1, (Math.min(h, 24 - h) - 5) / 2.5)), dusk = Math.max(0, 1 - Math.abs(h - 6.2) / 1.6, 1 - Math.abs(h - 18.6) / 1.6);
+  const top = day > .5 ? '#3f86d6' : dusk > .2 ? '#5a4a7a' : '#0c1630', bottom = dusk > .2 ? '#f0985a' : day > .5 ? '#a8d0f2' : '#1d2b4a';
+  return `linear-gradient(180deg, ${top}, ${bottom})`;
+}
+
 export default function InfectionStudio() {
   const [status, setStatus] = useState<'loading' | 'locked' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -466,13 +475,24 @@ export default function InfectionStudio() {
             {num('Bụi rậm / ha', draft.environment.bushes, (v) => patch((d) => { d.environment.bushes = v; }), 0, 300, 1)}
             {num('Đá / ha', draft.environment.rocks, (v) => patch((d) => { d.environment.rocks = v; }), 0, 200, 1)}
             {num('Tỉ lệ cây chết', draft.environment.deadTrees, (v) => patch((d) => { d.environment.deadTrees = v; }), 0, 1, .05)}
-            {num('Giờ trong ngày', Math.round(draft.rules.timeOfDay * 24 * 4) / 4, (v) => patch((d) => { d.rules.timeOfDay = v / 24; }), 0, 23.75, .25, ' h')}
+          </section>
+
+          <section className="ix-section">
+            <h3>Ngày & đêm</h3>
+            <div className="ix-sky" style={{ background: skyColour(draft.rules.timeOfDay) }}><span>{clockOf(draft.rules.timeOfDay)}</span><small>{(draft.rules.dayCycleMinutes ?? 0) > 0 ? `chu kỳ ${draft.rules.dayCycleMinutes} phút` : 'giờ cố định'}</small></div>
+            <div className="ix-row ix-presets">
+              {([['Bình minh', 6], ['Trưa', 12], ['Hoàng hôn', 18.5], ['Đêm', 22.5], ['Nửa đêm', 0]] as const).map(([label, h]) => (
+                <button key={label} className={`btn${Math.abs(draft.rules.timeOfDay * 24 - h) < .01 ? ' on' : ''}`} onClick={() => patch((d) => { d.rules.timeOfDay = h / 24; })}>{label}</button>
+              ))}
+            </div>
+            {num('Giờ bắt đầu', Math.round(draft.rules.timeOfDay * 24 * 4) / 4, (v) => patch((d) => { d.rules.timeOfDay = (v % 24) / 24; }), 0, 23.75, .25, ' h')}
+            {num('Chu kỳ ngày đêm (0 = cố định)', draft.rules.dayCycleMinutes ?? 0, (v) => patch((d) => { d.rules.dayCycleMinutes = v; }), 0, 240, 1, ' phút')}
           </section>
 
           <section className="ix-section">
             <h3>Luật chơi</h3>
             {RULES.map((r) => num(r.label, (draft.rules[r.key] as number) / (r.scale ?? 1), (v) => patch((d) => { (d.rules[r.key] as number) = Math.round(v * (r.scale ?? 1) * 1000) / 1000; }), r.min, r.max, r.step, r.unit ? ` ${r.unit}` : ''))}
-            <button className="btn" onClick={() => patch((d) => { d.rules = { ...DEFAULT_INFECTION_MAP.rules, timeOfDay: d.rules.timeOfDay }; })}><Icon name="lucide:rotate-ccw" /> Luật mặc định</button>
+            <button className="btn" onClick={() => patch((d) => { d.rules = { ...DEFAULT_INFECTION_MAP.rules, timeOfDay: d.rules.timeOfDay, dayCycleMinutes: d.rules.dayCycleMinutes }; })}><Icon name="lucide:rotate-ccw" /> Luật mặc định</button>
           </section>
         </aside>
       </div>

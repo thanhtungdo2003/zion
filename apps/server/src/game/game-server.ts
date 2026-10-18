@@ -1031,7 +1031,11 @@ export class GameServer {
   timeOfDay(): number {
     // Battle royale is always played at 14:00: steady daylight, no night.
     if (this.battle) return BATTLE_TIME_OF_DAY;
-    if (this.infection) return this.infectionRules.timeOfDay;
+    if (this.infection) {
+      // Fixed hour, or a day-night cycle running from that hour (Studio rules).
+      const cycle = this.infectionRules.dayCycleMinutes ?? 0, t = this.infectionRules.timeOfDay + (cycle > 0 ? this.serverTime / (cycle * 60_000) : 0);
+      return t - Math.floor(t);
+    }
     const t = this.worldTimeMs / this.dayLengthMs + 0.3;
     return t - Math.floor(t);
   }

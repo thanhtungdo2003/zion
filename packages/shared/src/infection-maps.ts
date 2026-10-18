@@ -26,9 +26,11 @@ export const infectionRulesSchema = z.object({
   knockPerDamage: z.number().min(0).max(2),
   knockMax: z.number().min(0).max(30),
   timeOfDay: z.number().min(0).max(1),
+  /** Day-night cycle: a full day lasts this many minutes (0 = the clock stays at `timeOfDay`). */
+  dayCycleMinutes: z.number().min(0).max(240).default(0),
 }).strict();
 export type InfectionRules = z.infer<typeof infectionRulesSchema>;
-export const DEFAULT_INFECTION_RULES: InfectionRules = { ...INFECTION, maxPlayers: INFECTION_MAP.maxPlayers, botFill: INFECTION_MAP.botFill };
+export const DEFAULT_INFECTION_RULES: InfectionRules = { ...INFECTION, maxPlayers: INFECTION_MAP.maxPlayers, botFill: INFECTION_MAP.botFill, dayCycleMinutes: 0 };
 
 const point = z.object({ x: z.number().finite().min(-400).max(400), z: z.number().finite().min(-400).max(400) }).strict();
 /** A placed model, in metres from the map centre (y above the ground there). */
