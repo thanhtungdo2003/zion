@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-18T11:26:53.590Z",
+  "generatedAt": "2026-10-18T16:05:52.412Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -362,6 +362,12 @@
       "bytes": 40809,
       "kind": "bbmodel"
     },
+    "maps/warehouse_map_chicken_gun.glb": {
+      "url": "/assets/models/maps_warehouse_map_chicken_gun.e3b003406888.glb",
+      "sha256": "e3b00340688894c5e0deac157a08ad5f7beda04542f2fc57a161aec84e96a646",
+      "bytes": 25196280,
+      "kind": "glb"
+    },
     "materias/asphalt-concrete-slab-moss-2.bbmodel": {
       "url": "/assets/models/materias_asphalt-concrete-slab-moss-2.5da74f21bebe.bbmodel",
       "sha256": "5da74f21bebe93b806cefafe44e6ffb3494719a222dcaa1294033dbb2dfd9676",
@@ -512,6 +518,24 @@
       "bytes": 4282,
       "kind": "bbmodel"
     },
+    "materias/ivory-concrete-slab-darkred.bbmodel": {
+      "url": "/assets/models/materias_ivory-concrete-slab-darkred.e7604245a05a.bbmodel",
+      "sha256": "e7604245a05a8644b5e77d7782ec2fdca56bab67fe0b721465628acfa353c77d",
+      "bytes": 2746,
+      "kind": "bbmodel"
+    },
+    "materias/ivory-concrete-slab-gray.bbmodel": {
+      "url": "/assets/models/materias_ivory-concrete-slab-gray.fdc593b9691c.bbmodel",
+      "sha256": "fdc593b9691cbee103c23c102441fb90c4cd133b84772ace044d3cd3194f7ceb",
+      "bytes": 2698,
+      "kind": "bbmodel"
+    },
+    "materias/ivory-concrete-slab.bbmodel": {
+      "url": "/assets/models/materias_ivory-concrete-slab.fe52525269ac.bbmodel",
+      "sha256": "fe52525269ac600533f8d02bc89de760ca275dfac0b9a953c05a483c0394bde7",
+      "bytes": 3174,
+      "kind": "bbmodel"
+    },
     "materias/l-shaped-kitchen-counter.bbmodel": {
       "url": "/assets/models/materias_l-shaped-kitchen-counter.3316bc913fec.bbmodel",
       "sha256": "3316bc913fecc274e3c74188c4748d81c252185523f001a4d1e5c67c5472df4d",
@@ -636,6 +660,12 @@
       "url": "/assets/models/materias_raw-porkchop.63c6645fe173.bbmodel",
       "sha256": "63c6645fe1735c40d26dbfa5a000f9626ab37f0d947a320789d59d44be521b8d",
       "bytes": 5079,
+      "kind": "bbmodel"
+    },
+    "materias/red-brick-wall.bbmodel": {
+      "url": "/assets/models/materias_red-brick-wall.4e563146474a.bbmodel",
+      "sha256": "4e563146474a64a744a771936d8704f72747880a5df8d41138aac32042e30c6f",
+      "bytes": 13959,
       "kind": "bbmodel"
     },
     "materias/red-primer-steel-column.bbmodel": {
@@ -800,6 +830,30 @@
       "bytes": 1349120,
       "kind": "glb"
     },
+    "nationals/fern_grass_02.glb": {
+      "url": "/assets/models/nationals_fern_grass_02.e3b55873f2bf.glb",
+      "sha256": "e3b55873f2bfbe6800a365cc559df166e2f7fbcbddb64a05e48be904cdb6d69f",
+      "bytes": 513392,
+      "kind": "glb"
+    },
+    "nationals/grass-2.glb": {
+      "url": "/assets/models/nationals_grass-2.347caf8f3a54.glb",
+      "sha256": "347caf8f3a54ef075acb55678a1ccbe91dbbeec4b538e701db488251cb70593b",
+      "bytes": 3890444,
+      "kind": "glb"
+    },
+    "nationals/grass.glb": {
+      "url": "/assets/models/nationals_grass.2ab4858f668a.glb",
+      "sha256": "2ab4858f668a10ae7c21633388055cbae5f7a2c630854f45a9f46cac7f74f248",
+      "bytes": 8002268,
+      "kind": "glb"
+    },
+    "nationals/grass_patches.glb": {
+      "url": "/assets/models/nationals_grass_patches.d327a5ea0128.glb",
+      "sha256": "d327a5ea0128b86312bef914ad35f60e2de09bdbbb4867da77d7895ab4a73a56",
+      "bytes": 1624592,
+      "kind": "glb"
+    },
     "nationals/laurel_tree_-_low_poly.glb": {
       "url": "/assets/models/nationals_laurel_tree_-_low_poly.e2a478e4c56b.glb",
       "sha256": "e2a478e4c56b2527b364b9e4581c8c0c27d7fa86d8cb1a2e27dc5b48062cdbd9",
@@ -841,6 +895,12 @@
       "sha256": "2a9f7f946c63c31d6855acf13a4fc15f2fa1cf43ab5a5033b991c5a5174fcc39",
       "bytes": 43600,
       "kind": "glb"
+    },
+    "nationals/steyr-aug.bbmodel": {
+      "url": "/assets/models/nationals_steyr-aug.141ca8d8da84.bbmodel",
+      "sha256": "141ca8d8da84b86793880cea6eedbbf65c3afcc5a789850398acc0d3731cf8b4",
+      "bytes": 23214,
+      "kind": "bbmodel"
     },
     "nationals/stylized_grass.glb": {
       "url": "/assets/models/nationals_stylized_grass.613a893f2615.glb",
@@ -1058,6 +1118,12 @@
       "bytes": 159300,
       "kind": "glb"
     },
+    "prepared/fern.glb": {
+      "url": "/assets/models/prepared_fern.5df856c7c65a.glb",
+      "sha256": "5df856c7c65a923fce641f9d339ebb9958fac268d16fde01f60dca031238626e",
+      "bytes": 276916,
+      "kind": "glb"
+    },
     "prepared/forest_oak_0.glb": {
       "url": "/assets/models/prepared_forest_oak_0.a4a14fdd03e8.glb",
       "sha256": "a4a14fdd03e8e179d79c05fb156227562b5b6ef0453fb0ffca579859c93d2249",
@@ -1220,6 +1286,66 @@
       "bytes": 166088,
       "kind": "glb"
     },
+    "prepared/grass_autumn.glb": {
+      "url": "/assets/models/prepared_grass_autumn.beb9ce757405.glb",
+      "sha256": "beb9ce7574057e0a397af11dbc827e047cb497497753563903f0e0c7a18119af",
+      "bytes": 416780,
+      "kind": "glb"
+    },
+    "prepared/grass_blades.glb": {
+      "url": "/assets/models/prepared_grass_blades.f208ebd99ba3.glb",
+      "sha256": "f208ebd99ba37595db25d3bd9e2fa5d60f467d72447f283440da2096de791269",
+      "bytes": 17080,
+      "kind": "glb"
+    },
+    "prepared/grass_clump_a.glb": {
+      "url": "/assets/models/prepared_grass_clump_a.7a28289b2097.glb",
+      "sha256": "7a28289b2097d2313acef0916a42aecdc7b725ffe08709e108e2950cb3ccb741",
+      "bytes": 29992,
+      "kind": "glb"
+    },
+    "prepared/grass_clump_b.glb": {
+      "url": "/assets/models/prepared_grass_clump_b.cb7e212c170a.glb",
+      "sha256": "cb7e212c170a98749ec86b61530d96219c0b1baeb79b02d45fed10fd7ab6d5cb",
+      "bytes": 38052,
+      "kind": "glb"
+    },
+    "prepared/grass_clump_c.glb": {
+      "url": "/assets/models/prepared_grass_clump_c.dde80c00a6c9.glb",
+      "sha256": "dde80c00a6c94d913732160101184da8264ae2bb844637d33fd9ccc13ccf1801",
+      "bytes": 38076,
+      "kind": "glb"
+    },
+    "prepared/grass_lush.glb": {
+      "url": "/assets/models/prepared_grass_lush.a77deb7e37be.glb",
+      "sha256": "a77deb7e37bee7b8a35ef895ee9ca470eeff713ac93bb6f2cc3aa5757eaaf123",
+      "bytes": 662268,
+      "kind": "glb"
+    },
+    "prepared/grass_patch_0.glb": {
+      "url": "/assets/models/prepared_grass_patch_0.dcd723c59758.glb",
+      "sha256": "dcd723c59758627b8630341785924a1e0a8c7be23ac409cef0e48d650bf2dc69",
+      "bytes": 159004,
+      "kind": "glb"
+    },
+    "prepared/grass_patch_1.glb": {
+      "url": "/assets/models/prepared_grass_patch_1.245d9380164d.glb",
+      "sha256": "245d9380164df2e8c6f14cf687088bed771d8a1ce77eb5cbec3763a69937d46a",
+      "bytes": 137024,
+      "kind": "glb"
+    },
+    "prepared/grass_patch_2.glb": {
+      "url": "/assets/models/prepared_grass_patch_2.b5ff757a71f8.glb",
+      "sha256": "b5ff757a71f8e482324412ebcb312e4c938515f629f371a5833727c8b6fecdf0",
+      "bytes": 206888,
+      "kind": "glb"
+    },
+    "prepared/grass_reeds.glb": {
+      "url": "/assets/models/prepared_grass_reeds.d091786d5337.glb",
+      "sha256": "d091786d5337072bb6de33c0e91103f0931c1a03e260f5704eb3377c9bccca11",
+      "bytes": 200940,
+      "kind": "glb"
+    },
     "prepared/house01.glb": {
       "url": "/assets/models/prepared_house01.4fb87cebd803.glb",
       "sha256": "4fb87cebd80323b30181f6815d800bc8b2962b7c5839cfff273c56fb579a00b2",
@@ -1236,6 +1362,18 @@
       "url": "/assets/models/prepared_house03.d4acba388cf9.glb",
       "sha256": "d4acba388cf99c1a25ad7d549c60301ba9b407b5b04b568505b631ca3053381f",
       "bytes": 165600,
+      "kind": "glb"
+    },
+    "prepared/meadow_flowers.glb": {
+      "url": "/assets/models/prepared_meadow_flowers.c10bab86bf3b.glb",
+      "sha256": "c10bab86bf3b37667ca2f611ce918c4dbd94c1d3231f4d9b9a086bb315fecd9e",
+      "bytes": 365100,
+      "kind": "glb"
+    },
+    "prepared/meadow_grass.glb": {
+      "url": "/assets/models/prepared_meadow_grass.5552a359b9c1.glb",
+      "sha256": "5552a359b9c11b0a4e66b9a9fd7859d1d034ac291a9093a193cc42987ebd375b",
+      "bytes": 370764,
       "kind": "glb"
     },
     "prepared/pine_big.glb": {
@@ -1440,6 +1578,78 @@
       "url": "/assets/models/prepared_tree_small_e.a3922d3c33bd.glb",
       "sha256": "a3922d3c33bd4c98352f8e667c3c884d7a94394fc8f9d0bdd338a7959ec65441",
       "bytes": 63644,
+      "kind": "glb"
+    },
+    "prepared/vox_barrel.glb": {
+      "url": "/assets/models/prepared_vox_barrel.e141107d3b8f.glb",
+      "sha256": "e141107d3b8f6089bd1adf33132e0e251599ac25e876ee8ce1a211e34f994d29",
+      "bytes": 59680,
+      "kind": "glb"
+    },
+    "prepared/vox_beams.glb": {
+      "url": "/assets/models/prepared_vox_beams.d7628155f6fc.glb",
+      "sha256": "d7628155f6fc827f06fed11508206be35b3e2a8f2f3f250e15f4fae94de4a014",
+      "bytes": 11508,
+      "kind": "glb"
+    },
+    "prepared/vox_block_pallet.glb": {
+      "url": "/assets/models/prepared_vox_block_pallet.5ddf2a760cad.glb",
+      "sha256": "5ddf2a760cad5e3714716e27ed53808ca656640587fbf455677de7f5f8ba6da5",
+      "bytes": 476804,
+      "kind": "glb"
+    },
+    "prepared/vox_brick_pallet.glb": {
+      "url": "/assets/models/prepared_vox_brick_pallet.528b1ca4852d.glb",
+      "sha256": "528b1ca4852de8eb2f24453d8e2908f287340fa50c5f957734cced01d14962dc",
+      "bytes": 299860,
+      "kind": "glb"
+    },
+    "prepared/vox_cabin.glb": {
+      "url": "/assets/models/prepared_vox_cabin.4cbba5f34ebf.glb",
+      "sha256": "4cbba5f34ebf6eeaf1e2bc12b40f6fc727f32a4038dcff3017ec624ac9721612",
+      "bytes": 97004,
+      "kind": "glb"
+    },
+    "prepared/vox_cabin_stack.glb": {
+      "url": "/assets/models/prepared_vox_cabin_stack.4532bd42e8b6.glb",
+      "sha256": "4532bd42e8b62c7d63595af9b3c0d1aaab8d1cd1a7f78ca09dc1c12acb162498",
+      "bytes": 288912,
+      "kind": "glb"
+    },
+    "prepared/vox_crate.glb": {
+      "url": "/assets/models/prepared_vox_crate.1e2a426461bb.glb",
+      "sha256": "1e2a426461bb8c0c06717ecd08455db1cdb8069bb29d9f43f11c007664389617",
+      "bytes": 11668,
+      "kind": "glb"
+    },
+    "prepared/vox_crate_small.glb": {
+      "url": "/assets/models/prepared_vox_crate_small.07bba2236b2b.glb",
+      "sha256": "07bba2236b2bfef5194beda3ca62965a64233c5775e7e228c67d18f3b25d6654",
+      "bytes": 11700,
+      "kind": "glb"
+    },
+    "prepared/vox_crate_tall.glb": {
+      "url": "/assets/models/prepared_vox_crate_tall.ef955eaec9a7.glb",
+      "sha256": "ef955eaec9a75c8691c042f50c04f426ee17361ba2ff2c4c170be6985397dd4e",
+      "bytes": 11564,
+      "kind": "glb"
+    },
+    "prepared/vox_hoist.glb": {
+      "url": "/assets/models/prepared_vox_hoist.5b34ce07bfae.glb",
+      "sha256": "5b34ce07bfaec4ee959119528b26776dd20d3922e8edb524f7c48f3232c9d841",
+      "bytes": 32240,
+      "kind": "glb"
+    },
+    "prepared/vox_lumber.glb": {
+      "url": "/assets/models/prepared_vox_lumber.a2bf2b9a49af.glb",
+      "sha256": "a2bf2b9a49afb16f6f8b27eabf5dac24d8050ed6b0db92b18359602ef4f85a55",
+      "bytes": 33000,
+      "kind": "glb"
+    },
+    "prepared/warehouse_map.glb": {
+      "url": "/assets/models/prepared_warehouse_map.7237dbf65c99.glb",
+      "sha256": "7237dbf65c995a758066b3d181a07dab51019d7d2ca25280f83b14f1f20d0cbe",
+      "bytes": 15059840,
       "kind": "glb"
     },
     "prepared/watertank01.glb": {
@@ -1776,12 +1986,6 @@
       "url": "/assets/models/weapons_smoke-grenade.d4f49580ab1c.bbmodel",
       "sha256": "d4f49580ab1c343f6c50d4c6d0083628630e2a3d2ce95d0a8705f55831be24cf",
       "bytes": 14404,
-      "kind": "bbmodel"
-    },
-    "weapons/steyr-aug.bbmodel": {
-      "url": "/assets/models/weapons_steyr-aug.57b76e3aebb8.bbmodel",
-      "sha256": "57b76e3aebb8a238599e05b7a107073ad268e4b360c22d64cc77f9460383d5bf",
-      "bytes": 10897,
       "kind": "bbmodel"
     },
     "weapons/svd-dragunov.bbmodel": {

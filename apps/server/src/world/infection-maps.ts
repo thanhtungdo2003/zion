@@ -1,6 +1,6 @@
-import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
+import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
 import type { AssetRegistry } from '@zion/assets';
-import { GENERATOR_VERSION, WorldGenerator, friday13Structures, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
+import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
 import { WorldService } from './world-service';
@@ -38,7 +38,7 @@ export class InfectionMapService {
     try {
       const row = (await this.db.query<{ value: unknown }>(`SELECT value FROM server_settings WHERE key = 'infection_maps'`)).rows[0];
       const parsed = row ? infectionMapsSchema.safeParse(row.value) : null;
-      if (parsed?.success) this.maps = parsed.data;
+      if (parsed?.success) this.maps = upgradeInfectionMaps(parsed.data);
       else if (parsed) this.log.warn({ issues: parsed.error.issues.slice(0, 3) }, 'stored infection maps invalid; using the built-in map');
     } catch (err) {
       this.log.error({ err }, 'failed to load infection maps (using the built-in map)');
@@ -127,7 +127,8 @@ export class InfectionMapService {
       grass.push(infectionSurface(gen, x, z, 0) === Surface.Grass ? 1 : 0);
     }
     const rel = (list: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>) => list.map((p) => ({ asset: p.asset, x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3), scale: p.scale }));
-    const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z }))) : [];
+    const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z })))
+      : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, yaw: 0, scale: 1 }] : [];
     const layers = infectionLayers(gen);
     const toRel = (list: Array<{ x: number; z: number }>) => list.map((s) => ({ x: +(s.x - c).toFixed(2), z: +(s.z - c).toFixed(2) }));
     return { half: def.half, step, size, origin: -ext, heights, grass, base: rel(base), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };

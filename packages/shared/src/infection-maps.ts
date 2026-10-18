@@ -47,8 +47,11 @@ export const INFECTION_SURFACES = ['dirt', 'grass', 'gravel', 'sand', 'asphalt',
 export const infectionMapSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]{1,40}$/),
   name: z.string().trim().min(1).max(60),
-  /** 'friday13': the built-in town districts under the map; 'empty': only what is placed. */
-  base: z.enum(['friday13', 'empty']),
+  /**
+   * 'warehouse': the Warehouse map model; 'friday13': the old street town (The Street);
+   * 'empty': only what is placed.
+   */
+  base: z.enum(['warehouse', 'friday13', 'empty']),
   seed: z.string().trim().min(1).max(60),
   /** Half the width of the walled play area (m). */
   half: z.number().int().min(30).max(170),
@@ -87,11 +90,11 @@ export const infectionMapsSchema = z.object({
   .refine((v) => new Set(v.maps.map((m) => m.id)).size === v.maps.length, { message: 'map ids must be unique' });
 export type InfectionMaps = z.infer<typeof infectionMapsSchema>;
 
-/** The built-in map: The Street as it ships. */
+/** The built-in map: the Warehouse yard (one whole map model), replacing The Street. */
 export const DEFAULT_INFECTION_MAP: InfectionMapDef = {
-  id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'friday13', seed: INFECTION_MAP.seed, half: 46,
-  terrain: { hills: 0, banks: 54, wall: 'mossy', wallScale: 2 },
-  environment: { grass: 0, trees: 0, bushes: 0, rocks: 0, deadTrees: 1, ground: 'dirt' },
+  id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'warehouse', seed: INFECTION_MAP.seed, half: 42,
+  terrain: { hills: 0, banks: 34, wall: 'none', wallScale: 1 },
+  environment: { grass: 0, trees: 0, bushes: 0, rocks: 0, deadTrees: 1, ground: 'asphalt' },
   parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES },
 };
 
@@ -106,3 +109,13 @@ export function blankInfectionMap(id: string, name: string, seed: string): Infec
 }
 
 export const DEFAULT_INFECTION_MAPS: InfectionMaps = { active: DEFAULT_INFECTION_MAP.id, maps: [DEFAULT_INFECTION_MAP] };
+
+/** The Street's built-in id: worlds saved with it switch to the Warehouse. */
+export const RETIRED_INFECTION_MAP_ID = 'friday-13';
+
+/** Stored maps with the retired built-in replaced by the Warehouse (made active if The Street was). */
+export function upgradeInfectionMaps(maps: InfectionMaps): InfectionMaps {
+  const list = maps.maps.filter((m) => !(m.id === RETIRED_INFECTION_MAP_ID && m.base === 'friday13') && m.id !== DEFAULT_INFECTION_MAP.id);
+  const active = maps.active === RETIRED_INFECTION_MAP_ID || !list.some((m) => m.id === maps.active) ? DEFAULT_INFECTION_MAP.id : maps.active;
+  return { active, maps: [structuredClone(DEFAULT_INFECTION_MAP), ...list] };
+}

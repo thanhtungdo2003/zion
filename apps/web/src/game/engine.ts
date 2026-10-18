@@ -1125,7 +1125,10 @@ export class GameEngine {
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
 
-    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp);
+    this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp, this.library, (asset) => {
+      const def = this.registry.byNumericId(asset);
+      return def && def.collisionLayer !== 'none' ? def.bounds.radius : 0;
+    });
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
     this.localAvatar = new Avatar(this.character!, true);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);

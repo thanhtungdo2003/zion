@@ -11,7 +11,7 @@ const SNIPERS = new Set(['svd', 'awm', 'kar98k']);
  * and unlimited ammunition, a few are turned at random, and every zombie hit turns a human. The
  * humans win by holding out until the clock runs down, the zombies by turning everyone.
  */
-export const INFECTION_MAP = { id: 'friday-13', name: 'The Street', seed: 'zion-friday-13', sizeChunks: 16, maxPlayers: 16, botFill: 0 } as const;
+export const INFECTION_MAP = { id: 'warehouse', name: 'Warehouse', seed: 'zion-warehouse', sizeChunks: 16, maxPlayers: 16, botFill: 0 } as const;
 
 export const INFECTION = {
   /** Real players needed before the match counts down (bots fill the rest)... */

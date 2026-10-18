@@ -245,7 +245,8 @@ export class PropRenderer {
     for (const [asset, b] of this.batches) {
       b.hidden.fill(0, 0, b.count);
       const v = this.library.get(asset);
-      if (!v) continue;
+      // A whole map model (Infection's Warehouse) never fades out around the player.
+      if (!v || v.def.tags.includes('infection-map')) continue;
       for (let i = 0; i < b.count; i++) {
         const o = i * INFO;
         const ox = b.spheres[o]!;

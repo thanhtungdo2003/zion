@@ -1,193 +1,108 @@
 import {
-  BufferAttribute,
-  BufferGeometry,
   Color,
-  DoubleSide,
-  InstancedMesh,
-  Matrix4,
-  MeshLambertMaterial,
   DynamicDrawUsage,
-  Vector3,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  type Material,
   type Scene,
 } from 'three';
-import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, smoothstep, type ChunkData, type WorldInfo, type VegetationCell, type VegetationMessage } from '@zion/shared';
-import { FLOWER_COLORS, grassTint } from './palette';
+import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, propTransform, smoothstep, type ChunkData, type WorldInfo, type VegetationCell, type VegetationMessage } from '@zion/shared';
+import { grassTint } from './palette';
 import { chunkHeightAtLocal } from './terrain';
-import { windUniforms } from './asset-library';
+import { windUniforms, type AssetVisual } from './asset-library';
 import { vegetationPatch } from './vegetation-pattern';
 
-/** Grass density per surface (instances per ~1.2 m cell). */
-const GRASS_DENSITY: Partial<Record<Surface, number>> = {
-  [Surface.Grass]: 0.55,
-  [Surface.JungleFloor]: 0.5,
-  [Surface.DryGrass]: 0.4,
-  [Surface.ForestFloor]: 0.2,
-  [Surface.Mud]: 0.18,
-  [Surface.Dirt]: 0.06,
-  [Surface.Sand]: 0.02,
-  [Surface.Gravel]: 0.03,
-  [Surface.RoadVerge]: 0.38,
+/**
+ * Ground cover kinds and the prepared grass models drawing each (asset ids 2640–2652): every pack
+ * split into its kinds so they can be placed where they belong.
+ */
+export const COVER_ASSETS = {
+  /** Short grass carpet: stylized clumps and blades (weighted: light blades most often), a low patch. */
+  carpet: [2643, 2643, 2643, 2643, 2640, 2641, 2642, 2645],
+  /** Fuller grass patches on lush meadows. */
+  patch: [2644, 2646],
+  /** Taller meadow grass sheets on lush open ground. */
+  meadow: [2650],
+  /** Wildflowers mixed into the meadow sheets. */
+  flowers: [2651],
+  /** Full, detailed tufts: at the feet of trees, rocks and buildings. */
+  lush: [2647],
+  /** Dry, straw-coloured tufts on dry grassland. */
+  dry: [2648],
+  /** Reeds along water, in mud and on wet ground. */
+  reeds: [2649],
+  /** Ferns on forest and jungle floors. */
+  ferns: [2652],
+} as const;
+export type Cover = keyof typeof COVER_ASSETS;
+const COVERS = Object.keys(COVER_ASSETS) as Cover[];
+export const ALL_COVER_ASSETS: readonly number[] = [...new Set(COVERS.flatMap((c) => COVER_ASSETS[c]))];
+
+/** Grass carpet density per surface (clumps per ~0.8 m cell inside a patch). */
+const CARPET: Partial<Record<Surface, number>> = {
+  [Surface.Grass]: 1, [Surface.JungleFloor]: .75, [Surface.DryGrass]: .7, [Surface.RoadVerge]: .65,
+  [Surface.ForestFloor]: .35, [Surface.Mud]: .25, [Surface.Dirt]: .12, [Surface.Gravel]: .05, [Surface.Sand]: .03,
 };
-const FLOWER_DENSITY: Partial<Record<Surface, number>> = {
-  [Surface.Grass]: 0.07,
-  [Surface.JungleFloor]: 0.05,
-  [Surface.DryGrass]: 0.02,
-  [Surface.ForestFloor]: 0.02,
-};
-const CELL = 0.85;
-const VEG_RADIUS = 2; // chunks around the player
-const REED_TINT = new Color(0xb5ab74);
+/** Surfaces where grass grows thick around whatever stands on them. */
+const GRASSY = new Set<Surface>([Surface.Grass, Surface.DryGrass, Surface.JungleFloor, Surface.RoadVerge, Surface.ForestFloor]);
+const CELL = .9;
+const VEG_RADIUS = 2;
 const MEADOW_MIN_CAMP_DISTANCE = 300;
 const MEADOW_FULL_CAMP_DISTANCE = 400;
-const MEADOW_THRESHOLD = 0.82;
+/** Instance floats: matrix (16), colour (3), cell key, "near only" detail flag. */
+const STRIDE = 21;
+/** Heavy models (thousands of triangles): only so many per chunk. */
+const CAP: Partial<Record<Cover, number>> = { lush: 10, dry: 14, patch: 40, ferns: 70 };
 
-function bladeClump(blades = 6, height = 1, width = 1, plume = false): BufferGeometry {
-  const pos: number[] = [];
-  const col: number[] = [];
-  const rng = new Rng(77);
-  for (let b = 0; b < blades; b++) {
-    const a = rng.next() * Math.PI * 2;
-    const r = rng.next() * 0.35;
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
-    const h = (0.22 + rng.next() * 0.26) * height;
-    const w = 0.035 * width;
-    const dir = rng.next() * Math.PI;
-    const dx = Math.cos(dir) * w;
-    const dz = Math.sin(dir) * w;
-    const lean = (rng.next() - 0.5) * 0.25;
-    // Two-segment blade (bottom quad + tip triangle) for smooth bending.
-    const mid = h * 0.55;
-    const pts = [
-      [x - dx, 0, z - dz, 0],
-      [x + dx, 0, z + dz, 0],
-      [x + dx * 0.6 + lean * 0.5, mid, z + dz * 0.6, 0.55],
-      [x - dx * 0.6 + lean * 0.5, mid, z - dz * 0.6, 0.55],
-      [x + lean, h, z, 1],
-    ] as const;
-    const tri = (i: number, j: number, k: number) => {
-      for (const n of [i, j, k]) {
-        const p = pts[n]!;
-        pos.push(p[0], p[1], p[2]);
-        const t = p[3];
-        col.push(0.62 + 0.38 * t, 0.66 + 0.34 * t, 0.55 + 0.4 * t);
-      }
-    };
-    tri(0, 1, 2);
-    tri(0, 2, 3);
-    tri(3, 2, 4);
-    if (plume && b % 2 === 0) {
-      // Cream seed heads on crossed planes remain visible from every direction.
-      for (const [ax, az] of [[1, 0], [0, 1]] as const) {
-        const base = h * 0.86;
-        const top = h + 0.25;
-        const px = x + lean;
-        for (const p of [
-          [px - ax * 0.075, base, z - az * 0.075],
-          [px + ax * 0.075, base, z + az * 0.075],
-          [px + lean * 0.25, top, z],
-        ]) {
-          pos.push(...p);
-          col.push(1.7, 1.55, 1.05);
-        }
-      }
-    }
-  }
-  const g = new BufferGeometry();
-  g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
-  g.setAttribute('color', new BufferAttribute(new Float32Array(col), 3));
-  g.computeVertexNormals();
-  // Grass normals point up so lighting reads like a lawn, not like individual cards.
-  const n = g.getAttribute('normal');
-  for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-  return g;
+interface ChunkCover {
+  /** Per model (asset id): packed instances (see STRIDE). */
+  byAsset: Map<number, Float32Array>;
 }
 
-function flowerGeometry(): BufferGeometry {
-  const pos: number[] = [];
-  const col: number[] = [];
-  const push = (x: number, y: number, z: number, r: number, g: number, b: number) => {
-    pos.push(x, y, z);
-    col.push(r, g, b);
-  };
-  const stem = 0.42;
-  // Stem.
-  push(-0.01, 0, 0, 0.3, 0.5, 0.2);
-  push(0.01, 0, 0, 0.3, 0.5, 0.2);
-  push(0, stem, 0, 0.3, 0.5, 0.2);
-  // Petal cross (white vertex colour, tinted per instance).
-  const s = 0.085;
-  for (const [ax, az] of [[1, 0], [0, 1]] as const) {
-    push(-s * ax, stem - s, -s * az, 1, 1, 1);
-    push(s * ax, stem - s, s * az, 1, 1, 1);
-    push(s * ax, stem + s, s * az, 1, 1, 1);
-    push(-s * ax, stem - s, -s * az, 1, 1, 1);
-    push(s * ax, stem + s, s * az, 1, 1, 1);
-    push(-s * ax, stem + s, -s * az, 1, 1, 1);
-  }
-  // Upward-facing petals make flower meadows readable from the overhead camera.
-  for (let i = 0; i < 6; i++) {
-    const a = i * Math.PI / 3;
-    push(0, stem, 0, 1, 0.85, 0.4);
-    push(Math.cos(a - 0.4) * s * 1.5, stem + 0.02, Math.sin(a - 0.4) * s * 1.5, 1, 1, 1);
-    push(Math.cos(a + 0.4) * s * 1.5, stem + 0.02, Math.sin(a + 0.4) * s * 1.5, 1, 1, 1);
-  }
-  const g = new BufferGeometry();
-  g.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
-  g.setAttribute('color', new BufferAttribute(new Float32Array(col), 3));
-  g.computeVertexNormals();
-  return g;
-}
-
-function windMaterial(): MeshLambertMaterial {
-  const mat = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide });
-  mat.onBeforeCompile = (shader) => {
+function windMaterial(base: Material): Material {
+  const mat = base.clone();
+  (mat as Material & { alphaTest: number }).alphaTest = Math.max(.35, (base as Material & { alphaTest?: number }).alphaTest ?? 0);
+  mat.side = 2;
+  const compile = mat.onBeforeCompile.bind(mat);
+  mat.onBeforeCompile = (shader, renderer) => {
+    compile(shader, renderer);
     shader.uniforms.uTime = windUniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;')
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-        vec3 iOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
-        float sway = min(position.y * position.y * 0.22, 0.45);
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 iOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+        #else
+          vec3 iOrigin = vec3(0.0);
+        #endif
+        float sway = min(max(position.y, 0.0) * 0.9, 0.35) * min(max(position.y, 0.0), 1.0);
         float w = sin(uTime * 1.9 + iOrigin.x * 0.35 + iOrigin.z * 0.27) + 0.5 * sin(uTime * 3.7 + iOrigin.x * 0.9);
-        transformed.x += w * sway;
-        transformed.z += w * sway * 0.4;`,
-      );
+        transformed.x += w * sway * 0.35;
+        transformed.z += w * sway * 0.14;`);
   };
-  mat.customProgramCacheKey = () => 'grass-wind';
+  mat.customProgramCacheKey = () => `ground-cover-${base.uuid}`;
   return mat;
 }
 
-type Cover = 'grass' | 'tufts' | 'tall' | 'reeds' | 'flowers';
-const COVER_TYPES: readonly Cover[] = ['grass', 'tufts', 'tall', 'reeds', 'flowers'];
-type ChunkVegetation = Array<InstancedMesh>;
-const DESTRUCTIBLE = new Set<Cover>(['grass', 'tufts', 'tall', 'reeds', 'flowers']);
-
 /**
- * Cosmetic ground cover for chunks near the player. Purely visual and gameplay-irrelevant, so it
- * is scattered on the client from the server-sent biome/surface/height data with the chunk's
- * cosmetic seed (deterministic: every client sees the same grass).
+ * Ground cover around the player, drawn with the game's grass models. Purely visual: scattered on
+ * the client from the server-sent surface, height, humidity and props with the chunk's cosmetic
+ * seed (every client sees the same grass). Each model is one instanced mesh for the whole area, so
+ * dense carpets cost a handful of draw calls; the nearest chunks get the full detail.
  */
 export class VegetationRenderer {
-  private readonly perChunk = new Map<number, ChunkVegetation>();
+  private readonly perChunk = new Map<number, ChunkCover>();
   private readonly damage = new Map<number, Map<number, VegetationCell>>();
   private readonly coverCells = new Map<number, Set<number>>();
-  private readonly originals = new Map<InstancedMesh, { matrices: Float32Array; hidden: Uint8Array }>();
-  private readonly zeroScale = new Vector3(0, 0, 0);
+  private readonly meshes = new Map<string, InstancedMesh>();
+  private readonly materials = new Map<Material, Material>();
+  private readonly visuals = new Map<number, AssetVisual>();
   private nextFireAt = 0;
-  private readonly geometries: Record<Cover, BufferGeometry> = {
-    grass: bladeClump(),
-    tufts: bladeClump(12, 1.25, 1.3),
-    tall: bladeClump(9, 2.8, 0.8),
-    reeds: bladeClump(10, 4.5, 0.7, true),
-    flowers: flowerGeometry(),
-  };
-  private readonly material = windMaterial();
-  private readonly m = new Matrix4();
   private readonly c = new Color();
+  private readonly white = new Color(1, 1, 1);
   private centerX = Number.NaN;
   private centerZ = Number.NaN;
+  private dirty = false;
   instanceCount = 0;
 
   constructor(
@@ -196,7 +111,15 @@ export class VegetationRenderer {
     private readonly seaLevel: number,
     private readonly cosmeticSeed = 0,
     private readonly camp: WorldInfo['camp'] = null,
-  ) {}
+    /** The grass models (loaded by the asset library). */
+    private readonly models: { get(id: number): AssetVisual | undefined; load(id: number): Promise<AssetVisual> | undefined } | null = null,
+    /** Footprint radius of a placed prop (m, at scale 1): grass gathers around it. */
+    private readonly propRadius: (asset: number) => number = () => 0,
+  ) {
+    for (const id of ALL_COVER_ASSETS) void models?.load(id)?.then((v) => { this.visuals.set(id, v); if (this.visuals.size === ALL_COVER_ASSETS.length) { this.centerX = Number.NaN; this.dirty = true; } });
+  }
+
+  private get ready(): boolean { return !this.models || this.visuals.size === ALL_COVER_ASSETS.length; }
 
   private density = 1;
   private radius = VEG_RADIUS;
@@ -204,11 +127,9 @@ export class VegetationRenderer {
   setQuality(density: number, radius: number): void {
     if (density === this.density && radius === this.radius) return;
     this.density = density; this.radius = radius;
-    for (const [key, v] of this.perChunk) {
-      for (const mesh of v) { this.scene.remove(mesh); this.originals.delete(mesh); mesh.dispose(); }
-      this.perChunk.delete(key); this.coverCells.delete(key);
-    }
+    this.perChunk.clear(); this.coverCells.clear();
     this.centerX = Number.NaN;
+    this.dirty = true;
   }
 
   /** All ground cover around the player is built. */
@@ -218,7 +139,9 @@ export class VegetationRenderer {
   update(px: number, pz: number, force = false, deadline = Infinity): void {
     const cx = Math.floor(px / CHUNK_SIZE);
     const cz = Math.floor(pz / CHUNK_SIZE);
-    if (!force && cx === this.centerX && cz === this.centerZ) return;
+    if (!force && cx === this.centerX && cz === this.centerZ && !this.dirty) return;
+    if (!this.ready) return;
+    const moved = cx !== this.centerX || cz !== this.centerZ;
     this.centerX = cx;
     this.centerZ = cz;
     const wanted = new Set<number>();
@@ -233,212 +156,219 @@ export class VegetationRenderer {
         if (!this.perChunk.has(key)) missing.push(chunk);
       }
     }
-    for (const [key, v] of this.perChunk) {
-      if (wanted.has(key)) continue;
-      for (const mesh of v) {
-        this.scene.remove(mesh);
-        this.originals.delete(mesh);
-        mesh.dispose();
-      }
-      this.perChunk.delete(key);
-      this.coverCells.delete(key);
-    }
-    // Nearest first, at most one upload per frame, sharing the terrain build budget.
+    let changed = moved;
+    for (const key of [...this.perChunk.keys()]) if (!wanted.has(key)) { this.perChunk.delete(key); this.coverCells.delete(key); changed = true; }
+    // Nearest first, at most one chunk per frame, sharing the terrain build budget.
     missing.sort((a, b) => (a.cx - cx) ** 2 + (a.cz - cz) ** 2 - (b.cx - cx) ** 2 - (b.cz - cz) ** 2);
     for (const chunk of missing) {
       if (built === 1 || performance.now() >= deadline) break;
       this.perChunk.set(chunkKey(chunk.cx, chunk.cz), this.build(chunk));
       built++;
+      changed = true;
     }
     if (built < missing.length) this.centerX = Number.NaN;
-    this.instanceCount = 0;
-    for (const v of this.perChunk.values()) for (const mesh of v) this.instanceCount += mesh.count;
+    if (changed || this.dirty) this.upload();
+    this.dirty = false;
   }
 
-  /** Drops vegetation for a chunk whose data changed (e.g. LOD upgrade). */
+  /** Drops vegetation for a chunk whose data changed (e.g. LOD upgrade or felled trees). */
   invalidate(cx: number, cz: number): void {
     this.centerX = Number.NaN;
     const key = chunkKey(cx, cz);
-    const v = this.perChunk.get(key);
-    if (!v) return;
-    for (const mesh of v) {
-      this.scene.remove(mesh);
-      this.originals.delete(mesh);
-      mesh.dispose();
-    }
-    this.perChunk.delete(key);
+    if (this.perChunk.delete(key)) this.dirty = true;
     this.coverCells.delete(key);
   }
 
-  private build(chunk: ChunkData): ChunkVegetation {
-    this.coverCells.set(chunkKey(chunk.cx, chunk.cz), new Set());
+  private build(chunk: ChunkData): ChunkCover {
+    const cells = new Set<number>();
+    this.coverCells.set(chunkKey(chunk.cx, chunk.cz), cells);
     const rng = new Rng(chunk.cosmeticSeed);
-    const n = chunk.verts;
-    const step = lodStep(chunk.lod);
-    const ox = chunk.cx * CHUNK_SIZE;
-    const oz = chunk.cz * CHUNK_SIZE;
-    const data: Record<Cover, number[]> = {
-      grass: [], tufts: [], tall: [], reeds: [], flowers: [],
+    const n = chunk.verts, step = lodStep(chunk.lod), ox = chunk.cx * CHUNK_SIZE, oz = chunk.cz * CHUNK_SIZE;
+    const out = new Map<number, number[]>();
+    const sample = (lx: number, lz: number) => {
+      const vi = Math.min(n - 1, Math.max(0, Math.round(lx / step))), vj = Math.min(n - 1, Math.max(0, Math.round(lz / step)));
+      return vj * n + vi;
     };
-    // Fit the grid exactly to the chunk; avoid bare strips along its far edges.
-    const cells = Math.ceil(CHUNK_SIZE / CELL);
-    const cellSize = CHUNK_SIZE / cells;
-    for (let gz = 0; gz < cells; gz++) {
-      for (let gx = 0; gx < cells; gx++) {
-        const lx = (gx + rng.next()) * cellSize;
-        const lz = (gz + rng.next()) * cellSize;
-        const roll = rng.next();
-        const vi = Math.min(n - 1, Math.round(lx / step));
-        const vj = Math.min(n - 1, Math.round(lz / step));
-        const k = vj * n + vi;
-        const surface = chunk.surface[k]! as Surface;
-        const y = chunkHeightAtLocal(chunk, lx, lz);
-        const wq = chunk.water[k]!;
-        if (y < this.seaLevel + 0.15 || (wq && dequantizeHeight(wq) > y - 0.05)) continue;
-        const gd = GRASS_DENSITY[surface] ?? 0;
-        const fd = FLOWER_DENSITY[surface] ?? 0;
-        const humidity = chunk.humidity[k]! / 255;
-        const x = ox + lx;
-        const z = oz + lz;
+    const dry = (y: number, k: number) => {
+      if (y < this.seaLevel + .15) return false;
+      const wq = chunk.water[k]!;
+      return !(wq && dequantizeHeight(wq) > y - .05);
+    };
+    const slopeAt = (lx: number, lz: number, y: number) => Math.hypot(
+      chunkHeightAtLocal(chunk, Math.min(CHUNK_SIZE, lx + .35), lz) - y,
+      chunkHeightAtLocal(chunk, lx, Math.min(CHUNK_SIZE, lz + .35)) - y,
+    ) / .35;
+    const used = new Map<Cover, number>();
+    const add = (cover: Cover, lx: number, lz: number, k: number, scale: number, detail: boolean) => {
+      const cap = CAP[cover];
+      if (cap !== undefined) { const n = used.get(cover) ?? 0; if (n >= cap) return; used.set(cover, n + 1); }
+      const list = COVER_ASSETS[cover], asset = list[Math.floor(rng.next() * list.length)]!;
+      const x = ox + lx, z = oz + lz, y = chunkHeightAtLocal(chunk, lx, lz) - .03;
+      const a = rng.next() * Math.PI * 2, c = Math.cos(a) * scale, s = Math.sin(a) * scale;
+      // Tint: the local climate over the model's own colours (dry and cold grass yellows).
+      if (cover === 'flowers' || cover === 'dry') this.c.copy(this.white);
+      else this.c.copy(this.white).lerp(grassTint(chunk.temperature[k]! / 255, chunk.humidity[k]! / 255, new Color()).multiplyScalar(1.9), .38);
+      this.c.multiplyScalar(.88 + rng.next() * .22);
+      const cell = Math.floor(lz) * CHUNK_SIZE + Math.floor(lx);
+      cells.add(cell);
+      let arr = out.get(asset);
+      if (!arr) out.set(asset, (arr = []));
+      arr.push(c, 0, -s, 0, 0, scale, 0, 0, s, 0, c, 0, x, y, z, 1, this.c.r, this.c.g, this.c.b, cell, detail ? 1 : 0);
+    };
+    const cellCount = Math.ceil(CHUNK_SIZE / CELL), cellSize = CHUNK_SIZE / cellCount;
+    for (let gz = 0; gz < cellCount; gz++) {
+      for (let gx = 0; gx < cellCount; gx++) {
+        const lx = (gx + rng.next()) * cellSize, lz = (gz + rng.next()) * cellSize;
+        const k = sample(lx, lz), surface = chunk.surface[k]! as Surface, y = chunkHeightAtLocal(chunk, lx, lz);
+        if (!dry(y, k)) continue;
+        const wet = chunk.humidity[k]! / 255, warm = chunk.temperature[k]! / 255;
+        const x = ox + lx, z = oz + lz;
         const patch = (size: number, salt: number) => vegetationPatch(x, z, size, this.cosmeticSeed ^ salt);
-        const density = patch(18, 0x73);
-        // Larger, rarer patches keep flower fields as occasional discoveries.
-        const meadow = patch(64, 0x94);
-        const lush = surface === Surface.Grass || surface === Surface.DryGrass || surface === Surface.RoadVerge;
-        // Skip cliff faces; sample the same triangle heightfield used by the terrain.
-        const slope = Math.hypot(
-          chunkHeightAtLocal(chunk, Math.min(CHUNK_SIZE, lx + 0.35), lz) - y,
-          chunkHeightAtLocal(chunk, lx, Math.min(CHUNK_SIZE, lz + 0.35)) - y,
-        ) / 0.35;
-        if (slope > 1.25) continue;
-        const add = (type: Cover, ox = 0, oz = 0) => data[type].push(x + ox, y, z + oz, rng.next(), k);
-        // Grass grows in patches: dense clumps packed together inside a patch (several per
-        // cell, fuller towards its middle), only a few stray blades on the bare ground between.
-        const shape = patch(14, 0x73) * .7 + patch(5, 0x5a) * .3;
-        const inside = smoothstep(.5, .66, shape);
-        if (gd > 0 && inside > 0) {
-          const clumps = inside > .75 ? 3 : inside > .35 ? 2 : 1;
-          for (let i = 0; i < clumps; i++) {
-            if (rng.next() > Math.min(1, gd * 1.6 + .25) * this.density) continue;
-            const ox = (rng.next() - .5) * cellSize, oz = (rng.next() - .5) * cellSize;
-            if (lush && inside > .8 && density > .55) add('tall', ox, oz);
-            else add(inside > .45 ? 'tufts' : 'grass', ox, oz);
-          }
-        } else if (gd > 0 && roll < gd * this.density * .05) add('grass');
-        // Flowers and forest undergrowth coexist with the grass layer.
-        let flowerDensity = fd;
-        if (lush && meadow > MEADOW_THRESHOLD) {
-          // Distance to the square camp's perimeter, including its corners.
-          const campDistance = this.camp ? Math.hypot(
-            Math.max(0, Math.abs(x - this.camp.x) - this.camp.halfSize),
-            Math.max(0, Math.abs(z - this.camp.z) - this.camp.halfSize),
-          ) : Infinity;
-          const remoteness = smoothstep(MEADOW_MIN_CAMP_DISTANCE, MEADOW_FULL_CAMP_DISTANCE, campDistance);
-          const edge = smoothstep(MEADOW_THRESHOLD, MEADOW_THRESHOLD + 0.06, meadow);
-          flowerDensity += (0.65 - fd) * remoteness * edge;
+        if (slopeAt(lx, lz, y) > 1.25) continue;
+        const base = CARPET[surface] ?? 0;
+        // Reeds: low wet ground by the water and in mud, in stands.
+        const nearWater = chunk.water[k] ? dequantizeHeight(chunk.water[k]!) > y - 1.6 : y < this.seaLevel + 1.2;
+        if ((nearWater || surface === Surface.Mud || (wet > .78 && surface === Surface.JungleFloor)) && patch(9, 0x4e) > .45 && rng.next() < .55 * this.density) {
+          add('reeds', lx, lz, k, .8 + rng.next() * .5, false);
+          continue;
         }
-        if (fd > 0 && rng.next() < flowerDensity * this.density * (0.5 + humidity)) add('flowers');
+        if (base <= 0) continue;
+        // Grass grows in patches: a dense carpet inside, a few stray clumps between.
+        const shape = patch(16, 0x73) * .65 + patch(5, 0x5a) * .35;
+        const inside = smoothstep(.38, .6, shape);
+        const lush = surface === Surface.Grass || surface === Surface.RoadVerge || surface === Surface.JungleFloor;
+        const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
+        // Ferns carpet the forest floor in shade.
+        if (forest && patch(11, 0xfe) > .6 && rng.next() < .14 * this.density) { add('ferns', lx, lz, k, 1 + rng.next() * .6, false); continue; }
+        const clumps = inside > .65 ? 2 : inside > 0 ? 1 : 0;
+        for (let i = 0; i < clumps; i++) {
+          if (rng.next() > Math.min(1, base * (.55 + inside * .6)) * this.density) continue;
+          const jx = Math.min(CHUNK_SIZE - .01, Math.max(0, lx + (rng.next() - .5) * cellSize)), jz = Math.min(CHUNK_SIZE - .01, Math.max(0, lz + (rng.next() - .5) * cellSize));
+          // The far ring keeps every other clump; the near chunks get them all.
+          add(surface === Surface.DryGrass && rng.next() < .02 ? 'dry' : 'carpet', jx, jz, k, .85 + rng.next() * .6, i > 0);
+        }
+        if (!clumps && rng.next() < base * .06 * this.density) add('carpet', lx, lz, k, .7 + rng.next() * .4, false);
+        // Meadows: tall grass and wildflowers in open, lush, humid fields away from the camp.
+        if (lush && inside > .5) {
+          const meadow = patch(54, 0x94);
+          const campDistance = this.camp ? Math.hypot(Math.max(0, Math.abs(x - this.camp.x) - this.camp.halfSize), Math.max(0, Math.abs(z - this.camp.z) - this.camp.halfSize)) : Infinity;
+          const remote = smoothstep(MEADOW_MIN_CAMP_DISTANCE * .25, MEADOW_FULL_CAMP_DISTANCE * .25, campDistance);
+          if (meadow > .62 && rng.next() < .05 * remote * this.density) add('meadow', lx, lz, k, .8 + rng.next() * .5, false);
+          else if (meadow > .5 && rng.next() < .03 * this.density) add('patch', lx, lz, k, .9 + rng.next() * .5, true);
+          if (meadow > .72 && wet > .35 && warm > .3 && rng.next() < .045 * remote * this.density * (.6 + wet)) add('flowers', lx, lz, k, .7 + rng.next() * .5, false);
+        }
       }
     }
-    const meshes: ChunkVegetation = [];
-    for (const type of COVER_TYPES) {
-      const mesh = this.instance(this.geometries[type], this.material, data[type], chunk, type);
-      if (mesh) meshes.push(mesh);
-    }
-    return meshes;
-  }
-
-  private instance(
-    geo: BufferGeometry,
-    mat: MeshLambertMaterial,
-    data: number[],
-    chunk: ChunkData,
-    type: Cover,
-  ): InstancedMesh | null {
-    const count = data.length / 5;
-    if (count === 0) return null;
-    const mesh = new InstancedMesh(geo, mat, count);
-    mesh.name = `vegetation:${type}`;
-    for (let i = 0; i < count; i++) {
-      const x = data[i * 5]!;
-      const y = data[i * 5 + 1]!;
-      const z = data[i * 5 + 2]!;
-      const r = data[i * 5 + 3]!;
-      const k = data[i * 5 + 4]!;
-      const s = type === 'flowers' ? 0.8 + r * 0.9 : 0.75 + r * 0.6;
-      const a = r * Math.PI * 2;
-      const c = Math.cos(a) * s;
-      const sn = Math.sin(a) * s;
-      this.m.set(c, 0, sn, x, 0, s, 0, y, -sn, 0, c, z, 0, 0, 0, 1);
-      mesh.setMatrixAt(i, this.m);
-      if (type === 'flowers') {
-        const palette = Math.floor(vegetationPatch(x, z, 22, this.cosmeticSeed ^ 0xca) * FLOWER_COLORS.length);
-        this.c.copy(FLOWER_COLORS[(palette + (r > 0.8 ? 1 : 0)) % FLOWER_COLORS.length]!);
-      } else {
-        grassTint(chunk.temperature[k]! / 255, chunk.humidity[k]! / 255, this.c).multiplyScalar(0.85 + r * 0.3);
-        if (type === 'reeds') this.c.lerp(REED_TINT, 0.42);
-      }
-      mesh.setColorAt(i, this.c);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.receiveShadow = true;
-    mesh.computeBoundingSphere();
-    if (mesh.boundingSphere) mesh.boundingSphere.radius += 1; // Include wind displacement.
-    if (DESTRUCTIBLE.has(type)) {
-      mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-      const matrices = (mesh.instanceMatrix.array as Float32Array).slice();
-      this.originals.set(mesh, { matrices, hidden: new Uint8Array(count) });
-      const cells = this.coverCells.get(chunkKey(chunk.cx, chunk.cz))!;
+    // Grass gathers at the feet of trees, rocks, ruins and walls standing on grassy ground.
+    for (const p of chunk.props) {
+      const r0 = this.propRadius(p.asset);
+      if (r0 <= 0) continue;
+      const t = propTransform(chunk, p), lx0 = t.x - ox, lz0 = t.z - oz;
+      if (lx0 < 0 || lz0 < 0 || lx0 >= CHUNK_SIZE || lz0 >= CHUNK_SIZE) continue;
+      const k0 = sample(lx0, lz0);
+      if (!GRASSY.has(chunk.surface[k0]! as Surface)) continue;
+      const r = Math.min(6, r0 * t.scale);
+      const count = Math.min(14, Math.round((4 + r * 3) * this.density));
       for (let i = 0; i < count; i++) {
-        const lx = Math.floor(matrices[i * 16 + 12]! - chunk.cx * CHUNK_SIZE);
-        const lz = Math.floor(matrices[i * 16 + 14]! - chunk.cz * CHUNK_SIZE);
-        cells.add(lz * CHUNK_SIZE + lx);
+        const a = rng.next() * Math.PI * 2, d = r * (.45 + rng.next() * .5) + .3;
+        const lx = lx0 + Math.cos(a) * d, lz = lz0 + Math.sin(a) * d;
+        if (lx < 0 || lz < 0 || lx >= CHUNK_SIZE || lz >= CHUNK_SIZE) continue;
+        const k = sample(lx, lz), y = chunkHeightAtLocal(chunk, lx, lz);
+        if (!GRASSY.has(chunk.surface[k]! as Surface) || !dry(y, k)) continue;
+        add(i === 0 && r > 1.2 ? 'lush' : 'carpet', lx, lz, k, .9 + rng.next() * .5, false);
       }
-      this.mask(mesh, chunk.cx, chunk.cz);
     }
-    this.scene.add(mesh);
-    return mesh;
+    return { byAsset: new Map([...out].map(([a, v]) => [a, new Float32Array(v)])) };
   }
 
-  /** Apply server state without rebuilding deterministic scatter or its GPU geometries. */
-  applyDamage(message: VegetationMessage): void {
-    const changed = new Set<number>();
-    if (message.reset) {
-      for (const key of this.damage.keys()) changed.add(key);
-      this.damage.clear();
+  /** Concatenates every vegetated chunk into one instanced mesh per model part. */
+  private upload(): void {
+    const near = (key: number) => Math.max(Math.abs((key >> 16) - this.centerX), Math.abs(((key << 16) >> 16) - this.centerZ)) <= 1;
+    const totals = new Map<number, number>();
+    for (const [key, cover] of this.perChunk) {
+      const close = Number.isNaN(this.centerX) || near(key);
+      for (const [asset, arr] of cover.byAsset) {
+        let n = 0;
+        for (let i = 0; i < arr.length; i += STRIDE) if (close || arr[i + 20] === 0) n++;
+        totals.set(asset, (totals.get(asset) ?? 0) + n);
+      }
     }
+    const used = new Set<string>();
+    this.instanceCount = 0;
+    for (const [asset, total] of totals) {
+      const visual = this.visuals.get(asset);
+      const parts = visual?.parts ?? [];
+      parts.forEach((part, pi) => {
+        const id = `${asset}:${pi}`;
+        used.add(id);
+        let mesh = this.meshes.get(id);
+        if (!mesh || mesh.instanceMatrix.count < total) {
+          if (mesh) { this.scene.remove(mesh); mesh.dispose(); }
+          const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(1, total))));
+          let mat = this.materials.get(part.material);
+          if (!mat) this.materials.set(part.material, (mat = windMaterial(part.material)));
+          mesh = new InstancedMesh(part.geometry, mat, capacity);
+          mesh.name = `vegetation:${asset}`;
+          mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+          mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+          mesh.frustumCulled = false;
+          mesh.receiveShadow = true;
+          mesh.userData.cells = new Int32Array(capacity);
+          mesh.userData.chunks = new Int32Array(capacity);
+          mesh.userData.matrices = new Float32Array(capacity * 16);
+          this.meshes.set(id, mesh);
+          this.scene.add(mesh);
+        }
+        const matrices = mesh.instanceMatrix.array as Float32Array, colors = mesh.instanceColor!.array as Float32Array;
+        const cellsOut = mesh.userData.cells as Int32Array, chunksOut = mesh.userData.chunks as Int32Array, originals = mesh.userData.matrices as Float32Array;
+        let i = 0;
+        for (const [key, cover] of this.perChunk) {
+          const arr = cover.byAsset.get(asset);
+          if (!arr) continue;
+          const close = Number.isNaN(this.centerX) || near(key);
+          const damage = this.damage.get(key);
+          for (let o = 0; o < arr.length; o += STRIDE) {
+            if (!close && arr[o + 20] !== 0) continue;
+            originals.set(arr.subarray(o, o + 16), i * 16);
+            if (damage?.has(arr[o + 19]!)) { matrices.fill(0, i * 16, i * 16 + 15); matrices[i * 16 + 12] = arr[o + 12]!; matrices[i * 16 + 13] = arr[o + 13]!; matrices[i * 16 + 14] = arr[o + 14]!; matrices[i * 16 + 15] = 1; }
+            else matrices.set(arr.subarray(o, o + 16), i * 16);
+            colors[i * 3] = arr[o + 16]!; colors[i * 3 + 1] = arr[o + 17]!; colors[i * 3 + 2] = arr[o + 18]!;
+            cellsOut[i] = arr[o + 19]!; chunksOut[i] = key;
+            i++;
+          }
+        }
+        mesh.count = i;
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor!.needsUpdate = true;
+        this.instanceCount += i;
+      });
+    }
+    for (const [id, mesh] of this.meshes) if (!used.has(id)) { mesh.count = 0; }
+  }
+
+  /** Apply server state (burnt / blasted cells) without rebuilding the deterministic scatter. */
+  applyDamage(message: VegetationMessage): void {
+    if (message.reset) this.damage.clear();
     for (const chunk of message.chunks) {
       const key = chunkKey(chunk.cx, chunk.cz);
-      changed.add(key);
       if (chunk.cells.length) this.damage.set(key, new Map(chunk.cells.map((cell) => [cell[1] * CHUNK_SIZE + cell[0], cell])));
       else this.damage.delete(key);
     }
-    for (const key of changed) {
-      const cx = key >> 16;
-      const cz = (key << 16) >> 16;
-      for (const mesh of this.perChunk.get(key) ?? []) this.mask(mesh, cx, cz);
+    // Hide / restore in place: the instance arrays keep each plant's original transform.
+    for (const mesh of this.meshes.values()) {
+      const cells = mesh.userData.cells as Int32Array, chunks = mesh.userData.chunks as Int32Array, originals = mesh.userData.matrices as Float32Array;
+      const matrices = mesh.instanceMatrix.array as Float32Array;
+      let changed = false;
+      for (let i = 0; i < mesh.count; i++) {
+        const hidden = !!this.damage.get(chunks[i]!)?.has(cells[i]!);
+        const zero = matrices[i * 16] === 0 && matrices[i * 16 + 5] === 0;
+        if (hidden === zero) continue;
+        if (hidden) { matrices.fill(0, i * 16, i * 16 + 12); }
+        else matrices.set(originals.subarray(i * 16, i * 16 + 16), i * 16);
+        changed = true;
+      }
+      if (changed) mesh.instanceMatrix.needsUpdate = true;
     }
-  }
-
-  private mask(mesh: InstancedMesh, cx: number, cz: number): void {
-    const original = this.originals.get(mesh);
-    if (!original) return;
-    const damage = this.damage.get(chunkKey(cx, cz));
-    let changed = false;
-    for (let i = 0; i < mesh.count; i++) {
-      const offset = i * 16;
-      const lx = Math.floor(original.matrices[offset + 12]! - cx * CHUNK_SIZE);
-      const lz = Math.floor(original.matrices[offset + 14]! - cz * CHUNK_SIZE);
-      const hidden = damage?.has(lz * CHUNK_SIZE + lx) ? 1 : 0;
-      if (original.hidden[i] === hidden) continue;
-      original.hidden[i] = hidden;
-      this.m.fromArray(original.matrices, offset);
-      if (hidden) this.m.scale(this.zeroScale);
-      mesh.setMatrixAt(i, this.m);
-      changed = true;
-    }
-    if (changed) mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Bounded, frame-rate-independent fire emission only on visible damaged plants. */
@@ -460,18 +390,13 @@ export class VegetationRenderer {
   }
 
   dispose(): void {
-    for (const v of this.perChunk.values()) {
-      for (const mesh of v) {
-        this.scene.remove(mesh);
-        mesh.dispose();
-      }
-    }
+    for (const mesh of this.meshes.values()) { this.scene.remove(mesh); mesh.dispose(); }
+    this.meshes.clear();
+    for (const m of this.materials.values()) m.dispose();
+    this.materials.clear();
     this.perChunk.clear();
-    this.originals.clear();
     this.coverCells.clear();
     this.damage.clear();
     this.instanceCount = 0;
-    for (const geometry of Object.values(this.geometries)) geometry.dispose();
-    this.material.dispose();
   }
 }

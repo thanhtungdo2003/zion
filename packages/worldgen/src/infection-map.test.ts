@@ -1,22 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
 import { BUILDING_ASSET } from '@zion/assets';
-import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema } from '@zion/shared';
+import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, upgradeInfectionMaps } from '@zion/shared';
 import { WorldGenerator } from './generator';
 import { GENERATOR_VERSION } from './config';
-import { infectionHeight, infectionLayers, infectionSpawns, infectionStructures, infectionZombieSpawns } from './maps/infection-map';
+import { WAREHOUSE, infectionHeight, infectionLayers, infectionSpawns, infectionStructures, infectionZombieSpawns } from './maps/infection-map';
 
 const registry = createDefaultRegistry();
 const world = (infection = DEFAULT_INFECTION_MAP) => new WorldGenerator({ seed: 7, sizeChunks: 16, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection', infection }, registry);
 
 describe('studio infection maps', () => {
-  it('keeps the built-in map: flat town, walls and its own spawns', () => {
+  it('keeps the built-in map: the Warehouse model on sunken ground, banks around it and its spawns', () => {
     const gen = world();
     expect(infectionMapSchema.safeParse(DEFAULT_INFECTION_MAP).success).toBe(true);
-    expect(infectionHeight(gen, 256, 256)).toBeCloseTo(30);
-    expect(infectionHeight(gen, 256 + 140, 256)).toBeGreaterThan(70);
-    expect(infectionLayers(gen).wall.length).toBeGreaterThan(40);
+    expect(DEFAULT_INFECTION_MAP.name).toBe('Warehouse');
+    // Under the model the terrain sits below its pits; the model's floor is at the old ground level.
+    expect(infectionHeight(gen, 256, 256)).toBeLessThan(30 - WAREHOUSE.sink);
+    const site = infectionStructures(gen).find((s) => s.parts.some((p) => p.asset === WAREHOUSE.asset))!;
+    expect(site.y + WAREHOUSE.sink).toBeCloseTo(30);
+    expect(infectionHeight(gen, 256 + 140, 256)).toBeGreaterThan(50);
+    expect(infectionLayers(gen).wall).toHaveLength(0);
     expect(infectionSpawns(gen).length).toBeGreaterThan(20);
+  });
+
+  it('switches worlds saved with The Street to the Warehouse', () => {
+    const street = { ...structuredClone(DEFAULT_INFECTION_MAP), id: 'friday-13', name: 'The Street', base: 'friday13' as const };
+    const custom = blankInfectionMap('mine', 'Mine', 'x');
+    expect(upgradeInfectionMaps({ active: 'friday-13', maps: [street, custom] })).toMatchObject({ active: 'warehouse', maps: [{ id: 'warehouse' }, { id: 'mine' }] });
+    expect(upgradeInfectionMaps({ active: 'mine', maps: [street, custom] }).active).toBe('mine');
   });
 
   it('builds a map from its seed, size, nature density, placed parts and spawn points', () => {

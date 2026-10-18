@@ -54,6 +54,27 @@ const jobs = [
   ...['stylized_pine_var1', 'stylized_pine_var2', 'stylized_pine_var3', 'stylized_pine_var4', 'stylized_pine_var5', 'small_stylized_pine_var1', 'small_stylized_pine_var2', 'small_stylized_pine_var3', 'small_stylized_pine_var4']
     .map((node, i) => ['nationals/stylized_pine_tree_pack.glb', node, node.replace('stylized_', ''), 2626 + i, .85, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),
   ['nationals/stylized_pine_tree_pack.glb', 'sapling_stylized_pine', 'pine_sapling', 2635, .85, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }],
+  // Ground cover (drawn by the client's grass layer, never placed as props): each pack split
+  // into its kinds, scaled to real heights, cut-out alpha.
+  ...[['Grass:Clump01GRP', 'grass_clump_a'], ['Grass:Ckump02GRP', 'grass_clump_b'], ['Grass:Ckump03GRP', 'grass_clump_c'], ['Grass:ShapeVariantGRP', 'grass_blades']]
+    .map(([node, name], i) => ['nationals/stylized_grass.glb', node, name, 2640 + i, 1, { height: i === 3 ? .5 : .62, collider: 'none', category: 'vegetation', alphaMask: .45, tags: ['ground-cover'] }]),
+  ...['grasspatch1', 'grasspatch2', 'grasspatch3']
+    .map((node, i) => ['nationals/grass_patches.glb', node, `grass_patch_${i}`, 2644 + i, 1, { height: .42, collider: 'none', category: 'vegetation', alphaMask: .4, tags: ['ground-cover'] }]),
+  ['nationals/grass.glb', 'Grass1', 'grass_lush', 2647, 1, { height: .58, collider: 'none', category: 'vegetation', alphaMask: .4, tags: ['ground-cover'] }],
+  ['nationals/grass.glb', 'GrassAutumn3', 'grass_autumn', 2648, 1, { height: .32, collider: 'none', category: 'vegetation', alphaMask: .4, tags: ['ground-cover'] }],
+  ['nationals/grass-2.glb', 'Grass_Reeds_LOD0_Grass_Reeds_0', 'grass_reeds', 2649, 1, { height: 1.9, collider: 'none', category: 'vegetation', alphaMask: .45, tags: ['ground-cover'] }],
+  // The meadow sheet mixes plain grass cards (left of its atlas) and flowering ones (right).
+  ['nationals/grass-2.glb', 'Grass_Reeds_LOD0_GrassBase_0', 'meadow_grass', 2650, .32, { collider: 'none', category: 'vegetation', alphaMask: .45, uv: [0, 0, .5, 1], tags: ['ground-cover'] }],
+  ['nationals/grass-2.glb', 'Grass_Reeds_LOD0_GrassBase_0', 'meadow_flowers', 2651, .32, { collider: 'none', category: 'vegetation', alphaMask: .45, uv: [.5, 0, 1, .76], tags: ['ground-cover'] }],
+  ['nationals/fern_grass_02.glb', null, 'fern', 2652, 1, { height: .55, collider: 'none', category: 'vegetation', alphaMask: .45, tags: ['ground-cover'] }],
+  // Voxel construction-site kit: barrels, pallets of bricks and blocks, lumber, site cabins, a hoist, crates, steel beams.
+  ...[['Barrel-1-Global_4', 'vox_barrel', .9], ['WoodenCase-Global_34', 'vox_brick_pallet', 1.1], ['WoodenCasePriket-Global_56', 'vox_block_pallet', 1.05],
+    ['WoodenStacks-Global_68', 'vox_lumber', .45], ['Container-1$$(1)-Global_78', 'vox_cabin', 2.6], ['Container1-Global_74', 'vox_cabin_stack', 5.2],
+    [['Crane-Global_82', 'Crane2-Global_90'], 'vox_hoist', 9], ['Box1-Global_98', 'vox_crate', .8], ['Box1$$(1)-Global_100', 'vox_crate_small', .4],
+    [['Box1$$(3)-Global_104', 'Box1$$(4)-Global_106', 'Box1$$(5)-Global_108', 'Box1$$(6)-Global_110'], 'vox_beams', .6], ['Box1$$(11)-Global_120', 'vox_crate_tall', .85]]
+    .map(([node, name, height], i) => ['buildings/voxel_construction_materials_asset_pack.glb', node, name, 2660 + i, 1, { height, collider: name === 'vox_hoist' ? 'legs' : 'box', footing: 3, category: 'decor', tags: ['construction'] }]),
+  // Infection's Warehouse: one whole map model at true scale; it collides as merged voxels.
+  ['maps/warehouse_map_chicken_gun.glb', null, 'warehouse_map', 2700, 1, { collider: 'voxel', voxel: .25, tags: ['infection-map'] }],
 ];
 const sources = new Map();
 const hash = createHash('sha256').update(await fs.readFile(fileURLToPath(import.meta.url)));
@@ -82,6 +103,37 @@ function solidColumns(tris){
   const runs=[];for(let i=0;i<nx;i++){let k=0;while(k<nz){const h=height[i*nz+k];if(!h){k++;continue;}let e=k;while(e+1<nz&&height[i*nz+e+1]===h)e++;runs.push({i0:i,i1:i,k0:k,k1:e,h});k=e+1;}}
   const merged=[];for(const run of runs){const prev=merged.find(m=>m.i1===run.i0-1&&m.k0===run.k0&&m.k1===run.k1&&m.h===run.h);if(prev)prev.i1=run.i1;else merged.push(run);}
   return merged.map(m=>({type:'box',center:[r(box.min.x+(m.i0+m.i1+1)/2*step),r(box.min.y+m.h/2),r(box.min.z+(m.k0+m.k1+1)/2*step)],halfExtents:[r((m.i1-m.i0+1)*step/2),r(m.h/2),r((m.k1-m.k0+1)*step/2)]}));
+}
+/**
+ * Collision for a whole map model: every triangle rasterised into a voxel grid (`cell` metres),
+ * then greedily merged into as few boxes as possible. Walls, floors, stairs (as steps) and ramps
+ * keep their shape and interiors stay open; isolated single cells (small clutter) are dropped.
+ */
+function voxelBoxes(tris,cell){
+  const box=new Box3();for(const t of tris)for(const p of t)box.expandByPoint(new Vector3(...p));
+  const nx=Math.ceil((box.max.x-box.min.x)/cell)+1,ny=Math.ceil((box.max.y-box.min.y)/cell)+1,nz=Math.ceil((box.max.z-box.min.z)/cell)+1;
+  const grid=new Uint8Array(nx*ny*nz),at=(i,j,k)=>(j*nz+k)*nx+i;
+  const mark=(x,y,z)=>{const i=Math.floor((x-box.min.x)/cell),j=Math.floor((y-box.min.y)/cell),k=Math.floor((z-box.min.z)/cell);grid[at(i,j,k)]=1;};
+  for(const [a,b,c] of tris){
+    const ab=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]),ac=Math.hypot(c[0]-a[0],c[1]-a[1],c[2]-a[2]),bc=Math.hypot(c[0]-b[0],c[1]-b[1],c[2]-b[2]);
+    const n=Math.max(1,Math.ceil(Math.max(ab,ac,bc)/(cell*.5)));
+    for(let u=0;u<=n;u++)for(let v=0;v<=n-u;v++){const s=u/n,t=v/n,w=1-s-t;mark(a[0]*w+b[0]*s+c[0]*t,a[1]*w+b[1]*s+c[1]*t,a[2]*w+b[2]*s+c[2]*t);}
+  }
+  // Single cells with no occupied neighbour are clutter (cans, chains, decals).
+  const lone=(i,j,k)=>{for(const [di,dj,dk] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){const a=i+di,b=j+dj,c=k+dk;if(a>=0&&b>=0&&c>=0&&a<nx&&b<ny&&c<nz&&grid[at(a,b,c)])return false;}return true;};
+  for(let j=0;j<ny;j++)for(let k=0;k<nz;k++)for(let i=0;i<nx;i++)if(grid[at(i,j,k)]&&lone(i,j,k))grid[at(i,j,k)]=0;
+  const used=new Uint8Array(grid.length),out=[];
+  const free=(i,j,k)=>grid[at(i,j,k)]&&!used[at(i,j,k)];
+  for(let j=0;j<ny;j++)for(let k=0;k<nz;k++)for(let i=0;i<nx;i++){
+    if(!free(i,j,k))continue;
+    let i1=i;while(i1+1<nx&&free(i1+1,j,k))i1++;
+    let k1=k;grow:while(k1+1<nz){for(let x=i;x<=i1;x++)if(!free(x,j,k1+1))break grow;k1++;}
+    let j1=j;up:while(j1+1<ny){for(let z=k;z<=k1;z++)for(let x=i;x<=i1;x++)if(!free(x,j1+1,z))break up;j1++;}
+    for(let y=j;y<=j1;y++)for(let z=k;z<=k1;z++)for(let x=i;x<=i1;x++)used[at(x,y,z)]=1;
+    const x0=box.min.x+i*cell,y0=box.min.y+j*cell,z0=box.min.z+k*cell,x1=box.min.x+(i1+1)*cell,y1=box.min.y+(j1+1)*cell,z1=box.min.z+(k1+1)*cell;
+    out.push({type:'box',center:[r((x0+x1)/2),r((y0+y1)/2),r((z0+z1)/2)],halfExtents:[r((x1-x0)/2),r((y1-y0)/2),r((z1-z0)/2)]});
+  }
+  return out;
 }
 for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const buf = sources.get(file), jsonLength = buf.readUInt32LE(12);
@@ -147,7 +199,13 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     if(materialMap.has(index))return materialMap.get(index);
     const mat=structuredClone(src.materials[index]);
     async function remap(o){for(const [k,v]of Object.entries(o))if(v&&typeof v==='object'){if(k.endsWith('Texture')&&typeof v.index==='number')v.index=await texture(v.index);else await remap(v);}}
-    await remap(mat);const id=dst.materials.length;dst.materials.push(mat);materialMap.set(index,id);return id;
+    await remap(mat);
+    // Specular-glossiness (no longer read by three.js): its diffuse map becomes the base colour.
+    const sg=mat.extensions?.KHR_materials_pbrSpecularGlossiness;
+    if(sg){mat.pbrMetallicRoughness={...(sg.diffuseTexture?{baseColorTexture:sg.diffuseTexture}:{}),baseColorFactor:sg.diffuseFactor??[1,1,1,1],metallicFactor:0,roughnessFactor:1};delete mat.extensions.KHR_materials_pbrSpecularGlossiness;if(!Object.keys(mat.extensions).length)delete mat.extensions;}
+    // Ground cover: cut-out alpha (no sorting), both sides.
+    if(opts.alphaMask){mat.alphaMode='MASK';mat.alphaCutoff=opts.alphaMask;mat.doubleSided=true;}
+    const id=dst.materials.length;dst.materials.push(mat);materialMap.set(index,id);return id;
   }
   const colliders=new Map(), allPoints=[], allTris=[];
   for(const i of nodes) {
@@ -162,7 +220,12 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
         p.attributes[key]=addAccessor(values,a,components);
       }
       let indices=Array.from({length:positions.length/3},(_,j)=>j);
-      if(primitive.indices!==undefined){const a=accessor(primitive.indices);indices=a.values;p.indices=addAccessor(a.values,a.a,1);}
+      if(primitive.indices!==undefined){const a=accessor(primitive.indices);indices=a.values;
+        // Only the cards drawn from one part of a texture atlas (a pack mixing grass and flowers).
+        if(opts.uv&&primitive.attributes.TEXCOORD_0!==undefined){const uv=accessor(primitive.attributes.TEXCOORD_0).values,[u0,v0,u1,v1]=opts.uv,keep=[];
+          for(let j=0;j+2<indices.length;j+=3){const t=indices.slice(j,j+3),u=(uv[t[0]*2]+uv[t[1]*2]+uv[t[2]*2])/3,v=(uv[t[0]*2+1]+uv[t[1]*2+1]+uv[t[2]*2+1])/3;if(u>=u0&&u<u1&&v>=v0&&v<v1)keep.push(...t);}
+          indices=keep;}
+        p.indices=addAccessor(indices,a.a,1);}
       for(let j=0;j+2<indices.length;j+=3)allTris.push(indices.slice(j,j+3).map(k=>positions.slice(k*3,k*3+3)));
       if(primitive.material!==undefined)p.material=await material(primitive.material);
       primitives.push(p);
@@ -232,6 +295,7 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     if(opts.collider==='trunk')faces=[{type:'capsule',a:[r(lc.x),0,r(lc.z)],b:[r(lc.x),r(Math.max(1.2,as.y*.45)),r(lc.z)],radius:r(Math.min(.6,Math.max(.15,Math.min(ls.x,ls.z)*.35)))}];
     else if(opts.collider==='box')faces=[{type:'box',center:[r(ac.x),r(ac.y),r(ac.z)],halfExtents:[r(Math.max(.05,as.x*.42)),r(Math.max(.05,as.y/2)),r(Math.max(.05,as.z*.42))]}];
     else if(opts.collider==='solid')faces=solidColumns(allTris);
+    else if(opts.collider==='voxel')faces=voxelBoxes(allTris,opts.voxel??.3);
     else if(opts.collider==='legs'){
       // Lattice tower: one box per corner leg (its lowest 2 m), open between the legs.
       const h=Math.min(as.y,opts.footing??4);faces=[];

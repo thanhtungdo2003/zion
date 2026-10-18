@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
 import { Buttons, INFECTION, INFECTION_MAP, type InputMessage, type ServerJsonMessage } from '@zion/shared';
-import { F13, GENERATOR_VERSION, friday13Spawns, normalizeSeed } from '@zion/worldgen';
+import { GENERATOR_VERSION, WAREHOUSE, infectionSpawns, normalizeSeed } from '@zion/worldgen';
 import { createLogger } from '../logger';
 import { Metrics } from '../metrics';
 import type { AppConfig } from '../config';
@@ -88,7 +88,9 @@ describe('isolated infection server', () => {
       expect(a.sendJson).toHaveBeenCalledWith(expect.objectContaining({ t: 'welcome', mode: 'infection' }));
       // Default loadout: AK-47, UZI, katana, two frags and two flashbangs; spawned inside the walls.
       expect(pa.inv.items.map((i) => i.itemId).sort()).toEqual(['ak47', 'flashbang', 'flashbang', 'grenade', 'grenade', 'katana', 'uzi']);
-      expect(Math.max(Math.abs(pa.state.x - F13.centre), Math.abs(pa.state.z - F13.centre))).toBeLessThan(F13.half);
+      const centre = world.generator.worldSize / 2;
+      expect(Math.abs(pa.state.x - centre)).toBeLessThan(WAREHOUSE.halfX);
+      expect(Math.abs(pa.state.z - centre)).toBeLessThan(WAREHOUSE.halfZ);
       expect(repository.load).not.toHaveBeenCalled();
 
       // A chosen loadout replaces it before the round.
@@ -121,8 +123,8 @@ describe('isolated infection server', () => {
       expect(pb.state.rollTicks).toBe(0);
 
       // Bullets: a little health and a shove, never a stun.
-      Object.assign(pb.state, { x: F13.centre + 40, z: F13.centre + 2.5, pushX: 0, pushZ: 0 });
-      Object.assign(pa.state, { x: F13.centre + 30, z: F13.centre + 2.5 });
+      Object.assign(pb.state, { x: centre + 5.3, z: centre + .6, pushX: 0, pushZ: 0 });
+      Object.assign(pa.state, { x: centre - 10.7, z: centre + .6 });
       harness.damage(pa.id, pb, 20, 'torso', 0, 0, 0, 2, 1);
       expect(pb.health).toBeCloseTo(100 - 20 * 100 / INFECTION.zombieHealth);
       expect(pb.state.pushX).toBeGreaterThan(1);
@@ -151,9 +153,10 @@ describe('isolated infection server', () => {
       await world.start();
       await game.join(a);
       const p = a.player!;
-      for (let cx = 3; cx <= 12; cx++) for (let cz = 3; cz <= 12; cz += 3) await harness.physics.ensureArea(cx, cz, 1);
-      const open = friday13Spawns().filter((s) => (game as unknown as { spawns: { validateAt(x: number, z: number): unknown } }).spawns.validateAt(s.x, s.z));
-      expect(open.length).toBeGreaterThan(friday13Spawns().length * .8);
+      for (let cx = 5; cx <= 10; cx++) for (let cz = 5; cz <= 10; cz += 2) await harness.physics.ensureArea(cx, cz, 1);
+      const spawns = infectionSpawns(world.generator);
+      const open = spawns.filter((s) => (game as unknown as { spawns: { validateAt(x: number, z: number): unknown } }).spawns.validateAt(s.x, s.z));
+      expect(open.length).toBeGreaterThan(spawns.length * .8);
       const gun = p.inv.equippedItem()!;
       expect(gun.itemId).toBe('ak47');
       gun.mag = 0;

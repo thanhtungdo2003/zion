@@ -9,6 +9,7 @@ import { battleTower as guardTower, modularBuilding } from '../battle-map';
 
 /** Prepared island assets (see apps/web/scripts/prepare-world-assets.mjs). */
 import { FLORA_ASSET, fromStand, standValue } from '../flora';
+import { constructionSite, masonryBuilding } from '../masonry';
 
 export const ISLAND_ASSET = {
   // The TVA pack (2431) holds a row of pylon variants, not one pylon; poles use the camp utility pole.
@@ -419,13 +420,13 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     const townLevel = Math.max(sea + 2, world.terrain(1980, 2680));
     sites.push({ kind: 'town', x: 1980, z: 2690, y: townLevel, yaw: 0, radius: Math.hypot(95, 205), halfX: 95, halfZ: 205, parts: [], gid: gid++ });
     const street = 1980, rand = new Rng(0x70a1);
-    type Lot = 'block' | 'block2' | 'favela' | 'house' | 'houseLarge' | 'houseSmall' | 'slums' | 'shop' | 'apartment' | 'tower';
+    type Lot = 'block' | 'block2' | 'favela' | 'house' | 'houseLarge' | 'houseSmall' | 'slums' | 'shop' | 'apartment' | 'tower' | 'brick' | 'concrete' | 'site';
     const pickLot = (): Lot => {
       const r = rand.next();
-      return r < .26 ? 'block' : r < .38 ? 'block2' : r < .5 ? 'house' : r < .6 ? 'houseLarge' : r < .7 ? 'houseSmall' : r < .8 ? 'favela' : r < .9 ? 'slums' : r < .96 ? 'shop' : 'tower';
+      return r < .2 ? 'block' : r < .3 ? 'block2' : r < .4 ? 'house' : r < .48 ? 'houseLarge' : r < .55 ? 'houseSmall' : r < .62 ? 'favela' : r < .69 ? 'slums' : r < .74 ? 'shop' : r < .77 ? 'tower' : r < .88 ? 'brick' : r < .96 ? 'concrete' : 'site';
     };
     /** Footprint half-depth (towards the street) and half-width (along it), per lot kind. */
-    const size: Record<Lot, [number, number]> = { block: [11, 6.5], block2: [11, 6.5], favela: [4.5, 5], house: [4.5, 2.6], houseLarge: [5.5, 5.6], houseSmall: [2.4, 2.3], slums: [3.4, 5], shop: [3.2, 7], apartment: [13.7, 25.4], tower: [3.5, 3.5] };
+    const size: Record<Lot, [number, number]> = { block: [11, 6.5], block2: [11, 6.5], favela: [4.5, 5], house: [4.5, 2.6], houseLarge: [5.5, 5.6], houseSmall: [2.4, 2.3], slums: [3.4, 5], shop: [3.2, 7], apartment: [13.7, 25.4], tower: [3.5, 3.5], brick: [5.4, 5.4], concrete: [6.6, 9.6], site: [12.6, 12.6] };
     const build = (lot: Lot, x: number, z: number, facing: number) => {
       // Each plot is its own small site on the shared platform, turned to face the street.
       const k = new Kit(gid * 31), turn = facing + (rand.next() - .5) * .16;
@@ -441,6 +442,9 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
         // Scaled up so its windows are tall enough to jump and climb through.
         case 'apartment': k.house(BUILDING_ASSET.apartment, 0, 0, turn + Math.PI / 2, 1.3); break;
         case 'tower': k.tower(0, 0, true); break;
+        case 'brick': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'brick', w: 10, d: 10, floors: 1 + Math.floor(rand.next() * 2) }, gid * 7 + 1, rand); break;
+        case 'concrete': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'concrete', finish: (['ivory', 'gray', 'darkred'] as const)[Math.floor(rand.next() * 3)]!, w: 18, d: 12, floors: 3 + Math.floor(rand.next() * 3) }, gid * 7 + 1, rand); break;
+        case 'site': constructionSite(k.parts, [], 0, 0, turn, gid * 7 + 1, rand); break;
       }
       const [depth, width] = size[lot];
       site('town', x, z, Math.hypot(depth, width) + 1.5, k, { level: townLevel });

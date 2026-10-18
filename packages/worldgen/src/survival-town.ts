@@ -2,6 +2,7 @@ import type { Rng } from '@zion/shared';
 import { BATTLE_ASSET, BUILDING_ASSET, CAMP_ASSET } from '@zion/assets';
 import type { CampPart } from './camp';
 import { modularBuilding } from './battle-map';
+import { constructionSite, masonryBuilding } from './masonry';
 
 /** Site-local zombie spawn spot: x, floor height above the site base, z. */
 export type SpawnSpot = readonly [number, number, number];
@@ -14,10 +15,10 @@ export interface TownLayout {
   spawns: SpawnSpot[];
 }
 
-type Lot = 'block' | 'block2' | 'favela' | 'house' | 'houseLarge' | 'houseSmall' | 'slums' | 'shop' | 'apartment';
+type Lot = 'block' | 'block2' | 'favela' | 'house' | 'houseLarge' | 'houseSmall' | 'slums' | 'shop' | 'apartment' | 'brick' | 'concrete' | 'site';
 /** Footprint half-depth (away from the street) and half-width (along it), per lot kind, as turned below. */
 const SIZE: Record<Lot, readonly [number, number]> = {
-  block: [11, 6.5], block2: [11, 6.5], favela: [4.2, 4.9], house: [2.6, 4.4], houseLarge: [5.3, 5.6], houseSmall: [2.3, 2.3], slums: [1.7, 5], shop: [3.2, 7], apartment: [13.5, 25],
+  block: [11, 6.5], block2: [11, 6.5], favela: [4.2, 4.9], house: [2.6, 4.4], houseLarge: [5.3, 5.6], houseSmall: [2.3, 2.3], slums: [1.7, 5], shop: [3.2, 7], apartment: [13.5, 25], brick: [5.2, 5.2], concrete: [6.4, 9.4], site: [12.5, 12.5],
 };
 /** Main street half-width (matches the road network's town streets) plus a pavement. */
 export const TOWN_STREET_HALF_WIDTH = 3.3;
@@ -35,7 +36,8 @@ export function survivalTown(rng: Rng): TownLayout {
   const pick = (room: number): Lot => {
     if (apartment && room > 2 * SIZE.apartment[1] + 2 && rng.next() < .25) { apartment = false; return 'apartment'; }
     const r = rng.next();
-    return r < .2 ? 'block' : r < .32 ? 'block2' : r < .44 ? 'favela' : r < .56 ? 'house' : r < .66 ? 'houseLarge' : r < .74 ? 'houseSmall' : r < .9 ? 'slums' : 'shop';
+    if (room > 2 * SIZE.site[1] + 2 && rng.next() < .05) return 'site';
+    return r < .16 ? 'block' : r < .26 ? 'block2' : r < .36 ? 'favela' : r < .46 ? 'house' : r < .54 ? 'houseLarge' : r < .6 ? 'houseSmall' : r < .7 ? 'slums' : r < .76 ? 'shop' : r < .9 ? 'brick' : 'concrete';
   };
   const put = (asset: number, x: number, z: number, y: number, yaw: number, scale = 1, g = 0) => parts.push({ asset, x, y, z, yaw, scale, group: g });
   const house = (asset: number, x: number, z: number, yaw: number, scale = 1) => put(asset, x, z, .08, yaw, scale, group++);
@@ -67,6 +69,10 @@ export function survivalTown(rng: Rng): TownLayout {
       }
       // Scaled up so its windows are tall enough to jump and climb through.
       case 'apartment': house(BUILDING_ASSET.apartment, x, z, turn, 1.3); break;
+      // Masonry: a brick house, a concrete block of flats, a building site.
+      case 'brick': masonryBuilding(parts, spawns, x, z, turn, { material: 'brick', w: 10, d: 10, floors: 1 + Math.floor(rng.next() * 2) }, group++, rng); break;
+      case 'concrete': masonryBuilding(parts, spawns, x, z, turn, { material: 'concrete', finish: (['ivory', 'gray', 'darkred'] as const)[Math.floor(rng.next() * 3)]!, w: 18, d: 12, floors: 3 + Math.floor(rng.next() * 3) }, group++, rng); break;
+      case 'site': constructionSite(parts, spawns, x, z, turn, group++, rng); break;
     }
   };
   // Both frontages, packed tight: a metre or two between neighbours, a short front yard.

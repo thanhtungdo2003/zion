@@ -428,7 +428,8 @@ export default function InfectionStudio() {
             <label className="ix-field"><span>Nền bản đồ</span>
               <select value={draft.base} onChange={(e) => patch((d) => { d.base = e.target.value as InfectionMapDef['base']; })}>
                 <option value="empty">Trống (chỉ những gì bạn đặt)</option>
-                <option value="friday13">The Street</option>
+                <option value="warehouse">Warehouse</option>
+                <option value="friday13">The Street (cũ)</option>
               </select>
             </label>
             {num('Kích thước (nửa cạnh)', draft.half, (v) => patch((d) => { d.half = v; }), 30, 170, 1, ' m')}

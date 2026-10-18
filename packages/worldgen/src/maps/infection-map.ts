@@ -16,6 +16,19 @@ interface Host { readonly config: { infection?: InfectionMapDef }; readonly worl
 /** Ground height inside the walls. */
 export const INFECTION_GROUND = F13.ground;
 
+/**
+ * The Warehouse map model (asset 2700), centred on the map. Its floor sits `sink` m above the
+ * model's lowest point (pits and a sunken dock); the terrain under its footprint drops below them.
+ */
+export const WAREHOUSE = { asset: 2700, sink: 3.94, halfX: 37.2, halfZ: 39.1 } as const;
+/** Open floor spots in the yard and halls (centre-relative). */
+export const WAREHOUSE_SPAWNS: ReadonlyArray<{ x: number; z: number }> = [
+  { x: 5.3, z: -1.4 }, { x: -32.7, z: 34.6 }, { x: -32.7, z: -31.4 }, { x: 33.3, z: 32.6 }, { x: -32.7, z: 2.6 }, { x: 11.3, z: -31.4 },
+  { x: 33.3, z: 2.6 }, { x: -12.7, z: 18.6 }, { x: -10.7, z: -29.4 }, { x: 23.3, z: -15.4 }, { x: -8.7, z: 34.6 }, { x: 1.3, z: -17.4 },
+  { x: -10.7, z: 0.6 }, { x: 19.3, z: 6.6 }, { x: -30.7, z: 18.6 }, { x: 33.3, z: 18.6 }, { x: 11.3, z: -11.4 }, { x: 23.3, z: -3.4 },
+  { x: -20.7, z: -31.4 }, { x: -0.7, z: -27.4 }, { x: 7.3, z: 8.6 }, { x: 13.3, z: -21.4 }, { x: -4.7, z: -7.4 }, { x: -2.7, z: 6.6 },
+];
+
 interface Prepared {
   def: InfectionMapDef;
   centre: number;
@@ -62,6 +75,8 @@ function prepared(host: Host): Prepared {
 /** Ground before building pads: hills inside the walls (none on the built-in town), banks outside. */
 function rawHeight(p: Prepared, x: number, z: number): number {
   const { def, centre } = p, d = Math.max(Math.abs(x - centre), Math.abs(z - centre));
+  // Under the Warehouse model the ground drops below its pits: the model's own floor is walked on.
+  if (def.base === 'warehouse' && Math.abs(x - centre) < WAREHOUSE.halfX - .5 && Math.abs(z - centre) < WAREHOUSE.halfZ - .5) return INFECTION_GROUND - WAREHOUSE.sink - .6;
   let h = INFECTION_GROUND + smoothstep(def.half + 3, def.half + 24, d) * def.terrain.banks + smoothstep(def.half + 24, def.half + 80, d) * def.terrain.banks * .4;
   if (def.terrain.hills > 0) {
     const town = def.base === 'friday13' ? 1 - smoothstep(F13.half - 6, F13.half + 6, d) : 0;
@@ -108,6 +123,7 @@ export function infectionStructures(host: Host): Structure[] {
   const { def, centre } = p, sites: Structure[] = [];
   let gid = 1500;
   if (def.base === 'friday13') sites.push(...friday13Structures(host));
+  if (def.base === 'warehouse') sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, radius: Math.hypot(WAREHOUSE.halfX, WAREHOUSE.halfZ), parts: [{ asset: WAREHOUSE.asset, x: 0, y: 0, z: 0, yaw: 0, scale: 1, group: 0 }], gid: gid++ });
   // Perimeter wall: 4 m panels scaled up, all one fading group.
   if (def.terrain.wall !== 'none') {
     const parts: CampPart[] = [], step = 4 * def.terrain.wallScale, asset = WALL_ASSET[def.terrain.wall];
@@ -160,6 +176,7 @@ export function infectionSpawns(host: Host): Array<{ x: number; z: number }> {
   const def = infectionMapOf(host);
   if (def.spawns.length) return toWorld(host, def.spawns);
   if (def.base === 'friday13') return friday13Spawns();
+  if (def.base === 'warehouse') return toWorld(host, [...WAREHOUSE_SPAWNS]);
   const c = host.worldSize / 2, out: Array<{ x: number; z: number }> = [];
   for (let ring = 1; ring <= 3; ring++) for (let k = 0; k < ring * 6; k++) {
     const a = k / (ring * 6) * Math.PI * 2, r = ring / 3.4 * (def.half - 6);

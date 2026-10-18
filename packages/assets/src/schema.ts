@@ -109,7 +109,7 @@ export const assetDefinitionSchema = z
     name: z.string().min(1).max(64),
     category: z.enum(ASSET_CATEGORIES),
     model: modelSourceSchema,
-    colliders: z.array(colliderDefinitionSchema).max(8192).default([]),
+    colliders: z.array(colliderDefinitionSchema).max(16384).default([]),
     collisionLayer: z.enum(COLLISION_LAYERS).default('static'),
     /** Unscaled bounds used for culling, spacing and placement checks. */
     bounds: z.object({ radius: positive, height: positive }).strict(),
