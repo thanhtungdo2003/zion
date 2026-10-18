@@ -25,6 +25,11 @@ describe('infection map service', () => {
       expect(switched).toHaveBeenCalledOnce();
       expect(service.world).not.toBe(before);
       expect(service.worldId).toContain('hill-town');
+      // Changing only the rules (time of day, day-night cycle) keeps the world and applies at once.
+      const world = service.world;
+      await service.save({ ...map, rules: { ...map.rules, timeOfDay: .25, dayCycleMinutes: 20 } });
+      expect(service.world).toBe(world);
+      expect(world.generator.config.infection?.rules).toMatchObject({ timeOfDay: .25, dayCycleMinutes: 20 });
       await expect(service.remove('hill-town')).rejects.toThrow();
       await expect(service.save({ ...map, half: 5 })).rejects.toThrow();
       expect(query).toHaveBeenCalledWith(expect.stringContaining('infection_maps'), expect.any(Array));

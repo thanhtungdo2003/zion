@@ -55,8 +55,15 @@ export class InfectionMapService {
   tile(x: number, z: number) { return this.current.tiles(x, z); }
 
   private async build(def: InfectionMapDef): Promise<Built> {
-    const key = JSON.stringify(def), have = this.built.get(key);
-    if (have) return have;
+    // Only what shapes the world needs a new one: rules (round timings, time of day…) and the
+    // name are applied to the world already built, in place, without regenerating anything.
+    const key = JSON.stringify({ ...def, name: '', rules: null }), have = this.built.get(key);
+    if (have) {
+      have.def = def;
+      const live = have.world.generator.config.infection;
+      if (live) { live.name = def.name; Object.assign(live.rules, def.rules); }
+      return have;
+    }
     const world = new WorldService(configOf(def), this.registry, this.workers, this.cacheSize, this.log);
     await world.start();
     // Distinct per version of a map, so clients never reuse map tiles of an older version.
@@ -83,7 +90,8 @@ export class InfectionMapService {
     const maps = this.maps.maps.some((m) => m.id === def.id) ? this.maps.maps.map((m) => (m.id === def.id ? def : m)) : [...this.maps.maps, def];
     this.maps = infectionMapsSchema.parse({ ...this.maps, maps });
     await this.persist();
-    await this.refresh();
+    // A changed layout is generated in the background: the save answers at once.
+    void this.refresh().catch((err: unknown) => this.log.error({ err }, 'infection map rebuild failed'));
     return this.maps;
   }
 
