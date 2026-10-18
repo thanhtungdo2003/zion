@@ -182,9 +182,9 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     ctx.restore();
     // Survey grid stays subtle; unknown terrain remains black beneath it.
     drawBattleCircles(ctx, hud.battle, to, camera.scale);
-    // Supply drops: the red X beside the camp and each transport plane with its heading.
-    if (hud.supply?.zone) {
-      const p = to(hud.supply.zone.x, hud.supply.zone.z), r = Math.max(6, 14 * camera.scale);
+    // Supply drops: a red X where each comes down and each transport plane with its heading.
+    for (const target of hud.supply?.targets ?? []) {
+      const p = to(target.x, target.z), r = Math.max(6, 7 * camera.scale);
       ctx.strokeStyle = '#ff2b2b'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r); ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r); ctx.stroke();
     }

@@ -7,7 +7,6 @@ import {
   GATHER_REACH,
   ORE_NAME,
   ROCK_ASSETS,
-  SUPPLY_ZONE_RADIUS,
   TREE_ASSETS,
   chunkKey,
   placementPoint,
@@ -76,14 +75,14 @@ export class BuildingController {
 
   constructor(private readonly host: BuildingHost) {
     this.trees = new FelledTrees(host.scene, host.library);
-    this.structures = new StructureRenderer(host.scene, host.debris);
+    this.structures = new StructureRenderer(host.scene, host.debris, host.library);
     this.hologram = new PlacementHologram(host.scene);
     this.supply = new SupplyRenderer(host.scene, host.library);
   }
 
   setWorld(world: WorldInfo): void {
     this.world = world;
-    this.supply.setZone(world.mode === 'survival' ? world.supplyZone : null);
+    this.supply.ground = (x, z) => { const h = this.host.store()?.collision.terrainHeight(x, z); return h !== undefined && Number.isFinite(h) ? h : 0; };
     this.publishSupply();
   }
 
@@ -169,8 +168,8 @@ export class BuildingController {
   }
 
   private publishSupply(): void {
-    const msg = this.supply.message, zone = this.world?.mode === 'survival' ? this.world.supplyZone : null;
-    this.host.hud.set({ supply: { planes: msg.planes.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw, ownerName: p.ownerName })), zone: zone ? { x: zone.x, z: zone.z } : null } });
+    const msg = this.supply.message;
+    this.host.hud.set({ supply: { planes: msg.planes.map((p) => ({ x: p.x, z: p.z, yaw: p.yaw, ownerName: p.ownerName })), targets: msg.planes.map((p) => ({ x: p.tx, z: p.tz })) } });
   }
 
   /* ---------------------------------------- items -------------------------------------- */
@@ -231,9 +230,8 @@ export class BuildingController {
     const yaw = me.yaw + plan.rot;
     const verdict = checkPlacement(store.collision, plan.def, at.x, at.z, yaw);
     let reason: string | null = verdict.ok ? null : verdict.reason === 'slope' ? 'Mặt đất quá dốc' : verdict.reason === 'water' ? 'Không xây trên nước' : verdict.reason === 'blocked' ? 'Có vật cản (cây, đá, nhà…)' : 'Khu vực chưa tải xong';
-    const camp = this.world?.camp, zone = this.world?.supplyZone, r = Math.hypot(plan.def.w, plan.def.d) / 2;
+    const camp = this.world?.camp, r = Math.hypot(plan.def.w, plan.def.d) / 2;
     if (camp && Math.hypot(at.x - camp.x, at.z - camp.z) < CAMP_BUILD_EXCLUSION + r) reason = `Quá gần căn cứ chính (cần cách ${CAMP_BUILD_EXCLUSION} m)`;
-    if (zone && Math.hypot(at.x - zone.x, at.z - zone.z) < SUPPLY_ZONE_RADIUS + r + 4) reason = 'Không xây trên bãi thả tiếp tế';
     if (!me.grounded) reason = reason ?? 'Hãy đứng trên mặt đất';
     plan.ok = !reason; plan.reason = reason; plan.x = at.x; plan.z = at.z; plan.y = verdict.y; plan.yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
     this.hologram.place(at.x, Number.isFinite(verdict.y) && verdict.y ? verdict.y : me.y, at.z, yaw, plan.ok, time);

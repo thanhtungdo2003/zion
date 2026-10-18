@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending,
+  Box3,
   BoxGeometry,
   BufferGeometry,
   Float32BufferAttribute,
@@ -28,6 +28,7 @@ import {
   VEHICLES,
   structureToWorld,
   type BlueprintDef,
+  type StructurePiece,
   type StructureState,
   type SupplyMessage,
   type TreesMessage,
@@ -112,15 +113,73 @@ export class FelledTrees {
 
 /* --------------------------------------- structures -------------------------------------- */
 
-interface StructureVisual { state: StructureState; root: Group; pieces: Array<Mesh | null>; light: PointLight | null; core: Mesh | null }
+interface StructureVisual { state: StructureState; root: Group; pieces: Array<Object3D | null>; light: PointLight | null; core: Object3D | null }
+
+const CORE_MODEL = '/models/materias/nuclear-power-cell.bbmodel';
+let coreTemplate: Promise<CharacterTemplate> | null = null;
+const coreModel = () => (coreTemplate ??= loadCharacterModel(CORE_MODEL));
+
+/**
+ * One structure piece drawn with its existing camp-kit model, stretched to the piece's box (the
+ * model's own collider box maps onto it; walls along the sides are turned a quarter). Null while
+ * that model is still loading.
+ */
+export function pieceObject(pc: StructurePiece, library: AssetLibrary): Object3D | null {
+  const visual = library.get(pc.asset);
+  if (!visual) return null;
+  const col = visual.def.colliders.find((c) => c.type === 'box') as { halfExtents: [number, number, number] } | undefined;
+  const [ax, ay, az] = col?.halfExtents ?? [visual.def.bounds.radius, visual.def.bounds.height / 2, visual.def.bounds.radius];
+  const g = new Group(), model = new Group();
+  for (const part of visual.parts) {
+    const m = new Mesh(part.geometry, part.material);
+    m.castShadow = true; m.receiveShadow = true;
+    model.add(m);
+  }
+  // Panels are authored wide along X: a piece running along Z gets the model turned 90°.
+  const turned = pc.hz > pc.hx * 1.01 && ax >= az;
+  if (turned) model.rotation.y = Math.PI / 2;
+  model.scale.set((turned ? pc.hz : pc.hx) / Math.max(.01, ax), pc.hy / Math.max(.01, ay), (turned ? pc.hx : pc.hz) / Math.max(.01, az));
+  model.position.y = -pc.hy;
+  g.add(model);
+  g.position.set(pc.x, pc.y, pc.z);
+  return g;
+}
+
+/** The nuclear core: the power cell's own model, upright, with a soft green light. */
+function coreObject(pc: StructurePiece, template: CharacterTemplate): Object3D {
+  const g = new Group(), cell = template.root.clone(true);
+  const size = new Box3().setFromObject(cell).getSize(new Vector3());
+  cell.scale.setScalar((pc.hy * 2) / Math.max(.01, size.y, size.x, size.z));
+  g.add(cell);
+  g.position.set(pc.x, pc.y - pc.hy, pc.z);
+  return g;
+}
+
+/** A whole blueprint built from its models (panel previews). */
+export async function buildStructureModel(blueprint: string, library: AssetLibrary): Promise<Group> {
+  const pieces = piecesOf(blueprint);
+  await Promise.all([...new Set(pieces.map((p) => p.asset).filter(Boolean))].map((a) => library.load(a)));
+  // Its own copy: the preview disposes what it shows.
+  const core = await loadCharacterModel(CORE_MODEL).catch(() => null);
+  const root = new Group();
+  for (const pc of pieces) {
+    // Only what stands above the floor (walls reach into slopes in the world).
+    if (pc.y + pc.hy <= 0) continue;
+    const top = pc.y + pc.hy, bottom = Math.max(0, pc.y - pc.hy);
+    const shown = { ...pc, y: (top + bottom) / 2, hy: (top - bottom) / 2 };
+    const o = pc.kind === 'core' ? (core ? coreObject(shown, core) : null) : pieceObject(shown, library);
+    if (o) root.add(o);
+  }
+  return root;
+}
 
 const crackTexture = (() => {
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = '#2a2420'; g.lineWidth = 1.4;
+  g.fillStyle = '#000000'; g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 1.6;
   for (let i = 0; i < 9; i++) {
     let x = Math.random() * 64, y = Math.random() * 64;
     g.beginPath(); g.moveTo(x, y);
@@ -139,8 +198,13 @@ export class StructureRenderer {
   private readonly visuals = new Map<number, StructureVisual>();
   private readonly materials = new Map<string, MeshLambertMaterial>();
   private readonly coreMat = new MeshLambertMaterial({ color: '#2b3a2f', emissive: new Color('#39ff8a'), emissiveIntensity: 1.6 });
-  private readonly coreGlass = new MeshBasicMaterial({ color: '#7dffb8', transparent: true, opacity: .55, blending: AdditiveBlending, depthWrite: false });
-  constructor(private readonly scene: Scene, private readonly debris: () => DebrisSystem | null) {}
+  private core: CharacterTemplate | null = null;
+  constructor(private readonly scene: Scene, private readonly debris: () => DebrisSystem | null, private readonly library: AssetLibrary) {
+    void coreModel().then((t) => { this.core = t; this.refresh(); }).catch(() => undefined);
+  }
+
+  /** A model finished loading: build the pieces still waiting for it. */
+  private refresh(): void { for (const v of this.visuals.values()) this.set(v.state); }
 
   get states(): IterableIterator<StructureState> { return [...this.visuals.values()].map((v) => v.state).values(); }
   get(id: number): StructureState | undefined { return this.visuals.get(id)?.state; }
@@ -150,8 +214,8 @@ export class StructureRenderer {
     const key = `${def.material}:${level}`;
     let m = this.materials.get(key);
     if (!m) {
-      const c = new Color(MATERIAL_COLOR[def.material]).multiplyScalar(1 - level * .16);
-      m = new MeshLambertMaterial({ color: c, ...(level > 0 && crackTexture ? { map: crackTexture } : {}) });
+      const c = new Color(MATERIAL_COLOR[def.material]).multiplyScalar(.5);
+      m = new MeshLambertMaterial({ color: c, transparent: true, opacity: .12 + level * .14, depthWrite: false, ...(crackTexture ? { alphaMap: crackTexture } : {}) });
       this.materials.set(key, m);
     }
     return m;
@@ -192,28 +256,36 @@ export class StructureRenderer {
       }
       if (!mesh) {
         if (pc.kind === 'core') {
-          mesh = new Mesh(box, this.coreMat);
-          const glass = new Mesh(new CylinderGeometry(.22, .22, 1.3, 12), this.coreGlass);
-          mesh.add(glass);
+          if (!this.core) return;
+          mesh = coreObject(pc, this.core);
           v!.core = mesh;
           v!.light = new PointLight('#5dffa0', 6, 14, 1.6);
           v!.light.position.set(pc.x, pc.y + .9, pc.z);
           v!.root.add(v!.light);
-        } else mesh = new Mesh(box, this.material(def, 0));
-        mesh.position.set(pc.x, pc.y, pc.z);
-        mesh.scale.set(pc.hx * 2, pc.hy * 2, pc.hz * 2);
-        if (pc.kind === 'core') { const g = mesh.children[0]!; g.scale.set(1 / (pc.hx * 2), 1 / (pc.hy * 2), 1 / (pc.hz * 2)); }
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        } else {
+          mesh = pieceObject(pc, this.library);
+          if (!mesh) { void this.library.load(pc.asset)?.then(() => this.refresh()); return; }
+          // Damage shows as cracks spreading over the model.
+          const crack = new Mesh(box, this.material(def, 0));
+          crack.scale.set(pc.hx * 2 + .02, pc.hy * 2 + .02, pc.hz * 2 + .02);
+          crack.visible = false;
+          crack.name = 'crack';
+          mesh.add(crack);
+        }
         v!.root.add(mesh);
         v!.pieces[i] = mesh;
       }
-      if (pc.kind !== 'core') mesh.material = this.material(def, 1 - hp / Math.max(1, pc.hp));
+      const crack = mesh.getObjectByName('crack') as Mesh | undefined;
+      if (crack) {
+        const damage = 1 - hp / Math.max(1, pc.hp);
+        crack.visible = damage >= .25;
+        if (crack.visible) crack.material = this.material(def, damage);
+      }
       if (pc.kind === 'door') {
         // Open doors swing inwards on the left jamb (drawn only; the collider is gone).
         const open = s.open?.includes(i) ?? false;
-        mesh.position.set(open ? pc.x - pc.hx + .1 : pc.x, pc.y, open ? pc.z + pc.hx : pc.z);
-        mesh.scale.set(open ? .1 : pc.hx * 2, pc.hy * 2, open ? pc.hx * 2 : pc.hz * 2);
+        mesh.position.set(open ? pc.x - pc.hx : pc.x, pc.y, open ? pc.z + pc.hx : pc.z);
+        mesh.rotation.y = open ? -Math.PI / 2 : 0;
       }
     });
     if (hit && !hit.broke) this.flash(v, hit.piece);
@@ -230,8 +302,8 @@ export class StructureRenderer {
   private shatter(mesh: Object3D, color: string, hit?: { x: number; y: number; z: number }): void {
     const debris = this.debris();
     mesh.updateMatrixWorld(true);
-    const centre = new Vector3().setFromMatrixPosition(mesh.matrixWorld);
-    const size = new Vector3().setFromMatrixScale(mesh.matrixWorld);
+    const bounds = new Box3().setFromObject(mesh);
+    const centre = bounds.getCenter(new Vector3()), size = bounds.getSize(new Vector3());
     const mat = new MeshLambertMaterial({ color });
     const n = Math.min(10, Math.max(3, Math.round(size.x * size.y * size.z * 3)));
     for (let k = 0; k < n; k++) {
@@ -340,31 +412,33 @@ export class PlacementHologram {
 
 /**
  * Supply drops: the transport planes on their way, crates and vehicles coming down under red and
- * white canopies, and the red X painted on the drop zone beside the camp.
+ * white canopies, and a red X painted where each drop is called in.
  */
 export class SupplyRenderer {
   private planeTemplate: CharacterTemplate | null = null;
   private crateTemplate: CharacterTemplate | null = null;
   private readonly planes = new Map<number, Group>();
   private readonly drops = new Map<number, Group>();
-  private zone: Group | null = null;
+  /** Red X marks where drops are coming down, by plane id. */
+  private readonly marks = new Map<number, Group>();
   private state: SupplyMessage = { t: 'supply', planes: [], drops: [] };
   private readonly vec: [number, number, number] = [0, 0, 0];
   private readonly canopyCloth = new MeshLambertMaterial({ color: '#e9ece6', side: DoubleSide });
   private readonly canopyStripe = new MeshLambertMaterial({ color: '#d62b2b', side: DoubleSide });
   private readonly cord = new LineBasicMaterial({ color: '#d5d0ba' });
   constructor(private readonly scene: Scene, private readonly library: AssetLibrary) {
-    void Promise.all([loadCharacterModel('/models/dists/heavy-transport-plane.bbmodel'), loadCharacterModel('/models/dists/supply-crate.bbmodel')])
+    void Promise.all([loadCharacterModel('/models/dists/heavy-transport-plane.bbmodel'), loadCharacterModel('/models/dists/military-wooden-crate.bbmodel')])
       .then(([plane, crate]) => { this.planeTemplate = plane; this.crateTemplate = crate; })
       .catch((err: unknown) => console.error('supply models failed', err));
   }
 
   get message(): SupplyMessage { return this.state; }
 
-  /** The red X and the zone's edge, laid on the levelled ground. */
-  setZone(zone: { x: number; y: number; z: number } | null | undefined): void {
-    if (this.zone) { this.scene.remove(this.zone); this.zone = null; }
-    if (!zone) return;
+  /** Ground height for the marks (set by the controller). */
+  ground: (x: number, z: number) => number = () => 0;
+
+  /** The red X and its ring, painted on the ground where a drop will land. */
+  private mark(x: number, z: number): Group {
     const g = new Group();
     const red = new MeshBasicMaterial({ color: '#d81f1f', transparent: true, opacity: .9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
     for (const a of [Math.PI / 4, -Math.PI / 4]) {
@@ -387,9 +461,9 @@ export class SupplyRenderer {
       post.add(lamp);
       g.add(post);
     }
-    g.position.set(zone.x, zone.y, zone.z);
+    g.position.set(x, this.ground(x, z), z);
     this.scene.add(g);
-    this.zone = g;
+    return g;
   }
 
   private canopy(): Group {
@@ -413,6 +487,13 @@ export class SupplyRenderer {
     this.state = msg;
     for (const [id, g] of this.planes) if (!msg.planes.some((p) => p.id === id)) { this.scene.remove(g); this.planes.delete(id); }
     for (const [id, g] of this.drops) if (!msg.drops.some((d) => d.id === id && !d.landed)) { this.scene.remove(g); this.drops.delete(id); }
+    // A mark stays while its plane flies or anything it dropped is still in the air.
+    for (const p of msg.planes) if (!this.marks.has(p.id)) { const m = this.mark(p.tx, p.tz); m.userData.at = [p.tx, p.tz]; this.marks.set(p.id, m); }
+    for (const [id, m] of this.marks) {
+      const [x, z] = m.userData.at as [number, number];
+      if (msg.planes.some((p) => p.id === id) || msg.drops.some((d) => !d.landed && Math.hypot(d.x - x, d.z - z) < 25)) continue;
+      this.scene.remove(m); this.marks.delete(id);
+    }
     for (const p of msg.planes) {
       let g = this.planes.get(p.id);
       if (!g && this.planeTemplate) {
@@ -436,7 +517,8 @@ export class SupplyRenderer {
           else if (asset) void this.library.load(asset);
         } else if (this.crateTemplate) {
           const crate = this.crateTemplate.root.clone(true);
-          crate.scale.setScalar(BB_UNITS_PER_METER / 16 * 1.4);
+          const size = new Box3().setFromObject(crate).getSize(new Vector3());
+          crate.scale.setScalar(1.4 / Math.max(.01, size.x, size.y, size.z));
           load.add(crate);
         }
         g.add(load, this.canopy());
@@ -472,6 +554,7 @@ export class SupplyRenderer {
   dispose(): void {
     for (const g of [...this.planes.values(), ...this.drops.values()]) this.scene.remove(g);
     this.planes.clear(); this.drops.clear();
-    if (this.zone) this.scene.remove(this.zone);
+    for (const m of this.marks.values()) this.scene.remove(m);
+    this.marks.clear();
   }
 }

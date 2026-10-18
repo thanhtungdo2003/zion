@@ -182,7 +182,7 @@ export class Minimap {
     arrows = true,
     battle: BattleState | null = null,
     /** Supply drops: transport planes on their way (heading) and the drop zone's red X. */
-    supply: { planes: ReadonlyArray<{ x: number; z: number; yaw: number }>; zone: { x: number; z: number } | null } | null = null,
+    supply: { planes: ReadonlyArray<{ x: number; z: number; yaw: number }>; targets: ReadonlyArray<{ x: number; z: number }> } | null = null,
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -246,8 +246,8 @@ export class Minimap {
       drawNpcIcon(ctx, n.role, 7, n.quest);
       ctx.restore();
     }
-    if (supply?.zone) {
-      const ox = (supply.zone.x - (px - half)) * scale, oz = (supply.zone.z - (pz - half)) * scale, r = Math.max(4, 14 * scale);
+    for (const target of supply?.targets ?? []) {
+      const ox = (target.x - (px - half)) * scale, oz = (target.z - (pz - half)) * scale, r = Math.max(4, 7 * scale);
       ctx.strokeStyle = '#ff2b2b'; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.moveTo(ox - r, oz - r); ctx.lineTo(ox + r, oz + r); ctx.moveTo(ox + r, oz - r); ctx.lineTo(ox - r, oz + r); ctx.stroke();
     }

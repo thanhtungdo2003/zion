@@ -1,11 +1,12 @@
 'use client';
 import { useState } from 'react';
-import { ARCHITECT_NAME, BLUEPRINTS, MATERIAL_COLOR, SUPPLY_CATALOG, blueprintPieces, type BlueprintDef, type SupplyEntry } from '@zion/shared';
+import { ARCHITECT_NAME, BLUEPRINTS, MATERIAL_COLOR, SUPPLY_CATALOG, VEHICLES, blueprintPieces, type BlueprintDef, type SupplyEntry } from '@zion/shared';
 import type { InventoryState, InventoryStore } from '@/game/inventory/inventory';
 import { ITEMS } from '@/game/inventory/items';
 import { useSettings } from '@/lib/settings';
 import { Icon } from './Icon';
 import { Coins, ItemArt } from './Inventory';
+import ModelPreview from './ModelPreview';
 
 const MATERIAL_LABEL = { wood: 'Gỗ', stone: 'Đá', metal: 'Kim loại' } as const;
 const TIER = { wood: 'Cấp I', stone: 'Cấp II', metal: 'Cấp III' } as const;
@@ -70,7 +71,10 @@ export function BlueprintPanel({ state, store }: { state: InventoryState; store:
         })}
       </nav>
       <div className="bp-body">
-        <Schematic def={def} />
+        <div className="bp-views">
+          <div className="bp-model"><ModelPreview key={def.id} model={{ structure: def.id }} title={def.name} /></div>
+          <Schematic def={def} />
+        </div>
         <div className="bp-info">
           <h3>{def.name}</h3>
           <p>{def.description}</p>
@@ -110,6 +114,10 @@ const KIND_LABEL: Record<SupplyEntry['kind'], string> = { vehicle: 'Xe cộ', we
 export function SupplyPanel({ coins, store }: { coins: number; store: InventoryStore }) {
   const { item } = useSettings();
   const [kind, setKind] = useState<SupplyEntry['kind']>('vehicle');
+  const [pickId, setPick] = useState<string | null>(null);
+  const list = SUPPLY_CATALOG.filter((e) => e.kind === kind);
+  const picked = list.find((e) => e.id === pickId) ?? list[0]!;
+  const preview = picked.vehicle ? { asset: VEHICLES[picked.vehicle].asset } : { item: picked.items![0]![0] };
   return (
     <section className="inv-box tech-panel supply-panel" onMouseDown={(e) => e.stopPropagation()}>
       <header className="tech-head">
@@ -117,11 +125,21 @@ export function SupplyPanel({ coins, store }: { coins: number; store: InventoryS
         <Coins n={coins} />
       </header>
       <nav className="bp-tabs supply-tabs">
-        {(['vehicle', 'weapons', 'ammo'] as const).map((k) => <button key={k} className={k === kind ? 'on' : ''} onClick={() => setKind(k)}><b>{KIND_LABEL[k]}</b></button>)}
+        {(['vehicle', 'weapons', 'ammo'] as const).map((k) => <button key={k} className={k === kind ? 'on' : ''} onClick={() => { setKind(k); setPick(null); }}><b>{KIND_LABEL[k]}</b></button>)}
       </nav>
+      <div className="supply-preview">
+        <div className="bp-model"><ModelPreview key={picked.id} model={preview} title={picked.name} /></div>
+        <div className="supply-contents">
+          <b>{picked.name}</b>
+          {picked.items ? picked.items.map(([id, n]) => {
+            const d = ITEMS[id];
+            return d ? <span key={id} className="supply-item"><span className="bp-art" style={{ background: d.color }}><ItemArt def={d} /></span>{n}× {item(id)}</span> : null;
+          }) : <small>Thả riêng bằng dù · lái được ngay khi chạm đất</small>}
+        </div>
+      </div>
       <div className="supply-list">
-        {SUPPLY_CATALOG.filter((e) => e.kind === kind).map((e) => (
-          <div key={e.id} className="supply-row">
+        {list.map((e) => (
+          <div key={e.id} className={`supply-row${e.id === picked.id ? ' on' : ''}`} onClick={() => setPick(e.id)}>
             <span className="supply-icon"><Icon name={e.icon} /></span>
             <span className="supply-name">
               <b>{e.name}</b>
@@ -132,7 +150,7 @@ export function SupplyPanel({ coins, store }: { coins: number; store: InventoryS
           </div>
         ))}
       </div>
-      <p className="tech-note warn"><Icon name="lucide:triangle-alert" /> Hàng được thả bằng dù xuống bãi <b>X đỏ</b> cạnh căn cứ. Bãi thả không được căn cứ bảo vệ: zombie và người chơi khác có thể tới trước bạn.</p>
+      <p className="tech-note warn"><Icon name="lucide:triangle-alert" /> Hàng được thả bằng dù xuống ngay chỗ bạn đứng lúc gọi (đánh dấu <b>X đỏ</b>). Điểm thả không được bảo vệ: zombie và người chơi khác có thể tới trước bạn.</p>
     </section>
   );
 }

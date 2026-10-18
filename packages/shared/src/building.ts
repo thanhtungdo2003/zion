@@ -76,7 +76,24 @@ export const BRUTE_STRUCTURE_COOLDOWN_MS = 1600;
 
 export type PieceKind = 'wall' | 'door' | 'roof' | 'core' | 'pillar';
 /** One box of a structure in its local frame (−Z = front, door side), centre and half sizes. */
-export interface StructurePiece { kind: PieceKind; x: number; y: number; z: number; hx: number; hy: number; hz: number; hp: number }
+/**
+ * One box of a structure in its local frame (−Z = front, door side), centre and half sizes. `asset`
+ * is the existing camp-kit model drawn there (stretched to the box; its collider is that box).
+ */
+export interface StructurePiece { kind: PieceKind; x: number; y: number; z: number; hx: number; hy: number; hz: number; hp: number; asset: number }
+
+/**
+ * Which existing building-material models each tier is built from (camp asset ids): walls, door,
+ * roof and pillars. 0 = the nuclear power cell (the core, drawn from its own item model).
+ */
+export const MATERIAL_KIT: Record<BuildMaterial, Record<Exclude<PieceKind, 'core'>, number>> = {
+  // Wooden fence panels, a dusty board door and old beams across the top.
+  wood: { wall: 2028, door: 2012, roof: 2016, pillar: 2016 },
+  // Large stone brick walls, a corrugated sheet door, a metal-plate roof.
+  stone: { wall: 2009, door: 2020, roof: 2023, pillar: 2034 },
+  // Corrugated steel walls, an iron-bar gate, metal plates and concrete pillars.
+  metal: { wall: 2020, door: 2008, roof: 2023, pillar: 2034 },
+};
 
 export interface BlueprintDef {
   id: string;
@@ -109,7 +126,7 @@ export function blueprintPieces(def: BlueprintDef): StructurePiece[] {
   const out: StructurePiece[] = [];
   const hp = MATERIAL_HP[def.material], t = def.thickness, h = def.h, base = -STRUCTURE_SINK;
   const wall = (x: number, z: number, hx: number, hz: number, y0: number, y1: number, kind: PieceKind = 'wall', k = 1) =>
-    out.push({ kind, x, y: (y0 + y1) / 2, z, hx, hy: (y1 - y0) / 2, hz, hp: Math.round(hp * k) });
+    out.push({ kind, x, y: (y0 + y1) / 2, z, hx, hy: (y1 - y0) / 2, hz, hp: Math.round(hp * k), asset: MATERIAL_KIT[def.material][kind === 'core' ? 'wall' : kind] });
   // Four sides, cut into ~2 m panels; the middle panel of the front is the door, the middle ones
   // of the other sides carry a firing slit (a gap too narrow to climb through).
   const sides: Array<{ len: number; at: (s: number) => [number, number]; along: 'x' | 'z'; front: boolean }> = [
@@ -140,10 +157,10 @@ export function blueprintPieces(def: BlueprintDef): StructurePiece[] {
   const nx = Math.max(2, Math.round(def.w / 3)), nz = Math.max(2, Math.round(def.d / 3));
   for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
     const sx = def.w / nx, sz = def.d / nz;
-    out.push({ kind: 'roof', x: -def.w / 2 + sx * (i + .5), y: h + .12, z: -def.d / 2 + sz * (j + .5), hx: sx / 2, hy: .12, hz: sz / 2, hp: Math.round(hp * .7) });
+    out.push({ kind: 'roof', x: -def.w / 2 + sx * (i + .5), y: h + .12, z: -def.d / 2 + sz * (j + .5), hx: sx / 2, hy: .12, hz: sz / 2, hp: Math.round(hp * .7), asset: MATERIAL_KIT[def.material].roof });
   }
   // The nuclear power core against the back wall.
-  out.push({ kind: 'core', x: 0, y: .6, z: def.d / 2 - t - .55, hx: .35, hy: .6, hz: .35, hp: 800 });
+  out.push({ kind: 'core', x: 0, y: .6, z: def.d / 2 - t - .55, hx: .35, hy: .6, hz: .35, hp: 800, asset: 0 });
   return out;
 }
 
@@ -203,7 +220,6 @@ export interface SupplyEntry {
 
 export const SUPPLY_CATALOG: readonly SupplyEntry[] = [
   { id: 'veh_quad', name: 'Xe ATV địa hình', kind: 'vehicle', vehicle: 'quad', price: 1400, icon: 'game-icons:jeep' },
-  { id: 'veh_car', name: 'Xe Lada', kind: 'vehicle', vehicle: 'car', price: 2200, icon: 'game-icons:city-car' },
   { id: 'veh_jeep', name: 'Xe Jeep quân sự', kind: 'vehicle', vehicle: 'jeep', price: 3200, icon: 'game-icons:jeep' },
   { id: 'veh_grizzly', name: 'Xe bọc thép Grizzly', kind: 'vehicle', vehicle: 'grizzly', price: 5200, icon: 'game-icons:apc' },
   { id: 'kit_assault', name: 'Gói tấn công AK-47', kind: 'weapons', price: 900, items: [['ak47', 1], ['ammo_762', 4], ['grenade', 2]], icon: 'game-icons:ak47' },
@@ -217,9 +233,9 @@ export const SUPPLY_CATALOG: readonly SupplyEntry[] = [
 export const SUPPLY_BY_ID: ReadonlyMap<string, SupplyEntry> = new Map(SUPPLY_CATALOG.map((e) => [e.id, e]));
 
 export const SUPPLY_FLIGHT = { altitude: 190, speed: 70, /** Crate fall speed under its canopy (m/s). */ sink: 6, approach: 900, cooldownMs: 90_000 } as const;
-/** Radius of the cleared drop zone (red X) beside the camp. */
-export const SUPPLY_ZONE_RADIUS = 14;
+/** Size of the red X painted where a drop is coming down. */
+export const SUPPLY_ZONE_RADIUS = 7;
 
-export interface SupplyPlane { id: number; x: number; z: number; y: number; yaw: number; owner: string; ownerName: string }
+export interface SupplyPlane { id: number; x: number; z: number; y: number; yaw: number; owner: string; ownerName: string; /** Where it drops (the caller's spot). */ tx: number; tz: number }
 export interface SupplyCrateFall { id: number; kind: 'crate' | 'vehicle'; vehicle?: VehicleKind; x: number; y: number; z: number; landed: boolean }
 export interface SupplyMessage { t: 'supply'; planes: SupplyPlane[]; drops: SupplyCrateFall[] }

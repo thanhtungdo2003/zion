@@ -19,7 +19,6 @@ import {
   ROCK_YIELD,
   SUPPLY_BY_ID,
   SUPPLY_FLIGHT,
-  SUPPLY_ZONE_RADIUS,
   TREE_ASSETS,
   TREE_REGROW_MS,
   TRUNK_LIFETIME_MS,
@@ -57,7 +56,6 @@ export interface BuildingDeps {
   registry: AssetRegistry;
   zombies: ZombieDirector;
   camp: CampSite | null;
-  supplyZone: CampSite | null;
   players(): Iterable<Player>;
   broadcast(msg: ServerJsonMessage): void;
   reply(p: Player, text: string): void;
@@ -79,7 +77,7 @@ export interface BuildingDeps {
 }
 
 interface Felled { key: string; cx: number; cz: number; asset: number; x: number; y: number; z: number; scale: number; rotY: number; dir: number; logs: number; at: number; trunkUntil: number; regrowAt: number }
-interface Plane { id: number; owner: string; ownerName: string; x0: number; z0: number; dx: number; dz: number; y: number; travelled: number; dropped: boolean; entry: string }
+interface Plane { id: number; owner: string; ownerName: string; tx: number; ty: number; tz: number; x0: number; z0: number; dx: number; dz: number; y: number; travelled: number; dropped: boolean; entry: string }
 interface Drop extends SupplyCrateFall { items?: Array<[string, number]>; yaw: number }
 
 /**
@@ -291,11 +289,10 @@ export class BaseBuilding {
     this.deps.collision.setOwnerColliders(structureOwner(s.id), structureColliders(s));
   }
 
-  /** Is (x, z) where nothing may be built (the camp, the supply drop zone)? */
+  /** Is (x, z) where nothing may be built (around the camp)? */
   private forbidden(x: number, z: number, r: number): string | null {
-    const camp = this.deps.camp, zone = this.deps.supplyZone;
+    const camp = this.deps.camp;
     if (camp && Math.hypot(x - camp.x, z - camp.z) < CAMP_BUILD_EXCLUSION + r) return `Không được dùng bản vẽ trong phạm vi ${CAMP_BUILD_EXCLUSION} m quanh căn cứ chính.`;
-    if (zone && Math.hypot(x - zone.x, z - zone.z) < SUPPLY_ZONE_RADIUS + r + 4) return 'Không được xây trên bãi thả hàng tiếp tế.';
     return null;
   }
 
@@ -430,14 +427,15 @@ export class BaseBuilding {
   /* ------------------------------------- supply drops ---------------------------------- */
 
   private supplyMessage(): ServerJsonMessage {
-    const planes: SupplyPlane[] = this.planes.map((pl) => ({ id: pl.id, x: pl.x0 + pl.dx * pl.travelled, z: pl.z0 + pl.dz * pl.travelled, y: pl.y, yaw: Math.atan2(-pl.dx, -pl.dz), owner: pl.owner, ownerName: pl.ownerName }));
+    const planes: SupplyPlane[] = this.planes.map((pl) => ({ id: pl.id, x: pl.x0 + pl.dx * pl.travelled, z: pl.z0 + pl.dz * pl.travelled, y: pl.y, yaw: Math.atan2(-pl.dx, -pl.dz), owner: pl.owner, ownerName: pl.ownerName, tx: pl.tx, tz: pl.tz }));
     return { t: 'supply', planes, drops: this.drops.map(({ id, kind, vehicle, x, y, z, landed }) => ({ id, kind, vehicle, x, y, z, landed })) };
   }
 
-  /** Radio order: pay, and a transport plane heads for the camp's drop zone. */
+  /** Radio order: pay, and a transport plane heads for where the caller stands (anywhere). */
   order(p: Player, entryId: string, now: number): void {
-    const entry = SUPPLY_BY_ID.get(entryId), zone = this.deps.supplyZone;
-    if (!entry || !zone || p.dead) return;
+    const entry = SUPPLY_BY_ID.get(entryId);
+    if (!entry || p.dead) return;
+    if (p.state.swimming || p.vehicleId) { this.deps.reply(p, 'Hãy đứng trên mặt đất để gọi tiếp tế.'); return; }
     if (!p.inv.unitsOf('supply_radio')) { this.deps.reply(p, 'Cần có bộ đàm gọi tiếp tế.'); return; }
     if (this.planes.some((pl) => pl.owner === p.accountId) || this.drops.some((d) => !d.landed && (d as Drop & { owner?: string }).owner === p.accountId)) { this.deps.reply(p, 'Đơn hàng trước của bạn vẫn đang được giao.'); return; }
     const wait = (this.orderedAt.get(p.accountId) ?? -Infinity) + SUPPLY_FLIGHT.cooldownMs - now;
@@ -446,14 +444,14 @@ export class BaseBuilding {
     this.deps.addCoins(p, -entry.price);
     this.orderedAt.set(p.accountId, now);
     const a = Math.random() * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
-    this.planes.push({ id: this.nextSupplyId++, owner: p.accountId, ownerName: p.username, x0: zone.x - dx * SUPPLY_FLIGHT.approach, z0: zone.z - dz * SUPPLY_FLIGHT.approach, dx, dz, y: zone.y + SUPPLY_FLIGHT.altitude, travelled: 0, dropped: false, entry: entry.id });
-    this.deps.broadcast({ t: 'chat', from: 'TIẾP TẾ', fromId: 0, system: true, text: `✈ Máy bay vận tải đang chở "${entry.name}" cho ${p.username} tới bãi thả hàng (dấu X đỏ cạnh căn cứ).` });
+    const tx = p.state.x, tz = p.state.z, ty = p.state.y;
+    this.planes.push({ id: this.nextSupplyId++, owner: p.accountId, ownerName: p.username, tx, ty, tz, x0: tx - dx * SUPPLY_FLIGHT.approach, z0: tz - dz * SUPPLY_FLIGHT.approach, dx, dz, y: ty + SUPPLY_FLIGHT.altitude, travelled: 0, dropped: false, entry: entry.id });
+    this.deps.broadcast({ t: 'chat', from: 'TIẾP TẾ', fromId: 0, system: true, text: `✈ Máy bay vận tải đang chở "${entry.name}" cho ${p.username} (điểm thả đánh dấu X đỏ trên bản đồ).` });
     this.deps.broadcast(this.supplyMessage());
   }
 
   private stepSupply(dt: number, now: number): void {
-    const zone = this.deps.supplyZone;
-    if (!zone || (!this.planes.length && !this.drops.length)) return;
+    if (!this.planes.length && !this.drops.length) return;
     for (let i = this.planes.length - 1; i >= 0; i--) {
       const pl = this.planes[i]!;
       pl.travelled += SUPPLY_FLIGHT.speed * dt;
@@ -472,7 +470,7 @@ export class BaseBuilding {
       if (d.landed) { if (now - ((d as Drop & { landedAt?: number }).landedAt ?? now) > 3000) this.drops.splice(i, 1); continue; }
       d.y -= SUPPLY_FLIGHT.sink * dt;
       const ground = this.deps.collision.terrainHeight(d.x, d.z);
-      const floor = Number.isFinite(ground) ? ground : zone.y;
+      const floor = Number.isFinite(ground) ? ground : d.y - 1;
       if (d.y > floor) continue;
       d.y = floor;
       d.landed = true;

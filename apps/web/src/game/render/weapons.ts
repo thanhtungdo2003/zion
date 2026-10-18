@@ -181,7 +181,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
 // Base building: the pickaxe (held and swung like the axe) and the resources, blueprints and radio.
 WEAPON_SPECS.pickaxe = { url: '/models/tools/pickaxe.bbmodel', length: .85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 5, 0], edge: [1, 0, 0], strikePoint: [11, 26, 0] };
 for (const [item, url, length] of [
-  ['wood_log', '/models/materias/wood-log.bbmodel', 1], ['plank', '/models/materias/wood-plank.bbmodel', 1], ['stone', '/models/materias/stone-chunk.bbmodel', .3],
+  ['wood_log', '/models/materias/old-wooden-beam.bbmodel', 1], ['plank', '/models/materias/old-dusty-wood-board.bbmodel', 1], ['stone', '/models/materias/stone-chunk.bbmodel', .3],
   ['iron_ore', '/models/materias/iron-ore.bbmodel', .3], ['copper_ore', '/models/materias/copper-ore.bbmodel', .3], ['lead_ore', '/models/materias/lead-ore.bbmodel', .3],
   ['bp_wood_outpost', '/models/materias/blueprint-roll.bbmodel', .7], ['bp_stone_bunker', '/models/materias/blueprint-roll.bbmodel', .7], ['bp_metal_fortress', '/models/materias/blueprint-roll.bbmodel', .7],
   ['supply_radio', '/models/tools/supply-radio.bbmodel', .3],

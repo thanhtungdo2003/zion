@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-18T06:26:55.327Z",
+  "generatedAt": "2026-10-18T10:43:17.873Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -318,12 +318,6 @@
       "url": "/assets/models/dists_straight-lamp-post.443a63f10d91.bbmodel",
       "sha256": "443a63f10d910f4ea0b57234561cb3bdb4d5d07bd8a25bd15286367afe7bd198",
       "bytes": 8611,
-      "kind": "bbmodel"
-    },
-    "dists/supply-crate.bbmodel": {
-      "url": "/assets/models/dists_supply-crate.6bc0819fe800.bbmodel",
-      "sha256": "6bc0819fe80093ae4848a80b1143b1efdad73259b53a20d30a3b004378974556",
-      "bytes": 4270,
       "kind": "bbmodel"
     },
     "dists/wet-farmland-plot-unpipe.bbmodel": {
@@ -744,18 +738,6 @@
       "url": "/assets/models/materias_weapon-table.e3e11fd7c73b.bbmodel",
       "sha256": "e3e11fd7c73b343098f8d538c9b8cf119f68bb28660c1b87fe09880d0ea9ae63",
       "bytes": 18339,
-      "kind": "bbmodel"
-    },
-    "materias/wood-log.bbmodel": {
-      "url": "/assets/models/materias_wood-log.ed6ab0e462af.bbmodel",
-      "sha256": "ed6ab0e462afa2d70cd9cc8c2fef52a63714ebb75cf8ed8290c3957a889618a5",
-      "bytes": 4204,
-      "kind": "bbmodel"
-    },
-    "materias/wood-plank.bbmodel": {
-      "url": "/assets/models/materias_wood-plank.636f286a27bc.bbmodel",
-      "sha256": "636f286a27bc5637207a3eb0a775255e4645ccd7612acccb0d4e6ebff510f755",
-      "bytes": 2141,
       "kind": "bbmodel"
     },
     "materias/wooden-fence.bbmodel": {
@@ -1269,9 +1251,9 @@
       "kind": "bbmodel"
     },
     "tools/pickaxe.bbmodel": {
-      "url": "/assets/models/tools_pickaxe.0422d5f4eabc.bbmodel",
-      "sha256": "0422d5f4eabc98639d79914e3ab089ae345e7896af5920d698245f2cbdd706c3",
-      "bytes": 5270,
+      "url": "/assets/models/tools_pickaxe.caf2c273f62f.bbmodel",
+      "sha256": "caf2c273f62f1b9fcade18393fc021940022b9d78987be8a2b27acf697735b6c",
+      "bytes": 6038,
       "kind": "bbmodel"
     },
     "tools/shovel.bbmodel": {
@@ -1281,9 +1263,9 @@
       "kind": "bbmodel"
     },
     "tools/supply-radio.bbmodel": {
-      "url": "/assets/models/tools_supply-radio.65bd07bfee65.bbmodel",
-      "sha256": "65bd07bfee65285679a5b2e0b812465dc3aa3137970e9e41d60dd7a54adc881e",
-      "bytes": 4822,
+      "url": "/assets/models/tools_supply-radio.51fb0d037e5f.bbmodel",
+      "sha256": "51fb0d037e5fb4470b4982358462c1893a489c40bb5213a46623377313897338",
+      "bytes": 12869,
       "kind": "bbmodel"
     },
     "weapons/ak47-rifle.bbmodel": {

@@ -159,6 +159,4 @@ export interface WorldInfo {
   cosmeticSeed: number;
   /** Survivor camp centre and half size (metres), if the world has one. */
   camp?: { x: number; z: number; halfSize: number } | null;
-  /** Survival: the supply drop zone (red X) beside the camp. */
-  supplyZone?: { x: number; y: number; z: number } | null;
 }

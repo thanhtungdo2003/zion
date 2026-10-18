@@ -407,7 +407,7 @@ export class GameServer {
     this.architect = new CampNpc(ARCHITECT_ID, EntityKind.Architect, gen.camp, NPC_STALLS.architect, this.collision);
     if (!this.arena) this.building = new BaseBuilding({
       collision: this.collision, physics: this.physics, world: deps.world, registry: deps.registry, zombies: this.zombies,
-      camp: gen.camp, supplyZone: gen.supplyZone,
+      camp: gen.camp,
       players: () => this.players.values(),
       broadcast: (msg) => this.broadcast(msg),
       reply: (p, text) => this.reply(p, text),
@@ -1048,7 +1048,6 @@ export class GameServer {
       dayLengthSec: this.dayLengthMs / 1000,
       cosmeticSeed: gen.cosmeticSeed,
       camp: gen.camp ? { x: gen.camp.x, z: gen.camp.z, halfSize: CAMP_HALF_SIZE } : null,
-      supplyZone: this.building && gen.supplyZone ? { ...gen.supplyZone } : null,
     };
   }
 

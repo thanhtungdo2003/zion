@@ -77,8 +77,6 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         if (x < 4 || z < 4 || x > gen.worldSize - 4 || z > gen.worldSize - 4) continue;
 
         if (gen.camp && Math.max(Math.abs(x - gen.camp.x), Math.abs(z - gen.camp.z)) < 60) continue;
-        // The supply drop zone stays open ground.
-        if (gen.supplyZone && Math.hypot(x - gen.supplyZone.x, z - gen.supplyZone.z) < 20) continue;
         // Nothing grows inside abandoned buildings and compounds.
         if (insideStructure(gen, x, z)) continue;
         gen.sampleColumn(x, z, sample);
@@ -193,7 +191,6 @@ function placeAmmoCaches(gen: WorldGenerator, ox: number, oz: number, sample: Co
     if (x < ox || x >= ox + CHUNK_SIZE || z < oz || z >= oz + CHUNK_SIZE) continue;
     if (x < 16 || z < 16 || x > gen.worldSize - 16 || z > gen.worldSize - 16) continue;
     if (gen.camp && Math.max(Math.abs(x - gen.camp.x), Math.abs(z - gen.camp.z)) < 80) continue;
-    if (gen.supplyZone && Math.hypot(x - gen.supplyZone.x, z - gen.supplyZone.z) < 24) continue;
     if (insideStructure(gen, x, z, 4)) continue;
     gen.sampleColumn(x, z, sample);
     if (sample.roadDistance < sample.roadHalfWidth + 3.1) continue;

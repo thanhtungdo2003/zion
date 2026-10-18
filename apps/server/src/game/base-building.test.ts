@@ -29,7 +29,7 @@ function setup() {
   let now = 1000;
   const deps: BuildingDeps = {
     collision, physics, world, registry: createDefaultRegistry(), zombies,
-    camp: { x: 40, y: GROUND, z: 40 }, supplyZone: { x: 400, y: GROUND, z: 400 },
+    camp: { x: 40, y: GROUND, z: 40 },
     players: () => players,
     broadcast: (m) => sent.push(m),
     reply: (_p, text) => replies.push(text),
