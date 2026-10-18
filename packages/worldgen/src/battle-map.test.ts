@@ -45,7 +45,7 @@ describe('authored Battle Royale island', () => {
     for (const pylon of world.pylons()) expect(gen.heightAt(pylon.x, pylon.z)).toBeGreaterThan(sea + 1);
     expect(world.cables().every(c => c.points.length >= 2)).toBe(true);
     let trees = 0;
-    for (let cz = 40; cz < 50; cz++) for (let cx = 38; cx < 48; cx++) trees += gen.generateChunk(cx, cz, 0).props.filter(p => p.asset >= 2440 && p.asset < 2460).length;
+    for (let cz = 40; cz < 50; cz++) for (let cx = 38; cx < 48; cx++) trees += gen.generateChunk(cx, cz, 0).props.filter(p => (p.asset >= 2440 && p.asset < 2460) || (p.asset >= 2600 && p.asset <= 2611) || (p.asset >= 2626 && p.asset <= 2634)).length;
     expect(trees).toBeGreaterThan(200);
   });
   it.each([false, true])('allows climbing a tower ladder onto its actual platform (water=%s)', water => {

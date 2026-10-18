@@ -8,8 +8,10 @@ import type { VehicleKind } from './vehicles';
 /* ------------------------------------ resources ---------------------------------------- */
 
 /** Survival flora (island models) a fire axe fells, and the rocks a pickaxe mines. */
-export const TREE_ASSETS: ReadonlySet<number> = new Set([2440, 2441, 2442, 2443, 2444, 2445, 2446, 2447, 2448, 2449, 2450, 2451, 2452, 2453, 2473]);
-export const ROCK_ASSETS: ReadonlySet<number> = new Set([2463, 2464, 2465, 2466, 2467, 2468, 2469, 2470]);
+const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+/** Island flora plus the forest pack (2600–2611) and the stylized pines (2626–2634). */
+export const TREE_ASSETS: ReadonlySet<number> = new Set([...range(2440, 2453), 2473, ...range(2600, 2611), ...range(2626, 2634)]);
+export const ROCK_ASSETS: ReadonlySet<number> = new Set([...range(2463, 2470), ...range(2617, 2625)]);
 /** Melee items that chop trees / mine rocks. */
 export const CHOPPING_TOOLS: ReadonlySet<string> = new Set(['fire_axe']);
 export const MINING_TOOLS: ReadonlySet<string> = new Set(['pickaxe']);

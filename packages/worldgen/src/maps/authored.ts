@@ -8,6 +8,8 @@ import { ISLAND, type AuthoredMap, type MapZone, type Point } from './island';
 import { battleTower as guardTower, modularBuilding } from '../battle-map';
 
 /** Prepared island assets (see apps/web/scripts/prepare-world-assets.mjs). */
+import { FLORA_ASSET, fromStand, standValue } from '../flora';
+
 export const ISLAND_ASSET = {
   // The TVA pack (2431) holds a row of pylon variants, not one pylon; poles use the camp utility pole.
   pylonTower: 2430, pylonHFrame: CAMP_ASSET['utility-pole'], crane: 2432,
@@ -259,11 +261,16 @@ export class AuthoredWorld {
       const g = ground(x, z), rel = g.height - sea;
       if (rel < 2 || g.slope > 1.1 || !clear(x, z, 5, g.road, 7)) continue;
       const coast = this.coastDistance(x, z);
+      // Stands: neighbouring trees are mostly one species; young growth where `size` is small.
+      const stand = standValue(this.host.seed, x, z), young = size < .3;
+      const pines = young ? [ISLAND_ASSET.pineSmall, ...FLORA_ASSET.pineYoung] : [ISLAND_ASSET.pineMedium, ...FLORA_ASSET.pine, ISLAND_ASSET.pineBig, ISLAND_ASSET.conifer];
+      const broad = young ? [...ISLAND_ASSET.treeSmall, ...FLORA_ASSET.oakYoung] : [...ISLAND_ASSET.treeBig, ...FLORA_ASSET.forestTree, ...FLORA_ASSET.oakMature];
       let asset: number;
       if (coast < 90) asset = species < .5 ? ISLAND_ASSET.banana : pick(ISLAND_ASSET.treeSmall);
-      else if (rel > 110) asset = species < .4 ? ISLAND_ASSET.conifer : species < .8 ? ISLAND_ASSET.pineBig : ISLAND_ASSET.pineMedium;
-      else if (rel > 60) asset = species < .5 ? ISLAND_ASSET.pineMedium : species < .7 ? ISLAND_ASSET.pineBig : pick(ISLAND_ASSET.treeBig);
-      else asset = species < .45 ? pick(ISLAND_ASSET.treeSmall) : species < .75 ? pick(ISLAND_ASSET.treeBig) : species < .92 ? ISLAND_ASSET.pineSmall : (species < .96 ? ISLAND_ASSET.deadTree : ISLAND_ASSET.deadPine);
+      else if (rel > 110) asset = fromStand(pines, stand, species);
+      // Mid slopes: the pine / broadleaf mix shifts from stand to stand, not tree by tree.
+      else if (rel > 60) asset = stand < .62 ? fromStand(pines, stand / .62, species) : fromStand(broad, (stand - .62) / .38, species);
+      else asset = species > .965 ? (species < .985 ? ISLAND_ASSET.deadTree : ISLAND_ASSET.deadPine) : stand < .78 ? fromStand(broad, stand / .78, species) : fromStand(pines, (stand - .78) / .22, species);
       put(asset, x, g.height - .25, z, turn, .75 + size * .5);
     }
     // Undergrowth and boulders on a coarser lattice.
@@ -272,9 +279,12 @@ export class AuthoredWorld {
       const g = ground(x, z), rel = g.height - sea;
       if (rel < 1 || !clear(x, z, 3, g.road, 5)) continue;
       if (g.slope > .55 || (rel > 120 && roll < .25)) {
-        if (roll < .55) put(kind < .6 ? pick(ISLAND_ASSET.rockMedium) : kind < .9 ? pick(ISLAND_ASSET.stone) : pick(ISLAND_ASSET.rockBig), x, g.height - .4, z, turn, .6 + size * .6);
+        // Boulders of one kind lie together, sunk into the slope.
+        const rocks = standValue(this.host.seed, x, z, 30, 0x70c4);
+        if (roll < .55) put(kind < .6 ? fromStand([...ISLAND_ASSET.rockMedium, ...FLORA_ASSET.rockMedium], rocks, kind) : kind < .9 ? fromStand([...ISLAND_ASSET.stone, ...FLORA_ASSET.rockSmall], rocks, kind) : fromStand([...ISLAND_ASSET.rockBig, ...FLORA_ASSET.rockBig], rocks, kind), x, g.height - .45, z, turn, .6 + size * .6);
       } else if (roll < this.forestDensity(x, z) * .5 + .08) {
-        put(kind < .85 ? pick(ISLAND_ASSET.bush) : pick(ISLAND_ASSET.stone), x, g.height - .1, z, turn, .7 + size * .5);
+        const shrubs = [...ISLAND_ASSET.bush, ...FLORA_ASSET.shrub, FLORA_ASSET.sapling];
+        put(kind < .85 ? fromStand(shrubs, standValue(this.host.seed, x, z, 24, 0xb05), kind) : pick(ISLAND_ASSET.stone), x, g.height - .1, z, turn, .7 + size * .5);
       }
     }
     return out;

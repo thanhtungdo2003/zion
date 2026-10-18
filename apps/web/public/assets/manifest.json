@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-18T11:03:11.029Z",
+  "generatedAt": "2026-10-18T11:26:53.590Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -806,6 +806,12 @@
       "bytes": 750380,
       "kind": "glb"
     },
+    "nationals/low_poly_forest_tree_pack.glb": {
+      "url": "/assets/models/nationals_low_poly_forest_tree_pack.a7aabc44265f.glb",
+      "sha256": "a7aabc44265f961037684ae9a47c93396167a6d35f15cb743cfedd3bb08df411",
+      "bytes": 10258136,
+      "kind": "glb"
+    },
     "nationals/low_poly_trees.glb": {
       "url": "/assets/models/nationals_low_poly_trees.a2089a13d467.glb",
       "sha256": "a2089a13d4673ea95e270627fc9f90d816cfb98bd6845bc8c0c38c0f0e26873d",
@@ -840,6 +846,12 @@
       "url": "/assets/models/nationals_stylized_grass.613a893f2615.glb",
       "sha256": "613a893f2615116373cd7a45c75c2dff5f921c7cf6ae45ffad577ffd2408ef84",
       "bytes": 166852,
+      "kind": "glb"
+    },
+    "nationals/stylized_pine_tree_pack.glb": {
+      "url": "/assets/models/nationals_stylized_pine_tree_pack.05e659ac3100.glb",
+      "sha256": "05e659ac3100960dde2654bcd6e285d1baaa64e6f8e955006ef0d6e6c8e880c0",
+      "bytes": 7272300,
       "kind": "glb"
     },
     "nationals/tree_low_poly_lowpoly.glb": {
@@ -1046,6 +1058,162 @@
       "bytes": 159300,
       "kind": "glb"
     },
+    "prepared/forest_oak_0.glb": {
+      "url": "/assets/models/prepared_forest_oak_0.a4a14fdd03e8.glb",
+      "sha256": "a4a14fdd03e8e179d79c05fb156227562b5b6ef0453fb0ffca579859c93d2249",
+      "bytes": 724672,
+      "kind": "glb"
+    },
+    "prepared/forest_oak_1.glb": {
+      "url": "/assets/models/prepared_forest_oak_1.9e8258292850.glb",
+      "sha256": "9e8258292850a40ac409dadc9241f26a1b329f4e0c8527ebfdab2240d81b404b",
+      "bytes": 720752,
+      "kind": "glb"
+    },
+    "prepared/forest_oak_2.glb": {
+      "url": "/assets/models/prepared_forest_oak_2.7c2d61ea54c5.glb",
+      "sha256": "7c2d61ea54c5c6b2d4034f9727618d1b15935569378f2f52afdf2cf739f46f84",
+      "bytes": 729800,
+      "kind": "glb"
+    },
+    "prepared/forest_oak_3.glb": {
+      "url": "/assets/models/prepared_forest_oak_3.3e2951058c81.glb",
+      "sha256": "3e2951058c81c4d0a52d846fb5a387c12e8197472ab889b75df526bc9a6571ac",
+      "bytes": 449944,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_0.glb": {
+      "url": "/assets/models/prepared_forest_rock_0.0d5c0f6b79fe.glb",
+      "sha256": "0d5c0f6b79fe84c1d90ed125eee273d29511cedd1f9d9076b1102cf0a03a3ad0",
+      "bytes": 473860,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_1.glb": {
+      "url": "/assets/models/prepared_forest_rock_1.adbc2f490621.glb",
+      "sha256": "adbc2f490621e5e6e1aa87e573f024b557ca3851bfcb71cbcc2f48c79479973f",
+      "bytes": 480880,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_2.glb": {
+      "url": "/assets/models/prepared_forest_rock_2.32d88bb8c6af.glb",
+      "sha256": "32d88bb8c6af55dc152061667eb0c04e3f64e440d77f592e1267cca0af74eefd",
+      "bytes": 476136,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_3.glb": {
+      "url": "/assets/models/prepared_forest_rock_3.39fefbb63d18.glb",
+      "sha256": "39fefbb63d181da77c81a90fe877c15e9a3182c07e4e59bbbe0c468ac0c668e9",
+      "bytes": 474344,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_4.glb": {
+      "url": "/assets/models/prepared_forest_rock_4.991017b40a18.glb",
+      "sha256": "991017b40a184fcf54d652f6772661d12e88be5afad62b164dfd9712cf20f91f",
+      "bytes": 474568,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_5.glb": {
+      "url": "/assets/models/prepared_forest_rock_5.428cdcb6feb6.glb",
+      "sha256": "428cdcb6feb6c7e37efd76f98f328df024a9a6fb36fed7741e8c6e28623e9534",
+      "bytes": 478336,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_6.glb": {
+      "url": "/assets/models/prepared_forest_rock_6.f03f071a6587.glb",
+      "sha256": "f03f071a65871e07fe70f21bfb7c0e5f10aed633126db4b427f825ed87a1a503",
+      "bytes": 478472,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_7.glb": {
+      "url": "/assets/models/prepared_forest_rock_7.f5ed3ec921f2.glb",
+      "sha256": "f5ed3ec921f2b8a57e1dceedb8084a19cb319dc7e8e29de92981acd62a8c646b",
+      "bytes": 475544,
+      "kind": "glb"
+    },
+    "prepared/forest_rock_8.glb": {
+      "url": "/assets/models/prepared_forest_rock_8.12159779e55a.glb",
+      "sha256": "12159779e55a19fc74dd537629ae5ab0babd8e9106eb1110d9407891cd1c4a45",
+      "bytes": 475360,
+      "kind": "glb"
+    },
+    "prepared/forest_shrub_0.glb": {
+      "url": "/assets/models/prepared_forest_shrub_0.d6da3344ce03.glb",
+      "sha256": "d6da3344ce03650ddd9ca5cecaa308bb3f4868f7cb42ab37469b4dce722939c5",
+      "bytes": 170556,
+      "kind": "glb"
+    },
+    "prepared/forest_shrub_1.glb": {
+      "url": "/assets/models/prepared_forest_shrub_1.490b7fbeac6a.glb",
+      "sha256": "490b7fbeac6a86507da9456371ab1b0ff62ef9ff4b9f4e48c2aca6dad934891d",
+      "bytes": 172784,
+      "kind": "glb"
+    },
+    "prepared/forest_shrub_2.glb": {
+      "url": "/assets/models/prepared_forest_shrub_2.a38a7aa07641.glb",
+      "sha256": "a38a7aa076419c7c94291a149b14ebcefc6a91a55fdc2095a90758e17b71d69d",
+      "bytes": 177408,
+      "kind": "glb"
+    },
+    "prepared/forest_shrub_3.glb": {
+      "url": "/assets/models/prepared_forest_shrub_3.11e44fa9432d.glb",
+      "sha256": "11e44fa9432dc4fe9f3bcab2c53ea22d0b6eaf166f854dff914e7553649c0c20",
+      "bytes": 171780,
+      "kind": "glb"
+    },
+    "prepared/forest_shrub_4.glb": {
+      "url": "/assets/models/prepared_forest_shrub_4.37a8277f5c08.glb",
+      "sha256": "37a8277f5c0884c4aaca7822fa020b10d83006f759856bd4133ae2d7ee646a6f",
+      "bytes": 175108,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_0.glb": {
+      "url": "/assets/models/prepared_forest_tree_0.87bd5e6544b6.glb",
+      "sha256": "87bd5e6544b6275047c74a995ffeb7283ee97a8cd131c7f4cf71eb5e60f945b7",
+      "bytes": 178408,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_1.glb": {
+      "url": "/assets/models/prepared_forest_tree_1.9e1ceb0cdfa4.glb",
+      "sha256": "9e1ceb0cdfa4375d7d7378bfd3b7ab76c00bf0b284eb56e007b310fa1aae7f1e",
+      "bytes": 177728,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_2.glb": {
+      "url": "/assets/models/prepared_forest_tree_2.573c0850e813.glb",
+      "sha256": "573c0850e813fd999701909f2bee78317a849c1cd35bf9c3cc0a10305d81dd95",
+      "bytes": 173224,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_3.glb": {
+      "url": "/assets/models/prepared_forest_tree_3.6cda038810c1.glb",
+      "sha256": "6cda038810c18afbf75826b406ee7e1802bac2c6ec47d88d42091e78c9325574",
+      "bytes": 178484,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_4.glb": {
+      "url": "/assets/models/prepared_forest_tree_4.6a1e48f0e8a8.glb",
+      "sha256": "6a1e48f0e8a8aa99c5ff794c5f934da89f19d63ef2ef7384f7401064d6c2e4fc",
+      "bytes": 178468,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_5.glb": {
+      "url": "/assets/models/prepared_forest_tree_5.6fc2af92dac9.glb",
+      "sha256": "6fc2af92dac97bb558bf83abe27ce0f5fa496dad7367df6ac3ad62cfc5dd9bac",
+      "bytes": 178468,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_6.glb": {
+      "url": "/assets/models/prepared_forest_tree_6.96441199d768.glb",
+      "sha256": "96441199d76884020181724549b26fa0159a1e8f7bb64b81258a351d8b7c0ed2",
+      "bytes": 178964,
+      "kind": "glb"
+    },
+    "prepared/forest_tree_7.glb": {
+      "url": "/assets/models/prepared_forest_tree_7.75b474e51c21.glb",
+      "sha256": "75b474e51c2124ab4f308d59d6d662c4036940f2143347cde38e2eb8fd500bc1",
+      "bytes": 178468,
+      "kind": "glb"
+    },
     "prepared/generator01.glb": {
       "url": "/assets/models/prepared_generator01.01be869c0789.glb",
       "sha256": "01be869c078957108bc9803c13f558516b4dece929fc945365a24412eb3b9734",
@@ -1082,10 +1250,46 @@
       "bytes": 74372,
       "kind": "glb"
     },
+    "prepared/pine_sapling.glb": {
+      "url": "/assets/models/prepared_pine_sapling.956f51a5586a.glb",
+      "sha256": "956f51a5586a9bf4b3cc97784fa6fc7438cc17c65f5c65a2440489f0d2443e2c",
+      "bytes": 403840,
+      "kind": "glb"
+    },
     "prepared/pine_small.glb": {
       "url": "/assets/models/prepared_pine_small.054de675b49c.glb",
       "sha256": "054de675b49c954529e310e011669fb211632d8de357217ceb5dbcf2296c1325",
       "bytes": 76684,
+      "kind": "glb"
+    },
+    "prepared/pine_var1.glb": {
+      "url": "/assets/models/prepared_pine_var1.82af830e6c27.glb",
+      "sha256": "82af830e6c27d3c92cee4a69cb72f58637c1c2e9b717e97d1c2c6c5b185ef46c",
+      "bytes": 946404,
+      "kind": "glb"
+    },
+    "prepared/pine_var2.glb": {
+      "url": "/assets/models/prepared_pine_var2.6fbc6b6b8538.glb",
+      "sha256": "6fbc6b6b85385eef5668051129bf048d901f5b3a6d96d01bd9a28b49364ce435",
+      "bytes": 1017556,
+      "kind": "glb"
+    },
+    "prepared/pine_var3.glb": {
+      "url": "/assets/models/prepared_pine_var3.18b90ddf7b67.glb",
+      "sha256": "18b90ddf7b67d966b8d008ef12b112d9bb15d48ea1494f8ee1b53e66d70692a2",
+      "bytes": 873372,
+      "kind": "glb"
+    },
+    "prepared/pine_var4.glb": {
+      "url": "/assets/models/prepared_pine_var4.19fb48f315cd.glb",
+      "sha256": "19fb48f315cdd204da5fa483f59f930e4b7463ac207372d9cb2ecced9cd536ca",
+      "bytes": 652312,
+      "kind": "glb"
+    },
+    "prepared/pine_var5.glb": {
+      "url": "/assets/models/prepared_pine_var5.5d19dfa0dca4.glb",
+      "sha256": "5d19dfa0dca46500bc493dc99fe992cd1246e41a0714c99036a5d73a5dd5180c",
+      "bytes": 1218844,
       "kind": "glb"
     },
     "prepared/pylon_tower.glb": {
@@ -1140,6 +1344,30 @@
       "url": "/assets/models/prepared_slum_room.ddb0c5071b7c.glb",
       "sha256": "ddb0c5071b7cf56e559da121573542643095a118404d3e057f6c3298a2de7bdd",
       "bytes": 53824,
+      "kind": "glb"
+    },
+    "prepared/small_pine_var1.glb": {
+      "url": "/assets/models/prepared_small_pine_var1.46fbf32fae30.glb",
+      "sha256": "46fbf32fae305fb0fca90104a88383d85987693c8571f9ac2a278157f2d82a3b",
+      "bytes": 610400,
+      "kind": "glb"
+    },
+    "prepared/small_pine_var2.glb": {
+      "url": "/assets/models/prepared_small_pine_var2.b34d76c8f918.glb",
+      "sha256": "b34d76c8f9186091b8ea31a1685c50a255e46424447113bf998f64108d957112",
+      "bytes": 660660,
+      "kind": "glb"
+    },
+    "prepared/small_pine_var3.glb": {
+      "url": "/assets/models/prepared_small_pine_var3.666340e671e7.glb",
+      "sha256": "666340e671e73d8575ee7f4554347448a5bf11a49c13092822c14f7abd3a7315",
+      "bytes": 464280,
+      "kind": "glb"
+    },
+    "prepared/small_pine_var4.glb": {
+      "url": "/assets/models/prepared_small_pine_var4.8a2af67c8d46.glb",
+      "sha256": "8a2af67c8d4619489532f68b97c534c84dd84e55a95bb304a511fb2f46ac54a2",
+      "bytes": 1049028,
       "kind": "glb"
     },
     "prepared/stone_small_a.glb": {

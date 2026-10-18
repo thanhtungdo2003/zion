@@ -15,6 +15,7 @@ import { CAMP_ASSET, type AssetDefinition, type PlacementLayer } from '@zion/ass
 import { makeColumnSample, type ColumnSample, type WorldGenerator } from './generator';
 import { insideStructure } from './structures';
 import { ISLAND_ASSET } from './maps/authored';
+import { FLORA_ASSET, fromStand, standValue } from './flora';
 
 /**
  * Placement layers, processed in order. Each layer scatters at most one candidate per world-aligned
@@ -131,7 +132,7 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         const rotY = rng.next() * Math.PI * 2;
         if (flora && def.model.kind === 'procedural') {
           // The same prepared trees, bushes and rocks as the battle-royale island.
-          const swap = islandFlora(def.numericId, rng.next(), rng.next());
+          const swap = islandFlora(def.numericId, rng.next(), rng.next(), standValue(seed, x, z));
           // No imported counterpart (cactus, reeds): nothing grows there.
           if (!swap || (swap.thin && rng.next() < swap.thin)) continue;
           out.push({ asset: swap.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(sample.height - swap.sink), rot: quantizeRotation(rotY), scale: quantizeScale(swap.scale) });
@@ -157,20 +158,26 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
  * (conifers for spruce, broadleaves for oak…), sizes like the island's. `thin` drops a share of
  * candidates, since the island trees are fuller than the procedural ones.
  */
-function islandFlora(id: number, species: number, size: number): { asset: number; scale: number; sink: number; thin?: number } | null {
-  const pick = (list: readonly number[]) => list[Math.min(list.length - 1, Math.floor(species * list.length))]!;
+function islandFlora(id: number, species: number, size: number, stand: number): { asset: number; scale: number; sink: number; thin?: number } | null {
+  // Species follow the local stand (neighbours mostly alike); size picks young or mature growth.
+  const pick = (list: readonly number[]) => fromStand(list, stand, species);
   const tree = (asset: number) => ({ asset, scale: .75 + size * .5, sink: .25, thin: .35 });
+  const young = size < .32;
+  const conifers = young ? [ISLAND_ASSET.pineSmall, ...FLORA_ASSET.pineYoung] : [ISLAND_ASSET.pineMedium, ...FLORA_ASSET.pine, ISLAND_ASSET.pineBig, ISLAND_ASSET.conifer];
+  const broadleaf = young ? [...ISLAND_ASSET.treeSmall, ...FLORA_ASSET.oakYoung] : [...ISLAND_ASSET.treeBig, ...FLORA_ASSET.forestTree, ...FLORA_ASSET.oakMature];
+  // Undergrowth gathers under the canopy; boulders lie half buried.
+  const shrubs = [...ISLAND_ASSET.bush, ...FLORA_ASSET.shrub, FLORA_ASSET.sapling];
   switch (id) {
-    case 1: return tree(species < .3 ? ISLAND_ASSET.pineSmall : species < .6 ? ISLAND_ASSET.pineMedium : species < .85 ? ISLAND_ASSET.pineBig : ISLAND_ASSET.conifer);
-    case 2: case 4: case 7: return tree(species < .6 ? pick(ISLAND_ASSET.treeBig) : ISLAND_ASSET.treeSmall[Math.floor(size * 5) % 5]!);
-    case 3: return tree(pick(ISLAND_ASSET.treeSmall));
+    case 1: return tree(pick(conifers));
+    case 2: case 4: case 7: return tree(pick(broadleaf));
+    case 3: return tree(pick([...ISLAND_ASSET.treeSmall, ...FLORA_ASSET.oakYoung]));
     case 5: return tree(ISLAND_ASSET.banana);
     case 6: return tree(species < .5 ? ISLAND_ASSET.deadTree : ISLAND_ASSET.deadPine);
-    case 9: return { asset: pick(ISLAND_ASSET.bush), scale: .7 + size * .5, sink: .1 };
-    case 10: return { asset: pick(ISLAND_ASSET.bush), scale: .55 + size * .35, sink: .1, thin: .3 };
-    case 20: return { asset: pick(ISLAND_ASSET.stone), scale: .6 + size * .6, sink: .3 };
-    case 21: return { asset: pick(ISLAND_ASSET.rockMedium), scale: .6 + size * .6, sink: .4 };
-    case 22: return { asset: pick(ISLAND_ASSET.rockBig), scale: .6 + size * .5, sink: .5 };
+    case 9: return { asset: pick(shrubs), scale: .7 + size * .5, sink: .1 };
+    case 10: return { asset: pick(shrubs), scale: .55 + size * .35, sink: .1, thin: .3 };
+    case 20: return { asset: pick([...ISLAND_ASSET.stone, ...FLORA_ASSET.rockSmall]), scale: .6 + size * .6, sink: .3 };
+    case 21: return { asset: pick([...ISLAND_ASSET.rockMedium, ...FLORA_ASSET.rockMedium]), scale: .6 + size * .6, sink: .45 };
+    case 22: return { asset: pick([...ISLAND_ASSET.rockBig, ...FLORA_ASSET.rockBig]), scale: .6 + size * .5, sink: .55 };
     default: return null;
   }
 }

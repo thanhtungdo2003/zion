@@ -40,6 +40,20 @@ const jobs = [
     ['Rock_Medium_c_LOD0_27', 'rock_medium_c'], ['Rock_Big_a_LOD0_32', 'rock_big_a'], ['Rock_Big_b_LOD0_33', 'rock_big_b'], ['Rock_Big_c_LOD0_30', 'rock_big_c'], ['Cliff_a_LOD0_35', 'cliff_a'], ['Cliff_b_LOD0_36', 'cliff_b']]
     .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2463 + i, 1, { collider: 'box', category: 'rock', tags: ['island-flora', 'rock'] }]),
   ['nationals/banana_tree_low_poly.glb', null, 'banana_tree', 2473, 1, { height: 4.5, collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }],
+  // Low-poly forest pack (authored ~2× real size): broadleaf crowns, oaks built from a trunk and
+  // its separate branch mesh, undergrowth and small rocks (scaled up to boulders).
+  ...['', '.001', '.002', '.003', '.004', '.005', '.006', '.007']
+    .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Background_Tree_Atlas${suffix}`, `forest_tree_${i}`, 2600 + i, .5, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),
+  ...[['Tree_Trunk_01.001', 'Tree_Branches_01'], ['Tree_Trunk_01', 'Tree_Branches_01.001'], ['Tree_Trunk_01.002', 'Tree_Branches_01.002'], ['Tree_Trunk_02', 'Tree_Branches_02']]
+    .map((nodes, i) => ['nationals/low_poly_forest_tree_pack.glb', nodes, `forest_oak_${i}`, 2608 + i, .5, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),
+  ...['.008', '.009', '.010', '.011', '.012']
+    .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Background_Tree_Atlas${suffix}`, `forest_shrub_${i}`, 2612 + i, .5, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }]),
+  ...['', '.001', '.002', '.003', '.004', '.005', '.006', '.007', '.008']
+    .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Rocks${suffix}`, `forest_rock_${i}`, 2617 + i, 1.8, { collider: 'box', category: 'rock', tags: ['island-flora', 'rock'] }]),
+  // Stylized pine pack (14 m tall pines, 8 m young pines, a sapling).
+  ...['stylized_pine_var1', 'stylized_pine_var2', 'stylized_pine_var3', 'stylized_pine_var4', 'stylized_pine_var5', 'small_stylized_pine_var1', 'small_stylized_pine_var2', 'small_stylized_pine_var3', 'small_stylized_pine_var4']
+    .map((node, i) => ['nationals/stylized_pine_tree_pack.glb', node, node.replace('stylized_', ''), 2626 + i, .85, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),
+  ['nationals/stylized_pine_tree_pack.glb', 'sapling_stylized_pine', 'pine_sapling', 2635, .85, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }],
 ];
 const sources = new Map();
 const hash = createHash('sha256').update(await fs.readFile(fileURLToPath(import.meta.url)));
@@ -81,11 +95,12 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     for(const j of n.children??[]) {parents[j]=i;visit(j,worlds[i]);}
   }
   for(const i of src.scenes[src.scene??0].nodes) visit(i,new Matrix4());
-  const selected = object ? src.nodes.findIndex(n=>n.name===object) : src.scenes[src.scene??0].nodes[0];
-  if(selected<0) throw Error('Missing object '+object);
+  // One node (with its subtree), several nodes making one model (a trunk and its branches), or the scene.
+  const selected = (Array.isArray(object) ? object : [object]).map(o => o ? src.nodes.findIndex(n=>n.name===o) : src.scenes[src.scene??0].nodes[0]);
+  if(selected.some(i=>i<0)) throw Error('Missing object '+object);
   const nodes=[];
   function collect(i) { if(src.nodes[i].mesh!==undefined) nodes.push(i); for(const j of src.nodes[i].children??[])collect(j); }
-  collect(selected);
+  for(const i of selected) collect(i);
   function accessor(index) {
     const a=src.accessors[index],v=src.bufferViews[a.bufferView];
     const components={SCALAR:1,VEC2:2,VEC3:3,VEC4:4}[a.type];
