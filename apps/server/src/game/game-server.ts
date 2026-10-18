@@ -2455,6 +2455,8 @@ export class GameServer {
     }
     if (dx !== 0 || dz !== 0) p.dirty = true;
     if (s.stuckTicks > STUCK_TICKS_LIMIT) this.unstick(p);
+    // Infection map models: fell below every floor of the map (under its pits): back on top.
+    if (this.infection && s.y < INFECTION_GROUND - 4.4 && !p.dead) this.teleport(p, this.infectionSpot(this.infection.isZombie(p.id)));
     // Wedged inside a model's wall (spawned or pushed there): move to the nearest open spot.
     if (this.tick % 30 === p.id % 30 && !p.vehicleId && !s.flight && s.grounded && Math.hypot(s.vx, s.vz) < .2 && this.spawns.inWallGap(s.x, s.y, s.z)) this.unstick(p);
     // Check after movement too: an attack pressed on the tick entering water is blocked.

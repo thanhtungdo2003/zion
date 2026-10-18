@@ -30,7 +30,7 @@ async function loadAssetModel(asset: number): Promise<Object3D> {
 }
 
 /** `model`: an item, a model file, or a world asset (`asset`: its numeric id, Studio catalogues). */
-export default function ModelPreview({ model, title, attachments }: { model: HandbookEntry['model'] | { asset: number } | { structure: string }; title: string; attachments?: Attachments }) {
+export default function ModelPreview({ model, title, attachments }: { model: HandbookEntry['model'] | { asset: number } | { structure: string } | { build: () => Promise<Object3D>; key: string }; title: string; attachments?: Attachments }) {
   const dress = attachments ? `${attachments.optic ?? ''}|${attachments.muzzle ?? ''}` : '';
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<{ reset(): void; zoom(amount: number): void; rotate(value: boolean): void } | null>(null);
@@ -41,6 +41,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
   const url = 'url' in model ? model.url : null;
   const asset = 'asset' in model ? model.asset : null;
   const structure = 'structure' in model ? model.structure : null;
+  const built = 'build' in model ? model : null;
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -87,7 +88,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
       zoom: amount => { camera.zoom = Math.max(.6, Math.min(3, camera.zoom * amount)); camera.updateProjectionMatrix(); render(); },
       rotate: value => { controls.autoRotate = value; if (value) start(); },
     };
-    const load = structure !== null ? buildStructureModel(structure, new AssetLibrary(createDefaultRegistry())) : asset !== null ? loadAssetModel(asset) : itemId ? loadItemDisplayModel(itemId, attachments) : url?.endsWith('.glb') || url?.endsWith('.gltf')
+    const load = built ? built.build() : structure !== null ? buildStructureModel(structure, new AssetLibrary(createDefaultRegistry())) : asset !== null ? loadAssetModel(asset) : itemId ? loadItemDisplayModel(itemId, attachments) : url?.endsWith('.glb') || url?.endsWith('.gltf')
       ? new GLTFLoader().loadAsync(url!).then(gltf => gltf.scene)
       : loadCharacterModel(url!).then(template => template.root);
     void load.then(root => {
@@ -106,7 +107,7 @@ export default function ModelPreview({ model, title, attachments }: { model: Han
       controls.dispose(); resources.object(scene); scene.clear(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `dress` stands for `attachments`.
-  }, [itemId, url, asset, structure, attempt, dress]);
+  }, [itemId, url, asset, structure, built?.key, attempt, dress]);
   return <div className="model-preview" role="group" aria-label={`Mô hình 3D: ${title}`}>
     <div className="model-preview-canvas" ref={host} />
     {state === 'loading' && <div className="model-preview-state" role="status"><Spinner /> Đang tải mô hình 3D…</div>}

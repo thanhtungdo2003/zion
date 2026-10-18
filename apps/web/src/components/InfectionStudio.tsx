@@ -70,6 +70,7 @@ export default function InfectionStudio() {
   const [draft, setDraft] = useState<InfectionMapDef | null>(null);
   const [saved, setSaved] = useState('');
   const [preview, setPreview] = useState<InfectionMapPreview | null>(null);
+  const [view3d, setView3d] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
   const [sel, setSel] = useState<Sel>(null);
@@ -393,6 +394,12 @@ export default function InfectionStudio() {
         </aside>
 
         <div className="ix-plan">
+          <button className={`btn ix-view-toggle${view3d ? ' on' : ''}`} onClick={() => setView3d((v) => !v)} title="Xem toàn bộ bản đồ dạng 3D"><Icon name={view3d ? 'lucide:map' : 'lucide:box'} /> {view3d ? 'Mặt bằng' : '3D'}</button>
+          {view3d && preview && (() => {
+            // Rebuilt when the layout changes (not on every slider move).
+            const key = `${draft.id}:${draft.base}:${draft.parts.length}:${preview.base.length}:${preview.wall.length}:${preview.nature.length}:${preview.heights.length}`;
+            return <div className="ix-plan-3d"><ModelPreview key={key} model={{ key, build: () => import('@/studio/infection-map-scene').then((m) => m.buildInfectionMapScene(preview, draft)) }} title={draft.name} /></div>;
+          })()}
           <canvas ref={canvas} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => { mouse.current = null; draw(); }} onWheel={onWheel} onContextMenu={(e) => e.preventDefault()} />
           <div className="ix-legend">
             <span><i style={{ background: '#ffb000' }} />Đã đặt ({draft.parts.length})</span>

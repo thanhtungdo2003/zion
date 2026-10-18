@@ -316,9 +316,10 @@ export interface PlayerProgress { id: string; username: string; journal: Record<
 /** Infection maps (Studio "Lây nhiễm"). */
 export interface InfectionMapPreview {
   half: number; step: number; size: number; origin: number; heights: number[]; grass: number[];
-  base: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
-  wall: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
-  nature: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
+  /** Models with their world height `y` (the Studio's 3D view of the whole map). */
+  base: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
+  wall: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
+  nature: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
   spawns: Array<{ x: number; z: number }>; zombieSpawns: Array<{ x: number; z: number }>;
 }
 export function studioInfectionMaps(): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps'); }

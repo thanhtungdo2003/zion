@@ -91,6 +91,8 @@ describe('isolated infection server', () => {
       const centre = world.generator.worldSize / 2;
       expect(Math.abs(pa.state.x - centre)).toBeLessThan(WAREHOUSE.halfX);
       expect(Math.abs(pa.state.z - centre)).toBeLessThan(WAREHOUSE.halfZ);
+      // On the map model's floor, not on the sunken terrain under it.
+      expect(pa.state.y).toBeGreaterThan(30 - 4.2);
       expect(repository.load).not.toHaveBeenCalled();
 
       // A chosen loadout replaces it before the round.

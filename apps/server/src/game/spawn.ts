@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { worldToChunk } from '@zion/shared';
 import { DEFAULT_CHARACTER, Layer, Mask, makeRayHit, type CharacterController, type CollisionWorld } from '@zion/physics';
-import { structuresNear, type SpawnPoint, type WorldGenerator } from '@zion/worldgen';
+import { INFECTION_GROUND, structuresNear, type SpawnPoint, type WorldGenerator } from '@zion/worldgen';
 import type { PhysicsChunkManager } from './physics-manager';
 
 export interface ValidatedPosition {
@@ -85,7 +85,13 @@ export class SpawnService {
       const n = { x: 0, y: 1, z: 0 };
       this.collision.terrainNormal(px, pz, n);
       if (n.y < p.walkableNormalY) continue;
-      const y = ground + 0.02;
+      let y = ground + 0.02;
+      // Infection maps built from one map model (the Warehouse) have their own floors above the
+      // terrain: stand on the first surface below the map's ground level, never under it.
+      if (this.gen.config.mode === 'infection') {
+        const top = INFECTION_GROUND + 2.5;
+        if (top > ground && this.collision.raycast(px, top, pz, 0, -1, 0, top - ground + .1, Mask.CharacterMovement, this.shadeHit) && this.shadeHit.ny >= p.walkableNormalY) y = top - this.shadeHit.t + 0.02;
+      }
       if (!this.controller.isFree(px, y, pz)) continue;
       // Never inside a building's shell: not boxed in on every side, not in a slot between walls.
       if (this.trapped(px, y, pz)) continue;

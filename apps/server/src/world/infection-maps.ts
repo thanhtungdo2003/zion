@@ -1,6 +1,6 @@
 import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
 import type { AssetRegistry } from '@zion/assets';
-import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
+import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, INFECTION_GROUND, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
 import { WorldService } from './world-service';
@@ -126,11 +126,15 @@ export class InfectionMapService {
       heights.push(Math.round(infectionHeight(gen, x, z) * 10) / 10);
       grass.push(infectionSurface(gen, x, z, 0) === Surface.Grass ? 1 : 0);
     }
-    const rel = (list: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>) => list.map((p) => ({ asset: p.asset, x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3), scale: p.scale }));
-    const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z })))
-      : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, yaw: 0, scale: 1 }] : [];
+    // Every model with its world height (y), for the Studio's 3D view of the whole map.
+    const rel = (list: Array<{ asset: number; x: number; z: number; y?: number; yaw: number; scale: number }>, ground = true) => list.map((p) => ({
+      asset: p.asset, x: +p.x.toFixed(2), z: +p.z.toFixed(2), yaw: +p.yaw.toFixed(3), scale: p.scale,
+      y: +((ground ? infectionHeight(gen, c + p.x, c + p.z) : 0) + (p.y ?? 0)).toFixed(2),
+    }));
+    const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z, y: s.y + p.y })))
+      : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, scale: 1 }] : [];
     const layers = infectionLayers(gen);
     const toRel = (list: Array<{ x: number; z: number }>) => list.map((s) => ({ x: +(s.x - c).toFixed(2), z: +(s.z - c).toFixed(2) }));
-    return { half: def.half, step, size, origin: -ext, heights, grass, base: rel(base), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };
+    return { half: def.half, step, size, origin: -ext, heights, grass, base: rel(base, false), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };
   }
 }

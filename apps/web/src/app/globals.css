@@ -3112,3 +3112,7 @@ kbd {
 .fp-scope-rocket .fp-scope-chevron { stroke: #c4241c; stroke-width: .9; }
 .fp-scope-rocket .fp-scope-stadia { stroke-width: .5; }
 .fp-scope-label.small { font-size: 2.6px; }
+.ix-view-toggle { position: absolute; top: 10px; right: 10px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; }
+.ix-view-toggle.on { background: var(--accent); color: var(--accent-ink); }
+.ix-plan-3d { position: absolute; inset: 0; z-index: 2; background: #101214; }
+.ix-plan-3d .model-preview { width: 100%; height: 100%; }
