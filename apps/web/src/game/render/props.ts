@@ -1,5 +1,5 @@
 import { DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, type BufferGeometry, type Material, type Scene } from 'three';
-import { farMaterial, simplifyAsset } from './far-lod';
+import { farFoliageMaterial, farMaterial, simplifyAsset } from './far-lod';
 import { PROPS_MAX_LOD, propTransform, type ChunkData } from '@zion/shared';
 import type { AssetLibrary, AssetVisual } from './asset-library';
 
@@ -21,7 +21,11 @@ const MODEL_LOD_DISTANCE = 170;
 
 /** A far model: the asset's own silhouette, simplified and flat-coloured (see far-lod.ts). */
 interface Proxy { parts: Array<{ geometry: BufferGeometry; material: Material }> }
-function makeProxy(v: AssetVisual): Proxy { return { parts: [{ geometry: simplifyAsset(v, v.def.category === 'tree' ? 7 : 9), material: farMaterial }] }; }
+function makeProxy(v: AssetVisual): Proxy {
+  // Foliage keeps more of its outline and a grainy, leafy shading; buildings stay flat-faceted.
+  const leafy = v.def.category === 'tree' || v.def.category === 'vegetation';
+  return { parts: [{ geometry: simplifyAsset(v, leafy ? 11 : 9), material: leafy ? farFoliageMaterial : farMaterial }] };
+}
 
 /** How fast occluders fade out / back in (per second). */
 const FADE_SPEED = 6;

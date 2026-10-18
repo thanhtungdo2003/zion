@@ -1695,7 +1695,8 @@ export class GameServer {
       for (const p of this.players.values()) if (!p.dead && match.outside(p.state.x, p.state.z)) {
         this.damage(null, p, match.state(now).damagePerSecond, 'red_zone', p.state.x, p.state.y + 1, p.state.z, now);
       }
-      for (const bot of this.bots?.bots ?? []) if (!bot.dead && !bot.state.flight && match.outside(bot.state.x, bot.state.z)) {
+      // Bots still falling or under a canopy (e.g. over unloaded ground) burn too: none outlives the zone.
+      for (const bot of this.bots?.bots ?? []) if (!bot.dead && bot.state.flight !== 1 && match.outside(bot.state.x, bot.state.z)) {
         this.bots!.hit(bot, match.state(now).damagePerSecond, 'vòng bo đỏ', null, now, 'red_zone');
       }
     }

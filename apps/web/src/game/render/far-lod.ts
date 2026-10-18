@@ -4,6 +4,33 @@ import type { AssetVisual } from './asset-library';
 /** Shared material of every far model: flat-shaded vertex colours, no textures. */
 export const farMaterial = new MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
+/**
+ * Far foliage (trees, bushes): not flat facets but a soft, grainy canopy, as leaves read from
+ * afar: smooth shading broken into small world-space blotches of light and shade.
+ */
+export const farFoliageMaterial = new MeshLambertMaterial({ vertexColors: true });
+farFoliageMaterial.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', `#include <common>
+varying vec3 vFoliage;`)
+    .replace('#include <project_vertex>', `
+      vec4 foliagePos = vec4(transformed, 1.0);
+      #ifdef USE_INSTANCING
+        foliagePos = instanceMatrix * foliagePos;
+      #endif
+      vFoliage = (modelMatrix * foliagePos).xyz;
+      #include <project_vertex>`);
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      varying vec3 vFoliage;
+      float foliageHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }`)
+    .replace('#include <color_fragment>', `#include <color_fragment>
+      vec3 cell = floor(vFoliage * 2.6);
+      float grain = foliageHash(cell) * 0.6 + foliageHash(floor(vFoliage * 0.9)) * 0.4;
+      diffuseColor.rgb *= 0.72 + grain * 0.5;`);
+};
+farFoliageMaterial.customProgramCacheKey = () => 'far-foliage';
+
 const sampled = new WeakMap<object, Color>();
 /** Average colour of a texture (drawn into a few pixels); white when it cannot be read. */
 function textureColor(map: Texture | null | undefined): Color {

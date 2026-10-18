@@ -18,7 +18,7 @@ import { vegetationPatch } from './vegetation-pattern';
  */
 export const COVER_ASSETS = {
   /** Short grass carpet: stylized clumps and blades (weighted: light blades most often), a low patch. */
-  carpet: [2643, 2643, 2643, 2643, 2640, 2641, 2642, 2645],
+  carpet: [2643, 2640, 2641, 2642, 2645, 2644],
   /** Fuller grass patches on lush meadows. */
   patch: [2644, 2646],
   /** Taller meadow grass sheets on lush open ground. */
@@ -27,6 +27,8 @@ export const COVER_ASSETS = {
   flowers: [2651],
   /** Full, detailed tufts: at the feet of trees, rocks and buildings. */
   lush: [2647],
+  /** The odd big tuft standing out of a carpet. */
+  tuft: [2647],
   /** Dry, straw-coloured tufts on dry grassland. */
   dry: [2648],
   /** Reeds along water, in mud and on wet ground. */
@@ -46,13 +48,15 @@ const CARPET: Partial<Record<Surface, number>> = {
 /** Surfaces where grass grows thick around whatever stands on them. */
 const GRASSY = new Set<Surface>([Surface.Grass, Surface.DryGrass, Surface.JungleFloor, Surface.RoadVerge, Surface.ForestFloor]);
 const CELL = .9;
+/** The kinds a grass patch may be made of (one per patch). */
+const PATCH_SPECIES = [2643, 2640, 2641, 2642, 2645, 2644];
 const VEG_RADIUS = 2;
 const MEADOW_MIN_CAMP_DISTANCE = 300;
 const MEADOW_FULL_CAMP_DISTANCE = 400;
 /** Instance floats: matrix (16), colour (3), cell key, "near only" detail flag. */
 const STRIDE = 21;
 /** Heavy models (thousands of triangles): only so many per chunk. */
-const CAP: Partial<Record<Cover, number>> = { lush: 10, dry: 14, patch: 40, ferns: 70 };
+const CAP: Partial<Record<Cover, number>> = { lush: 10, tuft: 12, dry: 14, patch: 40, ferns: 70 };
 
 interface ChunkCover {
   /** Per model (asset id): packed instances (see STRIDE). */
@@ -199,10 +203,10 @@ export class VegetationRenderer {
       chunkHeightAtLocal(chunk, lx, Math.min(CHUNK_SIZE, lz + .35)) - y,
     ) / .35;
     const used = new Map<Cover, number>();
-    const add = (cover: Cover, lx: number, lz: number, k: number, scale: number, detail: boolean) => {
+    const add = (cover: Cover, lx: number, lz: number, k: number, scale: number, detail: boolean, only?: number) => {
       const cap = CAP[cover];
       if (cap !== undefined) { const n = used.get(cover) ?? 0; if (n >= cap) return; used.set(cover, n + 1); }
-      const list = COVER_ASSETS[cover], asset = list[Math.floor(rng.next() * list.length)]!;
+      const list = COVER_ASSETS[cover], asset = only ?? list[Math.floor(rng.next() * list.length)]!;
       const x = ox + lx, z = oz + lz, y = chunkHeightAtLocal(chunk, lx, lz) - .03;
       const a = rng.next() * Math.PI * 2, c = Math.cos(a) * scale, s = Math.sin(a) * scale;
       // Tint: the local climate over the model's own colours (dry and cold grass yellows).
@@ -235,19 +239,23 @@ export class VegetationRenderer {
         if (base <= 0) continue;
         // Grass grows in patches: a dense carpet inside, a few stray clumps between.
         const shape = patch(16, 0x73) * .65 + patch(5, 0x5a) * .35;
-        const inside = smoothstep(.38, .6, shape);
+        const inside = smoothstep(.3, .48, shape);
+        // Each patch is one kind of grass (neighbouring patches differ).
+        const species = PATCH_SPECIES[Math.min(PATCH_SPECIES.length - 1, Math.floor(patch(26, 0x5e) * PATCH_SPECIES.length))]!;
         const lush = surface === Surface.Grass || surface === Surface.RoadVerge || surface === Surface.JungleFloor;
         const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
         // Ferns carpet the forest floor in shade.
         if (forest && patch(11, 0xfe) > .6 && rng.next() < .14 * this.density) { add('ferns', lx, lz, k, 1 + rng.next() * .6, false); continue; }
-        const clumps = inside > .65 ? 2 : inside > 0 ? 1 : 0;
+        const clumps = inside > .55 ? 3 : inside > .2 ? 2 : inside > 0 ? 1 : 0;
         for (let i = 0; i < clumps; i++) {
-          if (rng.next() > Math.min(1, base * (.55 + inside * .6)) * this.density) continue;
+          if (rng.next() > Math.min(1, base * (.8 + inside * .6)) * this.density) continue;
           const jx = Math.min(CHUNK_SIZE - .01, Math.max(0, lx + (rng.next() - .5) * cellSize)), jz = Math.min(CHUNK_SIZE - .01, Math.max(0, lz + (rng.next() - .5) * cellSize));
           // The far ring keeps every other clump; the near chunks get them all.
-          add(surface === Surface.DryGrass && rng.next() < .02 ? 'dry' : 'carpet', jx, jz, k, .85 + rng.next() * .6, i > 0);
+          // Now and then a big tuft stands out of the carpet.
+          if (inside > .5 && rng.next() < .012) add('tuft', jx, jz, k, .9 + rng.next() * .4, false);
+          else add(surface === Surface.DryGrass && rng.next() < .02 ? 'dry' : 'carpet', jx, jz, k, .85 + rng.next() * .5, i > 0, species);
         }
-        if (!clumps && rng.next() < base * .06 * this.density) add('carpet', lx, lz, k, .7 + rng.next() * .4, false);
+        if (!clumps && rng.next() < base * .03 * this.density) add('carpet', lx, lz, k, .7 + rng.next() * .4, false, species);
         // Meadows: tall grass and wildflowers in open, lush, humid fields away from the camp.
         if (lush && inside > .5) {
           const meadow = patch(54, 0x94);

@@ -10,6 +10,8 @@ export const MATERIAL_ASSET = {
   panel: { ivory: 2051, gray: 2052, darkred: 2053 },
   sill: { ivory: 2054, gray: 2055, darkred: 2056 },
   lintel: { ivory: 2057, gray: 2058, darkred: 2059 },
+  /** Floor band: a slim moulding running round the house where one storey meets the next. */
+  band: { concrete: 2060, brick: 2061 },
 } as const;
 export type ConcreteFinish = keyof typeof MATERIAL_ASSET.panel;
 
@@ -33,6 +35,12 @@ export const MATERIAL_ASSETS: readonly AssetDefinitionInput[] = [
     colliders: [{ type: 'box', center: [0, .5, 0], halfExtents: [1, .5, .19] }],
     bounds: { radius: 1.02, height: 1 }, render: { maxDistance: 600 }, tags: ['masonry', 'brick'],
   },
+  ...([['concrete', 2060, 3, '#c8c2b6'], ['brick', 2061, 2, '#b8a88e']] as const).map(([kind, numericId, w, color]): AssetDefinitionInput => ({
+    id: `material.floor_band_${kind}`, numericId, name: `Floor band (${kind})`, category: 'structure',
+    model: { kind: 'procedural', generator: 'bridge_block', params: { width: w, height: .32, depth: .56, color } },
+    colliders: [{ type: 'box', center: [0, .16, 0], halfExtents: [w / 2, .16, .28] }],
+    bounds: { radius: w / 2 + .05, height: .32 }, render: { maxDistance: 600 }, tags: ['masonry'],
+  })),
   ...(['ivory', 'gray', 'darkred'] as const).flatMap((f) => [
     concrete(`material.concrete_panel_${f}`, MATERIAL_ASSET.panel[f], `Concrete panel (${f})`, f, 3),
     concrete(`material.concrete_sill_${f}`, MATERIAL_ASSET.sill[f], `Concrete window sill (${f})`, f, .9),

@@ -201,7 +201,8 @@ export class SkySystem {
     this.hemi = new HemisphereLight(0xbcd4ff, 0x3a3326, 0.6);
     scene.add(this.hemi);
 
-    this.fog = new Fog(0xa8c6e4, 140, 440);
+    // A light haze from a few dozen metres out that thickens with distance.
+    this.fog = new Fog(0xa8c6e4, 35, 560);
     scene.fog = this.fog;
   }
 

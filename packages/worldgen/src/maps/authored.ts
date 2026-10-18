@@ -358,6 +358,8 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     const [hx, hz] = typeof size === 'number' ? [0, 0] : size;
     const radius = typeof size === 'number' ? size : Math.hypot(hx, hz);
     const level = options.level ?? Math.max(sea + 1.6, world.terrain(x, z));
+    // Town plots never stand on one another: a plot that would overlap a building already placed is left empty.
+    if (kind === 'town' && kit.parts.length && radius < 32 && sites.some((o) => o.kind === 'town' && o.parts.length && o.radius < 32 && Math.hypot(o.x - x, o.z - z) < (o.radius + radius) * .82)) return;
     sites.push({
       kind, x, z, y: level, yaw: options.yaw ?? 0, radius, parts: importedRoofAccess(kit.parts), gid: gid++,
       ...(hx ? { halfX: hx, halfZ: hz } : {}), ...(options.ground !== undefined ? { ground: options.ground } : {}),

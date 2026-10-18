@@ -1,4 +1,4 @@
-import { MATERIAL_ASSET, STREET_ASSET, type ConcreteFinish } from '@zion/assets';
+import { CAMP_ASSET, MATERIAL_ASSET, STREET_ASSET, type ConcreteFinish } from '@zion/assets';
 import type { Rng } from '@zion/shared';
 import type { CampPart } from './camp';
 
@@ -47,8 +47,15 @@ export function masonryBuilding(parts: CampPart[], spawns: SpawnSpot[], cx: numb
     put(MATERIAL_ASSET.lintel[finish], lx, base + 2.5, lz, wy);
   };
   const walled = (f: number) => !o.unfinished || f === 0;
+  // Where storeys meet, a slim band runs round the outside, covering the floor slab's edge.
+  const band = (y: number) => {
+    const asset = brick ? MATERIAL_ASSET.band.brick : MATERIAL_ASSET.band.concrete, out = brick ? .1 : .05;
+    for (let i = 0; i < w / module; i++) { const lx = -w / 2 + module / 2 + i * module; put(asset, lx, y - .06, -d / 2 - out, 0); put(asset, lx, y - .06, d / 2 + out, 0); }
+    for (let j = 0; j < d / module; j++) { const lz = -d / 2 + module / 2 + j * module; put(asset, -w / 2 - out, y - .06, lz, Math.PI / 2); put(asset, w / 2 + out, y - .06, lz, Math.PI / 2); }
+  };
   for (let f = 0; f <= o.floors; f++) {
     const y = f * STOREY;
+    if (f > 0 && (walled(f) || f === 1)) band(y);
     for (let i = 0; i < tilesX; i++) for (let j = 0; j < tilesZ; j++) {
       if (f > 0 && inStairwell(i, j)) continue;
       put(f === o.floors ? STREET_ASSET.roof : STREET_ASSET.slab, -w / 2 + 1 + i * 2, y, -d / 2 + 1 + j * 2);
@@ -63,6 +70,10 @@ export function masonryBuilding(parts: CampPart[], spawns: SpawnSpot[], cx: numb
       break;
     }
     for (let n = 0; n < steps; n++) put(STREET_ASSET.step, stairX, y + SLAB + n * .2, holeFront + .16 + (steps - 1 - n) * run);
+    // Loot: a crate or two on every floor, in the corners away from the stair.
+    put(rng.next() < .5 ? CAMP_ASSET['military-wooden-crate'] : CAMP_ASSET['old-wooden-crate'], w / 2 - 1.2, y + SLAB, -d / 2 + 1.2, rng.next() * .4);
+    if (w * d > 120 && rng.next() < .7) put(CAMP_ASSET['old-wooden-crate'], w / 2 - 1.2, y + SLAB, d / 2 - 1.4, rng.next() * .4);
+    if (w * d > 200 && rng.next() < .5) put(CAMP_ASSET['old-carton-box'], 0, y + SLAB, d / 2 - 1.2, rng.next() * 3);
     spawns.push([cx + 1 * c + 0 * s, y + .3, cz - 1 * s + 0 * c], [cx + (w / 4) * c + (-d / 4) * s, y + .3, cz - (w / 4) * s + (-d / 4) * c]);
     if (!walled(f)) continue;
     // Front: a door in the middle on the ground floor, windows elsewhere; back: a door, windows.
@@ -118,6 +129,8 @@ export function constructionSite(parts: CampPart[], spawns: SpawnSpot[], cx: num
   wall(12, -12, 12, 12, [2]);
   // Materials and plant round the frame.
   put(SITE_ASSET.cabin, 9, 8.5, 0, Math.PI / 2, .7);
+  // The site office's supplies.
+  put(CAMP_ASSET['military-wooden-crate'], 6, 6.5, 0, 0);
   put(SITE_ASSET.hoist, -9, -8, 0);
   put(SITE_ASSET.beams, 0, -8.5, 0, 0, .55);
   for (const [lx, lz] of [[-9.5, 2], [-9.5, 5]] as const) put(rng.next() < .5 ? SITE_ASSET.brickPallet : SITE_ASSET.blockPallet, lx, lz, 0, rng.next() * .3);
