@@ -1,4 +1,4 @@
-import { CACHE_DRAWS_PER_DAY, type ChestStateMessage } from '@zion/shared';
+import { CACHE_DRAWS_PER_DAY, type BlueprintProgress, type ChestStateMessage } from '@zion/shared';
 import { markPending } from '../pending';
 import {
   ARMOR_CONTAINERS,
@@ -44,6 +44,9 @@ export interface HeldItem {
   from: { container: ContainerId; x: number; y: number; rotated: boolean };
 }
 
+/** Side panel the inventory was opened with (cache, traders, storage, chest, architect, supply radio). */
+export type Station = 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | 'architect' | 'supply';
+
 export interface InventoryState {
   open: boolean;
   chest: ChestStateMessage | null;
@@ -52,11 +55,15 @@ export interface InventoryState {
   /** uid of the item in hand (hotbar selection), or null for empty hands. */
   equipped: number | null;
   /** Opened at an ammo cache station / trader: which side panel is shown. */
-  station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null;
+  station: Station | null;
   /** Ammo-cache draws left this world day (server-reported). */
   cacheLeft: number;
   /** Gun (uid) whose attachment screen is open, or null. */
   attachGun?: number | null;
+  /** The architect's ledger for this player (what has been handed in per blueprint). */
+  blueprints: BlueprintProgress[];
+  /** A blueprint just completed at the architect (shows its claim button lit). */
+  blueprintReady: string | null;
 }
 
 /**
@@ -65,7 +72,7 @@ export interface InventoryState {
  * (optimistic, using the same shared grid rules) and corrected if the server disagrees.
  */
 export class InventoryStore {
-  private state: InventoryState = { chest: null, open: false, items: [], held: null, equipped: null, station: null, cacheLeft: CACHE_DRAWS_PER_DAY };
+  private state: InventoryState = { chest: null, open: false, items: [], held: null, equipped: null, station: null, cacheLeft: CACHE_DRAWS_PER_DAY, blueprints: [], blueprintReady: null };
   private chestId: string | null = null;
   private readonly listeners = new Set<() => void>();
   /** Sends an inventory request to the server (wired by the engine). */
@@ -132,7 +139,7 @@ export class InventoryStore {
     else this.send?.({ t: 'inv', op, id: chest.id, uid, revision: chest.revision });
   }
 
-  setOpen(open: boolean, station: 'field' | 'camp' | 'shop' | 'nurse' | 'stash' | 'chest' | null = null): void {
+  setOpen(open: boolean, station: Station | null = null): void {
     if (!open) this.returnHeld();
     if ((!open || station !== 'chest') && this.chestId) { this.chestId = null; this.send?.({ t: 'inv', op: 'chestClose' }); this.set({ chest: null }); }
     this.set({ open, station: open ? station : null, ...(open ? {} : { attachGun: null }) });
@@ -180,6 +187,17 @@ export class InventoryStore {
   /** Right-click food: eat it (returns false when it isn't edible). */
   onUseCoal: ((uid: number) => boolean) | null = null;
   onEat: ((uid: number) => boolean) | null = null;
+  /** Right-click a building item (blueprint → placing, radio → supply panel, log → planks); true = handled. */
+  onUseItem: ((uid: number) => boolean) | null = null;
+  /** Architect: hand in a material / take a finished blueprint; supply radio: place an order. */
+  onDeposit: ((blueprint: string, item: string) => void) | null = null;
+  onClaim: ((blueprint: string) => void) | null = null;
+  onOrder: ((entry: string) => void) | null = null;
+
+  applyBlueprints(progress: BlueprintProgress[], ready?: string): void {
+    this.set({ blueprints: progress, blueprintReady: ready ?? null });
+  }
+
   /** Testing aid: + 1000 ZCoin. */
   onDevCoins: (() => void) | null = null;
   /** Pay the field medic for a full heal. */

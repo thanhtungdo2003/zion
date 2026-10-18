@@ -3035,3 +3035,66 @@ kbd {
 .inv-sort:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .inv-sort:disabled { opacity: .4; cursor: default; }
 .inv-sort svg { width: 15px; height: 15px; }
+
+/* ---------------- Base building: architect blueprints and the supply radio ---------------- */
+.tech-panel {
+  --tech: #4fb3ff; --tech-dim: rgba(79,179,255,.18);
+  width: 520px; display: flex; flex-direction: column; gap: 8px;
+  background: linear-gradient(180deg, rgba(10,24,38,.96), rgba(9,14,20,.96));
+  border: 1px solid rgba(79,179,255,.45); box-shadow: inset 0 0 0 1px rgba(79,179,255,.08), 0 0 24px rgba(79,179,255,.12);
+  position: relative;
+}
+.tech-panel::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(79,179,255,.035) 0 1px, transparent 1px 4px); }
+.tech-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid rgba(79,179,255,.3); }
+.tech-head span { display: flex; align-items: center; gap: 6px; color: #d9efff; font-weight: 700; letter-spacing: .04em; }
+.tech-head small { color: var(--tech); font-size: 10px; letter-spacing: .12em; }
+.tech-bar { display: block; height: 5px; background: rgba(79,179,255,.14); border: 1px solid rgba(79,179,255,.3); overflow: hidden; }
+.tech-bar.big { height: 9px; }
+.tech-bar span { display: block; height: 100%; background: linear-gradient(90deg, #2f86d9, #7fd0ff); box-shadow: 0 0 8px rgba(127,208,255,.8); transition: width .35s ease; }
+.tech-btn { border-color: rgba(79,179,255,.6); color: #d9efff; background: rgba(79,179,255,.12); display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; }
+.tech-btn:hover:not(:disabled) { background: rgba(79,179,255,.28); }
+.tech-btn:disabled { opacity: .4; cursor: not-allowed; }
+.tech-btn.claim.ready { background: #2f86d9; color: #fff; box-shadow: 0 0 14px rgba(79,179,255,.75); animation: tech-pulse 1.2s ease-in-out infinite; }
+@keyframes tech-pulse { 50% { box-shadow: 0 0 4px rgba(79,179,255,.4); } }
+.tech-note { margin: 0; font-size: 11px; color: #8fb4cf; line-height: 1.45; }
+.tech-note.warn { color: #ffb4a8; display: flex; gap: 6px; align-items: flex-start; }
+.tech-note.warn b { color: #ff4b3b; }
+.bp-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.bp-tabs button { text-align: left; display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border: 1px solid rgba(79,179,255,.22); border-left: 3px solid var(--mat, var(--tech)); background: rgba(255,255,255,.03); color: #cfe6f7; font: inherit; cursor: pointer; }
+.bp-tabs button.on { background: var(--tech-dim); border-color: var(--tech); }
+.bp-tabs b { font-size: 12px; }
+.bp-tabs small { font-size: 10px; color: #8fb4cf; }
+.bp-body { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: start; }
+.bp-schematic { width: 170px; height: 170px; background: #07121c; border: 1px solid rgba(79,179,255,.3); }
+.bp-info h3 { margin: 0 0 4px; font-size: 15px; color: #e8f5ff; }
+.bp-info p { margin: 0 0 8px; font-size: 12px; color: #a9c4d8; line-height: 1.45; }
+.bp-specs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+.bp-specs li { display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(79,179,255,.18); padding-bottom: 2px; }
+.bp-specs span { color: #7d9bb3; }
+.bp-core { color: #39ff8a; text-shadow: 0 0 6px rgba(57,255,138,.6); }
+.bp-costs { display: flex; flex-direction: column; gap: 4px; max-height: 230px; overflow-y: auto; }
+.bp-cost { display: grid; grid-template-columns: 40px 1fr 130px auto; gap: 8px; align-items: center; padding: 4px; border: 1px solid rgba(79,179,255,.14); background: rgba(255,255,255,.02); }
+.bp-cost.full { border-color: rgba(57,255,138,.4); }
+.bp-cost.full .tech-bar span { background: linear-gradient(90deg, #22b05c, #6dffa8); box-shadow: 0 0 8px rgba(57,255,138,.7); }
+.bp-art { width: 40px; height: 30px; display: flex; align-items: center; justify-content: center; }
+.bp-art .inv-sil { max-width: 100%; max-height: 100%; }
+.bp-name { display: flex; flex-direction: column; font-size: 12px; color: #e8f5ff; }
+.bp-name small, .bp-meter small { font-size: 10px; color: #7d9bb3; }
+.bp-meter { display: flex; flex-direction: column; gap: 2px; }
+.bp-foot { display: flex; align-items: center; gap: 10px; }
+.bp-total { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.bp-total small { font-size: 10px; color: #8fb4cf; }
+.supply-list { display: flex; flex-direction: column; gap: 5px; max-height: 330px; overflow-y: auto; }
+.supply-row { display: grid; grid-template-columns: 42px 1fr auto auto; gap: 10px; align-items: center; padding: 6px; border: 1px solid rgba(79,179,255,.18); background: rgba(255,255,255,.025); }
+.supply-row:hover { border-color: var(--tech); }
+.supply-icon { width: 42px; height: 42px; display: grid; place-items: center; background: #07121c; border: 1px solid rgba(79,179,255,.3); color: #7fd0ff; font-size: 26px; }
+.supply-name { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: #e8f5ff; }
+.supply-name small { font-size: 10.5px; color: #8fb4cf; }
+.supply-tabs { grid-template-columns: repeat(3, 1fr); }
+.build-hint { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 16px; background: rgba(9,20,32,.85); border: 1px solid rgba(79,179,255,.6); color: #d9efff; font-size: 13px; pointer-events: none; }
+.build-hint.bad { border-color: rgba(255,75,59,.7); }
+.build-hint b { color: #7fd0ff; letter-spacing: .04em; }
+.build-hint.bad .build-state { color: #ff8a7d; }
+.build-hint .build-state { color: #7dffb0; font-weight: 700; }
+.build-hint small { color: #8fb4cf; font-size: 11px; }
+@media (max-width: 760px) { .tech-panel { width: min(520px, 92vw); } .bp-body { grid-template-columns: 1fr; } .bp-schematic { width: 100%; height: 150px; } .bp-cost { grid-template-columns: 34px 1fr 90px auto; } }

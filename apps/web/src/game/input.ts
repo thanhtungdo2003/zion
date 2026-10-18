@@ -65,7 +65,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean };
+  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -83,6 +83,9 @@ export class InputController {
       /** Open the attachment screen for the gun in hand (true when it opened). */
       attachments?: () => boolean;
       nightVision?: () => boolean;
+      /** Left click / wheel used by a mode (placing a structure): true = taken. */
+      primary?: () => boolean;
+      wheel?: (dir: number) => boolean;
     },
   ) {
     this.onChat = handlers.openChat;
@@ -170,6 +173,8 @@ export class InputController {
       if (!this.active || this.suspended || e.target !== this.element) return;
       // Right click on something usable (TOP / third person) uses it instead of aiming.
       if (e.button === 2 && this.handlers.secondary?.()) return;
+      // Left click taken by a mode (placing a structure) instead of attacking.
+      if (e.button === 0 && this.handlers.primary?.()) return;
       this.mouseButtons |= 1 << e.button;
     });
     on('mouseup', (e) => {
@@ -183,6 +188,7 @@ export class InputController {
       const now = performance.now();
       if (now - wheelAt < 90 || Math.abs(e.deltaY) < 1) return;
       wheelAt = now;
+      if (this.handlers.wheel?.(Math.sign(e.deltaY))) return;
       this.handlers.cycleHotbar(Math.sign(e.deltaY));
     };
     element.addEventListener('wheel', wheel, { passive: false });

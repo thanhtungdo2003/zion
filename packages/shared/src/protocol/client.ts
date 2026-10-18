@@ -19,9 +19,11 @@ export const Buttons = {
   LeanRight: 1 << 9,
   /** Crouched (X toggles). */
   Crouch: 1 << 10,
+  /** Holding a blueprint up to place a structure (others see it in both hands). */
+  Plan: 1 << 11,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();
@@ -55,7 +57,7 @@ export const inputMessageSchema = z
       .number()
       .int()
       .min(0)
-      .max(2047)
+      .max(4095)
       .refine((v) => (v & ~BUTTON_MASK) === 0, 'unknown button bits'),
     /** Weapon in hand (WeaponId); omitted = empty hands. */
     w: z.number().int().min(0).max(Math.max(MAX_WEAPON_ID, 250)).optional(),
@@ -135,6 +137,23 @@ export const invMessageSchema = z.discriminatedUnion('op', [
   z.object({ t: z.literal('inv'), op: z.literal('detach'), gun: u32, slot: z.enum(['optic', 'muzzle']) }).strict(),
 ]);
 
+/**
+ * Base building (survival): place a blueprint, split a log into planks, gather a log off a felled
+ * trunk, open / close a structure's door, give the architect resources, collect a finished
+ * blueprint, and order a supply drop by radio.
+ */
+const blueprintId = z.enum(['wood_outpost', 'stone_bunker', 'metal_fortress']);
+export const buildMessageSchema = z.discriminatedUnion('op', [
+  z.object({ t: z.literal('build'), op: z.literal('place'), uid: u32, x: z.number().finite().min(0).max(100_000), z: z.number().finite().min(0).max(100_000), yaw: z.number().finite().min(-10).max(10) }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('craft'), uid: u32 }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('log'), id: z.string().regex(/^-?\d+:-?\d+:\d+:\d+$/).max(40) }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('door'), id: u32, piece: z.number().int().min(0).max(255) }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('deposit'), blueprint: blueprintId, item: itemId }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('claim'), blueprint: blueprintId }).strict(),
+  z.object({ t: z.literal('build'), op: z.literal('order'), entry: itemId }).strict(),
+]);
+export type BuildMessage = z.infer<typeof buildMessageSchema>;
+
 /** Reload the gun in hand (the server moves rounds from ammo boxes into its magazine). */
 export const reloadMessageSchema = z.object({ t: z.literal('reload') }).strict();
 
@@ -175,7 +194,7 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   setTimeMessageSchema,
 ]);
 
-export const clientMessageSchema = z.union([plainClientMessageSchema, invMessageSchema]);
+export const clientMessageSchema = z.union([plainClientMessageSchema, invMessageSchema, buildMessageSchema]);
 export type InvMessage = z.infer<typeof invMessageSchema>;
 
 export type AuthMessage = z.infer<typeof authMessageSchema>;

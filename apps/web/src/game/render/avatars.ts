@@ -1,5 +1,5 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
+import { Box3, BoxGeometry, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, type Camera, type Matrix4, type Euler, type Object3D, type Scene } from 'three';
 import { EntityFlags, RANKS, TICK_DT, WEAPON_BY_ITEM, weaponSpec, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -268,6 +268,40 @@ export class Avatar {
       arm.getWorldPosition(this.gripShoulder); hand.getWorldPosition(this.gripHand);
       const rest = this.gripShoulder.distanceTo(this.gripHand), want = this.gripShoulder.distanceTo(target);
       if (rest > .01) arm.scale.y = Math.max(.45, Math.min(1.35, want / rest));
+      arm.updateWorldMatrix(false, true);
+    }
+  }
+
+  private planSheet: Mesh | null = null;
+  private planning = false;
+  private readonly planTarget = new Vector3();
+  /**
+   * Holding a blueprint up to place a structure (call after update): both hands in front of the
+   * chest gripping a blue drafting sheet; whatever was in hand is put away meanwhile.
+   */
+  posePlan(on: boolean): void {
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
+    if (!on) {
+      if (this.planning) { this.planning = false; if (held) held.obj.visible = true; if (this.planSheet) this.planSheet.visible = false; }
+      return;
+    }
+    this.planning = true;
+    if (held) held.obj.visible = false;
+    if (!this.planSheet) {
+      this.planSheet = new Mesh(new BoxGeometry(.5, .34, .012), new MeshLambertMaterial({ color: '#3d82d6', emissive: new Color('#0d2a52') }));
+      this.root.add(this.planSheet);
+    }
+    // In the model's own frame: the sheet held out, tilted up towards the eyes.
+    this.planSheet.visible = true;
+    this.planSheet.position.set(0, 1.12, -.42);
+    this.planSheet.rotation.set(-.55, 0, 0);
+    this.root.updateWorldMatrix(true, true);
+    for (const side of ['left', 'right'] as const) {
+      const arm = this.bones.get(`arm_${side}`)?.node, hand = this.bones.get(`hand_${side}`)?.node;
+      if (!arm || !hand) continue;
+      this.planTarget.set(side === 'left' ? .24 : -.24, 1.1, -.4);
+      this.root.localToWorld(this.planTarget);
+      reachFor(arm, hand, this.planTarget, 1);
       arm.updateWorldMatrix(false, true);
     }
   }

@@ -41,9 +41,10 @@ export const WeaponId = {
   ScarL: 35,
   Flashbang: 36,
   SmokeGrenade: 37,
+  Pickaxe: 38,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 37;
+export const MAX_WEAPON_ID = 38;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'ballistic' | 'projectile' | 'flame';
@@ -192,6 +193,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Machete]: { kind: 'melee', weight: 1.1, decapitationChance: .1, damage: 33, range: 2.4, cooldownMs: 460, swingMs: 300 },
   [WeaponId.BaseballBat]: { kind: 'melee', weight: 1.6, damage: 40, range: 2.6, cooldownMs: 680, swingMs: 380, stunMs: 500 },
   [WeaponId.Crowbar]: { kind: 'melee', weight: 2.4, damage: 47, range: 2.5, cooldownMs: 780, swingMs: 420, halfAngle: .9 },
+  [WeaponId.Pickaxe]: { kind: 'melee', weight: 3, damage: 36, range: 2.6, cooldownMs: 900, swingMs: 520, hitDelayMs: 240, animationMs: 560, halfAngle: .9 },
   [WeaponId.FireAxe]: { kind: 'melee', weight: 3.5, damage: 65, range: 2.8, cooldownMs: 1050, swingMs: 650, hitDelayMs: 260, animationMs: 650, halfAngle: 1.1, cleaveMultiplier: .55, decapitationChance: .18 },
 };
 
@@ -201,6 +203,7 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   pkm: WeaponId.PKM,
   barrett: WeaponId.Barrett,
   fire_axe: WeaponId.FireAxe,
+  pickaxe: WeaponId.Pickaxe,
   shotgun: WeaponId.Shotgun,
   gl18: WeaponId.GL18,
   grenade: WeaponId.Grenade,

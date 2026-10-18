@@ -178,7 +178,7 @@ export interface ProjectileEndEvent {
 /** Where the camp's service NPCs stand (for the minimap and the edge-of-screen guides). */
 export interface NpcListEvent {
   t: 'npcs';
-  npcs: Array<{ id: number; role: 'merchant' | 'nurse'; x: number; z: number }>;
+  npcs: Array<{ id: number; role: 'merchant' | 'nurse' | 'architect'; x: number; z: number }>;
 }
 
 /** ZCoin lying on the ground (`coins` = every drop the player can see, sent on join). */
@@ -265,7 +265,30 @@ export interface BaseLifeMessage { t: 'baseLife'; objects?: Array<{ id: string; 
 export interface DistressMessage { t: 'distress'; playerId: number; name: string; x: number; z: number }
 /** Reviving someone: done at `until` (ms, server clock); target 0 = cancelled / finished. */
 export interface RevivingMessage { t: 'reviving'; target: number; durationMs: number }
+/** Felled trees: props hidden (felled or growing back) and trunks lying on the ground. */
+export interface TreesMessage {
+  t: 'trees';
+  removed: string[];
+  trunks: Array<{ key: string; asset: number; x: number; y: number; z: number; scale: number; rotY: number; dir: number; logs: number; at: number }>;
+  /** Rocks worked out (no more ore until they recover). */
+  spent: string[];
+}
+/** Player structures: the full list (join), one changed, or one gone. */
+export interface StructuresMessage { t: 'structures'; list: import('../building').StructureState[] }
+export interface StructureMessage { t: 'structure'; s: import('../building').StructureState; hit?: { piece: number; x: number; y: number; z: number; broke: boolean } }
+export interface StructureGoneMessage { t: 'structureGone'; id: number }
+/** The architect's ledger: what this player has handed in towards each blueprint. */
+export interface BlueprintsMessage { t: 'blueprints'; progress: import('../building').BlueprintProgress[]; ready?: string }
+/** An axe bit into a tree / a pickaxe into a rock (chips and sound). */
+export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | import('../building').OreKind }
 export type ServerJsonMessage =
+  | ChopEvent
+  | TreesMessage
+  | StructuresMessage
+  | StructureMessage
+  | StructureGoneMessage
+  | BlueprintsMessage
+  | import('../building').SupplyMessage
   | import('../vehicles').VehiclesMessage
   | BattleState
   | InfectionState
@@ -326,6 +349,7 @@ export enum EntityKind {
   Guard = 3,
   Merchant = 4,
   Nurse = 5,
+  Architect = 11,
 }
 
 export const EntityFlags = {
@@ -359,6 +383,8 @@ export const EntityFlags = {
   Crouching: 1 << 20,
   /** Climbing over a ledge (mantle). */
   Mantling: 1 << 21,
+  /** Holding a blueprint up (placing a structure). */
+  Planning: 1 << 22,
 } as const;
 
 export interface SelfState {

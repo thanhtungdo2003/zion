@@ -12,3 +12,4 @@ export * from './airborne';
 export * from './doors';
 export * from './vehicles';
 export * from './jolt-vehicles';
+export * from './structures';

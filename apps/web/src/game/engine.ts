@@ -115,6 +115,8 @@ import { AssetLibrary, windUniforms } from './render/asset-library';
 import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
 import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
+import { BuildingController } from './building-controller';
+import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
 import { prepareGuardModel } from './render/guard-model';
 import { occlusionUniforms } from './render/occlusion-fade';
 import { loadWeapons, type WeaponLibrary } from './render/weapons';
@@ -197,7 +199,7 @@ function aimPitch(dist: number): number {
  */
 /** Something within reach the player can use: where it is, what it is called, what it does. */
 interface Interactable {
-  kind: 'door' | 'chest' | 'ground' | 'revive' | 'talk' | 'life' | 'storage' | 'shop' | 'nurse' | 'cache' | 'vehicle';
+  kind: 'door' | 'chest' | 'ground' | 'revive' | 'talk' | 'life' | 'storage' | 'shop' | 'nurse' | 'cache' | 'vehicle' | 'trunk' | 'architect' | 'hint';
   x: number; y: number; z: number;
   /** How close the cursor ray must pass (m). */
   radius: number;
@@ -236,8 +238,12 @@ export class GameEngine {
   private armorKey = '';
   private preview: CharacterPreview | null = null;
   private nearNurse = false;
+  private nearArchitect = false;
+  /** Survival base building (trees, structures, blueprints, supply drops). */
+  private building: BuildingController | null = null;
+  private architectTemplate: CharacterTemplate | null = null;
   /** Camp service NPCs (from the server), for the minimap and edge-of-screen guides. */
-  private npcs: Array<{ id: number; role: 'merchant' | 'nurse'; x: number; z: number }> = [];
+  private npcs: Array<{ id: number; role: 'merchant' | 'nurse' | 'architect'; x: number; z: number }> = [];
   private lastGuides = 0;
   private readonly guideTmp = new Vector3();
   /** First aid kit being applied: which one and when it started (ms). */
@@ -530,7 +536,10 @@ export class GameEngine {
       cycleHotbar: (dir) => { if (!this.toggleNightVision()) this.inventory.cycle(dir); },
       reload: () => this.weaponCtl.reload(performance.now(), this.equippedWeapon()),
       heal: () => void this.useMedkit(),
+      primary: () => this.building?.primary() ?? false,
+      wheel: (dir) => this.building?.wheel(dir) ?? false,
       escape: () => {
+        if (this.building?.cancelPlanning()) return true;
         if (!this.hud.get().dialogue) return false;
         this.closeDialogue();
         return true;
@@ -565,6 +574,10 @@ export class GameEngine {
       this.lifeAction('ignite', 'coal_carton', undefined, uid);
       return true;
     };
+    this.inventory.onUseItem = (uid) => this.building?.useItem(uid) ?? false;
+    this.inventory.onDeposit = (bp, item) => this.building?.deposit(bp, item);
+    this.inventory.onClaim = (bp) => this.building?.claim(bp);
+    this.inventory.onOrder = (entry) => this.building?.order(entry);
     this.inventory.onEat = (uid) => {
       const item = this.inventory.get().items.find((i) => i.uid === uid);
       if (!item || !this.hud.get().life?.config.foods?.some((f) => f.item === item.itemId)) return false;
@@ -582,7 +595,7 @@ export class GameEngine {
     this.conn = new GameConnection({
       onWelcome: (m) => { if (!this.disposed) this.onWelcome(m); },
       onSnapshot: (s) => { if (!this.disposed) this.onSnapshot(s); },
-      onChunk: (c) => { if (!this.disposed) this.store?.set(c); },
+      onChunk: (c) => { if (!this.disposed) this.store?.set(this.building ? this.building.filterChunk(c) : c); },
       onUnload: (list) => { if (!this.disposed) list.forEach(([cx, cz]) => this.store?.remove(cx, cz)); },
       onMessage: (m) => { if (!this.disposed) this.onMessage(m); },
       onClose: (info) => {
@@ -648,6 +661,7 @@ export class GameEngine {
       }
       this.merchantTemplate = prepareGuardModel(await this.loadOwnedCharacter(MERCHANT_MODEL_URL), this.character);
       this.nurseTemplate = prepareGuardModel(await this.loadOwnedCharacter(NURSE_MODEL_URL), this.character);
+      try { this.architectTemplate = prepareGuardModel(await this.loadOwnedCharacter(ARCHITECT_MODEL_URL), this.character); } catch (err) { console.error('architect model failed', err); }
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_weapons' } });
       this.weapons = await loadWeapons(this.character, (p) => this.hud.set({ loadProgress: 0.6 + p * 0.25 }));
@@ -745,6 +759,8 @@ export class GameEngine {
     this.effects?.dispose();
     this.sounds?.dispose();
     this.props?.dispose();
+    this.building?.dispose();
+    this.building = null;
     this.campLights?.dispose();
     this.guardFlashlights?.dispose();
     this.groundItems?.dispose();
@@ -1092,6 +1108,17 @@ export class GameEngine {
     this.guardFlashlights = new GuardFlashlights(this.scene);
     this.groundItems?.dispose();
     this.groundItems = new GroundItems(this.scene, this.weapons);
+    this.building?.dispose();
+    this.building = new BuildingController({
+      scene: this.scene, library: this.library, store: () => this.store, conn: this.conn, hud: this.hud, inventory: this.inventory,
+      debris: () => this.debris, particles: () => this.effects?.particles ?? null,
+      play: (name, at, volume = .8) => this.sounds?.play(name, at ? { at: { x: at.x, y: at.y, z: at.z }, volume } : { volume }),
+      local: () => { const l = this.local; return l && !l.dead ? { x: l.state.x, y: l.state.y, z: l.state.z, yaw: this.mouseLook ? this.input.yaw : this.shotYaw, grounded: l.state.grounded } : null; },
+      username: () => this.hud.get().username,
+      toast: (msg) => this.toast(msg),
+      equippedItemId: () => this.inventory.equippedItemId(),
+    });
+    this.building.setWorld(world);
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
@@ -1139,6 +1166,7 @@ export class GameEngine {
         this.minimap?.forget(chunk);
         if (chunk.props.length) this.props?.markDirty();
         this.vegetation?.invalidate(chunk.cx, chunk.cz);
+        this.building?.forget(chunk);
       },
     });
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.streaming' }, username: m.username });
@@ -1185,7 +1213,7 @@ export class GameEngine {
       }
       let r = this.remotes.get(e.id);
       if (!r) {
-        const template = e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Guard ? this.guardTemplate! : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
+        const template = e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Guard ? this.guardTemplate! : e.kind === EntityKind.Architect ? (this.architectTemplate ?? this.merchantTemplate!) : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
         r = { entity: new RemoteEntity(e.id, e.kind), avatar: new Avatar(template, false), weapon: 0 };
         r.avatar.ground = (x, z) => this.groundY(x, z);
         // Four-legged: the whole body faces where it goes (no separate head turn).
@@ -1327,6 +1355,7 @@ export class GameEngine {
   }
 
   private onMessage(m: ServerJsonMessage): void {
+    if (this.building?.onMessage(m)) return;
     switch (m.t) {
       case 'baseLife': {
         if (m.objects) clearPending('plant');
@@ -1721,7 +1750,8 @@ export class GameEngine {
     const equipped = this.inventory.get().equipped;
     if (equipped !== this.recoilWeapon) { this.recoil.reset(); this.recoilWeapon = equipped; }
     // Equip before firing ticks so a swap cannot clear the first shot's recoil.
-    this.viewModel?.set(this.inventory.equippedItemId(), this.weapons, this.inventory.equippedAttachments());
+    // Placing a structure: the rolled-out blueprint is what the hands hold.
+    this.viewModel?.set(this.building?.planItem ?? this.inventory.equippedItemId(), this.weapons, this.building?.planItem ? undefined : this.inventory.equippedAttachments());
     const offhand = this.inventory.get().items.find(i => i.container === 'offhand')?.itemId ?? null;
     this.viewModel?.setOffhand(offhand, this.weapons);
     if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
@@ -1781,6 +1811,7 @@ export class GameEngine {
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
       { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0); }
+      r.avatar.posePlan((pose.flags & EntityFlags.Planning) !== 0);
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
       r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride && this.vehicles!.seatIndex(r.entity.id) === 0 ? ride.yaw : pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
@@ -1857,6 +1888,7 @@ export class GameEngine {
     this.localAvatar?.setInfected(this.selfInfected);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
     { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
+    this.localAvatar?.posePlan(!!this.building?.planning);
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the
     // rendered body when it is streamed in, else the last reported team position.
     this.squadMarkers.update(this.welcome?.mode !== 'battle-royale' ? [] : (this.hud.get().team?.members ?? []).flatMap((m) => {
@@ -1951,6 +1983,7 @@ export class GameEngine {
     this.effects?.update(dt, this.store?.collision);
     this.debris?.update(dt, this.store?.collision);
     this.groundItems?.update(now);
+    this.building?.update(dt, this.elapsed);
     this.slashes?.update(dt);
     this.updateHealing(now);
     for (const o of this.coinDrops.values()) {
@@ -1977,7 +2010,7 @@ export class GameEngine {
       const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.avatar.root.visible && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
       const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).filter((m) => (m.health ?? 1) > 0).map((m) => ({ x: m.x!, z: m.z!, yaw: m.yaw }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle());
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle(), this.hud.get().supply);
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
@@ -2138,6 +2171,8 @@ export class GameEngine {
     if ((buttons & Buttons.Crouch) || local.state.crouched) buttons &= ~(Buttons.Sprint | Buttons.Roll);
     if (local.state.swimming || local.state.climbing || local.state.prone) buttons &= ~(Buttons.LeanLeft | Buttons.LeanRight);
     if (local.state.swimming) buttons &= ~Buttons.Attack;
+    // Holding a blueprint up: both hands on the sheet, no attacking or aiming.
+    if (this.building?.planning) { buttons &= ~(Buttons.Attack | Buttons.Aim | Buttons.ThrowC4); buttons |= Buttons.Plan; }
     // Aim is separate from the trigger and available with iron sights as well as optics.
     const equippedSpec = weaponSpec(weapon);
     this.aiming = equippedSpec?.kind === 'gun' && !this.selfInfected && this.input.aiming && !this.weaponCtl.reloading && !local.dead && !local.state.swimming && this.hud.get().downed === null && local.state.grounded && local.state.rollTicks === 0;
@@ -2476,6 +2511,7 @@ export class GameEngine {
     if (kind === EntityKind.Guard) return guardName(id);
     if (kind === EntityKind.Merchant) return MERCHANT_NAME;
     if (kind === EntityKind.Nurse) return NURSE_NAME;
+    if (kind === EntityKind.Architect) return ARCHITECT_NAME;
     // Battle royale hides who is who: no name tags over other players.
     if (this.welcome?.mode === 'battle-royale') return '';
     return this.names.get(id) ?? `#${id}`;
@@ -2597,6 +2633,7 @@ export class GameEngine {
     }
     this.nearMerchant = merchant;
     this.nearNurse = nurse && !merchant;
+    this.nearArchitect = [...this.remotes.values()].some((r) => r.entity.kind === EntityKind.Architect && (r.entity.pose.x - px) ** 2 + (r.entity.pose.z - pz) ** 2 < MERCHANT_REACH * MERCHANT_REACH);
     let talk: { npc: string; name: string } | null = null;
     for (const r of this.remotes.values()) {
       if (r.entity.kind !== EntityKind.QuestNpc) continue;
@@ -2692,6 +2729,13 @@ export class GameEngine {
     const store = this.storagePos();
     if (store && Math.hypot(store.x - px, store.z - pz) <= store.radius && !near.merchant) out.push({ kind: 'storage', x: store.x, y: py + 1, z: store.z, radius: 1.5, label: { key: 'interact.storage' }, run: () => this.inventory.setOpen(true, 'stash') });
     if (near.near) out.push({ kind: 'cache', x: px, y: py + 1, z: pz, radius: 1.5, label: { key: near.near === 'camp' ? 'interact.camp_cache' : 'interact.cache' }, run: () => this.inventory.setOpen(true, near.near) });
+    for (const t of this.building?.targets(px, py, pz) ?? []) out.push(t);
+    for (const r of this.remotes.values()) {
+      if (r.entity.kind !== EntityKind.Architect) continue;
+      const p = r.entity.pose;
+      if (Math.hypot(p.x - px, p.z - pz) >= MERCHANT_REACH) continue;
+      out.push({ kind: 'architect', x: p.x, y: p.y + 1, z: p.z, radius: 1, label: { key: 'raw', vars: { text: 'Nói chuyện với kỹ sư · bản vẽ công trình' } }, run: () => this.inventory.setOpen(true, 'architect') });
+    }
     const v = this.vehicles?.nearest(px, py, pz);
     if (v && !local.riding) out.push({ kind: 'vehicle', x: v.x, y: v.y + 1, z: v.z, radius: 2.4, label: { key: 'raw', vars: { text: `Lên ${VEHICLES[v.kind]?.name ?? 'xe'}` } }, run: () => this.conn.sendVehicle(v.id) });
     void lang;
@@ -2722,7 +2766,7 @@ export class GameEngine {
     this.hovered = pick;
     const label = pick ? (pick.name && pick.kind === 'chest' ? { key: 'raw', vars: { text: `${this.translate(pick.label)} · ${pick.name}` } } as Msg : pick.label) : null;
     // First person: right click opens chests and doors (and the like); F picks up items and boards vehicles.
-    const input: 'mouse' | 'key' = this.firstPerson && pick && (pick.kind === 'ground' || pick.kind === 'vehicle') ? 'key' : 'mouse';
+    const input: 'mouse' | 'key' = pick && (pick.kind === 'trunk' || (this.firstPerson && (pick.kind === 'ground' || pick.kind === 'vehicle'))) ? 'key' : 'mouse';
     let at: [number, number] | null = null;
     if (pick && this.cameraMode === 'top-down') {
       const p = this.tmpA.set(pick.x, pick.y + .6, pick.z).project(this.camera);
@@ -2749,6 +2793,8 @@ export class GameEngine {
     if (!this.hovered || this.inventory.get().open) return false;
     // First person: right click is for chests, doors and the like; items and vehicles are F.
     if (this.firstPerson && (this.hovered.kind === 'ground' || this.hovered.kind === 'vehicle')) return false;
+    // Captions only (what a swing does here) and trunks (F) leave right click to aiming.
+    if (this.hovered.kind === 'hint' || this.hovered.kind === 'trunk') return false;
     if (this.local?.dead || this.hud.get().downed !== null) return false;
     this.hovered.run();
     return true;
@@ -2760,6 +2806,8 @@ export class GameEngine {
     if (local && !local.riding && !local.dead) {
       const ground = this.hovered?.kind === 'ground' ? this.hovered : this.targets.filter((t) => t.kind === 'ground').sort((a, b) => Math.hypot(a.x - local.state.x, a.z - local.state.z) - Math.hypot(b.x - local.state.x, b.z - local.state.z))[0];
       if (ground) { ground.run(); return; }
+      const trunk = this.hovered?.kind === 'trunk' ? this.hovered : this.targets.find((t) => t.kind === 'trunk');
+      if (trunk) { trunk.run(); return; }
     }
     this.useVehicle();
   }
@@ -2768,7 +2816,8 @@ export class GameEngine {
   private openBag(_key: 'KeyE' | 'other'): void {
     if (!this.local || this.local.dead || this.hud.get().downed !== null || this.local.state.flight) return;
     if (this.hud.get().dialogue) { this.closeDialogue(); return; }
-    this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearStorage ? 'stash' : this.station);
+    this.building?.cancelPlanning();
+    this.inventory.setOpen(true, this.nearMerchant ? 'shop' : this.nearNurse ? 'nurse' : this.nearArchitect ? 'architect' : this.nearStorage ? 'stash' : this.station);
   }
 
   /**

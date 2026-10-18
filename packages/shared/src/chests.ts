@@ -23,17 +23,19 @@ const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'ammo_
 const supplies = ['medkit', 'potato_cooked', 'cooked_mutton', 'cooked_porkchop', 'potato', 'grenade', 'flashbang', 'smoke_grenade'];
 const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol'];
 const guns = ['gl18', 'revolver', 'deagle', 'uzi', 'vector', 'p90', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar'];
+/** Building materials: raw wood, stone and ore, and now and then a power cell. */
+const resources = ['plank', 'plank', 'stone', 'stone', 'iron_ore', 'copper_ore', 'lead_ore', 'wood_log', 'nuclear_cell'];
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
 const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 
-/** Per-slot odds: ammo 52%, supplies 30%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
+/** Per-slot odds: ammo 44%, resources 12%, supplies 26%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
 export function rollChestItem(random: () => number = Math.random): string {
   const roll = random();
   if (roll >= .995 && roll < .998) {
     const rarity = random();
     return `badge_${rarity < .55 ? 'recruit' : rarity < .8 ? 'private' : rarity < .93 ? 'corporal' : rarity < .985 ? 'sergeant' : 'elite'}`;
   }
-  const pool = roll < .52 ? ammo : roll < .82 ? supplies : roll < .95 ? tools : roll < .979 ? guns : roll < .998 ? armor : elite;
+  const pool = roll < .44 ? ammo : roll < .56 ? resources : roll < .82 ? supplies : roll < .95 ? tools : roll < .979 ? guns : roll < .998 ? armor : elite;
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!;
 }
 export function generateChestLoot(existing: readonly PlacedItem[], random: () => number = Math.random): PlacedItem[] {
@@ -43,7 +45,10 @@ export function generateChestLoot(existing: readonly PlacedItem[], random: () =>
   for (let i = 0; i < slots; i++) {
     const itemId = rollChestItem(random);
     const item: PlacedItem = { uid: ++uid, itemId, container: 'backpack', x: 0, y: 0, rotated: false };
-    const count = maxCount(ITEMS[itemId]!); if (count) item.count = count;
+    const def = ITEMS[itemId]!, count = maxCount(def);
+    // A handful of a building material, not a full stack.
+    if (def.stack) item.count = Math.min(def.stack, 2 + Math.floor(random() * 5));
+    else if (count) item.count = count;
     const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
     items.push(item);
   }

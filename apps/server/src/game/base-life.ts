@@ -6,6 +6,8 @@ export interface LifePlayer {
   /** Fed until then: capacity does not drain. */
   fullUntil?: number;
   tutorial?: TutorialProgress;
+  /** The architect's ledger: resources handed in per blueprint. */
+  blueprints?: Record<string, Record<string, number>>;
 }
 export interface PlotState { crop: string; stage: number }
 export interface AnimalRecord { health: number; x: number; y: number; z: number; loot: number; diedAt?: number; cooked?: boolean }

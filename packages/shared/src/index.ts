@@ -34,3 +34,4 @@ export * from './battle-royale';
 export * from './vehicles';
 export * from './infection';
 export * from './infection-maps';
+export * from './building';

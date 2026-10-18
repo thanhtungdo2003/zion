@@ -2,6 +2,7 @@
 import { Icon } from './Icon';
 import { GroundPanel, type GroundEntry } from './GroundPanel';
 import { ChestPanel } from './ChestPanel';
+import { BlueprintPanel, SupplyPanel } from './BuildPanels';
 import ModelPreview from './ModelPreview';
 
 import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
@@ -350,6 +351,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
           });
           // Started first aid: close the inventory so the bandaging can be seen.
           // Guns that take attachments open their attachment screen.
+          if (under && store.onUseItem?.(under.uid)) return;
           if (under && acceptsAttachments(under.itemId)) store.openAttachments(under.uid);
           else if (under && ITEMS[under.itemId]?.category === 'melee') store.rotateItem(under.uid);
           else if (under?.itemId === 'medkit' && store.onUseMedkit?.(under.uid)) store.setOpen(false);
@@ -509,8 +511,10 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
           </div>
           {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
+          {state.station === 'architect' && <BlueprintPanel state={state} store={store} />}
+          {state.station === 'supply' && <SupplyPanel coins={coins} store={store} />}
           {state.station === 'chest' && <div className="inv-col"><ChestPanel state={state} store={store} grid={hidePrices} onTip={setTip} />{onPickGround && <GroundPanel items={ground} onPick={onPickGround} inChest onTip={setTip} />}</div>}
-          {state.station && state.station !== 'shop' && state.station !== 'nurse' && state.station !== 'stash' && state.station !== 'chest' && (
+          {(state.station === 'field' || state.station === 'camp') && (
             <section className="inv-box inv-cache">
               <header>
                 <span>{t(state.station === 'camp' ? 'inv.camp_title' : 'inv.cache_title')}</span>

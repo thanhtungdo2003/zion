@@ -110,6 +110,10 @@ export interface HudState {
   rollCd: number;
   /** F3 debug overlay numbers. */
   debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number } | null;
+  /** Supply drops on the way (map icons with heading) and the drop zone. */
+  supply: { planes: Array<{ x: number; z: number; yaw: number; ownerName: string }>; zone: { x: number; z: number } | null } | null;
+  /** Holding a blueprint up: what it is and whether it may stand where the hologram is. */
+  planning: { name: string; ok: boolean; reason: string | null } | null;
   guides: Array<{ role: string; x: number; y: number; angle: number; dist: number; quest?: boolean; icon?: string; name?: string }>;
 }
 
@@ -183,6 +187,8 @@ export function initialHud(): HudState {
     coins: 0,
     healing: null,
     guides: [],
+    supply: null,
+    planning: null,
     rollCd: 0,
   };
 }

@@ -182,6 +182,20 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     ctx.restore();
     // Survey grid stays subtle; unknown terrain remains black beneath it.
     drawBattleCircles(ctx, hud.battle, to, camera.scale);
+    // Supply drops: the red X beside the camp and each transport plane with its heading.
+    if (hud.supply?.zone) {
+      const p = to(hud.supply.zone.x, hud.supply.zone.z), r = Math.max(6, 14 * camera.scale);
+      ctx.strokeStyle = '#ff2b2b'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r); ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r); ctx.stroke();
+    }
+    for (const plane of hud.supply?.planes ?? []) {
+      const p = to(plane.x, plane.z);
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-plane.yaw);
+      ctx.fillStyle = '#4fc3ff'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, -13); ctx.lineTo(10, 5); ctx.lineTo(0, 1); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#d9f3ff'; ctx.fillText(`Tiếp tế · ${plane.ownerName}`, p.x, p.y + 22);
+    }
     if (state.world?.mode === 'battle-royale') {
       // Flight path: a dashed line with direction chevrons, the plane and the chosen jump point.
       const path = flightPath(worldSize), a = to(path.ax, path.az), b = to(path.bx, path.bz);

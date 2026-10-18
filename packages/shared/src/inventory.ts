@@ -328,6 +328,52 @@ export class InventoryModel {
     return this.carried.filter((i) => i.itemId === itemId && !i.issued).length;
   }
 
+  /** Units of a resource carried: stack counts for stackable items, whole items otherwise. */
+  unitsOf(itemId: string): number {
+    const stack = ITEMS[itemId]?.stack;
+    return this.carried.filter((i) => i.itemId === itemId && !i.issued).reduce((n, i) => n + (stack ? i.count ?? stack : 1), 0);
+  }
+
+  /** Adds `n` units: tops up carried stacks first, then fills new ones. Returns how many fitted. */
+  addUnits(itemId: string, n: number): number {
+    const def = ITEMS[itemId];
+    if (!def || n <= 0) return 0;
+    if (!def.stack) {
+      let added = 0;
+      while (added < n && this.add(itemId)) added++;
+      return added;
+    }
+    let left = n;
+    for (const it of this.carried) {
+      if (left <= 0) break;
+      if (it.itemId !== itemId || it.issued) continue;
+      const room = def.stack - (it.count ?? def.stack);
+      const take = Math.min(room, left);
+      if (take > 0) { it.count = (it.count ?? def.stack) + take; left -= take; }
+    }
+    while (left > 0) {
+      const it = this.add(itemId, Math.min(def.stack, left));
+      if (!it) break;
+      left -= it.count ?? 0;
+    }
+    return n - left;
+  }
+
+  /** Takes `n` units (smallest stacks first); false and nothing taken when there are not enough. */
+  takeUnits(itemId: string, n: number): boolean {
+    if (n <= 0) return true;
+    if (this.unitsOf(itemId) < n) return false;
+    const stack = ITEMS[itemId]?.stack;
+    if (!stack) return this.takeItems(itemId, n);
+    let left = n;
+    for (const it of this.carried.filter((i) => i.itemId === itemId && !i.issued).sort((a, b) => (a.count ?? stack) - (b.count ?? stack))) {
+      if (left <= 0) break;
+      const have = it.count ?? stack;
+      if (have <= left) { this.remove(it.uid); left -= have; } else { it.count = have - left; left = 0; }
+    }
+    return true;
+  }
+
   /** Puts an item in the camp storage (first free page); null when all three pages are full. */
   addToStash(itemId: string, count?: number): PlacedItem | null {
     const def = ITEMS[itemId];

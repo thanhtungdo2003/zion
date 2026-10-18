@@ -148,6 +148,13 @@ export default function GameView() {
       {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
+      {inWorld && hud.planning && (
+        <div className={`build-hint${hud.planning.ok ? '' : ' bad'}`} role="status">
+          <b>{hud.planning.name}</b>
+          <span className="build-state">{hud.planning.ok ? 'Có thể xây ở đây' : hud.planning.reason}</span>
+          <small><kbd>Chuột trái</kbd> xây · <kbd>Lăn chuột</kbd> xoay · <kbd>Esc</kbd> huỷ</small>
+        </div>
+      )}
       {inWorld && inv.open && hud.mode === 'infection' && <LoadoutPanel store={inventory} locked={!!hud.infection?.infected} onChange={(l) => engineRef.current?.setLoadout(l)} />}
       {inWorld && !inv.open && hud.groundNear.length >= 2 && <GroundPanel items={hud.groundNear} onPick={(id) => engineRef.current?.pickUp(id)} />}
       {inWorld && inv.open && hud.mode !== 'infection' && <InventoryPanel ground={hud.groundNear} onPickGround={(id) => engineRef.current?.pickUp(id)} state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}

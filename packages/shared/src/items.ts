@@ -26,6 +26,8 @@ export interface ItemDef {
   uses?: number;
   /** Armour pieces: slot and wire id (`count` holds the remaining durability). */
   armor?: { slot: ArmorSlot; id: number; durability: number };
+  /** Stackable resources: units one item holds at most (`count` holds how many). */
+  stack?: number;
 }
 
 export const ITEMS: Record<string, ItemDef> = {
@@ -106,6 +108,18 @@ export const ITEMS: Record<string, ItemDef> = {
   bolts: { id: 'bolts', name: 'Ống tên nỏ', category: 'ammo', w: 1, h: 2, stance: 'unarmed', color: '#4a3c2c', info: 'Crossbow bolts · 10', ammo: { guns: ['crossbow'], capacity: 10 } },
   fuel_tank: { id: 'fuel_tank', name: 'Bình nhiên liệu', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#8a3a24', info: 'Flamethrower fuel · 100 units', ammo: { guns: ['flamethrower'], capacity: 100 } },
   ammo_pkm: { id: 'ammo_pkm', name: 'Hộp đạn PKM 7.62×54R', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#53613d', info: 'Dây đạn 7.62×54R cho PKM · 100 viên', ammo: { guns: ['pkm'], capacity: 100 } },
+  // Base building: raw resources, the pickaxe, the architect's blueprints and the supply radio.
+  wood_log: { id: 'wood_log', name: 'Khúc gỗ', category: 'resource', w: 2, h: 2, stance: 'unarmed', color: '#7a5634', info: 'Gỗ tròn từ cây vừa chặt · chuột phải: xẻ thành 4 tấm ván' },
+  plank: { id: 'plank', name: 'Tấm ván', category: 'resource', w: 2, h: 1, stack: 10, stance: 'unarmed', color: '#a07a4c', info: 'Vật liệu gỗ · tối đa 10 tấm mỗi chồng' },
+  stone: { id: 'stone', name: 'Đá', category: 'resource', w: 1, h: 1, stack: 20, stance: 'unarmed', color: '#8b8a84', info: 'Đá khai thác bằng cuốc chim · tối đa 20 viên' },
+  iron_ore: { id: 'iron_ore', name: 'Quặng sắt', category: 'resource', w: 1, h: 1, stack: 15, stance: 'unarmed', color: '#8a5a44', info: 'Kim loại · quặng sắt thô · tối đa 15' },
+  copper_ore: { id: 'copper_ore', name: 'Quặng đồng', category: 'resource', w: 1, h: 1, stack: 15, stance: 'unarmed', color: '#b8733a', info: 'Kim loại · quặng đồng thô · tối đa 15' },
+  lead_ore: { id: 'lead_ore', name: 'Quặng chì', category: 'resource', w: 1, h: 1, stack: 15, stance: 'unarmed', color: '#5c6470', info: 'Kim loại · quặng chì thô · tối đa 15' },
+  pickaxe: { id: 'pickaxe', name: 'Cuốc chim', category: 'melee', w: 4, h: 2, stance: 'melee', color: '#6a5a4a', info: 'Đào mỏ đá và quặng lộ thiên · cũng là vũ khí cận chiến' },
+  bp_wood_outpost: { id: 'bp_wood_outpost', name: 'Bản vẽ · Trạm gác gỗ', category: 'resource', w: 2, h: 1, stance: 'unarmed', color: '#2f7fd1', info: 'Chuột phải: vào chế độ đặt công trình · lăn chuột để xoay' },
+  bp_stone_bunker: { id: 'bp_stone_bunker', name: 'Bản vẽ · Hầm đá kiên cố', category: 'resource', w: 2, h: 1, stance: 'unarmed', color: '#2f7fd1', info: 'Chuột phải: vào chế độ đặt công trình · lăn chuột để xoay' },
+  bp_metal_fortress: { id: 'bp_metal_fortress', name: 'Bản vẽ · Pháo đài thép', category: 'resource', w: 2, h: 1, stance: 'unarmed', color: '#2f7fd1', info: 'Chuột phải: vào chế độ đặt công trình · lăn chuột để xoay' },
+  supply_radio: { id: 'supply_radio', name: 'Bộ đàm gọi tiếp tế', category: 'resource', w: 2, h: 2, stance: 'unarmed', color: '#2e4a3a', info: 'Thiết bị vệ tinh · chuột phải: mở bảng gọi tiếp tế (xe, súng, đạn)' },
   ammo_50bmg: { id: 'ammo_50bmg', name: 'Hộp đạn .50 BMG', category: 'ammo', w: 2, h: 2, stance: 'unarmed', color: '#756441', info: 'Đạn Barrett M82 · 10 viên', ammo: { guns: ['barrett'], capacity: 10 } },
 };
 
@@ -146,7 +160,7 @@ export const CATEGORY_LABEL: Record<ItemCategory, string> = {
 
 /** Full `count` of an item that tracks one (rounds in a box, uses of a kit), else undefined. */
 export function maxCount(def: ItemDef): number | undefined {
-  return def.ammo?.capacity ?? def.uses ?? def.armor?.durability;
+  return def.ammo?.capacity ?? def.uses ?? def.armor?.durability ?? def.stack;
 }
 
 /** Ammo box item id for a gun item id. */

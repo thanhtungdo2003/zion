@@ -181,6 +181,8 @@ export class Minimap {
     locations?: ReadonlyArray<MapLocation>,
     arrows = true,
     battle: BattleState | null = null,
+    /** Supply drops: transport planes on their way (heading) and the drop zone's red X. */
+    supply: { planes: ReadonlyArray<{ x: number; z: number; yaw: number }>; zone: { x: number; z: number } | null } | null = null,
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -242,6 +244,19 @@ export class Minimap {
       ctx.translate(ox, oz);
       ctx.rotate(-upYaw);
       drawNpcIcon(ctx, n.role, 7, n.quest);
+      ctx.restore();
+    }
+    if (supply?.zone) {
+      const ox = (supply.zone.x - (px - half)) * scale, oz = (supply.zone.z - (pz - half)) * scale, r = Math.max(4, 14 * scale);
+      ctx.strokeStyle = '#ff2b2b'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(ox - r, oz - r); ctx.lineTo(ox + r, oz + r); ctx.moveTo(ox + r, oz - r); ctx.lineTo(ox - r, oz + r); ctx.stroke();
+    }
+    for (const plane of supply?.planes ?? []) {
+      const ox = (plane.x - (px - half)) * scale, oz = (plane.z - (pz - half)) * scale;
+      if (ox < -W || oz < -W || ox > 2 * W || oz > 2 * W) continue;
+      ctx.save(); ctx.translate(ox, oz); ctx.rotate(-plane.yaw);
+      ctx.fillStyle = '#4fc3ff'; ctx.strokeStyle = '#0b0c0d'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(8, 4); ctx.lineTo(0, 1); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
     ctx.save();
@@ -347,7 +362,7 @@ export class Minimap {
 }
 
 /** Map/guide icon for a camp NPC centred on the origin: a white disc with a gun or a red cross. */
-const NPC_ICONS: Record<string, string> = { farmer: 'wheat', chef: 'cooking-pot', colonel: 'rank-3', target: 'on-target', storage: 'locked-chest', sos: 'medical-pack', nurse: 'medical-pack', merchant: 'pistol-gun' };
+const NPC_ICONS: Record<string, string> = { farmer: 'wheat', chef: 'cooking-pot', colonel: 'rank-3', target: 'on-target', storage: 'locked-chest', sos: 'medical-pack', nurse: 'medical-pack', merchant: 'pistol-gun', architect: 'anvil', supply: 'parachute' };
 const npcImages = new Map<string, HTMLImageElement>();
 function npcImage(role: string): HTMLImageElement | undefined {
   const name = NPC_ICONS[role] ?? 'compass';

@@ -190,6 +190,11 @@ export class GameConnection {
     this.send(msg);
   }
 
+  /** Base building (place, craft, logs, doors, architect, supply orders). */
+  sendBuild(msg: import('@zion/shared').BuildMessage): void {
+    this.send(msg);
+  }
+
   /** Downed: call for help / give up. Alive: revive a downed player. */
   sendDistress(): void {
     this.send({ t: 'distress' });

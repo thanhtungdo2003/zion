@@ -52,6 +52,33 @@ export function findCampSite(gen: WorldGenerator): CampSite | null {
   return best ?? fallback;
 }
 
+/** Radius of the supply drop zone's levelled, cleared ground (matches the shared SUPPLY_ZONE_RADIUS). */
+export const SUPPLY_PAD = 14;
+export const SUPPLY_BLEND = 8;
+
+/**
+ * The supply drop zone (red X) beside the camp: open, level, dry ground just outside the camp's
+ * protection, off the roads, where crates and vehicles come down under their canopies.
+ */
+export function findSupplyZone(gen: WorldGenerator, camp: CampSite): CampSite | null {
+  const s = makeColumnSample();
+  let best: CampSite | null = null, bestScore = Infinity;
+  for (const r of [84, 96, 110]) for (let k = 0; k < 24; k++) {
+    const a = k / 24 * Math.PI * 2, x = Math.round(camp.x + Math.cos(a) * r), z = Math.round(camp.z + Math.sin(a) * r);
+    if (x < 40 || z < 40 || x > gen.worldSize - 40 || z > gen.worldSize - 40) continue;
+    let lo = Infinity, hi = -Infinity, total = 0, n = 0, ok = true;
+    for (let dz = -SUPPLY_PAD; dz <= SUPPLY_PAD && ok; dz += 4) for (let dx = -SUPPLY_PAD; dx <= SUPPLY_PAD; dx += 4) {
+      gen.sampleColumn(x + dx, z + dz, s);
+      if (s.height < gen.seaLevel + 1.5 || Number.isFinite(s.water) || s.river > .05 || s.roadDistance < s.roadHalfWidth + 3) { ok = false; break; }
+      lo = Math.min(lo, s.height); hi = Math.max(hi, s.height); total += s.height; n++;
+    }
+    if (!ok) continue;
+    const score = hi - lo + r * .02;
+    if (score < bestScore) { bestScore = score; best = { x, y: Math.round(total / n * 100) / 100, z }; }
+  }
+  return best;
+}
+
 export function campDistance(site: CampSite, x: number, z: number): number {
   return Math.max(Math.abs(x - site.x), Math.abs(z - site.z));
 }
@@ -74,6 +101,8 @@ export interface CampNpcLayout {
 export const NPC_STALLS = {
   merchant: DEFAULT_CAMP_NPCS.merchant,
   nurse: DEFAULT_CAMP_NPCS.nurse,
+  /** The architect (blueprints) by the merchant's row. */
+  architect: { x: 16, z: 4 },
 } as const;
 
 export function buildCampLayout(): CampPart[] {

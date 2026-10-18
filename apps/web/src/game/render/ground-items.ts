@@ -1,4 +1,4 @@
-import { Group, Mesh, MeshBasicMaterial, RingGeometry, type Scene } from 'three';
+import { AdditiveBlending, BackSide, Group, Mesh, MeshBasicMaterial, type Scene } from 'three';
 import type { WeaponLibrary } from './weapons';
 
 /** Dropped items lie on the ground this long before they vanish. */
@@ -18,13 +18,31 @@ export interface GroundItem {
 }
 
 /**
- * Items thrown out of the inventory: the item's real model lying on the ground with a faint
- * ring, blinking during its last seconds, removed after a minute. Local to this client.
+ * Glow shell: the model's own surface pushed out along its normals and drawn from behind, so a
+ * thin yellow rim hugs the silhouette (pulsing gently).
+ */
+function glowMaterial(): MeshBasicMaterial {
+  const m = new MeshBasicMaterial({ color: 0xffc83a, side: BackSide, transparent: true, opacity: .85, depthWrite: false, blending: AdditiveBlending, fog: false });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uGlow = glowUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+uniform float uGlow;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+transformed += normalize(normal) * (0.012 + uGlow * 0.006) / max(0.001, length(modelMatrix[0].xyz));`);
+  };
+  m.customProgramCacheKey = () => 'ground-glow';
+  return m;
+}
+const glowUniform = { value: 0 };
+
+/**
+ * Items thrown out of the inventory: the item's real model lying on the ground with a yellow glow
+ * hugging its outline, blinking during its last seconds, removed after a minute. Local to this client.
  */
 export class GroundItems {
   readonly items: GroundItem[] = [];
-  private readonly ringGeo = new RingGeometry(0.42, 0.5, 32);
-  private readonly ringMat = new MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.55, depthWrite: false });
+  private readonly glow = glowMaterial();
 
   constructor(private readonly scene: Scene, private readonly weapons: WeaponLibrary | null) {}
 
@@ -36,16 +54,17 @@ export class GroundItems {
       // Display models point the muzzle along +X with the top up: lay it on its side.
       model.rotation.x = Math.PI / 2;
       model.position.y = 0.06;
+      const shells: Array<[Mesh, Mesh]> = [];
       model.traverse((o) => {
-        if (o instanceof Mesh) o.castShadow = true;
+        if (!(o instanceof Mesh)) return;
+        o.castShadow = true;
+        const shell = new Mesh(o.geometry, this.glow);
+        shell.renderOrder = 4;
+        shells.push([o, shell]);
       });
+      for (const [o, shell] of shells) o.add(shell);
       object.add(model);
     }
-    const ring = new Mesh(this.ringGeo, this.ringMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.03;
-    ring.renderOrder = 4;
-    object.add(ring);
     object.position.set(x, y, z);
     object.rotation.y = Math.random() * Math.PI * 2;
     this.scene.add(object);
@@ -78,6 +97,8 @@ export class GroundItems {
   }
 
   update(now: number): void {
+    glowUniform.value = .5 + Math.sin(now / 260) * .5;
+    this.glow.opacity = .55 + glowUniform.value * .35;
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i]!;
       const left = it.expiresAt - now;
@@ -93,7 +114,6 @@ export class GroundItems {
 
   dispose(): void {
     for (const it of [...this.items]) this.remove(it);
-    this.ringGeo.dispose();
-    this.ringMat.dispose();
+    this.glow.dispose();
   }
 }

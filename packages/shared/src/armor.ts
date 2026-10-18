@@ -26,13 +26,13 @@ export interface ArmorSpec {
 
 /** Share of a full set's protection carried by each slot. */
 const SLOT_SHARE: Record<ArmorSlot, number> = { head: 0.2, chest: 0.4, legs: 0.25, feet: 0.15 };
-/** Full-set protection and per-piece durability by rarity. */
+/** Full-set protection and per-piece durability by rarity (raised with base building: fights run longer). */
 const TIER: Record<ArmorRarity, { protection: number; durability: number }> = {
-  common: { protection: 0.16, durability: 60 },
-  uncommon: { protection: 0.26, durability: 100 },
-  rare: { protection: 0.36, durability: 160 },
-  epic: { protection: 0.46, durability: 220 },
-  legendary: { protection: 0.56, durability: 300 },
+  common: { protection: 0.16, durability: 100 },
+  uncommon: { protection: 0.26, durability: 170 },
+  rare: { protection: 0.36, durability: 260 },
+  epic: { protection: 0.46, durability: 360 },
+  legendary: { protection: 0.56, durability: 480 },
 };
 
 function piece(id: number, item: string, name: string, slot: ArmorSlot, rarity: ArmorRarity, weight: number, file: string): ArmorSpec {

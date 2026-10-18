@@ -84,6 +84,14 @@ export class Vehicles {
     }
     return 'Không có đủ khoảng trống gần bạn để tạo xe.';
   }
+  /** A vehicle delivered at a spot (supply drop): false when the map is at its vehicle limit. */
+  deliver(kind: VehicleKind, x: number, y: number, z: number, yaw: number): boolean {
+    if (this.states.size >= 200 || !VEHICLES[kind]) return false;
+    const id = Math.max(0, ...this.states.keys()) + 1;
+    const v: VehicleState = { id, kind, x, y: y + .1, z, yaw, speed: 0, health: VEHICLES[kind].health, driver: null, explodeAt: 0, exploded: false };
+    this.states.set(id, v); this.spawns.set(id, { x, y: v.y, z, yaw }); this.install(v);
+    return true;
+  }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
   control(p: Player, throttle: number, steer: number, now: number): void {
     // Only the driver steers; passengers just ride (and shoot).

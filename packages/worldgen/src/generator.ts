@@ -18,7 +18,7 @@ import type { AssetRegistry } from '@zion/assets';
 import { parseWorldConfig, type WorldConfig, type WorldConfigInput } from './config';
 import { WorldFields, makeBaseSample, type BaseSample } from './fields';
 import { Hydrology, type RiverQuery } from './hydrology';
-import { CAMP_PAD, CAMP_BLEND, campDistance, campChunkProps, findCampSite, type CampSite } from './camp';
+import { CAMP_PAD, CAMP_BLEND, campDistance, campChunkProps, findCampSite, findSupplyZone, SUPPLY_BLEND, SUPPLY_PAD, type CampSite } from './camp';
 import { scatterChunkProps } from './scatter';
 import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear } from './structures';
 import { RoadNetwork } from './roads';
@@ -84,6 +84,8 @@ export interface SpawnPoint {
 export class WorldGenerator {
   readonly config: WorldConfig;
   readonly camp: CampSite | null = null;
+  /** Supply drop zone beside the camp (levelled and kept clear), survival only. */
+  readonly supplyZone: CampSite | null = null;
   readonly worldSize: number;
   readonly seaLevel: number;
   readonly fields: WorldFields;
@@ -106,6 +108,7 @@ export class WorldGenerator {
     this.fields = new WorldFields(this.config.seed, this.worldSize, this.config.generatorVersion >= 3 ? .42 : 1);
     this.hydrology = new Hydrology(this.fields, this.worldSize, this.seaLevel);
     if ((this.config.mode ?? 'survival') === 'survival' && this.config.generatorVersion >= 2) this.camp = findCampSite(this);
+    if (this.camp && this.config.generatorVersion >= 2) this.supplyZone = findSupplyZone(this, this.camp);
     this.rawTerrain = false;
   }
 
@@ -212,6 +215,10 @@ export class WorldGenerator {
         h += (this.camp.y - h) * blend;
         if (d <= CAMP_PAD) { water = Number.NaN; kind = WaterKind.None; river = 0; }
       }
+    }
+    if (this.supplyZone) {
+      const d = Math.hypot(x - this.supplyZone.x, z - this.supplyZone.z);
+      if (d < SUPPLY_PAD + SUPPLY_BLEND) h += (this.supplyZone.y - h) * (1 - smoothstep(SUPPLY_PAD, SUPPLY_PAD + SUPPLY_BLEND, d));
     }
     // Abandoned structures sit on levelled pads that blend into the surrounding ground.
     if (!this.rawTerrain) {

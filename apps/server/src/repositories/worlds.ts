@@ -47,6 +47,16 @@ export class WorldRepository {
     return found;
   }
 
+  /** Player structures standing in this world (base building). */
+  async loadStructures(id: string): Promise<import('@zion/shared').StructureState[]> {
+    const { rows } = await this.db.query<{ structures: unknown }>('SELECT structures FROM worlds WHERE id = $1', [id]);
+    return Array.isArray(rows[0]?.structures) ? rows[0]!.structures as import('@zion/shared').StructureState[] : [];
+  }
+
+  async saveStructures(id: string, list: readonly import('@zion/shared').StructureState[]): Promise<void> {
+    await this.db.query('UPDATE worlds SET structures = $2::jsonb, updated_at = now() WHERE id = $1', [id, JSON.stringify(list)]);
+  }
+
   async saveTime(id: string, worldTimeMs: number): Promise<void> {
     await this.db.query('UPDATE worlds SET world_time_ms = $2, updated_at = now() WHERE id = $1', [
       id,

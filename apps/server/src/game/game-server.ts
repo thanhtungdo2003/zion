@@ -1,4 +1,6 @@
 import { SharedChests } from './chests';
+import { BaseBuilding } from './base-building';
+import { ARCHITECT_ID, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
@@ -234,6 +236,13 @@ export class GameServer {
   readonly guards: CampGuardDirector;
   readonly merchant: CampNpc;
   readonly nurse: CampNpc;
+  /** The camp architect (blueprints for building materials). */
+  readonly architect: CampNpc;
+  /** Survival base building: felling, mining, structures and supply drops (null in match modes). */
+  readonly building: BaseBuilding | null = null;
+  /** Supply-drop crates (survival): in-memory chests that come down by parachute. */
+  private readonly supplyChests = new Map<string, ChestData>();
+  private nextSupplyCrate = 1;
   /** Launcher rounds in flight (40 mm grenades, rockets, bolts). */
   private readonly rounds: Array<{ id: number; owner: Player; w: number; spec: ProjectileSpec; damage: number; knockback: number; traveled: number; x: number; y: number; z: number; vx: number; vy: number; vz: number; dieAt: number; /** Zombies this round already went through. */ pierced?: Set<Combatant> }> = [];
   private readonly activeScratch: Player[] = [];
@@ -305,8 +314,15 @@ export class GameServer {
     this.chests = new SharedChests({
       near: (p, id) => this.chestNear(p, id),
       // Battle chests come pre-filled (an open container grid, no search step).
-      load: (id) => this.battle ? Promise.resolve(this.battleChests.get(id) ?? { items: generateBattleLoot([]), searched: true, revision: 0, day: 0 }) : deps.playerStates.loadChest(id),
+      load: (id) => this.supplyChests.has(id) ? Promise.resolve(structuredClone(this.supplyChests.get(id)!)) : this.battle ? Promise.resolve(this.battleChests.get(id) ?? { items: generateBattleLoot([]), searched: true, revision: 0, day: 0 }) : deps.playerStates.loadChest(id),
       commit: (id, data, p, inventory) => {
+        if (this.supplyChests.has(id)) {
+          this.supplyChests.set(id, structuredClone(data));
+          // The crate stays until it is emptied.
+          if (!data.items.length) { this.supplyChests.delete(id); this.deathCrates.delete(id); this.broadcast({ t: 'lootCrates', crates: [...this.deathCrates.values()] }); }
+          if (p) p.dirty = true;
+          return Promise.resolve();
+        }
         if (this.battle) { this.battleChests.set(id, structuredClone(data)); return Promise.resolve(); }
         return deps.playerStates.saveChestAndPlayer(id, data, p ? { accountId: p.accountId, x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.yaw, health: p.dead ? 0 : p.health, coins: p.coins, inventory, journal: structuredClone(p.journal), life: structuredClone(p.life), suspendedZombies: p.suspendedZombies } : undefined);
       },
@@ -388,6 +404,24 @@ export class GameServer {
     });
     this.merchant = new CampNpc(MERCHANT_ID, EntityKind.Merchant, gen.camp, NPC_STALLS.merchant, this.collision);
     this.nurse = new CampNpc(NURSE_ID, EntityKind.Nurse, gen.camp, NPC_STALLS.nurse, this.collision);
+    this.architect = new CampNpc(ARCHITECT_ID, EntityKind.Architect, gen.camp, NPC_STALLS.architect, this.collision);
+    if (!this.arena) this.building = new BaseBuilding({
+      collision: this.collision, physics: this.physics, world: deps.world, registry: deps.registry, zombies: this.zombies,
+      camp: gen.camp, supplyZone: gen.supplyZone,
+      players: () => this.players.values(),
+      broadcast: (msg) => this.broadcast(msg),
+      reply: (p, text) => this.reply(p, text),
+      inventoryChanged: (p) => { this.syncLoadout(p); this.sendInv(p); },
+      dropItem: (itemId, count, x, y, z) => this.spawnGroundItem(itemId, count, x, y, z),
+      addCoins: (p, amount) => this.addCoins(p, amount),
+      teammates: (a, b) => this.deps.teams?.allied(a, b) ?? false,
+      landCrate: (items, x, y, z) => this.landSupplyCrate(items, x, y, z),
+      landVehicle: (kind, x, y, z, yaw) => this.vehicles.deliver(kind, x, y, z, yaw),
+      atArchitect: (p) => this.architect.inReach(p, MERCHANT_REACH + 1),
+      save: (list) => this.deps.worlds.saveStructures?.(this.deps.worldId, list) ?? Promise.resolve(),
+      error: (err, what) => this.log.error({ err }, what),
+      now: () => this.serverTime,
+    });
     this.worldTimeMs = deps.initialWorldTimeMs;
     this.applyContent(this.content);
     if (this.infection) this.vehicles.available = false;
@@ -588,7 +622,7 @@ export class GameServer {
 
   /** Camp NPCs that are not soldiers: they keep a shotgun out of sight and only fire back. */
   private peacefulNpcs(): CampNpc[] {
-    const out: CampNpc[] = [this.merchant, this.nurse];
+    const out: CampNpc[] = [this.merchant, this.nurse, this.architect];
     for (const def of this.content.npcs) {
       const npc = this.questNpcs.get(def.id);
       if (npc && !def.combat?.enabled && !/soldier/.test(def.model)) out.push(npc);
@@ -1014,6 +1048,7 @@ export class GameServer {
       dayLengthSec: this.dayLengthMs / 1000,
       cosmeticSeed: gen.cosmeticSeed,
       camp: gen.camp ? { x: gen.camp.x, z: gen.camp.z, halfSize: CAMP_HALF_SIZE } : null,
+      supplyZone: this.building && gen.supplyZone ? { ...gen.supplyZone } : null,
     };
   }
 
@@ -1049,6 +1084,9 @@ export class GameServer {
       this.timer = setTimeout(loop, Math.max(1, TICK_MS - this.accumulator - elapsed));
     };
     this.timer = setTimeout(loop, TICK_MS);
+    if (this.building && this.deps.worlds.loadStructures) {
+      this.deps.worlds.loadStructures(this.deps.worldId).then((list) => this.building?.load(list)).catch((err: unknown) => this.log.error({ err }, 'structures load failed'));
+    }
     this.log.info({ tickRate: TICK_RATE, spawnCandidates: this.spawns.candidateCount }, 'simulation started');
   }
 
@@ -1062,6 +1100,7 @@ export class GameServer {
     }
     if (this.persisting) await this.persisting;
     await this.persistAll(true);
+    await this.building?.flush().catch((err: unknown) => this.log.error({ err }, 'structures save failed'));
   }
 
   /* ------------------------------------ join/leave --------------------------------------- */
@@ -1208,7 +1247,8 @@ export class GameServer {
     else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
-    if (this.battle) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
+    if (this.battle || this.deathCrates.size) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
+    this.building?.welcome(player);
     session.sendJson(this.npcList());
     session.sendJson({ t: 'coins', drops: [...this.coinDrops].map(([id, c]) => ({ id, x: c.x, y: c.y, z: c.z, amount: c.amount })) });
     this.broadcastPlayerList();
@@ -1318,6 +1358,9 @@ export class GameServer {
         return;
       case 'inv':
         this.onInventory(p, msg);
+        return;
+      case 'build':
+        this.onBuild(p, msg);
         return;
       case 'reload':
         this.onReload(p);
@@ -2301,7 +2344,8 @@ export class GameServer {
         else p.session.sendJson(speech);
       }
     }
-    if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
+    if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT) || this.architect.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
+    this.building?.step(TICK_DT, now);
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
@@ -2560,7 +2604,11 @@ export class GameServer {
     const res = blade
       ? resolveBladeSweep(p, candidates, this.collision, now, renderTime, { range, damage: blade.damage, halfAngle: blade.halfAngle ?? 1.05 })
       : resolveMelee(p, candidates, this.collision, now, renderTime);
-    if (!res) return;
+    if (!res) {
+      // Nobody in reach: the blow lands on a tree, a rock or a wall.
+      this.building?.strike(p, p.inv.equippedItem()?.itemId, blade?.damage ?? MELEE.baseDamage, now);
+      return;
+    }
     const apply = (target: Combatant, damage: number, zone: string, x: number, y: number, z: number, force: number) => {
       const sever = target instanceof Zombie && target.variant !== ZombieVariant.Brute && !target.dead && rollsDecapitation(blade);
       this.hitTarget(p, target, sever ? target.health : damage, sever ? 'decapitation' : zone, x, y, z, -Math.sin(p.yaw), -Math.cos(p.yaw), force, now);
@@ -2995,6 +3043,7 @@ export class GameServer {
   /** Blast damage with linear falloff; cover blocks it for players. */
   private explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade' | 'grenade40' | 'rocket', now: number): void {
     this.vehicles.blast(x, y, z, radius, damage, now);
+    this.building?.blast(x, y, z, radius, damage);
     const liveOwner = owner && this.players.get(owner.id) === owner ? owner : null;
     this.vegetation.explode(x, y, z, radius, now);
     const cx = Math.floor(x / CHUNK_SIZE);
@@ -3122,7 +3171,7 @@ export class GameServer {
       const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
-      if (stopped && !hit.target && !npcHit) this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag);
+      if (stopped && !hit.target && !npcHit) { this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag); this.building?.bulletHit(hit.colliderTag, r.damage, r.x, r.y, r.z); }
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
       this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped, normal: !npcHit && !hit.target && stopped ? hit.normal : undefined });
       if (r.spec.blast) {
@@ -3427,6 +3476,50 @@ export class GameServer {
     this.broadcast({ t: 'ground', items: [{ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z }] });
   }
 
+  /** An item lying at an exact spot (mined ore, planks that did not fit). */
+  private spawnGroundItem(itemId: string, count: number | undefined, x: number, y: number, z: number): void {
+    const id = this.nextGroundId++;
+    const g = { itemId, count, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS * 3 };
+    this.groundItems.set(id, g);
+    this.broadcast({ t: 'ground', items: [{ id, itemId, count, x: g.x, y: g.y, z: g.z }] });
+  }
+
+  /** A supply crate touched down: a chest anyone may open (the drop zone is not protected). */
+  private landSupplyCrate(entries: Array<[string, number]>, x: number, y: number, z: number): void {
+    const items: PlacedItem[] = [];
+    let uid = 1;
+    for (const [itemId, n] of entries) for (let i = 0; i < n; i++) {
+      const def = ITEMS[itemId];
+      if (!def) continue;
+      const item: PlacedItem = { uid: uid++, itemId, container: 'backpack', x: 0, y: 0, rotated: false };
+      const max = maxCount(def);
+      if (max) item.count = max;
+      const spec = weaponSpec(WEAPON_BY_ITEM[itemId] ?? 0);
+      if (spec?.kind === 'gun') item.mag = spec.magazine;
+      items.push(item);
+    }
+    const id = `9998:${this.nextSupplyCrate++}:${Math.round(this.serverTime) % 1_000_000}:0`;
+    this.supplyChests.set(id, { items, searched: true, revision: 0, capacity: Math.max(24, items.length) });
+    this.deathCrates.set(id, { id, x, y, z });
+    this.broadcast({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
+  }
+
+  /** Base building requests (see BaseBuilding). */
+  private onBuild(p: Player, msg: BuildMessage): void {
+    const b = this.building;
+    if (!b || !p.active || p.questBusy) return;
+    const now = this.serverTime;
+    switch (msg.op) {
+      case 'place': return b.place(p, msg.uid, msg.x, msg.z, msg.yaw);
+      case 'craft': return b.craft(p, msg.uid);
+      case 'log': return b.takeLog(p, msg.id, now);
+      case 'door': return b.door(p, msg.id, msg.piece, now);
+      case 'deposit': return b.deposit(p, msg.blueprint, msg.item);
+      case 'claim': return b.claim(p, msg.blueprint);
+      case 'order': return b.order(p, msg.entry, now);
+    }
+  }
+
   /** A slain animal's meat: real ground items around the body (picked up with E, outlive the respawn). */
   private dropAnimalLoot(animal: Livestock): void {
     const n = animal.record.loot;
@@ -3518,7 +3611,8 @@ export class GameServer {
   }
 
   private npcList(): ServerJsonMessage {
-    const npcs: Array<{ id: number; role: 'merchant' | 'nurse'; x: number; z: number }> = [];
+    const npcs: Array<{ id: number; role: 'merchant' | 'nurse' | 'architect'; x: number; z: number }> = [];
+    if (this.architect.active) npcs.push({ id: this.architect.id, role: 'architect', x: this.architect.x, z: this.architect.z });
     if (this.merchant.active) npcs.push({ id: this.merchant.id, role: 'merchant', x: this.merchant.x, z: this.merchant.z });
     if (this.nurse.active) npcs.push({ id: this.nurse.id, role: 'nurse', x: this.nurse.x, z: this.nurse.z });
     return { t: 'npcs', npcs };
@@ -3598,6 +3692,7 @@ export class GameServer {
       }
       this.merchant.entitiesFor(p, entities);
       this.nurse.entitiesFor(p, entities);
+      if (!this.arena) this.architect.entitiesFor(p, entities);
       this.zombies.entitiesFor(p, now, entities);
       for (const animal of this.animals.values()) if (animal.visible(p)) entities.push(animal.entity(now));
       const s = p.state;
@@ -3632,6 +3727,7 @@ export class GameServer {
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.state.mantle) f |= EntityFlags.Mantling;
+    if ((p.lastButtons & Buttons.Plan) !== 0 && !this.arena) f |= EntityFlags.Planning;
     if (p.downed) f |= EntityFlags.Downed;
     if (p.reviving) f |= EntityFlags.Reviving;
     if (now < p.knockedUntil && !p.dead) f |= EntityFlags.Knocked;

@@ -24,6 +24,9 @@ export class PhysicsChunkManager {
     private readonly logger: Logger,
   ) {}
 
+  /** Props left out of the collision world (felled trees); reload a chunk after it changes. */
+  propFilter: ((cx: number, cz: number, prop: import('@zion/shared').PropInstance) => boolean) | null = null;
+
   get loadedCount(): number {
     return this.loaded.size;
   }
@@ -46,7 +49,8 @@ export class PhysicsChunkManager {
     const p = this.world
       .getChunk(cx, cz, 0, ChunkPriority.Physics)
       .then((rec) => {
-        const col = buildChunkCollision(rec.data, this.registry);
+        const filter = this.propFilter;
+        const col = buildChunkCollision(filter ? { ...rec.data, props: rec.data.props.filter((p) => filter(cx, cz, p)) } : rec.data, this.registry);
         if (col.unknownAssets > 0) this.logger.warn({ cx, cz, unknown: col.unknownAssets }, 'chunk has unknown assets');
         this.collision.addChunk(cx, cz, col.heightfield, col.colliders);
         this.loaded.add(key);
@@ -60,6 +64,15 @@ export class PhysicsChunkManager {
   reload(cx: number, cz: number): void {
     const key = chunkKey(cx, cz);
     if (!this.loaded.has(key)) return;
+    // Rebuilt in place from the cached chunk when possible (no window without colliders).
+    const rec = this.world.peek(cx, cz, 0);
+    if (rec) {
+      const filter = this.propFilter;
+      const col = buildChunkCollision(filter ? { ...rec.data, props: rec.data.props.filter((p) => filter(cx, cz, p)) } : rec.data, this.registry);
+      this.collision.removeChunk(cx, cz);
+      this.collision.addChunk(cx, cz, col.heightfield, col.colliders);
+      return;
+    }
     this.collision.removeChunk(cx, cz);
     this.loaded.delete(key);
     this.load(cx, cz).catch((err: unknown) => this.logger.error({ err, cx, cz }, 'physics chunk reload failed'));

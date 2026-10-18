@@ -18,3 +18,8 @@ export const NURSE_MODEL_URL = '/models/npcs/curvy-nurse.bbmodel';
 /** The camp's field medic: heals for ZCoin and sells first aid kits. */
 export const NURSE_ID = NPC_ID_BASE + 0x101;
 export const NURSE_NAME = 'Y tá Hoa · Quân y';
+
+export const ARCHITECT_MODEL_URL = '/models/npcs/scrap-dealer-npc.bbmodel';
+/** The camp's architect: trades blueprints for building materials. */
+export const ARCHITECT_ID = NPC_ID_BASE + 0x102;
+export const ARCHITECT_NAME = 'Kỹ sư Tư · Bản vẽ công trình';

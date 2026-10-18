@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-16T15:42:56.795Z",
+  "generatedAt": "2026-10-18T06:26:55.327Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -320,6 +320,12 @@
       "bytes": 8611,
       "kind": "bbmodel"
     },
+    "dists/supply-crate.bbmodel": {
+      "url": "/assets/models/dists_supply-crate.6bc0819fe800.bbmodel",
+      "sha256": "6bc0819fe80093ae4848a80b1143b1efdad73259b53a20d30a3b004378974556",
+      "bytes": 4270,
+      "kind": "bbmodel"
+    },
     "dists/wet-farmland-plot-unpipe.bbmodel": {
       "url": "/assets/models/dists_wet-farmland-plot-unpipe.affc99789f18.bbmodel",
       "sha256": "affc99789f18b2d29513c1de551d804ca2dbb858652f8a4897252244d4fed228",
@@ -392,6 +398,12 @@
       "bytes": 12908,
       "kind": "bbmodel"
     },
+    "materias/blueprint-roll.bbmodel": {
+      "url": "/assets/models/materias_blueprint-roll.6ae151724d02.bbmodel",
+      "sha256": "6ae151724d02cc0191a35eaa497a9570508e9b1d74575d5f019c974009500046",
+      "bytes": 3237,
+      "kind": "bbmodel"
+    },
     "materias/branch-stick.bbmodel": {
       "url": "/assets/models/materias_branch-stick.42663bafc803.bbmodel",
       "sha256": "42663bafc8034366a89d1efd08b6328acc0f2c72c07fbb93c18756f9a05d8121",
@@ -452,6 +464,12 @@
       "bytes": 5414,
       "kind": "bbmodel"
     },
+    "materias/copper-ore.bbmodel": {
+      "url": "/assets/models/materias_copper-ore.2b911ba2093c.bbmodel",
+      "sha256": "2b911ba2093c7c2aacc276997a9f759397341a778d92abf62f493070d51c1ce9",
+      "bytes": 4292,
+      "kind": "bbmodel"
+    },
     "materias/corporal-badge.bbmodel": {
       "url": "/assets/models/materias_corporal-badge.f536268337c4.bbmodel",
       "sha256": "f536268337c40dd7f2c1f2c6a5af9a2d9c43970614957572f7a5de36f9bf0fb7",
@@ -494,6 +512,12 @@
       "bytes": 10011,
       "kind": "bbmodel"
     },
+    "materias/iron-ore.bbmodel": {
+      "url": "/assets/models/materias_iron-ore.6d69cb97cf50.bbmodel",
+      "sha256": "6d69cb97cf503951224f4caffd9236db97b07b06497319e4462527868600a633",
+      "bytes": 4282,
+      "kind": "bbmodel"
+    },
     "materias/l-shaped-kitchen-counter.bbmodel": {
       "url": "/assets/models/materias_l-shaped-kitchen-counter.3316bc913fec.bbmodel",
       "sha256": "3316bc913fecc274e3c74188c4748d81c252185523f001a4d1e5c67c5472df4d",
@@ -504,6 +528,12 @@
       "url": "/assets/models/materias_large-stone-brick-wall.2da9a11c172d.bbmodel",
       "sha256": "2da9a11c172d5c950ae3d204e263c2cc9b8ca4c970ee12924a9283d55004df3c",
       "bytes": 15263,
+      "kind": "bbmodel"
+    },
+    "materias/lead-ore.bbmodel": {
+      "url": "/assets/models/materias_lead-ore.cf97ff828c06.bbmodel",
+      "sha256": "cf97ff828c06c65228b833c720cc1aff4b85ea0bd835173b8f45dff269d070a3",
+      "bytes": 4282,
       "kind": "bbmodel"
     },
     "materias/lon-cu-nat.bbmodel": {
@@ -686,6 +716,12 @@
       "bytes": 12249,
       "kind": "bbmodel"
     },
+    "materias/stone-chunk.bbmodel": {
+      "url": "/assets/models/materias_stone-chunk.58ccb6de4ec6.bbmodel",
+      "sha256": "58ccb6de4ec670bdc6a8c1e67bb4606829ab057c24af5dd4793dfdca8c730dab",
+      "bytes": 3224,
+      "kind": "bbmodel"
+    },
     "materias/tanbinh-badge.bbmodel": {
       "url": "/assets/models/materias_tanbinh-badge.724e852c05bf.bbmodel",
       "sha256": "724e852c05bf705d4b814e3dd919009fadf66e9a2445e81894884f370a371318",
@@ -708,6 +744,18 @@
       "url": "/assets/models/materias_weapon-table.e3e11fd7c73b.bbmodel",
       "sha256": "e3e11fd7c73b343098f8d538c9b8cf119f68bb28660c1b87fe09880d0ea9ae63",
       "bytes": 18339,
+      "kind": "bbmodel"
+    },
+    "materias/wood-log.bbmodel": {
+      "url": "/assets/models/materias_wood-log.ed6ab0e462af.bbmodel",
+      "sha256": "ed6ab0e462afa2d70cd9cc8c2fef52a63714ebb75cf8ed8290c3957a889618a5",
+      "bytes": 4204,
+      "kind": "bbmodel"
+    },
+    "materias/wood-plank.bbmodel": {
+      "url": "/assets/models/materias_wood-plank.636f286a27bc.bbmodel",
+      "sha256": "636f286a27bc5637207a3eb0a775255e4645ccd7612acccb0d4e6ebff510f755",
+      "bytes": 2141,
       "kind": "bbmodel"
     },
     "materias/wooden-fence.bbmodel": {
@@ -1220,10 +1268,22 @@
       "bytes": 5213,
       "kind": "bbmodel"
     },
+    "tools/pickaxe.bbmodel": {
+      "url": "/assets/models/tools_pickaxe.0422d5f4eabc.bbmodel",
+      "sha256": "0422d5f4eabc98639d79914e3ab089ae345e7896af5920d698245f2cbdd706c3",
+      "bytes": 5270,
+      "kind": "bbmodel"
+    },
     "tools/shovel.bbmodel": {
       "url": "/assets/models/tools_shovel.cc1ca1e5bbef.bbmodel",
       "sha256": "cc1ca1e5bbef61d496ce0ba40114312e9b4afbcf2232576f087cc5dd0653f188",
       "bytes": 5019,
+      "kind": "bbmodel"
+    },
+    "tools/supply-radio.bbmodel": {
+      "url": "/assets/models/tools_supply-radio.65bd07bfee65.bbmodel",
+      "sha256": "65bd07bfee65285679a5b2e0b812465dc3aa3137970e9e41d60dd7a54adc881e",
+      "bytes": 4822,
       "kind": "bbmodel"
     },
     "weapons/ak47-rifle.bbmodel": {
