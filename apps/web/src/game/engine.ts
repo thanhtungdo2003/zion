@@ -1118,6 +1118,7 @@ export class GameEngine {
       username: () => this.hud.get().username,
       toast: (msg) => this.toast(msg),
       equippedItemId: () => this.inventory.equippedItemId(),
+      planeSound: (key, at) => { if (at) this.sounds?.loopAt(key, 'transportPlane', { volume: .75, at, maxDistance: 1400, refDistance: 40 }); else this.sounds?.stopLoop(key); },
     });
     this.building.setWorld(world);
     this.slashes?.dispose();

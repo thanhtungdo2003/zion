@@ -413,7 +413,7 @@ export class GameServer {
       reply: (p, text) => this.reply(p, text),
       inventoryChanged: (p) => { this.syncLoadout(p); this.sendInv(p); },
       dropItem: (itemId, count, x, y, z) => this.spawnGroundItem(itemId, count, x, y, z),
-      addCoins: (p, amount) => this.addCoins(p, amount),
+      addCoins: (p, amount, ok) => { if (!ok) return this.addCoins(p, amount); p.coins = Math.max(0, p.coins + amount); p.dirty = true; p.session.sendJson({ t: 'wallet', coins: p.coins, ok: true }); },
       teammates: (a, b) => this.deps.teams?.allied(a, b) ?? false,
       landCrate: (items, x, y, z) => this.landSupplyCrate(items, x, y, z),
       landVehicle: (kind, x, y, z, yaw) => this.vehicles.deliver(kind, x, y, z, yaw),
@@ -3140,7 +3140,12 @@ export class GameServer {
         ...this.animals.values(),
         ...(this.bots?.near(r.x, r.z, len + 3) ?? []),
       ];
-      const hit = castCombatRay(r.owner, candidates, this.collision, now, undefined, r.x, r.y, r.z, dx, dy, dz, len);
+      let hit = castCombatRay(r.owner, candidates, this.collision, now, undefined, r.x, r.y, r.z, dx, dy, dz, len);
+      // Launcher rounds stop on a vehicle's body, not only on its frame (open windows, cabin).
+      if (r.spec.kind !== 'bullet') {
+        const hull = this.vehicles.hull(r.x, r.y, r.z, dx, dy, dz, Math.min(len, hit.t), r.owner.vehicleId);
+        if (hull && hull.t < hit.t) hit = { target: null, zone: null, t: hull.t, rewoundMs: 0, normal: [-dx, -dy, -dz], colliderTag: 50000 + hull.id };
+      }
       const npcHit = this.npcOnRay(r.x, r.y, r.z, dx, dy, dz, hit.t);
       if (npcHit && this.players.get(r.owner.id) === r.owner) this.provokeNpc(npcHit.npc, r.owner, now);
       const t = npcHit ? npcHit.t : hit.t;

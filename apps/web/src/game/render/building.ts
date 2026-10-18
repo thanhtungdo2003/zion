@@ -433,6 +433,8 @@ export class SupplyRenderer {
   }
 
   get message(): SupplyMessage { return this.state; }
+  /** Transport planes in the air (their drawn positions), for the engine sound. */
+  get flying(): ReadonlyMap<number, Group> { return this.planes; }
 
   /** Ground height for the marks (set by the controller). */
   ground: (x: number, z: number) => number = () => 0;

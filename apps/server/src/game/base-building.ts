@@ -62,7 +62,8 @@ export interface BuildingDeps {
   /** Inventory changed: re-derive the loadout and send it. */
   inventoryChanged(p: Player): void;
   dropItem(itemId: string, count: number | undefined, x: number, y: number, z: number): void;
-  addCoins(p: Player, amount: number): void;
+  /** `ok`: a purchase went through (the client plays the coin sound). */
+  addCoins(p: Player, amount: number, ok?: boolean): void;
   /** Same team (doors open for teammates too). */
   teammates(a: string, b: string): boolean;
   /** A supply crate came down: a chest holding these items at (x, y, z). */
@@ -441,7 +442,7 @@ export class BaseBuilding {
     const wait = (this.orderedAt.get(p.accountId) ?? -Infinity) + SUPPLY_FLIGHT.cooldownMs - now;
     if (wait > 0) { this.deps.reply(p, `Vệ tinh đang bận, thử lại sau ${Math.ceil(wait / 1000)} giây.`); return; }
     if (p.coins < entry.price) { this.deps.reply(p, 'Không đủ ZCoin cho đơn hàng này.'); return; }
-    this.deps.addCoins(p, -entry.price);
+    this.deps.addCoins(p, -entry.price, true);
     this.orderedAt.set(p.accountId, now);
     const a = Math.random() * Math.PI * 2, dx = Math.sin(a), dz = Math.cos(a);
     const tx = p.state.x, tz = p.state.z, ty = p.state.y;

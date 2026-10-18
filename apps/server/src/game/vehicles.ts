@@ -245,6 +245,29 @@ export class Vehicles {
       }
     }
   }
+  /**
+   * The first vehicle whose whole body (not just its collision frame: windows and the cabin are
+   * open there) a ray hits within `len`: rockets, 40 mm grenades and bolts stop on it.
+   */
+  hull(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, len: number, skip?: number | null): { t: number; id: number } | null {
+    let best: { t: number; id: number } | null = null;
+    for (const v of this.states.values()) {
+      if (v.exploded || v.id === skip || !this.available) continue;
+      const def = VEHICLES[v.kind];
+      if (Math.hypot(v.x - ox, v.z - oz) > len + def.halfZ + 3) continue;
+      const a = vehicleLocalPoint(v, ox, oy, oz), b = vehicleLocalPoint(v, ox + dx, oy + dy, oz + dz);
+      const d = [b.x - a.x, b.y - a.y, b.z - a.z], o = [a.x, a.y, a.z], lo = [-def.halfX, .2, -def.halfZ], hi = [def.halfX, def.height, def.halfZ];
+      let t0 = 0, t1 = len;
+      for (let i = 0; i < 3 && t0 <= t1; i++) {
+        if (Math.abs(d[i]!) < 1e-9) { if (o[i]! < lo[i]! || o[i]! > hi[i]!) t0 = Infinity; continue; }
+        let ta = (lo[i]! - o[i]!) / d[i]!, tb = (hi[i]! - o[i]!) / d[i]!;
+        if (ta > tb) [ta, tb] = [tb, ta];
+        t0 = Math.max(t0, ta); t1 = Math.min(t1, tb);
+      }
+      if (t0 <= t1 && t0 <= len && (!best || t0 < best.t)) best = { t: t0, id: v.id };
+    }
+    return best;
+  }
   hitAt(x: number, y: number, z: number, amount: number, now: number, colliderTag?: number): void {
     if (amount < 25 || colliderTag === undefined || colliderTag < 50001) return;
     for (const v of this.states.values()) {

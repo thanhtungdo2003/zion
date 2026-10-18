@@ -48,6 +48,8 @@ export interface BuildingHost {
   username(): string;
   toast(msg: Msg): void;
   equippedItemId(): string | null;
+  /** Keeps a looping engine sound at a point (null stops it). */
+  planeSound(key: object, at: { x: number; y: number; z: number } | null): void;
 }
 
 /** A thing to use within reach (merged into the engine's interaction targets). */
@@ -187,7 +189,12 @@ export class BuildingController {
 
   deposit(blueprint: string, item: string): void { this.host.conn.sendBuild({ t: 'build', op: 'deposit', blueprint: blueprint as 'wood_outpost', item }); }
   claim(blueprint: string): void { this.host.conn.sendBuild({ t: 'build', op: 'claim', blueprint: blueprint as 'wood_outpost' }); }
-  order(entry: string): void { this.host.conn.sendBuild({ t: 'build', op: 'order', entry }); }
+  /** Orders by radio and closes the inventory, so the plane can be watched coming in. */
+  order(entry: string): void {
+    this.host.conn.sendBuild({ t: 'build', op: 'order', entry });
+    this.host.inventory.setOpen(false);
+  }
+  private readonly planeKeys = new Map<number, object>();
 
   /* --------------------------------------- planning ------------------------------------ */
 
@@ -291,10 +298,18 @@ export class BuildingController {
     this.trees.update(dt);
     this.structures.update(time);
     this.supply.update(dt, time);
+    // Each transport plane drones overhead, heard from far away.
+    for (const [id, g] of this.supply.flying) {
+      let key = this.planeKeys.get(id);
+      if (!key) this.planeKeys.set(id, (key = {}));
+      this.host.planeSound(key, g.position);
+    }
+    for (const [id, key] of this.planeKeys) if (!this.supply.flying.has(id)) { this.host.planeSound(key, null); this.planeKeys.delete(id); }
     this.updatePlan(time);
   }
 
   dispose(): void {
+    for (const key of this.planeKeys.values()) this.host.planeSound(key, null);
     this.trees.dispose();
     this.structures.dispose();
     this.hologram.dispose();
