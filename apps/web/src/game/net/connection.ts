@@ -13,6 +13,7 @@ import {
   type Snapshot,
   type WelcomeMessage,
   type GameMode,
+  type BuildMessage,
 } from '@zion/shared';
 import { getGameTicket } from '@/lib/api';
 
@@ -191,7 +192,7 @@ export class GameConnection {
   }
 
   /** Base building (place, craft, logs, doors, architect, supply orders). */
-  sendBuild(msg: import('@zion/shared').BuildMessage): void {
+  sendBuild(msg: BuildMessage): void {
     this.send(msg);
   }
 
