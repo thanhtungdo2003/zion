@@ -158,7 +158,7 @@ function coreObject(pc: StructurePiece, template: CharacterTemplate): Object3D {
 /** A whole blueprint built from its models (panel previews). */
 export async function buildStructureModel(blueprint: string, library: AssetLibrary): Promise<Group> {
   const pieces = piecesOf(blueprint);
-  await Promise.all([...new Set(pieces.map((p) => p.asset).filter(Boolean))].map((a) => library.load(a)));
+  await Promise.all([...new Set(pieces.map((p) => p.asset).filter(Boolean))].map((a) => library.load(a) ?? Promise.resolve()));
   // Its own copy: the preview disposes what it shows.
   const core = await loadCharacterModel(CORE_MODEL).catch(() => null);
   const root = new Group();
