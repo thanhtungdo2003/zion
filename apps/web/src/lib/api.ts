@@ -7,7 +7,8 @@ import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/share
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
  */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+/** 'same-origin' (the desktop app): the API is reached through the page's own origin (its local proxy). */
+export const API_URL = process.env.NEXT_PUBLIC_API_URL === 'same-origin' ? '' : process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
   return request('/api/leaderboard', { signal });

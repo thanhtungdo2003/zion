@@ -1,7 +1,9 @@
 // @ts-check
 import { fileURLToPath } from 'node:url';
-const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const wsOrigin = process.env.NEXT_PUBLIC_WS_ORIGIN ?? api.replace(/^http/, 'ws');
+// The desktop build talks to the API through its own local origin (a proxy in the app).
+const desktop = process.env.NEXT_PUBLIC_API_URL === 'same-origin';
+const api = desktop ? 'http://127.0.0.1:*' : process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const wsOrigin = desktop ? 'ws://127.0.0.1:*' : process.env.NEXT_PUBLIC_WS_ORIGIN ?? api.replace(/^http/, 'ws');
 const isDev = process.env.NODE_ENV !== 'production';
 
 const csp = [
@@ -26,7 +28,10 @@ const nextConfig = {
   poweredByHeader: false,
   devIndicators: false,
   transpilePackages: ['@zion/shared', '@zion/physics', '@zion/assets'],
-  output: 'standalone',
+  // The desktop app ships a static export (served by the app itself); the website a Node server.
+  output: desktop ? 'export' : 'standalone',
+  // Its own build folder, so building the app never touches the website's build.
+  ...(desktop ? { distDir: '.next-desktop' } : {}),
   // Keep the monorepo's standalone entry at apps/web/server.js on every host.
   outputFileTracingRoot: fileURLToPath(new URL('../..', import.meta.url)),
   webpack(config, { isServer, webpack }) {
@@ -37,7 +42,9 @@ const nextConfig = {
     }
     return config;
   },
+  ...(desktop ? { images: { unoptimized: true } } : {}),
   async headers() {
+    if (desktop) return [];
     return [
       {
         source: '/sw.js',
@@ -52,7 +59,7 @@ const nextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-          ...(isDev ? [] : [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]),
+          ...(isDev || desktop ? [] : [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]),
         ],
       },
       {

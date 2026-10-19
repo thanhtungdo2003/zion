@@ -14,3 +14,7 @@ coverage/
 /packages/worldgen/preview/
 /apps/web/public/assets/models/
 /apps/web/next-env.d.ts
+/apps/desktop/build/
+/apps/desktop/release/
+/apps/desktop/config.json
+/apps/web/.next-desktop/

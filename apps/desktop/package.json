@@ -1,0 +1,14 @@
+{
+  "name": "@zion/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ZION desktop app: the web client in its own window, ready to zip and hand out",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0"
+  }
+}

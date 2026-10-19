@@ -10,10 +10,13 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',
+      '**/.next-desktop/**',
       '**/coverage/**',
       'apps/web/next-env.d.ts',
       'apps/web/public/**',
       '**/*.config.{js,mjs,cjs,ts}',
+      'apps/desktop/release/**',
+      'apps/desktop/build/**',
     ],
   },
   js.configs.recommended,
@@ -52,5 +55,10 @@ export default tseslint.config(
   {
     files: ['**/scripts/**/*.ts', '**/*.test.ts'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    files: ['apps/desktop/**/*.{cjs,mjs}'],
+    languageOptions: { globals: { ...globals.node } },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
 );
