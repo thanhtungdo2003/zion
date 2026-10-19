@@ -10,6 +10,8 @@ export class ZombieOutline {
   private readonly white = new MeshBasicMaterial({ color: 0xffffff, fog: false, toneMapped: false });
   /** Mask colour of hostile targets: red channel only (white outline targets write all channels). */
   private readonly red = new MeshBasicMaterial({ color: 0xff0000, fog: false, toneMapped: false });
+  /** X-ray targets (the infected's sniff): red plus the blue channel, filled in red through walls. */
+  private readonly xray = new MeshBasicMaterial({ color: 0xff00ff, fog: false, toneMapped: false });
   private readonly screen = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly size = new Vector2();
@@ -38,6 +40,9 @@ export class ZombieOutline {
         }
         float alpha=(1.-body)*min(0.9,edge*0.85+glow*0.23);
         vec3 base=texture2D(colorMap,uvScreen).rgb;
+        // Sniffed through walls: the hidden body filled in red, pulsing a little.
+        float seen=texture2D(maskMap,uvScreen).b*step(texture2D(worldDepth,uvScreen).r + 0.0000002, texture2D(maskDepth,uvScreen).r);
+        base=mix(base,vec3(1.,.06,.03),seen*.55);
         // Players outline white; hostiles (zombies, players in PvP) red.
         vec3 tint=mix(vec3(1.,0.025,0.015),vec3(1.),whiteness);
         gl_FragColor=vec4(mix(base,tint,alpha),1.);
@@ -58,7 +63,7 @@ export class ZombieOutline {
   }
 
   /** `white`: roots outlined white instead of red. */
-  render(renderer: WebGLRenderer, scene: Scene, camera: Camera, selected: readonly Object3D[], white: ReadonlySet<Object3D> = new Set()): void {
+  render(renderer: WebGLRenderer, scene: Scene, camera: Camera, selected: readonly Object3D[], white: ReadonlySet<Object3D> = new Set(), xray: ReadonlySet<Object3D> = new Set()): void {
     if (!selected.length) { renderer.render(scene, camera); return; }
     renderer.getDrawingBufferSize(this.size);
     if (this.world.width !== this.size.x || this.world.height !== this.size.y) {
@@ -80,7 +85,7 @@ export class ZombieOutline {
       renderer.setRenderTarget(this.world); renderer.render(scene, camera);
       renderer.shadowMap.autoUpdate = false;
       for (const root of selected) {
-        const mat = white.has(root) ? this.white : this.red;
+        const mat = xray.has(root) ? this.xray : white.has(root) ? this.white : this.red;
         root.traverse((node) => {
           if (node instanceof Mesh) { changed.push([node, node.layers.mask, node.material]); node.layers.enable(MASK_LAYER); node.material = mat; }
         });
@@ -97,7 +102,7 @@ export class ZombieOutline {
   }
 
   dispose(): void {
-    this.world.dispose(); this.mask.dispose(); this.white.dispose(); this.red.dispose();
+    this.world.dispose(); this.mask.dispose(); this.white.dispose(); this.red.dispose(); this.xray.dispose();
     this.quad.geometry.dispose(); this.material.dispose();
   }
 }

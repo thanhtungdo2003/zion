@@ -9,7 +9,7 @@ const clock = (ms: number) => { const s = Math.ceil(ms / 1000); return `${Math.f
  * Infection scoreboard: humans against zombies with the round clock between them, the countdown
  * before the outbreak, the red veil while you are a zombie and the result at the end.
  */
-export function InfectionHud({ state, health, onLeave }: { state: InfectionState; health: number; onLeave: () => void }) {
+export function InfectionHud({ state, health, onLeave, sniffUntil = 0, sniffReadyAt = 0 }: { state: InfectionState; health: number; onLeave: () => void; sniffUntil?: number; sniffReadyAt?: number }) {
   // The server reports every second; count down smoothly in between.
   const [at, setAt] = useState(() => performance.now());
   const [now, setNow] = useState(at);
@@ -21,6 +21,12 @@ export function InfectionHud({ state, health, onLeave }: { state: InfectionState
   return (
     <>
       {state.infected && <div className="ifx-veil" aria-hidden="true" />}
+      {state.infected && (
+        <div className={`ifx-skill${now < sniffUntil ? ' on' : now < sniffReadyAt ? ' wait' : ''}`} role="status" aria-label="Kỹ năng đánh hơi">
+          <kbd>Q</kbd><b>Đánh hơi</b>
+          <small>{now < sniffUntil ? `${Math.ceil((sniffUntil - now) / 1000)} s` : now < sniffReadyAt ? `hồi ${Math.ceil((sniffReadyAt - now) / 1000)} s` : 'sẵn sàng · 10 m'}</small>
+        </div>
+      )}
       <div className={`ifx-score${state.infected ? ' zombie' : ''}`} role="status" aria-label={`${state.humans} người, ${state.zombies} zombie`}>
         <div className="ifx-side human"><Icon name="lucide:users" /><b>{state.humans}</b></div>
         <div className="ifx-clock">

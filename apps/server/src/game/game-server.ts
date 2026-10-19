@@ -2478,7 +2478,7 @@ export class GameServer {
     const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) * (now < p.slowUntil ? p.slowFactor : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
       TICK_DT,
       this.stepInfo,
     );
@@ -2706,7 +2706,19 @@ export class GameServer {
       // Bullets do not shove the target: the server-only push and stun fought the victim's own
       // prediction and made them rubber-band while under fire. Melee and blasts still knock back.
       if (amount > 0 && !this.infection && weaponSpec(weapon)?.kind !== 'gun' && !this.spawns.inSafeZone(t.state.x, t.state.z)) this.knockback(t, dirX, dirZ, now, knockbackMultiplier);
+      // Infection: bullets stagger the infected, a shove back and a moment of slowness, sent to
+      // the victim too so its own prediction moves the same way (no rubber-banding).
+      if (amount > 0 && this.infection?.isZombie(t.id) && weaponSpec(weapon)?.kind === 'gun' && !t.dead) this.stagger(t, dirX, dirZ, amount, knockbackMultiplier, now);
     }
+  }
+
+  private stagger(t: Player, dirX: number, dirZ: number, amount: number, multiplier: number, now: number): void {
+    const l = Math.hypot(dirX, dirZ) || 1, push = Math.min(7, 2.2 + amount * .09) * multiplier;
+    const vx = dirX / l * push, vz = dirZ / l * push, ms = Math.min(1400, 450 + amount * 18), factor = .45;
+    t.state.vx += vx; t.state.vz += vz;
+    t.slowUntil = Math.max(t.slowUntil, now + ms); t.slowFactor = factor;
+    t.dirty = true;
+    t.session.sendJson({ t: 'stagger', vx: +vx.toFixed(2), vz: +vz.toFixed(2), factor, ms });
   }
 
   /** Shot: thrown off the feet away from the shooter (brief stagger, no steering mid-air). */

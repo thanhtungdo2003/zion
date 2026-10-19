@@ -65,6 +65,9 @@ export interface HudState {
   playersOnline: number;
   /** Tab held: the scoreboard, from the last player list (our own id marks our row). */
   scoreboard: boolean;
+  /** Infected sniff skill: active until / ready again at (performance.now() ms). */
+  sniffUntil: number;
+  sniffReadyAt: number;
   scorePlayers: Array<{ id: number; name: string; rank?: string; kills: number; deaths: number; dead: boolean; zombie: boolean; bot: boolean }>;
   selfId: number;
   health: number;
@@ -165,6 +168,8 @@ export function initialHud(): HudState {
     playersNearby: 0,
     playersOnline: 0,
     scoreboard: false,
+    sniffUntil: 0,
+    sniffReadyAt: 0,
     scorePlayers: [],
     selfId: 0,
     health: 100,

@@ -161,6 +161,8 @@ interface ChunkMeshes {
   water: Mesh | null;
 }
 
+/** The infected's sniff: survivors within `range` m show through walls for `ms`. */
+const SNIFF = { range: 10, ms: 6000, cooldownMs: 20_000 } as const;
 const MESH_BUILD_BUDGET_MS = 6;
 const HUD_INTERVAL_MS = 250;
 const PING_INTERVAL_MS = 2000;
@@ -448,6 +450,8 @@ export class GameEngine {
   private zombieOutline: ZombieOutline | null = null;
   private readonly outlinedZombies: Object3D[] = [];
   private readonly whiteOutlines = new Set<Object3D>();
+  /** Survivors sniffed out by our infected: filled red through walls. */
+  private readonly xrayOutlines = new Set<Object3D>();
   private readonly targetVisibility = new TargetVisibility();
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private lootCrateRenderer: BaseLifeRenderer | null = null;
@@ -548,6 +552,12 @@ export class GameEngine {
       // Through a night-vision scope the wheel switches night vision instead of weapons.
       cycleHotbar: (dir) => { if (!this.toggleNightVision()) this.inventory.cycle(dir); },
       scoreboard: (open) => this.hud.set({ scoreboard: open }),
+      skill: () => {
+        // Infected: sniff out every survivor within 10 m for 6 s, seen through walls (only by us).
+        const now = performance.now();
+        if (!this.selfInfected || now < this.hud.get().sniffReadyAt) return;
+        this.hud.set({ sniffUntil: now + SNIFF.ms, sniffReadyAt: now + SNIFF.cooldownMs });
+      },
       reload: () => this.weaponCtl.reload(performance.now(), this.equippedWeapon()),
       heal: () => void this.useMedkit(),
       primary: () => this.building?.primary() ?? false,
@@ -1624,6 +1634,11 @@ export class GameEngine {
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
         if (m.kind !== 'flash') this.shockwaves.add(m.x, m.y + .3, m.z, m.radius);
         break;
+      case 'stagger':
+        // Shot while infected: the same shove and slowness the server applies.
+        if (this.local) { this.local.state.vx += m.vx; this.local.state.vz += m.vz; }
+        if (this.local) { this.local.slowUntil = performance.now() + m.ms; this.local.slowFactor = m.factor; }
+        break;
       case 'flashbang':
         // Blinded white and deafened, both easing back over the next seconds.
         this.sounds?.stun(m.strength, m.ms);
@@ -1834,6 +1849,8 @@ export class GameEngine {
     this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.outlinedZombies.length = 0;
     this.whiteOutlines.clear();
+    this.xrayOutlines.clear();
+    const sniffing = this.selfInfected && performance.now() < this.hud.get().sniffUntil;
     for (const r of this.remotes.values()) {
       const pose = r.entity.sample(renderTime);
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
@@ -1862,6 +1879,12 @@ export class GameEngine {
           // Players are outlined white, red only while they have PvP switched on.
           if (r.entity.kind === EntityKind.Player && !this.pvpNames.has(r.entity.id)) this.whiteOutlines.add(r.avatar.root);
         }
+      }
+      if (sniffing && r.entity.kind === EntityKind.Player && !this.infectedIds.has(r.entity.id) && pose.health > 0 && !(pose.flags & EntityFlags.Dead)
+        && Math.hypot(pose.x - px, pose.y - py, pose.z - pz) <= SNIFF.range && !this.xrayOutlines.has(r.avatar.root)) {
+        if (!this.outlinedZombies.includes(r.avatar.root)) this.outlinedZombies.push(r.avatar.root);
+        this.whiteOutlines.delete(r.avatar.root);
+        this.xrayOutlines.add(r.avatar.root);
       }
       if (r.burnUntil && r.burnUntil > now && r.avatar.root.visible && this.effects) ParticleFX.burning(this.effects.particles, pose.x, pose.y, pose.z);
       this.battleFlight?.player(r.entity.id, pose.x, pose.y, pose.z, pose.yaw, r.avatar.root.visible ? pose.flags : 0, dt);
@@ -2039,12 +2062,12 @@ export class GameEngine {
       this.shaderPack.render(this.camera, this.sky.sunDir, this.sky.night, this.elapsed, outlined ? (target) => {
         const before = this.renderer.getRenderTarget();
         this.renderer.setRenderTarget(target);
-        this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
+        this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines);
         this.renderer.setRenderTarget(before);
       } : undefined);
     } else if (this.outlinedZombies.length) {
       this.zombieOutline ??= new ZombieOutline();
-      this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
+      this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines);
     } else this.renderer.render(this.scene, this.camera);
     if (this.shockwaves.active) this.shockwaves.render(this.renderer, this.camera);
 
@@ -2546,7 +2569,7 @@ export class GameEngine {
   private syncArmor(): void {
     const loadout = this.inventory.wornArmor();
     const key = ARMOR_SLOTS.map((s) => loadout[s]).join(',');
-    if (this.local) this.local.speedMul = this.selfInfected ? this.infectionRules.zombieSpeed : armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon());
+    if (this.local) this.local.speedMul = (this.selfInfected ? this.infectionRules.zombieSpeed : armorSpeedFactor(loadout) * weaponSpeedFactor(this.equippedWeapon()));
     if (key === this.armorKey) return;
     const first = this.armorKey === '';
     this.armorKey = key;

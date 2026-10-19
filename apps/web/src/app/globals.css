@@ -3161,3 +3161,10 @@ kbd {
 .scoreboard section.zombie .score-row:not(.score-head) .score-state { color: #ff6b5a; }
 .scoreboard footer { padding: 8px 18px 12px; color: #6f7880; font-size: 11px; text-align: right; }
 @media (max-width: 640px) { .score-row { grid-template-columns: 26px minmax(0, 1fr) 36px 36px 0 70px 0; } .score-row > span:nth-child(5), .score-row > span:nth-child(7) { display: none; } }
+
+/* Infected sniff skill */
+.ifx-skill { position: fixed; right: 18px; bottom: 150px; z-index: 30; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 8px 12px; background: rgba(20, 6, 6, .78); border: 1px solid rgba(255, 70, 50, .5); color: #ffd9d4; font: 600 12px/1.25 var(--sans, system-ui); pointer-events: none; }
+.ifx-skill kbd { grid-row: span 2; padding: 3px 7px; border: 1px solid #ff6b5a; color: #ff6b5a; font: 800 13px/1 var(--sans, system-ui); }
+.ifx-skill small { color: #c99; font-weight: 500; }
+.ifx-skill.on { border-color: #ff3b2a; box-shadow: 0 0 18px rgba(255, 50, 30, .45); }
+.ifx-skill.wait { opacity: .6; }

@@ -159,6 +159,9 @@ export class Player {
   /** Armour the client reports wearing (wire ids per slot) and its movement multiplier. */
   armor: ArmorLoadout = { ...NO_ARMOR };
   speedMul = 1;
+  /** Infected hit by a bullet: slowed to `slowFactor` until `slowUntil` (server time). */
+  slowUntil = 0;
+  slowFactor = 1;
   /** The player's inventory: owned and validated by the server. */
   readonly inv = new InventoryModel();
   /** Reload in progress: the gun (uid) and when its magazine fills. */

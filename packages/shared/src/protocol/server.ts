@@ -274,6 +274,8 @@ export interface TreesMessage {
   /** Rocks worked out (no more ore until they recover). */
   spent: string[];
 }
+/** You (infected) were shot: pushed back by (vx, vz) m/s and slowed to `factor` for `ms`. */
+export interface StaggerEvent { t: 'stagger'; vx: number; vz: number; factor: number; ms: number }
 /** A light prop knocked away (vehicle, bullet, blast): its model flies off as debris. */
 export interface KnockEvent {
   t: 'knock';
@@ -295,6 +297,7 @@ export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: '
 export type ServerJsonMessage =
   | ChopEvent
   | KnockEvent
+  | StaggerEvent
   | KnockedMessage
   | TreesMessage
   | StructuresMessage

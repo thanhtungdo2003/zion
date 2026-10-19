@@ -65,7 +65,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean; scoreboard?: (open: boolean) => void };
+  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean; scoreboard?: (open: boolean) => void; skill?: () => void };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -87,6 +87,7 @@ export class InputController {
       primary?: () => boolean;
       wheel?: (dir: number) => boolean;
       scoreboard?: (open: boolean) => void;
+      skill?: () => void;
     },
   ) {
     this.onChat = handlers.openChat;
@@ -141,6 +142,8 @@ export class InputController {
       if (e.code === settingsStore.get().nvKey && e.code !== 'KeyM' && !e.repeat) this.handlers.nightVision?.();
       if (e.code === 'KeyR' && !e.repeat) this.handlers.reload();
       if (e.code === 'KeyH' && !e.repeat) this.handlers.heal();
+      // Q: the infected's skill (sniff).
+      if (e.code === 'KeyQ' && !e.repeat) this.handlers.skill?.();
       const digit = /^Digit([1-9])$/.exec(e.code);
       if (digit && !e.repeat) this.handlers.hotbar(Number(digit[1]) - 1);
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
