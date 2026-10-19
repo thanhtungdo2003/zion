@@ -1,7 +1,7 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
 import type { BattleState } from '@zion/shared';
 import { drawBattleCircles } from '../battle-map-overlay';
-import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
+import { Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
 import { drawLocationIcon } from './location-icon';
@@ -40,6 +40,10 @@ function shapeOf(def: AssetDefinition): PropShape {
 const PROP_FILL: Record<string, string> = { tree: '#1f4a22', shrub: '#3f6e34', rock: '#8c8a84', dot: '#a2937a', boxes: '#7b6a55' };
 
 const VIEW_METERS = 50;
+/** The maps' sun: low in the west-south-west, late afternoon (same as the server's map tiles). */
+const MAP_SUN = (() => { const e = .42, c = Math.cos(e), a = .26; return { x: -Math.cos(a) * c, y: Math.sin(e), z: Math.sin(a) * c }; })();
+/** Which way shadows fall on the map (east-north-east), per metre of height. */
+export const MAP_SHADOW = { x: -MAP_SUN.x / Math.cos(.42) / Math.tan(.42), z: -MAP_SUN.z / Math.cos(.42) / Math.tan(.42) };
 
 /**
  * Square minimap rotated to match the camera view, rendered from the biome grids of streamed chunks (no extra network data).
@@ -79,12 +83,16 @@ export class Minimap {
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
         const k = j * n + i;
-        const surface = c.surface[k];
-        const col = surface === Surface.Asphalt ? 0x606562 : surface === Surface.MossyAsphalt ? 0x586046 : surface === Surface.BrokenAsphalt ? 0x716b5b : surface === Surface.GravelRoad ? 0x8a806c : surface === Surface.DirtRoad ? 0x9a805a : surface === Surface.WheelTrack ? 0x827050 : surface === Surface.RoadVerge ? 0x67754a : BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0xff00ff;
-        const h = dequantizeHeight(c.heights[heightIndex(n, i, j)]!);
-        const hl = dequantizeHeight(c.heights[heightIndex(n, i - 1, j - 1)]!);
-        let shade = 1 + Math.max(-0.35, Math.min(0.35, (hl - h) * 0.08));
-        if (h < this.seaLevel) shade = 0.75 + 0.25 * Math.max(0, 1 + (h - this.seaLevel) / 40);
+        // One grey ground (roads a shade darker, water blue-grey); only the relief shows, lit by
+        // the map's low afternoon sun from the west-south-west, as on the world map.
+        const surface = c.surface[k]!, h = dequantizeHeight(c.heights[heightIndex(n, i, j)]!);
+        const road = surface === Surface.Asphalt || surface === Surface.MossyAsphalt || surface === Surface.BrokenAsphalt || surface === Surface.GravelRoad || surface === Surface.DirtRoad;
+        const wq = c.water[k]!, wet = h < this.seaLevel || (wq > 0 && dequantizeHeight(wq) > h + .05);
+        const col = wet ? 0x7e8a96 : road ? 0x9c9e98 : 0xaaada5;
+        const dx = (dequantizeHeight(c.heights[heightIndex(n, i + 1, j)]!) - dequantizeHeight(c.heights[heightIndex(n, i - 1, j)]!)) * .55;
+        const dz = (dequantizeHeight(c.heights[heightIndex(n, i, j + 1)]!) - dequantizeHeight(c.heights[heightIndex(n, i, j - 1)]!)) * .55;
+        const lit = Math.max(0, (-dx * MAP_SUN.x + MAP_SUN.y - dz * MAP_SUN.z) / Math.hypot(dx, 1, dz));
+        const shade = wet ? 1 : Math.max(.6, Math.min(1.15, .62 + .38 * lit / MAP_SUN.y));
         img.data[k * 4] = Math.min(255, ((col >> 16) & 255) * shade);
         img.data[k * 4 + 1] = Math.min(255, ((col >> 8) & 255) * shade);
         img.data[k * 4 + 2] = Math.min(255, (col & 255) * shade);
@@ -169,15 +177,16 @@ export class Minimap {
       .filter((e): e is { p: typeof e.p; t: ReturnType<typeof propTransform>; s: PropShape } => e.s !== null)
       .sort((a, b) => (a.s.kind === 'boxes' && a.s.deck ? -1 : order[a.s.kind]) - (b.s.kind === 'boxes' && b.s.deck ? -1 : order[b.s.kind]));
     let complete = true;
-    // Light from the north-west: shadows fall to the south-east, longer for taller things.
+    // The map's afternoon sun from the west-south-west: shadows fall east-north-east.
     const shadow = 'rgba(20, 22, 26, 0.45)';
     for (const { p, t, s } of list) {
       const x = (t.x - ox) * PX_PER_M;
       const z = (t.z - oz) * PX_PER_M;
       const height = (this.registry?.byNumericId(p.asset)?.bounds.height ?? 1) * t.scale;
-      const off = Math.min(5, .6 + height * .35);
+      // Long, low afternoon shadows (capped so tall things stay readable).
+      const len = Math.min(9, .8 + height * PX_PER_M * .55), sx = MAP_SHADOW.x / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z) * len, sz = MAP_SHADOW.z / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z) * len;
       if (s.kind === 'boxes') {
-        // Man-made: white and grey blocks with a cast shadow and lit north-west edges.
+        // Man-made: white and grey blocks with a cast shadow and lit sun-side edges.
         const cos = Math.cos(t.rotY), sin = Math.sin(t.rotY);
         const rects = s.boxes.map((b) => {
           const bx = (b.cx * cos + b.cz * sin) * t.scale, bz = (-b.cx * sin + b.cz * cos) * t.scale;
@@ -192,7 +201,7 @@ export class Minimap {
           }
         };
         if (s.deck) { draw(0, 0, '#a9aba6'); continue; }
-        draw(off, off, shadow);
+        draw(sx, sz, shadow);
         const shade = Math.max(0, Math.min(1, (height - .5) / 8));
         draw(0, 0, `rgb(${Math.round(232 - shade * 18)},${Math.round(233 - shade * 18)},${Math.round(230 - shade * 16)})`, 'rgba(120,122,120,.9)');
         for (const q of rects) {
@@ -209,7 +218,7 @@ export class Minimap {
       const r = Math.max(0.6, s.r * t.scale * PX_PER_M);
       // A soft shadow, the body in the model's own colour, a darker rim and a lit crown.
       ctx.fillStyle = shadow;
-      ctx.beginPath(); ctx.arc(x + off * .7, z + off * .7, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + sx * .8, z + sz * .8, r, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = colour ?? PROP_FILL[s.kind]!;
       ctx.beginPath(); ctx.arc(x, z, r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1; ctx.stroke();

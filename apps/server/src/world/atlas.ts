@@ -1,6 +1,6 @@
 import { setImmediate } from 'node:timers/promises';
-import { BIOME_MAP_COLORS, Surface, type AtlasFootprint, type AtlasTile, type WorldAtlas } from '@zion/shared';
-import { allStructures, authoredWorld, CAMP_LAYOUT, makeColumnSample, type AuthoredWorld, type CampPart, type ColumnSample, type WorldGenerator } from '@zion/worldgen';
+import { type AtlasFootprint, type AtlasTile, type WorldAtlas } from '@zion/shared';
+import { allStructures, authoredWorld, CAMP_LAYOUT, makeColumnSample, type AuthoredWorld, type CampPart, type WorldGenerator } from '@zion/worldgen';
 import { LruCache } from './lru';
 
 /** Cache one coarse map per world; yield between rows so cartography never stalls simulation. */
@@ -82,42 +82,47 @@ function battleOverlay(generator: WorldGenerator, world: AuthoredWorld): Pick<Wo
   };
 }
 
-const SURFACE_COLORS: Partial<Record<Surface, number>> = {
-  [Surface.Grass]: 0x60844a, [Surface.DryGrass]: 0x8f9058, [Surface.ForestFloor]: 0x3b5c33, [Surface.Sand]: 0xd6c896, [Surface.Dirt]: 0x80684a,
-  [Surface.Gravel]: 0x8c887e, [Surface.Rock]: 0x76706a, [Surface.Seabed]: 0x3c5a6e, [Surface.Asphalt]: 0x484a4c, [Surface.MossyAsphalt]: 0x505a4c,
-  [Surface.BrokenAsphalt]: 0x605e5a, [Surface.DirtRoad]: 0x96784f, [Surface.WheelTrack]: 0x8c7050, [Surface.RoadVerge]: 0x6e8250, [Surface.GravelRoad]: 0x928c80,
-};
-/** Map colours for an authored island: surfaces, darker woods, paler heights and shaded water. */
-function authoredColor(generator: WorldGenerator, world: AuthoredWorld, sample: ColumnSample, x: number, z: number, slope: number): number {
-  if (sample.height < generator.seaLevel) {
-    const depth = Math.min(1, (generator.seaLevel - sample.height) / 30);
-    return (Math.round(40 - depth * 25) << 16) | (Math.round(110 - depth * 50) << 8) | Math.round(150 - depth * 40);
-  }
-  const surface = generator.roads?.surface(sample, x, z) ?? world.surface(sample.height, slope, x, z, world.near(x, z, 0)[0]);
-  const color = SURFACE_COLORS[surface] ?? 0x646464;
-  const woods = world.near(x, z, 4).length ? 0 : world.forestDensity(x, z) * .35, lift = Math.min(1, (sample.height - generator.seaLevel) / 200) * .25;
-  const channel = (v: number) => Math.round(Math.min(255, v * (1 - woods) + (255 - v * (1 - woods)) * lift));
-  return (channel((color >> 16) & 255) << 16) | (channel((color >> 8) & 255) << 8) | channel(color & 255);
-}
+/**
+ * Afternoon sun low in the west-south-west (elevation ~24°): the map's single light. Terrain is one
+ * grey; only its relief shows, lit and shaded by this sun, with the long shadows ridges cast.
+ */
+const SUN_ELEVATION = 0.42;
+/** Unit vector towards the sun: west (−X) and a little south (+Z), low in the sky. */
+const SUN = (() => { const c = Math.cos(SUN_ELEVATION), a = .26; return { x: -Math.cos(a) * c, y: Math.sin(SUN_ELEVATION), z: Math.sin(a) * c }; })();
+const GROUND = [170, 173, 165] as const, WATER = [126, 138, 150] as const;
 
 async function terrainRgb(generator: WorldGenerator, x: number, z: number, size: number, pixels: number): Promise<string> {
-  const step = size / pixels;
-  const rgb = Buffer.alloc(pixels * pixels * 3), column = makeColumnSample();
-  const authored = generator.config.mode === 'battle-royale' ? authoredWorld(generator) : null;
-  for (let j = 0; j < pixels; j++) {
-    let previous = 0;
-    for (let i = 0; i < pixels; i++) {
-      const px = x + (i + 0.5) * step, pz = z + (j + 0.5) * step;
-      const sample = generator.sampleColumn(px, pz, column);
-      const color = authored ? authoredColor(generator, authored, sample, px, pz, i ? Math.abs(previous - sample.height) / step : 0) : BIOME_MAP_COLORS[generator.classifyBiome(sample, 0)];
-      const shade = i ? Math.max(0.7, Math.min(1.2, 1 + (previous - sample.height) * 0.035)) : 1;
-      const k = (j * pixels + i) * 3;
-      rgb[k] = Math.min(255, ((color >> 16) & 255) * shade);
-      rgb[k + 1] = Math.min(255, ((color >> 8) & 255) * shade);
-      rgb[k + 2] = Math.min(255, (color & 255) * shade);
-      previous = sample.height;
+  const step = size / pixels, margin = Math.min(48, pixels / 4) | 0, n = pixels + margin * 2;
+  const heights = new Float32Array(n * n), wet = new Uint8Array(n * n), column = makeColumnSample();
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const sample = generator.sampleColumn(x + (i - margin + .5) * step, z + (j - margin + .5) * step, column);
+      const water = Number.isFinite(sample.water) ? Math.max(sample.water, generator.seaLevel) : generator.seaLevel;
+      heights[j * n + i] = Math.max(sample.height, water);
+      wet[j * n + i] = sample.height < water - .05 ? 1 : 0;
     }
     await setImmediate();
+  }
+  // Relief exaggerated a little so small wrinkles in the ground read on the map.
+  const relief = 1.1 / Math.sqrt(step), tanSun = Math.tan(SUN_ELEVATION), hl = Math.hypot(SUN.x, SUN.z), sx = SUN.x / hl, sz = SUN.z / hl;
+  const rgb = Buffer.alloc(pixels * pixels * 3);
+  for (let j = 0; j < pixels; j++) {
+    for (let i = 0; i < pixels; i++) {
+      const gi = i + margin, gj = j + margin, k = gj * n + gi, h = heights[k]!;
+      const dx = (heights[k + 1]! - heights[k - 1]!) * .5 * relief, dz = (heights[k + n]! - heights[k - n]!) * .5 * relief;
+      const len = Math.hypot(dx, 1, dz), lit = Math.max(0, (-dx * SUN.x + SUN.y - dz * SUN.z) / len);
+      // Cast shadow: walk towards the sun; anything rising above the sun's line shades this spot.
+      let shade = 1;
+      for (let s = 1; s <= margin; s++) {
+        const si = Math.round(gi + sx * s), sj = Math.round(gj + sz * s);
+        if (si < 0 || sj < 0 || si >= n || sj >= n) break;
+        if (heights[sj * n + si]! > h + s * step * tanSun + .3) { shade = .84; break; }
+      }
+      const f = Math.max(.6, Math.min(1.15, (.62 + .38 * lit / SUN.y) * shade));
+      const base = wet[k] ? WATER : GROUND, o = (j * pixels + i) * 3;
+      rgb[o] = Math.min(255, base[0] * f); rgb[o + 1] = Math.min(255, base[1] * f); rgb[o + 2] = Math.min(255, base[2] * f);
+    }
+    if (j % 32 === 31) await setImmediate();
   }
   return rgb.toString('base64');
 }

@@ -6,6 +6,8 @@ import { mapHeading, mapToScreen, screenToMap, zoomMap, type MapCamera } from '@
 import { Icon } from './Icon';
 import { AtlasTiles } from '@/game/atlas-tiles';
 import { mapTone } from '@/game/render/map-capture';
+import { MAP_SHADOW } from '@/game/render/minimap';
+const MAP_SHADOW_DIR = { x: MAP_SHADOW.x / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z), z: MAP_SHADOW.z / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z) };
 import { drawBattleCircles } from '@/game/battle-map-overlay';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 
@@ -142,12 +144,13 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     }
     ctx.lineCap = 'butt';
     const battleMap = state.world?.mode === 'battle-royale';
-    // Man-made blocks: white and grey, a shadow cast to the south-east (light from the north-west)
+    // Man-made blocks: white and grey, a shadow cast east-north-east by the map's afternoon sun
     // and a lit edge, so buildings stand up off the ground.
     const shadowOff = Math.min(8, Math.max(1.5, 3 * camera.scale));
     const block = (x: number, y: number, hx: number, hz: number, rot: number, tone = 0) => {
       ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
-      ctx.fillStyle = 'rgba(16,18,22,.42)'; ctx.fillRect(-hx + shadowOff, -hz + shadowOff, hx * 2, hz * 2);
+      const dx = shadowOff * MAP_SHADOW_DIR.x, dz = shadowOff * MAP_SHADOW_DIR.z, c = Math.cos(rot), s = Math.sin(rot);
+      ctx.fillStyle = 'rgba(16,18,22,.42)'; ctx.fillRect(dx * c + dz * s - hx, -dx * s + dz * c - hz, hx * 2, hz * 2);
       const v = Math.round(234 - tone * 30);
       ctx.fillStyle = `rgb(${v},${v + 1},${v - 2})`; ctx.fillRect(-hx, -hz, hx * 2, hz * 2);
       if (hx > 2 && hz > 2) {
