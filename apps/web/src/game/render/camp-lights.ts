@@ -4,11 +4,12 @@ import { propTransform, type ChunkData } from '@zion/shared';
 
 /**
  * Lamps built into whole-map models (model-local metres, just under each lamp head), found from
- * the lamp-shade colour in the model: the Warehouse's street lamps and wall lamps.
+ * the lamp-shade colour in the model: the Warehouse's street lamps and wall lamps. The light sits
+ * well below each head, so it lights the ground around like a lamp instead of burning the shade white.
  */
 const MODEL_LAMPS: Readonly<Record<number, ReadonlyArray<readonly [number, number, number]>>> = {
-  2700: [[-9.36, 10.3, -23.42], [-9.36, 10.3, -15.83], [-9.36, 10.3, -7.9], [1.15, 7.7, -22.45], [1.15, 7.7, -4.18],
-    [4.52, 8.1, 9.37], [14.32, 7.7, -1.25], [23.46, 8.1, 9.37], [24.35, 7.8, -12.84], [26.52, 7.7, -1.09]],
+  2700: [[-9.36, 9.4, -23.42], [-9.36, 9.4, -15.83], [-9.36, 9.4, -7.9], [1.15, 6.9, -22.45], [1.15, 6.9, -4.18],
+    [4.52, 7.3, 9.37], [14.32, 6.9, -1.25], [23.46, 7.3, 9.37], [24.35, 7, -12.84], [26.52, 6.9, -1.09]],
 };
 
 /** Fixed light pool: streamed lamps never allocate an unbounded number of shader lights. */
@@ -64,14 +65,14 @@ export class CampLights {
     this.lamps = lamps;
     this.lights.forEach((light, i) => {
       const lamp = lamps[i];
-      light.intensity = lamp ? night * 100 : 0;
+      light.intensity = lamp ? night * 70 : 0;
       if (lamp) light.position.set(lamp.x, lamp.y, lamp.z);
     });
     // Brightness = the source's scale: it glows by day too, most of all at night.
     sources.sort((a, b) => a.d - b.d);
     this.sources.forEach((light, i) => {
       const src = sources[i];
-      light.intensity = src ? src.power * 70 * (.35 + .65 * night) : 0;
+      light.intensity = src ? src.power * 22 * (.3 + .7 * night) : 0;
       if (src) { light.distance = Math.min(70, 12 + 9 * src.power); light.position.set(src.x, src.y, src.z); }
     });
   }

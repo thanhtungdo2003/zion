@@ -216,6 +216,11 @@ export class AssetLibrary {
         const gltf = await this.gltf.loadAsync(entry.url);
         const parts = flattenScene(gltf.scene, model.scale, model.offset);
         // Rocks, trees and plants are matte: no glossy highlights from photographed packs.
+        // Buildings and whole maps: no mirror-like floors under lamps (rough, a little sheen at most).
+        if (def.category === 'structure') for (const part of parts) {
+          const m = part.material as { roughness?: number; needsUpdate: boolean };
+          if (m.roughness !== undefined && m.roughness < .85) { m.roughness = .85; m.needsUpdate = true; }
+        }
         if (def.category === 'rock' || def.category === 'tree' || def.category === 'vegetation') for (const part of parts) {
           const m = part.material as { roughness?: number; metalness?: number; roughnessMap?: unknown; metalnessMap?: unknown; needsUpdate: boolean };
           if (m.roughness === undefined) continue;
