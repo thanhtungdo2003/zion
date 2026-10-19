@@ -21,7 +21,6 @@ import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
 import { GroundTextures } from './render/ground-textures';
 import { Shockwaves } from './render/shockwave';
-import { MAP_LAYER, MapCartographer, mapCaptures } from './render/map-capture';
 import { BaseLifeRenderer } from './render/base-life';
 import { NPC_MODELS, type QuestNpcMessage } from '@zion/shared';
 import {
@@ -233,8 +232,6 @@ export class GameEngine {
   private readonly resize: ResizeObserver;
   private readonly terrainMaterial = groundMaterial();
   private readonly groundTextures = new GroundTextures(this.terrainMaterial);
-  /** Photographs streamed chunks from above for the minimap and the world map. */
-  private cartographer: MapCartographer | null = null;
   /** Blast shock waves: clear spheres bending the light as they race out. */
   private readonly shockwaves = new Shockwaves();
   private readonly terrainGroup = new Group();
@@ -796,7 +793,6 @@ export class GameEngine {
     this.ownedModels.clear();
     this.resources.release(this.terrainMaterial);
     this.groundTextures.dispose();
-    this.cartographer?.dispose();
     this.shockwaves.dispose();
     this.resources.release(this.coinRingGeometry);
     this.resources.release(this.coinRingMaterial);
@@ -820,7 +816,7 @@ export class GameEngine {
 
   attachMinimap(canvas: HTMLCanvasElement | null): void {
     this.minimapCanvas = canvas;
-    this.minimap = canvas && this.welcome ? new Minimap(canvas, this.welcome.world.seaLevel, this.registry) : null;
+    this.minimap = canvas && this.welcome ? new Minimap(canvas, this.welcome.world.seaLevel, this.registry, this.library) : null;
   }
 
   setTutorialBlocked(blocked: boolean): void {
@@ -1149,10 +1145,7 @@ export class GameEngine {
       const def = this.registry.byNumericId(asset);
       return def && def.collisionLayer !== 'none' ? def.bounds.radius : 0;
     });
-    if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry);
-    mapCaptures.clear();
-    this.cartographer?.dispose();
-    this.cartographer = new MapCartographer(this.renderer, this.scene, () => this.sky);
+    if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry, this.library);
     this.localAvatar = new Avatar(this.character!, true);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);
     this.localAvatar.addTo(this.scene);
@@ -1181,7 +1174,7 @@ export class GameEngine {
     this.store.listen({
       onChunkSet: (chunk, prev) => {
         this.buildQueue.set(chunkKey(chunk.cx, chunk.cz), chunk);
-        if (prev) { this.minimap?.forget(prev); this.cartographer?.forget(chunk.cx, chunk.cz); }
+        if (prev) this.minimap?.forget(prev);
         if (chunk.props.length || prev?.props.length) this.props?.markDirty();
         if (chunk.lod === 0) this.vegetation?.invalidate(chunk.cx, chunk.cz);
       },
@@ -1192,7 +1185,6 @@ export class GameEngine {
         if (m) this.disposeChunkMeshes(m);
         this.meshes.delete(key);
         this.minimap?.forget(chunk);
-        this.cartographer?.forget(chunk.cx, chunk.cz);
         if (chunk.props.length) this.props?.markDirty();
         this.vegetation?.invalidate(chunk.cx, chunk.cz);
         this.building?.forget(chunk);
@@ -2059,7 +2051,6 @@ export class GameEngine {
       this.lastPing = now;
       this.conn.sendPing();
     }
-    this.cartographer?.update(store.chunks.values(), px, pz, now);
     if (now - this.lastMinimap > 330 && this.minimap) {
       this.lastMinimap = now;
       const teamIds = new Set(this.hud.get().team?.members.map((m) => m.entityId));
@@ -3459,7 +3450,6 @@ export class GameEngine {
       terrain.castShadow = chunk.lod === 0;
       terrain.matrixAutoUpdate = false;
       terrain.updateMatrix();
-      terrain.layers.enable(MAP_LAYER);
       this.terrainGroup.add(terrain);
       const wg = buildWaterGeometry(chunk);
       let water: Mesh | null = null;
@@ -3469,7 +3459,6 @@ export class GameEngine {
         water.renderOrder = 2;
         water.matrixAutoUpdate = false;
         water.updateMatrix();
-        water.layers.enable(MAP_LAYER);
         this.terrainGroup.add(water);
       }
       this.meshes.set(key, { chunk, terrain, water });

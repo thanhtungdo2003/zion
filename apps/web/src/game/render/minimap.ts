@@ -5,7 +5,8 @@ import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, p
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
 import { drawLocationIcon } from './location-icon';
-import { mapCaptures, mapTone } from './map-capture';
+import { mapTone } from './map-capture';
+import type { AssetLibrary } from './asset-library';
 
 /** Chunk raster resolution (px per metre): enough for trees, rocks and building outlines. */
 const PX_PER_M = 2;
@@ -45,7 +46,9 @@ const VIEW_METERS = 50;
  * Each chunk is rasterised once into a tiny cached canvas with hillshading.
  */
 export class Minimap {
-  private readonly cache = new Map<ChunkData, HTMLCanvasElement>();
+  private readonly cache = new Map<ChunkData, { cv: HTMLCanvasElement; at: number; complete: boolean }>();
+  /** Average colour of each model (null while its model loads). */
+  private readonly colours = new Map<number, string | null>();
   private readonly ctx: CanvasRenderingContext2D;
 
   private readonly shapes = new Map<number, PropShape | null>();
@@ -54,6 +57,7 @@ export class Minimap {
     private readonly canvas: HTMLCanvasElement,
     private readonly seaLevel: number,
     private readonly registry: AssetRegistry | null = null,
+    private readonly library: AssetLibrary | null = null,
   ) {
     this.ctx = canvas.getContext('2d')!;
   }
@@ -63,8 +67,9 @@ export class Minimap {
   }
 
   private raster(c: ChunkData): HTMLCanvasElement {
-    let cv = this.cache.get(c);
-    if (cv) return cv;
+    const cached = this.cache.get(c), now = performance.now();
+    // Drawn while some models were still loading: redraw a little later with their colours.
+    if (cached && (cached.complete || now - cached.at < 2000)) return cached.cv;
     const n = c.verts;
     const terrain = document.createElement('canvas');
     terrain.width = n;
@@ -89,7 +94,7 @@ export class Minimap {
     tctx.putImageData(img, 0, 0);
     // Upscale the terrain, then draw the chunk's props on top (baked once per chunk).
     const size = CHUNK_SIZE * PX_PER_M;
-    cv = document.createElement('canvas');
+    const cv = document.createElement('canvas');
     cv.width = size;
     cv.height = size;
     const ctx = cv.getContext('2d')!;
@@ -97,12 +102,12 @@ export class Minimap {
     // Vertices sit on chunk corners: expand by half a texel so neighbours meet without seams.
     const texel = size / (n - 1);
     ctx.drawImage(terrain, -texel / 2, -texel / 2, size + texel, size + texel);
-    this.drawProps(ctx, c);
-    // Same grey map tone as the photographed chunks it stands in for.
+    // Ground in the map tone (grey with a hint of colour), then the models on it.
     const toned = ctx.getImageData(0, 0, size, size);
     mapTone(toned.data);
     ctx.putImageData(toned, 0, 0);
-    this.cache.set(c, cv);
+    const complete = this.drawProps(ctx, c);
+    this.cache.set(c, { cv, at: now, complete });
     return cv;
   }
 
@@ -114,55 +119,106 @@ export class Minimap {
     return s;
   }
 
-  private drawProps(ctx: CanvasRenderingContext2D, c: ChunkData): void {
+  /**
+   * The average colour of a model (its texture or vertex colours), toned like the map: the map
+   * keeps each thing's colour without drawing the model itself. Null while it loads.
+   */
+  private colour(asset: number): string | null {
+    if (this.colours.has(asset)) return this.colours.get(asset)!;
+    const visual = this.library?.get(asset);
+    if (!visual) { void this.library?.load(asset); return null; }
+    let r = 0, g = 0, b = 0, n = 0;
+    const probe = document.createElement('canvas');
+    probe.width = probe.height = 8;
+    const pctx = probe.getContext('2d', { willReadFrequently: true })!;
+    for (const part of visual.parts) {
+      const m = part.material as { map?: { image?: CanvasImageSource & { width?: number } } | null; color?: { r: number; g: number; b: number }; vertexColors?: boolean };
+      const tint = m.color ?? { r: 1, g: 1, b: 1 };
+      let pr = 0, pg = 0, pb = 0, pn = 0;
+      const image = m.map?.image;
+      if (image && (image.width ?? 0) > 0) {
+        try {
+          pctx.clearRect(0, 0, 8, 8);
+          pctx.drawImage(image, 0, 0, 8, 8);
+          const d = pctx.getImageData(0, 0, 8, 8).data;
+          for (let k = 0; k < d.length; k += 4) if (d[k + 3]! > 128) { pr += d[k]! / 255; pg += d[k + 1]! / 255; pb += d[k + 2]! / 255; pn++; }
+        } catch { /* unreadable texture */ }
+      }
+      const colours = part.geometry.getAttribute('color');
+      if (!pn && colours && m.vertexColors) for (let k = 0; k < colours.count; k += Math.max(1, Math.floor(colours.count / 300))) { pr += colours.getX(k); pg += colours.getY(k); pb += colours.getZ(k); pn++; }
+      if (!pn) { pr = pg = pb = 1; pn = 1; }
+      r += pr / pn * tint.r; g += pg / pn * tint.g; b += pb / pn * tint.b; n++;
+    }
+    const px = new Uint8ClampedArray([r / n * 255, g / n * 255, b / n * 255, 255]);
+    mapTone(px);
+    // Lifted a little: dark foliage still reads as its colour from above.
+    const lift = (v: number) => Math.round(v * .8 + 52);
+    const css = `rgb(${lift(px[0]!)},${lift(px[1]!)},${lift(px[2]!)})`;
+    this.colours.set(asset, css);
+    return css;
+  }
+
+  /** Draws the chunk's props; false if some model colours were not known yet. */
+  private drawProps(ctx: CanvasRenderingContext2D, c: ChunkData): boolean {
     const ox = c.cx * CHUNK_SIZE;
     const oz = c.cz * CHUNK_SIZE;
-    // Draw low things first so trees and buildings sit on top.
+    // Low things first, so trees and buildings sit on top.
     const order = { shrub: 0, dot: 1, rock: 2, boxes: 3, tree: 4 } as const;
     const list = c.props
-      .map((p) => ({ t: propTransform(c, p), s: this.shape(p.asset) }))
-      .filter((e): e is { t: ReturnType<typeof propTransform>; s: PropShape } => e.s !== null)
+      .map((p) => ({ p, t: propTransform(c, p), s: this.shape(p.asset) }))
+      .filter((e): e is { p: typeof e.p; t: ReturnType<typeof propTransform>; s: PropShape } => e.s !== null)
       .sort((a, b) => (a.s.kind === 'boxes' && a.s.deck ? -1 : order[a.s.kind]) - (b.s.kind === 'boxes' && b.s.deck ? -1 : order[b.s.kind]));
-    ctx.lineWidth = 1;
-    for (const { t, s } of list) {
+    let complete = true;
+    // Light from the north-west: shadows fall to the south-east, longer for taller things.
+    const shadow = 'rgba(20, 22, 26, 0.45)';
+    for (const { p, t, s } of list) {
       const x = (t.x - ox) * PX_PER_M;
       const z = (t.z - oz) * PX_PER_M;
-      ctx.fillStyle = PROP_FILL[s.kind]!;
+      const height = (this.registry?.byNumericId(p.asset)?.bounds.height ?? 1) * t.scale;
+      const off = Math.min(5, .6 + height * .35);
       if (s.kind === 'boxes') {
-        if (s.deck) ctx.fillStyle = '#92978e';
-        ctx.strokeStyle = 'rgba(30,24,18,0.85)';
-        for (const b of s.boxes) {
-          // three.js yaw about +Y maps (x, z) → (x cos + z sin, −x sin + z cos): canvas angle is −yaw.
-          const cos = Math.cos(t.rotY);
-          const sin = Math.sin(t.rotY);
-          const bx = (b.cx * cos + b.cz * sin) * t.scale;
-          const bz = (-b.cx * sin + b.cz * cos) * t.scale;
-          ctx.save();
-          ctx.translate(x + bx * PX_PER_M, z + bz * PX_PER_M);
-          ctx.rotate(-(t.rotY + b.yaw));
-          const w = Math.max(1, b.hx * 2 * t.scale * PX_PER_M);
-          const h = Math.max(1, b.hz * 2 * t.scale * PX_PER_M);
-          ctx.fillRect(-w / 2, -h / 2, w, h);
-          if (!s.deck) ctx.strokeRect(-w / 2, -h / 2, w, h);
+        // Man-made: white and grey blocks with a cast shadow and lit north-west edges.
+        const cos = Math.cos(t.rotY), sin = Math.sin(t.rotY);
+        const rects = s.boxes.map((b) => {
+          const bx = (b.cx * cos + b.cz * sin) * t.scale, bz = (-b.cx * sin + b.cz * cos) * t.scale;
+          return { x: x + bx * PX_PER_M, z: z + bz * PX_PER_M, a: -(t.rotY + b.yaw), w: Math.max(1, b.hx * 2 * t.scale * PX_PER_M), h: Math.max(1, b.hz * 2 * t.scale * PX_PER_M) };
+        });
+        const draw = (dx: number, dz: number, fill: string, stroke?: string) => {
+          for (const q of rects) {
+            ctx.save(); ctx.translate(q.x + dx, q.z + dz); ctx.rotate(q.a);
+            ctx.fillStyle = fill; ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h);
+            if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.strokeRect(-q.w / 2 + .5, -q.h / 2 + .5, q.w - 1, q.h - 1); }
+            ctx.restore();
+          }
+        };
+        if (s.deck) { draw(0, 0, '#a9aba6'); continue; }
+        draw(off, off, shadow);
+        const shade = Math.max(0, Math.min(1, (height - .5) / 8));
+        draw(0, 0, `rgb(${Math.round(232 - shade * 18)},${Math.round(233 - shade * 18)},${Math.round(230 - shade * 16)})`, 'rgba(120,122,120,.9)');
+        for (const q of rects) {
+          ctx.save(); ctx.translate(q.x, q.z); ctx.rotate(q.a);
+          ctx.fillStyle = 'rgba(255,255,255,.55)';
+          ctx.fillRect(-q.w / 2, -q.h / 2, q.w, Math.min(1.2, q.h));
+          ctx.fillRect(-q.w / 2, -q.h / 2, Math.min(1.2, q.w), q.h);
           ctx.restore();
         }
         continue;
       }
+      const colour = this.colour(p.asset);
+      if (!colour) complete = false;
       const r = Math.max(0.6, s.r * t.scale * PX_PER_M);
-      ctx.beginPath();
-      ctx.arc(x, z, r, 0, Math.PI * 2);
-      ctx.fill();
-      if (s.kind === 'tree') {
-        // A lighter crown highlight reads as foliage from above.
-        ctx.fillStyle = 'rgba(90,140,70,0.55)';
-        ctx.beginPath();
-        ctx.arc(x - r * 0.25, z - r * 0.25, r * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (s.kind === 'rock') {
-        ctx.strokeStyle = 'rgba(40,40,38,0.6)';
-        ctx.stroke();
+      // A soft shadow, the body in the model's own colour, a darker rim and a lit crown.
+      ctx.fillStyle = shadow;
+      ctx.beginPath(); ctx.arc(x + off * .7, z + off * .7, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = colour ?? PROP_FILL[s.kind]!;
+      ctx.beginPath(); ctx.arc(x, z, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = 1; ctx.stroke();
+      if (r > 1.5) {
+        ctx.fillStyle = 'rgba(255,255,255,.18)';
+        ctx.beginPath(); ctx.arc(x - r * .3, z - r * .3, r * .45, 0, Math.PI * 2); ctx.fill();
       }
     }
+    return complete;
   }
 
   /**
@@ -214,8 +270,7 @@ export class Minimap {
       const sz = (z0 - (pz - half)) * scale;
       const size = CHUNK_SIZE * scale;
       // Overlap a hair so neighbouring chunks meet without seams.
-      // The photographed chunk (real models) once taken, else the drawn one.
-      ctx.drawImage(mapCaptures.get(c.cx, c.cz) ?? this.raster(c), sx - 0.25, sz - 0.25, size + 0.5, size + 0.5);
+      ctx.drawImage(this.raster(c), sx - 0.25, sz - 0.25, size + 0.5, size + 0.5);
     }
     // Daylight: multiply the map by the light colour of the current time of day.
     ctx.save();

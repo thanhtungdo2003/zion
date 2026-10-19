@@ -5,7 +5,7 @@ import { MAP_ICONS, type WorldMapStore } from '@/game/world-map';
 import { mapHeading, mapToScreen, screenToMap, zoomMap, type MapCamera } from '@/game/map-camera';
 import { Icon } from './Icon';
 import { AtlasTiles } from '@/game/atlas-tiles';
-import { mapCaptures, mapTone } from '@/game/render/map-capture';
+import { mapTone } from '@/game/render/map-capture';
 import { drawBattleCircles } from '@/game/battle-map-overlay';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 
@@ -45,7 +45,6 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
   const tiles = useRef<AtlasTiles | null>(null);
   const tileRasters = useRef(new Map<string, HTMLCanvasElement>());
   const [tileRevision, setTileRevision] = useState(0);
-  const captured = useSyncExternalStore((l) => mapCaptures.subscribe(l), () => mapCaptures.revision, () => 0);
   useEffect(() => {
     if (!state.world) return;
     const cache = new AtlasTiles(state.world.worldId, () => setTileRevision((n) => n + 1), state.world.mode);
@@ -125,16 +124,6 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
         ctx.imageSmoothingEnabled = false; ctx.drawImage(image, p.x, p.y, side, side);
       }
     }
-    // Where the player has been: the chunks photographed from above (the real models).
-    if (state.world) {
-      const chunk = state.world.chunkSize, side = chunk * camera.scale;
-      ctx.imageSmoothingEnabled = true;
-      for (const [key, image] of mapCaptures.entries()) {
-        const [cx, cz] = key.split(':').map(Number) as [number, number], p = to(cx * chunk, cz * chunk);
-        if (p.x + side < 0 || p.y + side < 0 || p.x > size.width || p.y > size.height) continue;
-        ctx.drawImage(image, p.x - .25, p.y - .25, side + .5, side + .5);
-      }
-    }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const road of atlas?.roads ?? []) {
       const a = to(road.ax, road.az), b = to(road.bx, road.bz);
@@ -153,9 +142,23 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     }
     ctx.lineCap = 'butt';
     const battleMap = state.world?.mode === 'battle-royale';
+    // Man-made blocks: white and grey, a shadow cast to the south-east (light from the north-west)
+    // and a lit edge, so buildings stand up off the ground.
+    const shadowOff = Math.min(8, Math.max(1.5, 3 * camera.scale));
+    const block = (x: number, y: number, hx: number, hz: number, rot: number, tone = 0) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      ctx.fillStyle = 'rgba(16,18,22,.42)'; ctx.fillRect(-hx + shadowOff, -hz + shadowOff, hx * 2, hz * 2);
+      const v = Math.round(234 - tone * 30);
+      ctx.fillStyle = `rgb(${v},${v + 1},${v - 2})`; ctx.fillRect(-hx, -hz, hx * 2, hz * 2);
+      if (hx > 2 && hz > 2) {
+        ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(-hx, -hz, hx * 2, 1.2); ctx.fillRect(-hx, -hz, 1.2, hz * 2);
+        ctx.strokeStyle = 'rgba(110,112,110,.9)'; ctx.lineWidth = .8; ctx.strokeRect(-hx, -hz, hx * 2, hz * 2);
+      }
+      ctx.restore();
+    };
     if (battleMap && atlas) {
       // District pads, then building footprints on top.
-      ctx.fillStyle = 'rgba(70,64,54,.45)';
+      ctx.fillStyle = 'rgba(150,150,146,.35)';
       for (const site of atlas.structures) {
         if (!site.halfX || !site.halfZ) continue;
         const p = to(site.x, site.z);
@@ -163,11 +166,10 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
         ctx.fillRect(-site.halfX * camera.scale, -site.halfZ! * camera.scale, site.halfX * 2 * camera.scale, site.halfZ! * 2 * camera.scale);
         ctx.restore();
       }
-      ctx.fillStyle = '#8a7a5e'; ctx.strokeStyle = '#2d2620'; ctx.lineWidth = .8;
       for (const b of atlas.buildings ?? []) {
         const p = to(b.x, b.z), hx = Math.max(1.2, b.halfX * camera.scale), hz = Math.max(1.2, b.halfZ * camera.scale);
         if (p.x < -hx || p.y < -hz || p.x > size.width + hx || p.y > size.height + hz) continue;
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-b.yaw); ctx.fillRect(-hx, -hz, hx * 2, hz * 2); if (camera.scale > .5) ctx.strokeRect(-hx, -hz, hx * 2, hz * 2); ctx.restore();
+        block(p.x, p.y, hx, hz, -b.yaw);
       }
       // Power grid: transmission lines bold, distribution poles light.
       for (const line of atlas.power ?? []) {
@@ -180,17 +182,12 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     if (atlas && !battleMap) for (const building of atlas.structures) {
       const p = to(building.x, building.z), r = Math.max(1.5, building.radius * camera.scale * 0.65);
       if (p.x < -r || p.y < -r || p.x > size.width + r || p.y > size.height + r) continue;
-      ctx.fillStyle = '#685b44'; ctx.strokeStyle = '#b6a37c'; ctx.lineWidth = 0.7;
-      ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2); ctx.strokeRect(p.x - r, p.y - r, r * 2, r * 2);
+      block(p.x, p.y, r, r, 0, .3);
     }
     if (atlas?.campParts) for (const part of atlas.campParts) {
       const p = to(part.x, part.z), radius = Math.hypot(part.halfX, part.halfZ) * camera.scale;
       if (p.x < -radius || p.y < -radius || p.x > size.width + radius || p.y > size.height + radius) continue;
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-part.yaw);
-      ctx.fillStyle = '#8b7958'; ctx.strokeStyle = '#ddc48a'; ctx.lineWidth = 0.8;
-      const hx = part.halfX * camera.scale, hz = part.halfZ * camera.scale;
-      ctx.fillRect(-hx, -hz, hx * 2, hz * 2); ctx.strokeRect(-hx, -hz, hx * 2, hz * 2);
-      ctx.restore();
+      block(p.x, p.y, part.halfX * camera.scale, part.halfZ * camera.scale, -part.yaw, .15);
     }
     ctx.restore();
     // Survey grid stays subtle; unknown terrain remains black beneath it.
@@ -253,7 +250,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     for (let x = Math.ceil(tl.x / grid) * grid; x < br.x; x += grid) { const p = to(x, 0); ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, size.height); ctx.stroke(); ctx.fillText(String(x), p.x + 4, 14); }
     for (let z = Math.ceil(tl.z / grid) * grid; z < br.z; z += grid) { const p = to(0, z); ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(size.width, p.y); ctx.stroke(); ctx.fillText(String(z), 4, p.y - 4); }
     if (camp) { const c = to(camp.x, camp.z); ctx.beginPath(); ctx.arc(c.x, c.y, 1000 * camera.scale, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,176,0,.45)'; ctx.setLineDash([5, 7]); ctx.stroke(); }
-  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle, captured]);
+  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
