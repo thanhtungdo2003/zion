@@ -3244,7 +3244,8 @@ export class GameEngine {
     }
     if (this.localAvatar) this.localAvatar.root.visible = true;
     this.camera.fov = mouseLook ? FP_FOV : 40;
-    this.camera.near = mouseLook ? 0.05 : 0.5;
+    // First person: a near plane close enough that the aimed gun is not cut open.
+    this.camera.near = fp ? 0.025 : mouseLook ? 0.05 : 0.5;
     this.camera.updateProjectionMatrix();
     this.camFocusInit = false;
   }

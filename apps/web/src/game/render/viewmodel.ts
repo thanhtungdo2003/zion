@@ -1,4 +1,4 @@
-import { Euler, Group, Matrix4, Mesh, Quaternion, Vector3, type Camera, type Object3D } from 'three';
+import { DoubleSide, Euler, Group, Matrix4, Mesh, Quaternion, Vector3, type Camera, type Material, type Object3D } from 'three';
 import { ITEMS, attachmentModifier, opticOf, type Attachments } from '@zion/shared';
 import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
@@ -155,7 +155,12 @@ export class ViewModel {
       // Muzzle (+X) → camera forward (−Z).
       model.rotation.y = Math.PI / 2;
       model.traverse((o) => {
-        if (o instanceof Mesh) { o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false; }
+        if (!(o instanceof Mesh)) return;
+        o.castShadow = false; o.receiveShadow = false; o.frustumCulled = false;
+        // Close to the eye the near plane cuts into the gun: its inside faces must show, or the
+        // weapon looks hollow when aimed. Own copies, so models in the world stay single-sided.
+        const solid = (m: Material) => { const c = m.clone(); c.side = DoubleSide; return c; };
+        o.material = Array.isArray(o.material) ? o.material.map(solid) : solid(o.material);
       });
       this.pivot.add(model);
       this.models.set(key, model);
