@@ -4,6 +4,7 @@ import {
   DirectionalLight,
   Fog,
   HemisphereLight,
+  LinearFilter,
   Mesh,
   ShaderMaterial,
   SphereGeometry,
@@ -57,7 +58,7 @@ const skyFragment = /* glsl */ `
                    asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
     // Day: a photographed sky (CC0, Poly Haven); night: a photographed starry night sky.
     vec3 day = texture2D(uSkyImage, uv).rgb * mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight) * mix(1.0, 0.055, uNight);
-    vec3 night = texture2D(uNightImage, uv).rgb * vec3(0.55, 0.62, 0.85) * 0.9;
+    vec3 night = texture2D(uNightImage, uv).rgb * vec3(0.72, 0.78, 0.95);
     vec3 photo = mix(day, night, uNight * uNightReady);
     float ready = mix(uSkyReady, max(uSkyReady, uNightReady), uNight);
     col = mix(col, photo, ready * smoothstep(0.04, 0.22, h) * 0.92);
@@ -178,12 +179,15 @@ export class SkySystem {
       depthWrite: false,
       fog: false,
     });
-    this.nightImage = new TextureLoader().load('/textures/sky/night-sky.jpg', (texture) => {
+    this.nightImage = new TextureLoader().load('/textures/sky/night-sky-2.jpg', (texture) => {
       if (this.disposed) { texture.dispose(); return; }
       this.material.uniforms.uNightReady!.value = 1;
     });
     this.nightImage.colorSpace = SRGBColorSpace;
     this.nightImage.wrapS = RepeatWrapping;
+    // Crisp stars: no mip blur (the dome is always seen at about full resolution).
+    this.nightImage.minFilter = LinearFilter;
+    this.nightImage.generateMipmaps = false;
     this.material.uniforms.uNightImage!.value = this.nightImage;
     this.skyImage = new TextureLoader().load('/textures/sky/day-sky-2.jpg', (texture) => {
       if (this.disposed) { texture.dispose(); return; }
