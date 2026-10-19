@@ -102,6 +102,10 @@ function forward(req, res, localPort) {
           try { remoteWs = new URL(JSON.parse(`"${url}"`)); } catch { return _m; }
           return `"wsUrl":"ws://127.0.0.1:${localPort}${remoteWs.pathname}${remoteWs.search}"`;
         });
+        // Browser sign-in opens the website named in config.json (whatever the server thinks its site is).
+        if (req.url.startsWith('/api/auth/desktop/start')) body = body.replace(/"url":"([^"]+)"/, (m, url) => {
+          try { const u = new URL(JSON.parse(`"${url}"`)), site = new URL(WEB_ORIGIN); u.protocol = site.protocol; u.host = site.host; return `"url":${JSON.stringify(u.toString())}`; } catch { return m; }
+        });
         const buf = Buffer.from(body, 'utf8');
         delete h['transfer-encoding'];
         h['content-length'] = String(buf.length);
