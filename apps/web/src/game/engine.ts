@@ -3285,7 +3285,7 @@ export class GameEngine {
    * else their reported position). False when there is nobody to watch.
    */
   /** Battle royale, eliminated: the living squadmate being watched (their body when streamed in). */
-  private spectateTarget(): { name: string; x: number; y: number; z: number } | null {
+  private spectateTarget(): { name: string; killer?: boolean; x: number; y: number; z: number } | null {
     if (!this.local?.dead || this.welcome?.mode !== 'battle-royale') return null;
     const mate = (this.hud.get().team?.members ?? []).find((m) => m.entityId !== undefined && m.entityId !== this.welcome?.playerId && m.inGame && (m.health ?? 0) > 0 && m.x !== undefined);
     if (!mate) {
@@ -3293,7 +3293,7 @@ export class GameEngine {
       const killer = this.killerId !== null ? this.remotes.get(this.killerId) : undefined;
       if (!killer || (killer.entity.pose.flags & EntityFlags.Dead) || killer.entity.pose.health <= 0) return null;
       const name = this.names.get(this.killerId!) ?? 'Đối thủ';
-      return { name: `${name} (người hạ bạn)`, x: killer.entity.pose.x, y: killer.entity.pose.y, z: killer.entity.pose.z };
+      return { name, killer: true, x: killer.entity.pose.x, y: killer.entity.pose.y, z: killer.entity.pose.z };
     }
     const body = this.remotes.get(mate.entityId!);
     const x = body ? body.entity.pose.x : mate.x!, z = body ? body.entity.pose.z : mate.z!;
@@ -3314,8 +3314,8 @@ export class GameEngine {
       const pitch = Math.max(-.9, Math.min(.5, this.input.pitch - .18));
       this.thirdPersonCamera.update(this.camera, f, this.input.yaw, pitch, dt, this.store?.collision, false);
     }
-    const watching = target?.name ?? null;
-    if (this.hud.get().spectating !== watching) this.hud.set({ spectating: watching });
+    const watching = target?.name ?? null, killer = !!target?.killer;
+    if (this.hud.get().spectating !== watching || this.hud.get().spectatingKiller !== killer) this.hud.set({ spectating: watching, spectatingKiller: killer });
     return watching !== null;
   }
 

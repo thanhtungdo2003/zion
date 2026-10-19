@@ -385,7 +385,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
 
       {state.status === 'dead' && state.mode === 'battle-royale' && state.spectating && (
         <div className="hud-spectate" role="status">
-          <span>Bạn đã bị loại · Đang theo dõi đồng đội</span>
+          <span>Bạn đã bị loại · {state.spectatingKiller ? 'Đang theo dõi người hạ bạn' : 'Đang theo dõi đồng đội'}</span>
           <b>{state.spectating}</b>
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>

@@ -43,6 +43,8 @@ export interface HudState {
   downed: number | null;
   /** Battle royale: eliminated, watching this teammate. */
   spectating: string | null;
+  /** Solo battle royale: the one watched is our killer, not a teammate. */
+  spectatingKiller: boolean;
   /** Reviving someone: progress window (performance.now ms). */
   reviving: { start: number; end: number } | null;
   status: 'connecting' | 'loading' | 'playing' | 'dead' | 'disconnected';
@@ -148,6 +150,7 @@ export function initialHud(): HudState {
     plot: null,
     downed: null,
     spectating: null,
+    spectatingKiller: false,
     reviving: null,
     status: 'connecting',
     statusDetail: { key: 'status.requesting' },

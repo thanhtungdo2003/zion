@@ -61,7 +61,8 @@ export function importedSpawns(parts: readonly CampPart[]): Array<readonly [numb
  * walls and under a roof, so they never block a doorway or stand outdoors.
  */
 const INTERIOR_CRATES: Readonly<Record<number, ReadonlyArray<readonly [number, number, number]>>> = {
-  2420: [[-3.8, .03, 1.74], [-.05, .03, 1.74], [-3.8, 3.17, 1.49], [-.05, 3.17, 1.49]],
+  // Favela: only the upper floor (its ground-floor room has no way in: crates there were out of reach).
+  2420: [[-3.8, 3.17, 1.49], [-.05, 3.17, 1.49]],
   2421: [[-14.1, 0, 1.27], [13.9, 0, 1.27], [1.4, 3.21, 1.27], [-14.1, 3.21, 1.27], [1.4, 6.37, 1.27], [-14.1, 6.37, 1.27]],
   2422: [[.43, .07, .42]],
   2423: [[-.07, .07, -.82]],
