@@ -297,6 +297,11 @@ const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeo
     for (const y of [.15, 1.6, 3.1]) parts.push(paint(new CylinderGeometry(1.96, 1.96, .12, 20).translate(0, y, 0), 0x4e5b55, rng));
     return merge(parts);
   },
+  // Editor marker of an invisible light source: a small glowing orb with a ring (hidden in game).
+  light_source: (_p, rng) => merge([
+    paint(new IcosahedronGeometry(.22, 1).translate(0, .5, 0), 0xffe08a, rng, 0),
+    paint(new CylinderGeometry(.04, .04, .5, 6).translate(0, .25, 0), 0x806a3a, rng, 0),
+  ]),
   bridge_block: (p, rng) => {
     const w = num(p, 'width', 2), h = num(p, 'height', .3), d = num(p, 'depth', 2);
     const color = typeof p.color === 'string' ? new Color(p.color).getHex() : 0x77766b;

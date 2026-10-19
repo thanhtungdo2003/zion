@@ -38,6 +38,7 @@ export const PROCEDURAL_GENERATORS = [
   'bridge_block',
   'water_tank',
   'ivy',
+  'light_source',
 ] as const;
 
 export const modelSourceSchema = z.discriminatedUnion('kind', [

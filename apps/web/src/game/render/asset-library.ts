@@ -117,7 +117,8 @@ export class AssetLibrary {
   private readonly resources = new ResourceDisposer();
   readonly errors: string[] = [];
 
-  constructor(private readonly registry: AssetRegistry) {}
+  /** `game`: the game itself (editor-only markers such as light sources are not drawn). */
+  constructor(private readonly registry: AssetRegistry, private readonly options: { game?: boolean } = {}) {}
 
   private async getManifest(): Promise<AssetManifest> {
     if (this.manifest) return this.manifest;
@@ -184,6 +185,11 @@ export class AssetLibrary {
       case 'procedural': {
         const geometry = buildProceduralGeometry(model.generator, model.params, def.numericId);
         const material = swayMaterial(def.render.sway);
+        if (model.generator === 'light_source') {
+          material.emissive.set(0xffc94a); material.emissiveIntensity = .9;
+          if (this.options.game) material.visible = false;
+          return { def, parts: [{ geometry, material }] };
+        }
         if (def.numericId === 2210) { material.polygonOffset = true; material.polygonOffsetFactor = -2; material.polygonOffsetUnits = -2; }
         if (model.generator === 'rock' || model.generator === 'slab') naturalMaterial(material, 'rock');
         else if (model.generator !== 'bridge_block' && model.generator !== 'water_tank') naturalMaterial(material, 'tree');

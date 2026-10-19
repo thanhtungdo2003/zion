@@ -5,7 +5,7 @@ import { isBuiltinWeapon, validateContent, type GameContent } from '@zion/shared
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { CAMP_ASSET } from '@zion/assets';
+import { CAMP_ASSET, LIGHT_SOURCE_ASSET } from '@zion/assets';
 import type { CampNpcLayout, CampPart } from '@zion/worldgen';
 import type { HttpDeps } from '../app';
 import { modelUrl } from '../../repositories/custom-weapons';
@@ -37,7 +37,7 @@ export interface StudioBackend {
   setVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }>;
 }
 
-const CAMP_IDS = new Set<number>(Object.values(CAMP_ASSET));
+const CAMP_IDS = new Set<number>([...Object.values(CAMP_ASSET), LIGHT_SOURCE_ASSET]);
 /** Parts may sit a little outside the wall (the outer wire runs at ±50 m). */
 const MAX_OFFSET = 70;
 

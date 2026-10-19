@@ -9,7 +9,7 @@ import { NewsEditor } from './NewsEditor';
 import { StudioVehiclePhysics } from './StudioVehiclePhysics';
 import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CAMP_ASSETS } from '@zion/assets';
+import { CAMP_ASSETS, LIGHT_ASSETS, LIGHT_SOURCE_ASSET } from '@zion/assets';
 import { ApiError, hasStudioSession, studioContent, studioLoad, studioLogin, studioLogout, studioReset, studioSave, studioSaveContent, studioTerrain, type StudioLayout, type StudioNpcs, type StudioPart } from '@/lib/api';
 import type { GameContent } from '@zion/shared';
 import { StudioScene, type Handle, type SceneNpc } from '@/studio/studio-scene';
@@ -31,8 +31,8 @@ interface CatalogEntry {
   footprint: Footprint;
 }
 
-const GROUP_COLORS: Record<string, string> = { dists: '#8a6a3f', materias: '#6f7f86' };
-const GROUP_LABELS: Record<string, string> = { dists: 'Đồ dùng căn cứ', materias: 'Vật liệu xây dựng', misc: 'Khác' };
+const GROUP_COLORS: Record<string, string> = { dists: '#8a6a3f', materias: '#6f7f86', light: '#e0b040' };
+const GROUP_LABELS: Record<string, string> = { dists: 'Đồ dùng căn cứ', materias: 'Vật liệu xây dựng', light: 'Ánh sáng', misc: 'Khác' };
 const ASSET_LABELS: Record<string, string> = {
   'barbed-wire-fence': 'Hàng rào dây thép gai', 'military-lamp-post': 'Cột đèn quân dụng',
   'military-wooden-crate': 'Thùng gỗ quân dụng', 'rusty-oil-barrel': 'Thùng dầu gỉ',
@@ -58,16 +58,16 @@ const ASSET_LABELS: Record<string, string> = {
 };
 
 /** Every camp asset with its 2D footprint (box colliders, or a disc from its bounds). */
-const CATALOG: CatalogEntry[] = CAMP_ASSETS.map((a) => {
+const CATALOG: CatalogEntry[] = [...CAMP_ASSETS, ...LIGHT_ASSETS].map((a) => {
   const boxes = (a.colliders ?? []).flatMap((c) =>
     c.type === 'box' ? [{ cx: c.center[0], cz: c.center[2], hx: c.halfExtents[0], hz: c.halfExtents[2], yaw: c.yaw ?? 0 }] : [],
   );
-  const group = a.tags?.[0] ?? 'misc';
+  const group = a.numericId === LIGHT_SOURCE_ASSET ? 'light' : a.tags?.[0] ?? 'misc';
   const key = a.model.kind === 'bbmodel' ? a.model.path.split('/').pop()!.replace('.bbmodel', '') : a.id;
   return {
     numericId: a.numericId,
     key,
-    name: ASSET_LABELS[key] ?? a.name,
+    name: a.numericId === LIGHT_SOURCE_ASSET ? 'Nguồn sáng (vô hình)' : ASSET_LABELS[key] ?? a.name,
     group,
     color: GROUP_COLORS[group] ?? '#7d7466',
     height: a.bounds.height,
@@ -827,7 +827,7 @@ function PartForm({ part, onChange }: { part: Part; onChange: (p: Part) => void 
         <span>Góc xoay °</span>
         <input type="number" step={15} value={round(part.yaw / DEG, 1)} onChange={(e) => Number.isFinite(Number(e.target.value)) && onChange({ ...part, yaw: Number(e.target.value) * DEG })} />
       </label>
-      {num('scale', 'Tỷ lệ', 0.05, 0.5, 2)}
+      {part.asset === LIGHT_SOURCE_ASSET ? num('scale', 'Độ sáng (×)', 0.1, 0.1, 10) : num('scale', 'Tỷ lệ', 0.05, 0.5, 2)}
     </div>
   );
 }

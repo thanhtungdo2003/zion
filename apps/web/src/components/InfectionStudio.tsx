@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createDefaultRegistry, type AssetDefinition } from '@zion/assets';
+import { createDefaultRegistry, LIGHT_SOURCE_ASSET, type AssetDefinition } from '@zion/assets';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
 import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -426,7 +426,9 @@ export default function InfectionStudio() {
                 {(['x', 'z', 'y'] as const).map((k) => <label key={k}>{k.toUpperCase()}<input type="number" step={.5} value={part[k]} onChange={(e) => setPart((p) => { p[k] = Number(e.target.value); })} /></label>)}
               </div>
               {num('Xoay', Math.round(((part.yaw * 180 / Math.PI) % 360 + 360) % 360), (v) => setPart((p) => { p.yaw = v * Math.PI / 180; }), 0, 359, 1, '°')}
-              {num('Tỉ lệ', part.scale, (v) => setPart((p) => { p.scale = v; }), .1, 4, .05, '×')}
+              {part.asset === LIGHT_SOURCE_ASSET
+                ? num('Độ sáng', part.scale, (v) => setPart((p) => { p.scale = v; }), .1, 10, .1, '×')
+                : num('Tỉ lệ', part.scale, (v) => setPart((p) => { p.scale = v; }), .1, 4, .05, '×')}
               <div className="ix-row">
                 <button className="btn" onClick={() => { patch((d) => { const p = d.parts[sel!.index]!; d.parts.push({ ...p, x: p.x + 2, z: p.z + 2 }); }); setSel({ kind: 'part', index: draft.parts.length }); }}><Icon name="lucide:copy" /> Nhân bản</button>
                 <button className="btn" onClick={removeSel}><Icon name="lucide:trash" /> Xóa</button>

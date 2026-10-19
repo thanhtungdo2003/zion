@@ -220,7 +220,7 @@ export class GameEngine {
   private readonly squadMarkers = new SquadMarkers(this.scene);
   private readonly camera = new PerspectiveCamera(40, 1, 0.5, 2600);
   private readonly registry: AssetRegistry = createDefaultRegistry();
-  private readonly library = new AssetLibrary(this.registry);
+  private readonly library = new AssetLibrary(this.registry, { game: true });
   private readonly resources = new ResourceDisposer();
   private readonly ownedModels = new Set<Object3D>();
   private readonly subscriptions: Array<() => void> = [];

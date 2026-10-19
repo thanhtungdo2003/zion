@@ -78,7 +78,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
       else cb(null, false);
     },
     credentials: true,
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['content-type', 'authorization', 'x-zion-csrf', 'x-studio-token'],
     maxAge: 600,
   });

@@ -32,3 +32,14 @@ export const CIVIC_ASSETS: readonly AssetDefinitionInput[] = ([
   ...(solid ? {} : { collisionLayer: 'none' as const }),
   bounds: { radius: Math.hypot(w, d) / 2, height: h }, render: { maxDistance: 900 }, tags: ['civic'],
 }));
+
+/**
+ * The light source: an invisible model for the Studios. Wherever it stands the world glows; its
+ * scale is the brightness (1 = a street lamp, up to 10). Only the editors draw its marker.
+ */
+export const LIGHT_SOURCE_ASSET = 2740;
+export const LIGHT_ASSETS: readonly AssetDefinitionInput[] = [{
+  id: 'light.source', numericId: LIGHT_SOURCE_ASSET, name: 'Nguồn sáng (vô hình)', category: 'decor',
+  model: { kind: 'procedural', generator: 'light_source', params: {} },
+  colliders: [], collisionLayer: 'none', bounds: { radius: .3, height: .75 }, render: { maxDistance: 120 }, tags: ['light-source'],
+}];
