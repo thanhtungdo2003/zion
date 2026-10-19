@@ -3211,6 +3211,9 @@ export class GameServer {
         const hull = this.vehicles.hull(r.x, r.y, r.z, dx, dy, dz, Math.min(len, hit.t), r.owner.vehicleId);
         if (hull && hull.t < hit.t) hit = { target: null, zone: null, t: hull.t, rewoundMs: 0, normal: [-dx, -dy, -dz], colliderTag: 50000 + hull.id };
       }
+      // Tyres: a round that meets one first pops it and stops there.
+      const tyre = this.vehicles?.tyreOnRay?.(r.x, r.y, r.z, dx, dy, dz, Math.min(len, hit.t));
+      if (tyre) { this.vehicles.puncture(tyre.v, tyre.wheel); hit = { target: null, zone: null, t: tyre.t, rewoundMs: 0, normal: [-dx, -dy, -dz], colliderTag: 50000 + tyre.v.id }; }
       const npcHit = this.npcOnRay(r.x, r.y, r.z, dx, dy, dz, hit.t);
       if (npcHit && this.players.get(r.owner.id) === r.owner) this.provokeNpc(npcHit.npc, r.owner, now);
       const t = npcHit ? npcHit.t : hit.t;

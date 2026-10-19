@@ -1,5 +1,5 @@
 import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, tyreHandling, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -53,7 +53,9 @@ export class VehicleRenderer {
       // newest packet here caused the chase camera to alternate between two positions.
       this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));
       const origin=vehiclePoint(p,0,def.com,0);
-      view.root.position.set(origin.x,origin.y,origin.z);view.root.rotation.set(p.motion?.pitch??0,p.yaw,p.motion?.roll??0,'YXZ');
+      // Flat tyres: the body sits low on that corner (latest state, not the interpolated pose).
+      const tyres=tyreHandling(v);
+      view.root.position.set(origin.x,origin.y-tyres.drop,origin.z);view.root.rotation.set((p.motion?.pitch??0)-tyres.pitch,p.yaw,(p.motion?.roll??0)-tyres.lean,'YXZ');
       view.travel+=p.speed*dt;
       for(const wheel of view.wheels){
         wheel.mount.position.set(...wheel.center);

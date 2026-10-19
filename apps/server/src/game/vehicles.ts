@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { JoltVehicles, loadJolt, damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
@@ -268,10 +268,33 @@ export class Vehicles {
     }
     return best;
   }
+  /** The first tyre a ray meets within `len` (wheels stick out of the body's collision frame). */
+  tyreOnRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, len: number): { t: number; v: VehicleState; wheel: number } | null {
+    let best: { t: number; v: VehicleState; wheel: number } | null = null;
+    for (const v of this.states.values()) {
+      if (v.exploded || !this.available || Math.hypot(v.x - ox, v.z - oz) > len + VEHICLES[v.kind].halfZ + 2) continue;
+      const fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), rx = Math.cos(v.yaw), rz = -Math.sin(v.yaw), r = VEHICLES[v.kind].wheelRadius;
+      for (let i = 0; i < 4; i++) {
+        const c = wheelCentre(v.kind, i), cx = v.x + rx * c.x - fx * c.z - ox, cy = v.y + c.y - oy, cz = v.z + rz * c.x - fz * c.z - oz;
+        const along = cx * dx + cy * dy + cz * dz, miss = cx * cx + cy * cy + cz * cz - along * along;
+        if (along < 0 || along > len || miss > r * r) continue;
+        const t = along - Math.sqrt(r * r - miss);
+        if (!best || t < best.t) best = { t: Math.max(0, t), v, wheel: i };
+      }
+    }
+    return best;
+  }
+  /** Pops one tyre. */
+  puncture(v: VehicleState, wheel: number): void { v.flats = (v.flats ?? 0) | (1 << wheel); }
+
+  /** A round stopped at (x, y, z): any bullet pops the tyre it lands on; heavy ones dent the body. */
   hitAt(x: number, y: number, z: number, amount: number, now: number, colliderTag?: number): void {
-    if (amount < 25 || colliderTag === undefined || colliderTag < 50001) return;
+    if (colliderTag === undefined || colliderTag < 50001) return;
     for (const v of this.states.values()) {
       if (v.exploded || colliderTag !== 50000+v.id) continue;
+      const wheel = wheelAt(v, x, y, z);
+      if (wheel >= 0) { v.flats = (v.flats ?? 0) | (1 << wheel); break; }
+      if (amount < 25) break;
       const p=vehicleLocalPoint(v,x,y,z),def=VEHICLES[v.kind];
       if(Math.abs(p.x)<=def.halfX+.12&&Math.abs(p.z)<=def.halfZ+.12&&p.y>=0&&p.y<=def.height+.12) {damageVehicle(v,amount*.6,now);break;}
     }
@@ -280,6 +303,11 @@ export class Vehicles {
     for (const v of this.states.values()) {
       const d = Math.hypot(v.x - x, v.y + .6 - y, v.z - z);
       if (d < radius) damageVehicle(v, damage * (1 - d / radius), now);
+      // Tyres close to a blast burst.
+      if (!v.exploded) for (let i = 0; i < 4; i++) {
+        const c = wheelCentre(v.kind, i), fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), rx = Math.cos(v.yaw), rz = -Math.sin(v.yaw);
+        if (Math.hypot(v.x + rx * c.x - fx * c.z - x, v.y + c.y - y, v.z + rz * c.x - fz * c.z - z) < radius * .6) v.flats = (v.flats ?? 0) | (1 << i);
+      }
     }
   }
   /** False hides every vehicle (battle royale before the drop): none are sent or usable. */
@@ -290,7 +318,7 @@ export class Vehicles {
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();
     if (this.parking.length) this.shuffleParking();
-    for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.passengers = []; v.speed = 0; v.braking=false;delete v.impact;v.motion=createVehicleMotion(v.kind); this.install(v); }
+    for (const v of this.states.values()) { Object.assign(v, this.spawns.get(v.id)); v.health = VEHICLES[v.kind].health; v.exploded = false; v.explodeAt = 0; v.driver = null; v.passengers = []; v.speed = 0; v.braking=false;delete v.impact;v.flats=0;v.motion=createVehicleMotion(v.kind); this.install(v); }
   }
 }
 

@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, vehicleBasis, vehiclePoint, type VehicleState, type VehicleMotion } from '@zion/shared';
+import { VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleState, type VehicleMotion } from '@zion/shared';
 import { makeBox, shapeAABB, makeContact, type BoxShape, type Collider } from './shapes';
 import { capsuleVsBox } from './geometry';
 import { Layer, Mask } from './layers';
@@ -121,6 +121,8 @@ export function stepVehicle(v: VehicleState, throttle: number, steer: number, wo
   const reach = Math.hypot(def.halfX, def.halfZ) + .3;
   if (!world.isAreaLoaded(v.x-reach,v.z-reach,v.x+reach,v.z+reach)) return 0;
   if (v.health<=0) throttle=0;
+  // Flat tyres: weaker drive and steering (the Jolt model also drags the flat corners).
+  const tyres=tyreHandling(v); throttle*=tyres.power; steer*=tyres.steer;
   v.braking=throttle<-.1&&v.speed>=8&&v.health>0;
   const steps=Math.max(1,Math.ceil(dt/(1/120))),h=dt/steps;
   const mass=def.mass,W=def.halfX*2,H=def.height,L=def.halfZ*2,k=def.scale;

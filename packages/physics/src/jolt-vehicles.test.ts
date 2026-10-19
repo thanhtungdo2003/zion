@@ -44,6 +44,23 @@ describe('Jolt vehicles', () => {
     } finally { sim.dispose(); }
   });
 
+  it('pulls towards a flat tyre and slows; all four flat barely turns', () => {
+    const w = world(), sim = new JoltVehicles(w), clean = car(w, 'car', 170, 60), flat = { ...car(w, 'car', 170, 130), id: 2, flats: 0b0101 };
+    try {
+      sim.add(clean); sim.add(flat);
+      run(sim, [clean, flat], 3);
+      // Left-side flats (wheels 0 and 2): it drifts left (yaw grows) and falls behind.
+      expect(flat.yaw).toBeGreaterThan(.02);
+      expect(flat.speed).toBeLessThan(clean.speed - 1);
+    } finally { sim.dispose(); }
+    const w2 = world(), sim2 = new JoltVehicles(w2), ok = car(w2, 'car', 170, 60), dead = { ...car(w2, 'car', 170, 130), id: 2, flats: 0b1111 };
+    try {
+      sim2.add(ok); sim2.add(dead);
+      run(sim2, [ok, dead], 1.5); run(sim2, [ok, dead], 1.5, .5, 1);
+      expect(Math.abs(dead.yaw)).toBeLessThan(Math.abs(ok.yaw) * .6);
+    } finally { sim2.dispose(); }
+  });
+
   it('steers right with positive steer input', () => {
     const w = world(), v = car(w), sim = new JoltVehicles(w);
     try {

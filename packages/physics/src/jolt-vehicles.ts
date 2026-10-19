@@ -1,5 +1,5 @@
 import type initJolt from 'jolt-physics';
-import { VEHICLES, CHUNK_SIZE, createVehicleMotion, type VehicleState } from '@zion/shared';
+import { VEHICLES, CHUNK_SIZE, createVehicleMotion, tyreHandling, wheelCentre, type VehicleState } from '@zion/shared';
 import { Layer } from './layers';
 import { damageVehicle } from './vehicles';
 import type { Collider } from './shapes';
@@ -288,9 +288,11 @@ export class JoltVehicles {
       // Pressing against the direction of travel brakes first, then engages reverse.
       const braking = throttle !== 0 && Math.sign(throttle) !== Math.sign(forward) && Math.abs(forward) > 1;
       v.braking = throttle < -.1 && forward >= 8;
-      const top = throttle > 0 ? VEHICLES[v.kind].maxSpeed : VEHICLES[v.kind].maxSpeed * .32;
-      const governed = throttle * Math.max(0, Math.min(1, (top - Math.abs(forward)) / 3));
-      car.controller.SetDriverInput(braking ? 0 : governed, m.steer / (1 + Math.abs(forward) / 25), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
+      const tyres = tyreHandling(v);
+      const top = (throttle > 0 ? VEHICLES[v.kind].maxSpeed : VEHICLES[v.kind].maxSpeed * .32) * tyres.top;
+      const governed = throttle * tyres.power * Math.max(0, Math.min(1, (top - Math.abs(forward)) / 3));
+      // Steering eases off with speed, gently: a fast vehicle can still be turned round.
+      car.controller.SetDriverInput(braking ? 0 : governed, m.steer * tyres.steer / (1 + Math.abs(forward) / 45), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
       if (control && (throttle || steer)) this.bodies.ActivateBody(car.id);
       const awake = this.bodies.IsActive(car.id);
       if (!awake) continue;
@@ -302,11 +304,29 @@ export class JoltVehicles {
         continue;
       }
       live.push([v, car]);
+      if (tyres.count) this.dragFlats(v, car, now);
     }
     this.expire(now);
     if (live.length) this.jolt.Step(dt, Math.max(1, Math.ceil(dt * 60)));
     for (const [v, car] of live) impacts.set(v.id, this.pull(v, car, dt, now));
     return impacts;
+  }
+
+  /**
+   * Flat tyres: each one drags back on its corner of the vehicle (pulling it towards that side)
+   * and shimmies a little sideways, more the faster it rolls.
+   */
+  private dragFlats(v: VehicleState, car: Car, now: number): void {
+    const def = VEHICLES[v.kind], [vx, , vz] = car.velocity, speed = Math.hypot(vx, vz);
+    if (speed < .3) return;
+    const fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), rx = Math.cos(v.yaw), rz = -Math.sin(v.yaw);
+    const k = def.mass * Math.min(1, speed / 6);
+    for (let i = 0; i < 4; i++) {
+      if (!((v.flats ?? 0) >> i & 1)) continue;
+      const c = wheelCentre(v.kind, i), wobble = Math.sin(now * .018 + i * 1.7) * 1.1 * Math.min(1, speed / 10);
+      const px = v.x + rx * c.x - fx * c.z, pz = v.z + rz * c.x - fz * c.z;
+      this.bodies.AddForce(car.id, v3(-vx / speed * k * 2.6 + rx * k * wobble, 0, -vz / speed * k * 2.6 + rz * k * wobble), rv3(px, v.y + c.y, pz), Jolt.EActivation_Activate);
+    }
   }
 
   /** Reads the Jolt body back into the compact network VehicleState. */

@@ -8,6 +8,8 @@ export interface VehicleState {
   /** Authoritative controls and physical contact events, separate from bullet/blast damage. */
   braking?: boolean;
   impact?: { time: number; speed: number };
+  /** Flat tyres, bit i = wheel i (0 front-left, 1 front-right, 2 rear-left, 3 rear-right). */
+  flats?: number;
 }
 export interface VehicleMotion {
   pitch: number; roll: number; vy: number; pitchVelocity: number; rollVelocity: number;
@@ -68,3 +70,33 @@ export function createVehicleMotion(kind: VehicleKind): VehicleMotion {
   return {pitch:0,roll:0,vy:0,pitchVelocity:0,rollVelocity:0,grounded:false,steer:0,suspension:[length,length,length,length],lateral:0,yawVelocity:0};
 }
 export interface VehiclesMessage { t: 'vehicles'; time: number; vehicles: VehicleState[] }
+
+/** Wheel centre in vehicle-local metres (+X right, −Z forward). */
+export function wheelCentre(kind: VehicleKind, i: number): { x: number; y: number; z: number } {
+  const d = VEHICLES[kind];
+  return { x: i % 2 === 0 ? -d.wheelX : d.wheelX, y: d.wheelRadius, z: i < 2 ? d.frontZ : d.rearZ };
+}
+/** The wheel a hit at world (x, y, z) lands on, or −1. */
+export function wheelAt(v: VehicleState, x: number, y: number, z: number): number {
+  const p = vehicleLocalPoint(v, x, y, z), r = VEHICLES[v.kind].wheelRadius + .14;
+  for (let i = 0; i < 4; i++) { const c = wheelCentre(v.kind, i); if (Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z) < r) return i; }
+  return -1;
+}
+/**
+ * How flat tyres change the handling: less steering (front ones most), less power and top
+ * speed, the body sitting low on the flat side and dragged towards it. All four: barely drivable.
+ */
+export function tyreHandling(v: VehicleState): { count: number; steer: number; power: number; top: number; lean: number; pitch: number; drop: number } {
+  const f = v.flats ?? 0, bit = (i: number) => (f >> i) & 1;
+  const front = bit(0) + bit(1), rear = bit(2) + bit(3), left = bit(0) + bit(2), right = bit(1) + bit(3), count = front + rear;
+  return {
+    count,
+    steer: Math.max(.18, 1 - .3 * front - .12 * rear - (count === 4 ? .2 : 0)),
+    power: 1 - .15 * count,
+    top: 1 - .14 * count,
+    // Roll (+ = right side down) and pitch (+ = nose down), radians; how far the body sinks.
+    lean: (right - left) * .045,
+    pitch: (front - rear) * .03,
+    drop: count * .035 * VEHICLES[v.kind].wheelRadius / .4,
+  };
+}
