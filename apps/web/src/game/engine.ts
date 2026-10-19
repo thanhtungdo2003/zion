@@ -19,6 +19,7 @@ import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
+import { GroundTextures } from './render/ground-textures';
 import { BaseLifeRenderer } from './render/base-life';
 import { NPC_MODELS, type QuestNpcMessage } from '@zion/shared';
 import {
@@ -229,6 +230,7 @@ export class GameEngine {
   private readonly input: InputController;
   private readonly resize: ResizeObserver;
   private readonly terrainMaterial = groundMaterial();
+  private readonly groundTextures = new GroundTextures(this.terrainMaterial);
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
@@ -787,6 +789,7 @@ export class GameEngine {
     for (const root of this.ownedModels) this.resources.object(root);
     this.ownedModels.clear();
     this.resources.release(this.terrainMaterial);
+    this.groundTextures.dispose();
     this.resources.release(this.coinRingGeometry);
     this.resources.release(this.coinRingMaterial);
     if (this.waterMaterial) this.resources.release(this.waterMaterial);
@@ -3179,7 +3182,7 @@ export class GameEngine {
   private graphicsKey = '';
   /** Applies the graphics settings when they change (resolution, shadows, distances, grass). */
   private applyGraphics(settings: ReturnType<typeof settingsStore.get>): void {
-    const key = `${settings.renderScale}:${settings.shadows}:${settings.drawDistance}:${settings.grassDensity}:${settings.shaders}:${!!this.sky}:${!!this.props}:${!!this.vegetation}`;
+    const key = `${settings.renderScale}:${settings.shadows}:${settings.drawDistance}:${settings.grassDensity}:${settings.shaders}:${settings.groundDetail}:${!!this.sky}:${!!this.props}:${!!this.vegetation}`;
     if (key === this.graphicsKey || !this.renderer?.shadowMap) return;
     const shadowsBefore = this.renderer.shadowMap.enabled;
     this.graphicsKey = key;
@@ -3198,6 +3201,7 @@ export class GameEngine {
     // Switching shadows on or off changes every lit shader.
     if (shadowsBefore !== shadows) this.scene.traverse((o) => { const m = (o as { material?: { needsUpdate: boolean } | Array<{ needsUpdate: boolean }> }).material; if (Array.isArray(m)) m.forEach(x => { x.needsUpdate = true; }); else if (m) m.needsUpdate = true; });
     if (!settings.shaders && this.shaderPack) { this.shaderPack.dispose(); this.shaderPack = null; }
+    this.groundTextures.setDetail(settings.groundDetail, this.renderer);
     this.props?.setDistanceScale(settings.drawDistance);
     this.vegetation?.setQuality(settings.grassDensity, settings.grassDensity < .35 ? 1 : 2);
   }

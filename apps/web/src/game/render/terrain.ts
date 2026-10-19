@@ -3,10 +3,12 @@ import { CHUNK_SIZE, Surface, dequantizeHeight, heightIndex, lodStep, type Chunk
 import { terrainCellIndices } from '@zion/physics';
 import { applyUnderwater, jitter, surfaceColor } from './palette';
 import { vegetationPatch } from './vegetation-pattern';
+import { GROUND_LAYER_COUNT, slopeToRock, surfaceLayers } from './ground-textures';
 
 const SKIRT_DEPTH = [1.5, 4, 10];
 const color = new Color();
 const mossColor = new Color(0x527c32);
+const layerWeights = new Float32Array(GROUND_LAYER_COUNT);
 
 /**
  * Builds the visual terrain mesh for a chunk in chunk-local coordinates. The triangulation is
@@ -24,6 +26,8 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
   const pos = new Float32Array(total * 3);
   const nrm = new Float32Array(total * 3);
   const col = new Float32Array(total * 3);
+  // Ground material layer weights (3 × vec4, 0…255): see ground-textures.ts.
+  const layers = [new Uint8Array(total * 4), new Uint8Array(total * 4), new Uint8Array(total * 4)];
   const H = (i: number, j: number) => dequantizeHeight(chunk.heights[heightIndex(n, i, j)]!);
 
   for (let j = 0; j < n; j++) {
@@ -57,6 +61,11 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
       col[v * 3] = color.r * b;
       col[v * 3 + 1] = color.g * b;
       col[v * 3 + 2] = color.b * b;
+      surfaceLayers(surface, chunk.temperature[v]! / 255, humidity, layerWeights);
+      slopeToRock(surface, ny * inv, layerWeights);
+      let sum = 0;
+      for (let k = 0; k < GROUND_LAYER_COUNT; k++) sum += layerWeights[k]!;
+      for (let k = 0; k < GROUND_LAYER_COUNT; k++) layers[k >> 2]![v * 4 + (k & 3)] = Math.round(layerWeights[k]! / (sum || 1) * 255);
     }
   }
 
@@ -77,6 +86,7 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
       nrm[dst * 3 + c] = nrm[src * 3 + c]!;
       col[dst * 3 + c] = col[src * 3 + c]! * 0.8;
     }
+    for (const l of layers) for (let c = 0; c < 4; c++) l[dst * 4 + c] = l[src * 4 + c]!;
   }
 
   const cells = (n - 1) * (n - 1);
@@ -112,6 +122,9 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
   g.setAttribute('position', new BufferAttribute(pos, 3));
   g.setAttribute('normal', new BufferAttribute(nrm, 3));
   g.setAttribute('color', new BufferAttribute(col, 3));
+  g.setAttribute('groundA', new BufferAttribute(layers[0]!, 4, true));
+  g.setAttribute('groundB', new BufferAttribute(layers[1]!, 4, true));
+  g.setAttribute('groundC', new BufferAttribute(layers[2]!, 4, true));
   g.setIndex(new BufferAttribute(index.subarray(0, o), 1));
   g.computeBoundingSphere();
   g.computeBoundingBox();

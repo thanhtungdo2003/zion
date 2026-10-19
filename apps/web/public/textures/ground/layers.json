@@ -1,0 +1,110 @@
+[
+ {
+  "layer": "forest",
+  "polyhaven": "forest_leaves_02",
+  "mean": [
+   142,
+   112,
+   58
+  ]
+ },
+ {
+  "layer": "meadow",
+  "polyhaven": "forrest_ground_01",
+  "mean": [
+   145,
+   135,
+   93
+  ]
+ },
+ {
+  "layer": "mud",
+  "polyhaven": "brown_mud_leaves_01",
+  "mean": [
+   101,
+   84,
+   51
+  ]
+ },
+ {
+  "layer": "sand",
+  "polyhaven": "coast_sand_01",
+  "mean": [
+   130,
+   114,
+   91
+  ]
+ },
+ {
+  "layer": "cracked",
+  "polyhaven": "mud_cracked_dry_03",
+  "mean": [
+   207,
+   169,
+   129
+  ]
+ },
+ {
+  "layer": "gravel",
+  "polyhaven": "rocky_trail",
+  "mean": [
+   147,
+   128,
+   107
+  ]
+ },
+ {
+  "layer": "rock",
+  "polyhaven": "rock_ground",
+  "mean": [
+   114,
+   106,
+   95
+  ]
+ },
+ {
+  "layer": "asphalt",
+  "polyhaven": "asphalt_02",
+  "mean": [
+   90,
+   90,
+   85
+  ]
+ },
+ {
+  "layer": "concrete",
+  "polyhaven": "cracked_concrete",
+  "mean": [
+   120,
+   105,
+   88
+  ]
+ },
+ {
+  "layer": "dirt",
+  "polyhaven": "mud_forest",
+  "mean": [
+   53,
+   36,
+   19
+  ]
+ },
+ {
+  "layer": "snow",
+  "polyhaven": "snow_02",
+  "mean": [
+   165,
+   165,
+   167
+  ]
+ },
+ {
+  "layer": "dry",
+  "polyhaven": "grass_ground",
+  "mean": [
+   110,
+   96,
+   62
+  ]
+ }
+]
