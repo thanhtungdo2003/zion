@@ -67,12 +67,19 @@ function windMaterial(base: Material): Material {
   const mat = base.clone();
   (mat as Material & { alphaTest: number }).alphaTest = Math.max(.35, (base as Material & { alphaTest?: number }).alphaTest ?? 0);
   mat.side = 2;
+  // Grass is never metal (glTF defaults to fully metallic, which renders black in shade), and its
+  // shaded side keeps a share of its own colour: a soft dark green, never pitch black.
+  const std = mat as Material & { metalness?: number; roughness?: number; map?: unknown; emissive?: { setScalar(v: number): void }; emissiveMap?: unknown };
+  if (std.metalness !== undefined) { std.metalness = 0; std.roughness = 1; }
+  if (std.emissive && std.map) { std.emissiveMap = std.map; std.emissive.setScalar(.32); }
   const compile = mat.onBeforeCompile.bind(mat);
   mat.onBeforeCompile = (shader, renderer) => {
     compile(shader, renderer);
     shader.uniforms.uTime = windUniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+        objectNormal = normalize(mix(objectNormal, vec3(0.0, 1.0, 0.0), 0.65));`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         #ifdef USE_INSTANCING
           vec3 iOrigin = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
