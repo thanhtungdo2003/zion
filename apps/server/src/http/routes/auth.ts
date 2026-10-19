@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { HttpDeps } from '../app';
 import type { RequestContext, Session } from '../../security/auth-service';
 import { registerSocialAuthRoutes } from './social-auth';
+import { randomToken, sha256 } from '../../security/tokens';
 
 const REFRESH_COOKIE = 'zion_rt';
 
@@ -49,6 +50,43 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
 
   const strict = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } };
   registerSocialAuthRoutes(app, deps);
+
+  // Desktop app sign-in through the website: the app asks for a request (id + secret), opens the
+  // website in the system browser, where the signed-in player confirms it (the short code shown
+  // on both sides), then the app collects its session with the secret.
+  const desktopId = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+  app.post('/api/auth/desktop/start', strict, async (req, reply) => {
+    z.object({}).strict().parse(req.body);
+    const id = randomToken(), secret = randomToken();
+    const code = sha256(id).toString('hex').slice(0, 6).toUpperCase();
+    if (!await deps.kv.putIfAbsent(`desktop:${id}`, JSON.stringify({ secretHash: sha256(secret).toString('hex') }), 600)) throw new Error('desktop sign-in unavailable');
+    const url = new URL('/', config.PUBLIC_WEB_URL);
+    url.searchParams.set('desktop', id);
+    url.searchParams.set('code', code);
+    reply.header('cache-control', 'no-store');
+    return { id, secret, code, url: url.toString(), expiresIn: 600 };
+  });
+  app.post('/api/auth/desktop/approve', { ...strict, preHandler: app.requireAuth }, async (req, reply) => {
+    const { id } = z.object({ id: desktopId }).strict().parse(req.body);
+    const pending = await deps.kv.take(`desktop:${id}`);
+    if (!pending) return reply.code(404).send({ error: 'expired', message: 'Yêu cầu đăng nhập đã hết hạn. Hãy bấm đăng nhập lại trên ứng dụng.' });
+    const { secretHash } = JSON.parse(pending) as { secretHash: string };
+    await deps.kv.putIfAbsent(`desktop-ok:${id}`, JSON.stringify({ secretHash, accountId: req.claims!.sub }), 300);
+    return { ok: true };
+  });
+  app.post('/api/auth/desktop/poll', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const { id, secret } = z.object({ id: desktopId, secret: desktopId }).strict().parse(req.body);
+    const ready = await deps.kv.take(`desktop-ok:${id}`);
+    reply.header('cache-control', 'no-store');
+    if (!ready) return reply.code(202).send({ pending: true });
+    const grant = JSON.parse(ready) as { secretHash: string; accountId: string };
+    if (grant.secretHash !== sha256(secret).toString('hex')) {
+      // Not this request's app: put the grant back for the right one.
+      await deps.kv.putIfAbsent(`desktop-ok:${id}`, ready, 300);
+      return reply.code(403).send({ error: 'forbidden', message: 'invalid desktop sign-in' });
+    }
+    return sendSession(reply, await auth.sessionFor(grant.accountId, ctx(req)));
+  });
 
   app.post('/api/auth/register', strict, async (req, reply) => {
     const body = credentialsSchema.parse(req.body);

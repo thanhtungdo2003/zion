@@ -2463,6 +2463,12 @@ kbd {
 .menu-auth small { color: var(--muted); font: 11px/1.5 var(--sans); }
 .menu-auth .menu-auth-notice { color: var(--ok); }
 .menu-social-buttons { display: grid; gap: 8px; }
+.menu-desktop-approve { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--accent, #ffb000); border-radius: 8px; background: rgba(255, 176, 0, .08); }
+.menu-desktop-approve b { display: flex; align-items: center; gap: 8px; }
+.menu-desktop-approve p, .menu-desktop-signin p { margin: 0; font-size: 13px; line-height: 1.5; }
+.menu-desktop-approve code, .menu-desktop-signin code { padding: 1px 6px; border-radius: 4px; background: rgba(255, 255, 255, .1); font: 700 15px/1.4 ui-monospace, monospace; letter-spacing: .12em; }
+.menu-desktop-signin { display: grid; gap: 8px; }
+.menu-desktop-signin > .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .menu-social { display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 0; text-transform: none; font: 600 13px/1.5 var(--sans); }
 .menu-social > span { display: inline-grid; place-items: center; width: 22px; height: 22px; font: 800 21px/1 var(--sans); }
 .menu-social.facebook { border-color: #345b96; background: #163458; color: #fff; }

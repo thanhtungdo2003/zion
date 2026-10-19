@@ -30,13 +30,13 @@ async function setup(allowGuest = true) {
   const app = Fastify();
   resources.push({ app, kv });
   await app.register(cookie);
-  app.decorate('requireAuth', async () => {});
+  app.decorate('requireAuth', async (req: { claims?: unknown }) => { req.claims = { sub: 'guest-id' }; });
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) return reply.code(400).send({ error: 'invalid_request' });
     if (err instanceof AuthError) return reply.code(err.status).send({ error: err.code });
     return reply.code(500).send({ error: 'internal' });
   });
-  registerAuthRoutes(app, { auth, config: { COOKIE_SECURE: false, CORS_ORIGINS: [] } } as unknown as HttpDeps);
+  registerAuthRoutes(app, { auth, kv, config: { COOKIE_SECURE: false, CORS_ORIGINS: [], PUBLIC_WEB_URL: 'https://game.example' } } as unknown as HttpDeps);
   return { app, auth, create, tokens };
 }
 
@@ -80,5 +80,28 @@ describe('first-time player names', () => {
     const res = await app.inject({ method: 'POST', url: '/api/auth/guest', payload: { username: 'Survivor' } });
     expect(res.statusCode).toBe(403);
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('desktop sign-in through the website', () => {
+  it('hands the confirmed account to the app that holds the secret, once', async () => {
+    const { app } = await setup();
+    await app.inject({ method: 'POST', url: '/api/auth/guest', payload: { username: 'Survivor' } });
+    const start = (await app.inject({ method: 'POST', url: '/api/auth/desktop/start', payload: {} })).json<{ id: string; secret: string; code: string; url: string }>();
+    const url = new URL(start.url);
+    expect(url.origin).toBe('https://game.example');
+    expect(url.searchParams.get('desktop')).toBe(start.id);
+    expect(url.searchParams.get('code')).toBe(start.code);
+    const poll = (secret: string) => app.inject({ method: 'POST', url: '/api/auth/desktop/poll', payload: { id: start.id, secret } });
+    expect((await poll(start.secret)).statusCode).toBe(202);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/desktop/approve', payload: { id: start.id } })).statusCode).toBe(200);
+    // A second approval finds nothing to approve; a wrong secret gets nothing and leaves the grant.
+    expect((await app.inject({ method: 'POST', url: '/api/auth/desktop/approve', payload: { id: start.id } })).statusCode).toBe(404);
+    expect((await poll('b'.repeat(43))).statusCode).toBe(403);
+    const ok = await poll(start.secret);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json<Omit<Session, 'refreshToken'>>().account.id).toBe('guest-id');
+    expect(ok.headers['set-cookie']).toBeDefined();
+    expect((await poll(start.secret)).statusCode).toBe(202);
   });
 });

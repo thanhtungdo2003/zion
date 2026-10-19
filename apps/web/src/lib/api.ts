@@ -9,6 +9,8 @@ import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/share
  */
 /** 'same-origin' (the desktop app): the API is reached through the page's own origin (its local proxy). */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL === 'same-origin' ? '' : process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+/** The desktop app (it signs in through the website in the system browser). */
+export const IS_DESKTOP = process.env.NEXT_PUBLIC_API_URL === 'same-origin';
 
 export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
   return request('/api/leaderboard', { signal });
@@ -159,6 +161,22 @@ export async function startSocialAuth(provider: SocialProvider, link: boolean): 
   if (link) await ensureAccess();
   const result = await request<{ authorizationUrl: string }>(`/api/auth/oauth/${provider}/${link ? 'link' : 'start'}`, { method: 'POST', auth: link, body: '{}' });
   window.location.assign(result.authorizationUrl);
+}
+
+/** Desktop: a sign-in request the player confirms on the website (opened in the system browser). */
+export interface DesktopSignIn { id: string; secret: string; code: string; url: string; expiresIn: number }
+export function startDesktopSignIn(): Promise<DesktopSignIn> {
+  return request('/api/auth/desktop/start', { method: 'POST', body: '{}' });
+}
+/** The account once the website confirmed the request, null while it waits. */
+export async function pollDesktopSignIn(req: DesktopSignIn): Promise<AccountInfo | null> {
+  const res = await request<SessionResponse | { pending: true }>('/api/auth/desktop/poll', { method: 'POST', body: JSON.stringify({ id: req.id, secret: req.secret }) });
+  return 'pending' in res ? null : adopt(res);
+}
+/** Website: hands the signed-in account to the desktop app that asked. */
+export async function approveDesktopSignIn(id: string): Promise<void> {
+  await ensureAccess();
+  await request('/api/auth/desktop/approve', { method: 'POST', auth: true, body: JSON.stringify({ id }) });
 }
 
 export async function logout(): Promise<void> {

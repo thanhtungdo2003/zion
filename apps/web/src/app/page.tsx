@@ -11,7 +11,7 @@ import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ModeModal } from '@/components/ModeModal';
 import { activeMatch } from '@/lib/rejoin';
-import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, type SocialProvider } from '@/lib/api';
+import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, IS_DESKTOP, startDesktopSignIn, pollDesktopSignIn, approveDesktopSignIn, type DesktopSignIn, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
 import { getTeamLobby, teamAction } from '@/lib/api';
@@ -72,6 +72,10 @@ export default function MainMenu() {
   const [linked, setLinked] = useState<SocialProvider[]>([]);
   const [linkedReady, setLinkedReady] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
+  /** Desktop app: the sign-in waiting for confirmation on the website. */
+  const [desktopReq, setDesktopReq] = useState<DesktopSignIn | null>(null);
+  /** Website: a desktop app asking to sign in with this account. */
+  const [approval, setApproval] = useState<{ id: string; code: string } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [username, setUsername] = useState('');
@@ -135,6 +139,17 @@ export default function MainMenu() {
   useEffect(() => {
     let alive = true;
     const query = new URLSearchParams(window.location.search);
+    // A desktop app's sign-in request survives the trip through Google/Facebook in sessionStorage.
+    if (!IS_DESKTOP) {
+      let ask: { id: string; code: string } | null = null;
+      const id = query.get('desktop'), code = query.get('code');
+      if (id && code && /^[A-Za-z0-9_-]{43}$/.test(id) && /^[A-F0-9]{6}$/.test(code)) {
+        ask = { id, code };
+        try { sessionStorage.setItem('zion_desktop_signin', JSON.stringify(ask)); } catch { /* storage unavailable */ }
+        window.history.replaceState(null, '', window.location.pathname);
+      } else try { ask = JSON.parse(sessionStorage.getItem('zion_desktop_signin') ?? 'null') as typeof ask; } catch { ask = null; }
+      if (ask) { setApproval(ask); setAuthOpen(true); }
+    }
     const returned = query.get('auth') === 'success';
     const authError = query.get('auth_error');
     if (returned || authError) {
@@ -241,6 +256,43 @@ export default function MainMenu() {
     catch (err) { setError(err instanceof Error ? err.message : t('menu.server_error')); setBusy(false); }
   };
 
+  // Desktop: wait for the website to confirm, then the session arrives here.
+  useEffect(() => {
+    if (!desktopReq) return;
+    let alive = true;
+    const until = Date.now() + desktopReq.expiresIn * 1000;
+    const tick = async () => {
+      if (!alive) return;
+      if (Date.now() > until) { setDesktopReq(null); setBusy(false); setError('Hết thời gian chờ xác nhận. Hãy thử lại.'); return; }
+      try {
+        const acc = await pollDesktopSignIn(desktopReq);
+        if (!alive) return;
+        if (acc) { setDesktopReq(null); setBusy(false); setSession(true); setAccountNotice('Đăng nhập thành công. Nhân vật của bạn đã sẵn sàng.'); return; }
+      } catch (err) { if (!alive) return; if (err instanceof ApiError && err.status !== 0) { setDesktopReq(null); setBusy(false); setError(err.message); return; } }
+      setTimeout(() => { void tick(); }, 2000);
+    };
+    const first = setTimeout(() => { void tick(); }, 2000);
+    return () => { alive = false; clearTimeout(first); };
+  }, [desktopReq]);
+
+  const desktopSignIn = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { const req = await startDesktopSignIn(); setDesktopReq(req); window.open(req.url, '_blank'); }
+    catch (err) { setError(err instanceof Error ? err.message : t('menu.server_error')); setBusy(false); }
+  };
+  const answerDesktop = async (yes: boolean) => {
+    const ask = approval;
+    if (!ask) return;
+    try { sessionStorage.removeItem('zion_desktop_signin'); } catch { /* storage unavailable */ }
+    setApproval(null);
+    if (!yes) { setAccountNotice('Đã từ chối yêu cầu đăng nhập của ứng dụng.'); return; }
+    setBusy(true); setError(null);
+    try { await approveDesktopSignIn(ask.id); setAccountNotice('Đã xác nhận. Quay lại ứng dụng ZION, bạn đã được đăng nhập.'); }
+    catch (err) { setError(err instanceof Error ? err.message : t('menu.server_error')); }
+    finally { setBusy(false); }
+  };
+
   const guest = () => { setPlayerName(randomGuestName()); setNameError(null); setNameOpen(true); setAuthOpen(false); };
 
   return (
@@ -302,18 +354,29 @@ export default function MainMenu() {
           </form>}
           {session && nameNotice && <p className="menu-auth-notice" role="status">{nameNotice}</p>}
           {!session && <h2>Đăng nhập / Đăng ký</h2>}
-          <p>{session ? linked.length ? 'Tiến độ đã gắn với tài khoản của bạn. Bạn có thể liên kết thêm một phương thức đăng nhập.' : 'Liên kết Google hoặc Facebook để giữ nhân vật, đồ đạc và tiến độ khi đổi thiết bị hoặc mất phiên trình duyệt.' : 'Dùng Google hoặc Facebook để tạo tài khoản mới và lưu tiến độ.'}</p>
+          <p>{IS_DESKTOP ? session ? 'Tài khoản của bạn đã đăng nhập. Liên kết Google/Facebook hoặc quản lý tài khoản trên trang web.' : 'Đăng nhập trên trang web (Google, Facebook hoặc mật khẩu), ứng dụng sẽ tự nhận tài khoản.' : session ? linked.length ? 'Tiến độ đã gắn với tài khoản của bạn. Bạn có thể liên kết thêm một phương thức đăng nhập.' : 'Liên kết Google hoặc Facebook để giữ nhân vật, đồ đạc và tiến độ khi đổi thiết bị hoặc mất phiên trình duyệt.' : 'Dùng Google hoặc Facebook để tạo tài khoản mới và lưu tiến độ.'}</p>
           {accountNotice && <p className="menu-auth-notice" role="status">{accountNotice}</p>}
-          <div className="menu-social-buttons">
+          {approval && <div className="menu-desktop-approve" role="alertdialog" aria-label="Đăng nhập ứng dụng">
+            <b><Icon name="lucide:monitor" /> Ứng dụng ZION trên máy tính xin đăng nhập</b>
+            <p>Mã xác nhận: <code>{approval.code}</code>. Chỉ xác nhận nếu bạn vừa bấm đăng nhập trên ứng dụng của mình và mã trùng với mã hiện trong ứng dụng.</p>
+            {session
+              ? <div className="menu-profile-actions"><button className="btn btn-primary" type="button" disabled={busy} onClick={() => { void answerDesktop(true); }}>Xác nhận đăng nhập</button><button className="btn" type="button" disabled={busy} onClick={() => { void answerDesktop(false); }}>Từ chối</button></div>
+              : <small>Đăng nhập bên dưới trước, rồi xác nhận.</small>}
+          </div>}
+          {IS_DESKTOP && !session && <div className="menu-desktop-signin">
+            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => { void desktopSignIn(); }}><Icon name="lucide:globe" /> Đăng nhập qua trình duyệt</button>
+            {desktopReq && <p role="status">Đã mở trang đăng nhập trên trình duyệt. Mã xác nhận: <code>{desktopReq.code}</code> — đăng nhập rồi bấm “Xác nhận đăng nhập” trên web. <button className="menu-auth-legacy" type="button" onClick={() => { setDesktopReq(null); setBusy(false); }}>Huỷ</button> <button className="menu-auth-legacy" type="button" onClick={() => window.open(desktopReq.url, '_blank')}>Mở lại trang</button></p>}
+          </div>}
+          {!IS_DESKTOP && <div className="menu-social-buttons">
             {(['google', 'facebook'] as const).map(provider => <button type="button" className={`btn menu-social ${provider}`} key={provider} disabled={busy || !providers[provider] || (session && (!linkedReady || linked.includes(provider)))} onClick={() => { void social(provider); }}>
               <span aria-hidden>{provider === 'google' ? 'G' : 'f'}</span>
               {linked.includes(provider) ? 'Đã liên kết' : session ? 'Liên kết' : 'Tiếp tục với'} {provider === 'google' ? 'Google' : 'Facebook'}
             </button>)}
-          </div>
-          {(!providers.google || !providers.facebook) && <small>Phương thức bị mờ hiện chưa khả dụng.</small>}
+          </div>}
+          {!IS_DESKTOP && (!providers.google || !providers.facebook) && <small>Phương thức bị mờ hiện chưa khả dụng.</small>}
           {!session && <>
             <button className="btn" type="button" disabled={busy || !guestAllowed} onClick={guest}><Icon name="lucide:user" /> Tham gia bằng tài khoản khách</button>
-            <button className="menu-auth-legacy" type="button" disabled={busy} aria-expanded={legacyLogin} onClick={() => setLegacyLogin(v => !v)}>Đăng nhập tài khoản cũ bằng mật khẩu</button>
+            {!IS_DESKTOP && <button className="menu-auth-legacy" type="button" disabled={busy} aria-expanded={legacyLogin} onClick={() => setLegacyLogin(v => !v)}>Đăng nhập tài khoản cũ bằng mật khẩu</button>}
           </>}
           {session && <button className="menu-auth-legacy" type="button" disabled={busy || !linkedReady} onClick={() => { setBusy(true); void logout().then(() => { setSession(false); setAccountNotice(null); setLobby(null); setTeamOpen(false); }).catch(err => { setSession(false); setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false)); }}>Đăng xuất</button>}
           {!session && legacyLogin && <form onSubmit={onSubmit}>

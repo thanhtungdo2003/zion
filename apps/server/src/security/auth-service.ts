@@ -93,6 +93,15 @@ export class AuthService {
     return this.accounts.identities(id);
   }
 
+  /** A fresh session for an account that proved itself elsewhere (the desktop app's browser sign-in). */
+  async sessionFor(id: string, ctx: RequestContext): Promise<Session> {
+    const acc = await this.accounts.findById(id);
+    if (!acc) throw new AuthError('invalid_token', 401, 'account no longer exists');
+    this.assertNotBanned(acc, ctx);
+    this.audit.record({ event: 'auth.desktop_login', accountId: acc.id, ip: ctx.ip });
+    return this.issueSession(acc, ctx);
+  }
+
   async checkAccount(id: string, ctx: RequestContext): Promise<void> {
     const acc = await this.accounts.findById(id);
     if (!acc) throw new AuthError('invalid_token', 401, 'account no longer exists');
