@@ -3170,7 +3170,7 @@ kbd {
 .ifx-skill.wait { opacity: .6; }
 
 /* ---- Main menu world chat ---- */
-.world-chat { position: fixed; left: 16px; bottom: 16px; z-index: 40; width: min(380px, calc(100vw - 32px)); font: 500 13px/1.35 var(--sans, system-ui); }
+.world-chat { position: relative; z-index: 40; width: min(360px, calc(100vw - 56px)); font: 500 13px/1.35 var(--sans, system-ui); }
 .world-chat-bar { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; background: rgba(8, 11, 14, .78); border: 1px solid rgba(255,255,255,.1); border-left: 3px solid #ffb000; color: #dfe3e6; cursor: pointer; text-align: left; backdrop-filter: blur(6px); }
 .world-chat-tag { flex: none; padding: 2px 6px; background: #ffb000; color: #111; font: 800 10px/1.3 var(--sans, system-ui); letter-spacing: .08em; text-transform: uppercase; }
 .world-chat-last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3188,6 +3188,7 @@ kbd {
 .world-chat-list b { color: #7fd1ff; margin-right: 6px; }
 .world-chat-list p.mine b { color: #ffb000; }
 .world-chat-panel form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(255,255,255,.07); }
+.world-chat-panel form .btn { flex: none; width: auto; min-width: 0; padding: 0 12px; }
 .world-chat-panel input { flex: 1; min-width: 0; padding: 8px 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #fff; }
 .world-chat-login, .world-chat-error { margin: 0; padding: 8px 12px; color: #9aa3a8; font-size: 12px; }
 .world-chat-error { color: #ff8a7a; }

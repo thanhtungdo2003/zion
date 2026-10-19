@@ -302,7 +302,7 @@ export default function MainMenu() {
         ZION
       </div>
       <MenuStage members={team?.members.map((m) => ({ name: m.name, rank: m.rank }))} />
-      <CareerPanel session={session} />
+      <CareerPanel session={session}><WorldChat session={session} /></CareerPanel>
 
       <header className="menu-top">
         <div className="menu-brand">
@@ -465,7 +465,6 @@ export default function MainMenu() {
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {loading && <LoadingScreen onDone={doneLoading} />}
-      <WorldChat session={session} />
     </main>
   );
 }

@@ -1,4 +1,5 @@
 'use client';
+import type { ReactNode } from 'react';
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { RANKS, rankTitle, type CareerView, type RequisitionEntry } from '@zion/shared';
@@ -11,7 +12,7 @@ import { itemIconVersion, subscribeItemIcons } from '@/game/inventory/icons';
 
 const serverIconVersion = () => 0;
 
-export function CareerPanel({ session }: { session: boolean }) {
+export function CareerPanel({ session, children }: { session: boolean; children?: ReactNode }) {
   useSyncExternalStore(subscribeItemIcons, itemIconVersion, serverIconVersion);
   const [career, setCareer] = useState<CareerView | null>(null);
   const [tab, setTab] = useState<'ranks' | 'armory' | null>(null);
@@ -42,6 +43,8 @@ export function CareerPanel({ session }: { session: boolean }) {
   const close = () => { setTab(null); setMenu(null); setSelected(null); };
   return <>
     <div className="menu-career">
+      {/* Above the supplies and titles: the world chat. */}
+      {children}
       <button className="menu-rank" onClick={() => { setMessage(''); setTab('ranks'); }} aria-label={`Quân hàm: ${rank.title}`}>
         <BadgeModel url={def.model} /><small>QUÂN HÀM</small><b>{rank.title}</b><span>{'★'.repeat(rank.stars)}</span>
       </button>
