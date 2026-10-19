@@ -2,6 +2,15 @@ import { PointLight, type Scene } from 'three';
 import { CAMP_ASSET, LIGHT_SOURCE_ASSET } from '@zion/assets';
 import { propTransform, type ChunkData } from '@zion/shared';
 
+/**
+ * Lamps built into whole-map models (model-local metres, just under each lamp head), found from
+ * the lamp-shade colour in the model: the Warehouse's street lamps and wall lamps.
+ */
+const MODEL_LAMPS: Readonly<Record<number, ReadonlyArray<readonly [number, number, number]>>> = {
+  2700: [[-9.36, 10.3, -23.42], [-9.36, 10.3, -15.83], [-9.36, 10.3, -7.9], [1.15, 7.7, -22.45], [1.15, 7.7, -4.18],
+    [4.52, 8.1, 9.37], [14.32, 7.7, -1.25], [23.46, 8.1, 9.37], [24.35, 7.8, -12.84], [26.52, 7.7, -1.09]],
+};
+
 /** Fixed light pool: streamed lamps never allocate an unbounded number of shader lights. */
 export class CampLights {
   private readonly lights: PointLight[] = [];
@@ -33,6 +42,16 @@ export class CampLights {
       if (prop.asset === LIGHT_SOURCE_ASSET) {
         const t = propTransform(chunk, prop), d = (t.x - x) ** 2 + (t.z - z) ** 2;
         if (d < 110 * 110) sources.push({ x: t.x, y: t.y + .5 * t.scale, z: t.z, d, power: t.scale });
+        continue;
+      }
+      const built = MODEL_LAMPS[prop.asset];
+      if (built) {
+        const t = propTransform(chunk, prop), c = Math.cos(t.rotY), s = Math.sin(t.rotY);
+        for (const [lx, ly, lz] of built) {
+          const wx = t.x + (lx * c + lz * s) * t.scale, wz = t.z + (-lx * s + lz * c) * t.scale;
+          const d = (wx - x) ** 2 + (wz - z) ** 2;
+          if (d < 65 * 65) lamps.push({ x: wx, y: t.y + ly * t.scale, z: wz, d });
+        }
         continue;
       }
       const tall = prop.asset === CAMP_ASSET['military-lamp-post'];
