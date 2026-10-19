@@ -215,6 +215,12 @@ export class AssetLibrary {
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const gltf = await this.gltf.loadAsync(entry.url);
         const parts = flattenScene(gltf.scene, model.scale, model.offset);
+        // Rocks, trees and plants are matte: no glossy highlights from photographed packs.
+        if (def.category === 'rock' || def.category === 'tree' || def.category === 'vegetation') for (const part of parts) {
+          const m = part.material as { roughness?: number; metalness?: number; roughnessMap?: unknown; metalnessMap?: unknown; needsUpdate: boolean };
+          if (m.roughness === undefined) continue;
+          m.roughness = 1; m.metalness = 0; m.roughnessMap = null; m.metalnessMap = null; m.needsUpdate = true;
+        }
         // Flattened parts own cloned buffers but retain the original materials/textures.
         gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });
         return { def, parts };

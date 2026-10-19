@@ -72,7 +72,7 @@ varying vec4 vGroundA; varying vec4 vGroundB; varying vec4 vGroundC; varying vec
 vec2 groundTwist(vec2 uv) { return mat2(0.8253, -0.5646, 0.5646, 0.8253) * uv * 0.53 + vec2(0.37, 0.71); }`;
 
 const COLOR = `
-  vec3 groundBump = vec3(0.0); float groundRough = -1.0; float groundFade = 0.0;
+  vec3 groundBump = vec3(0.0); float groundFade = 0.0;
   if (groundOn > 0.5) {
     groundFade = 1.0 - smoothstep(groundFar * 0.55, groundFar, length(vViewPosition));
     if (groundFade > 0.0) {
@@ -107,14 +107,16 @@ const COLOR = `
         nrm += texture(groundNormal, vec3(uv1, float(i1))).rgb * b1;
       }
       diffuseColor.rgb *= mix(vec3(1.0), albedo * 2.0, groundStrength * groundFade);
-      groundRough = nrm.b;
       vec2 t = (nrm.rg * 2.0 - 1.0) * groundFade * (1.0 - side);
       groundBump = vec3(t.x, 0.0, -t.y);
     }
   }`;
 
-const ROUGH = `
-  if (groundRough >= 0.0) roughnessFactor = mix(roughnessFactor, clamp(groundRough * 1.1, 0.55, 1.0), groundFade);`;
+// Earth, rock and grass are matte: no highlights, no sheen (the layers' roughness is not used).
+const MATTE = `
+  material.specularColor = vec3(0.0);
+  material.specularF90 = 0.0;
+  material.roughness = 1.0;`;
 const NORMAL = `
   if (groundOn > 0.5 && groundFade > 0.0) {
     vec3 gnw = normalize(normalize(vGroundNormal) + groundBump * 0.9);
@@ -182,10 +184,10 @@ export class GroundTextures {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>${FRAGMENT_DECL}`)
         .replace('#include <color_fragment>', `#include <color_fragment>${COLOR}`)
-        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>${ROUGH}`)
+        .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>${MATTE}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${NORMAL}`);
     };
-    material.customProgramCacheKey = () => `${key()}|ground-layers-1`;
+    material.customProgramCacheKey = () => `${key()}|ground-layers-2`;
   }
 
   /** Loads the layers for a quality level (the plain ground shows until they arrive). */
