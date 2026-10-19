@@ -1233,12 +1233,14 @@ export class GameServer {
     this.players.set(player.id, player);
     this.byAccount.set(acc.accountId, player);
     this.grid.update(player);
+    // Arena modes: a fresh player enters matchmaking only once its client has loaded the map
+    // ('ready'), so slow connections never start a round still loading.
     if (this.battle && !rejoin) {
       const squad = session.squad ? this.deps.teams?.forAccount(acc.accountId) : undefined;
-      this.battle.join(player.id, player.username, squad ? { id: squad.id, name: squad.name, size: squad.members.length } : undefined);
+      player.pendingMatch = { ...(squad ? { squad: { id: squad.id, name: squad.name, size: squad.members.length } } : {}), since: this.serverTime };
       this.battleWasOccupied = true;
     }
-    if (this.infection) { if (!rejoin) this.infection.join(player.id, player.username); this.syncLoadout(player); this.infectionOccupied = true; }
+    if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
     if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
@@ -1320,9 +1322,9 @@ export class GameServer {
 
   handleMessage(session: ClientSession, msg: ClientMessage): void {
     const p = session.player;
-    if (this.battle && !['in', 'ping', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
+    if (this.battle && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
-    if (this.infection && !['in', 'ping', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
+    if (this.infection && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
     if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
     if (msg.t === 'loadout') { if (p && this.infection) this.onLoadout(p, msg); return; }
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
@@ -1350,6 +1352,9 @@ export class GameServer {
       case 'vehicle':
         this.vehicles.toggle(p, msg.id, this.serverTime, (id) => { const other = this.players.get(id); return !!other && this.allied(p, other); });
         this.vehicles.send(p, this.serverTime);
+        return;
+      case 'ready':
+        this.enterMatch(p);
         return;
       case 'pvp':
         if (p.dead || p.downed || p.pvpUntil <= this.serverTime) return;
@@ -1680,7 +1685,7 @@ export class GameServer {
       this.battleWasOccupied = false; return;
     }
     this.joinBots(match, now);
-    match.tick(now, this.players.size);
+    match.tick(now, this.matchPlayers(now));
     // Vehicles exist only once everyone is on the ground: hidden in the lobby and the plane.
     const vehicles = match.phase === 'running' && match.startedAt !== null && now - match.startedAt >= BATTLE_FLIGHT.durationMs;
     if (vehicles !== this.vehicles.available) {
@@ -1794,6 +1799,25 @@ export class GameServer {
     }
     const spot = spots[Math.floor(Math.random() * spots.length)]!;
     return { x: spot.x, y: this.deps.world.generator.heightAt(spot.x, spot.z) + .05, z: spot.z };
+  }
+
+  /** A loaded player joins the battle or the infection round (once). */
+  private enterMatch(p: Player): void {
+    const pending = p.pendingMatch;
+    if (!pending) return;
+    p.pendingMatch = null;
+    if (this.battle) { this.battle.join(p.id, p.username, pending.squad); this.broadcastPlayerList(); }
+    if (this.infection) { this.infection.join(p.id, p.username); this.syncLoadout(p); this.broadcastPlayerList(); }
+  }
+
+  /** Players in matchmaking (loaded); still-loading ones wait outside it (2 min at most). */
+  private matchPlayers(now: number): number {
+    let n = 0;
+    for (const p of this.players.values()) {
+      if (p.pendingMatch && now - p.pendingMatch.since > 120_000) this.enterMatch(p);
+      if (!p.pendingMatch) n++;
+    }
+    return n;
   }
 
   /** Human gear: the chosen loadout, full magazines, fresh throwables. */
@@ -2112,7 +2136,7 @@ export class GameServer {
     }
     const m = this.infection!;
     this.fillInfectionBots(m);
-    const ev = m.tick(now, this.players.size);
+    const ev = m.tick(now, this.matchPlayers(now));
     const bots = this.bots?.bots ?? [];
     if (ev.reset) {
       for (const p of this.players.values()) this.infectionPlace(p, false);

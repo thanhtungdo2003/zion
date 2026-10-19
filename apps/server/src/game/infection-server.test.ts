@@ -83,7 +83,7 @@ describe('isolated infection server', () => {
     const a = session(1), b = session(2);
     try {
       await world.start();
-      await game.join(a); await game.join(b);
+      await game.join(a); game.handleMessage(a, { t: 'ready' }); await game.join(b); game.handleMessage(b, { t: 'ready' });
       const pa = a.player!, pb = b.player!;
       expect(a.sendJson).toHaveBeenCalledWith(expect.objectContaining({ t: 'welcome', mode: 'infection' }));
       // Default loadout: AK-47, UZI, katana, two frags and two flashbangs; spawned inside the walls.
@@ -153,7 +153,7 @@ describe('isolated infection server', () => {
     const a = { id: 1, open: true, buffered: 0, state: 'joining', account: { accountId: '1', username: 'A' }, sendJson: vi.fn(), sendText: vi.fn(), sendBinary: vi.fn(() => true), sendError: vi.fn(), close: vi.fn() } as unknown as ClientSession;
     try {
       await world.start();
-      await game.join(a);
+      await game.join(a); game.handleMessage(a, { t: 'ready' });
       const p = a.player!;
       for (let cx = 5; cx <= 10; cx++) for (let cz = 5; cz <= 10; cz += 2) await harness.physics.ensureArea(cx, cz, 1);
       const spawns = infectionSpawns(world.generator);

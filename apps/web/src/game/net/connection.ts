@@ -129,6 +129,9 @@ export class GameConnection {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /** Map loaded: enter matchmaking (battle royale, infection). */
+  sendReady(): void { this.send({ t: 'ready' }); }
+
   private send(obj: unknown): boolean {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount > MAX_CLIENT_BUFFER) return false;

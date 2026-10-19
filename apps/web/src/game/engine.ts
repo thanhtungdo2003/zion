@@ -452,6 +452,8 @@ export class GameEngine {
   private readonly whiteOutlines = new Set<Object3D>();
   /** Survivors sniffed out by our infected: filled red through walls. */
   private readonly xrayOutlines = new Set<Object3D>();
+  /** Told the server the map is loaded (it then puts us into matchmaking). */
+  private sentReady = false;
   private readonly targetVisibility = new TargetVisibility();
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private lootCrateRenderer: BaseLifeRenderer | null = null;
@@ -3531,7 +3533,7 @@ export class GameEngine {
         }
         this.loadingSince ||= now;
         const complete = have >= expected * .98 && !!this.props?.settled && !!this.vegetation?.settled;
-        if (complete || now - this.loadingSince > 90_000) { status = 'playing'; this.loadingSince = 0; }
+        if (complete || now - this.loadingSince > 90_000) { status = 'playing'; this.loadingSince = 0; if (!this.sentReady) { this.sentReady = true; this.conn.sendReady(); } }
         else this.hud.set({ statusDetail: { key: 'raw', vars: { text: `Đang tải bản đồ ${Math.round(have / Math.max(1, expected) * 100)}% · mô hình và cây cối…` } }, loadProgress: have / Math.max(1, expected) });
       }
       else if (status === 'dead') status = 'playing';

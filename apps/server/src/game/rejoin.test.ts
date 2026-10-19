@@ -24,7 +24,7 @@ describe('rejoining a running battle royale match', () => {
     try {
       await world.start();
       const a = session(1, 'a'), b = session(2, 'b');
-      await game.join(a); await game.join(b);
+      await game.join(a); game.handleMessage(a, { t: 'ready' }); await game.join(b); game.handleMessage(b, { t: 'ready' });
       harness.battle.tick(0, 2); harness.battle.tick(30_000, 2);
       expect(harness.battle.phase).toBe('running');
       const p = a.player!, id = p.id;
@@ -36,10 +36,10 @@ describe('rejoining a running battle royale match', () => {
       expect(game.headcount).toBe(2);
       // A brand-new player cannot join a running match, the dropped one can.
       const late = session(3, 'c');
-      await game.join(late);
+      await game.join(late); game.handleMessage(late, { t: 'ready' });
       expect(late.player).toBeFalsy();
       const back = session(4, 'a');
-      await game.join(back);
+      await game.join(back); game.handleMessage(back, { t: 'ready' });
       expect(back.player!.id).toBe(id);
       expect(back.player!.inv.items.map((i) => i.itemId)).toContain('ak47');
       expect(back.player!.state.x).toBeCloseTo(900);

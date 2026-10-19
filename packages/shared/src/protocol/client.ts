@@ -171,6 +171,8 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   jumpPointMessageSchema,
   loadoutMessageSchema,
   z.object({ t: z.literal('pvp'), enabled: z.boolean() }).strict(),
+  /** The client finished loading the map around it: only now does it enter matchmaking. */
+  z.object({ t: z.literal('ready') }).strict(),
   z.object({ t: z.literal('tutorial'), op: z.enum(['open', 'close', 'heartbeat']), id: z.enum(TUTORIAL_IDS).optional(), replay: z.boolean().optional() }).strict(),
   distressMessageSchema,
   giveUpMessageSchema,

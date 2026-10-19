@@ -39,7 +39,7 @@ describe('isolated Battle Royale simulation', () => {
     const session = (id: number) => ({ id, open: true, buffered: 0, state: 'joining', account: { accountId: String(id), username: `Player ${id}` }, sendJson: vi.fn<(msg: ServerJsonMessage) => void>(), sendText: vi.fn(), sendBinary: vi.fn(() => true), sendError: vi.fn(), close: vi.fn() }) as unknown as ClientSession;
     const a = session(1), b = session(2);
     try {
-      await world.start(); await game.join(a); await game.join(b);
+      await world.start(); await game.join(a); game.handleMessage(a, { t: 'ready' }); await game.join(b); game.handleMessage(b, { t: 'ready' });
       expect(a.player!.inv.items).toEqual([]); expect(a.player!.coins).toBe(0);
       expect(a.sendJson).toHaveBeenCalledWith(expect.objectContaining({ t: 'welcome', mode: 'battle-royale' }));
       expect(game.content.npcs).toEqual([]); expect(game.content.quests).toEqual([]);
