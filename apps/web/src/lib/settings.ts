@@ -43,6 +43,8 @@ export interface SettingsState {
   shadows: ShadowQuality;
   drawDistance: number;
   grassDensity: number;
+  /** Shader pack: ambient occlusion, bloom, sun shafts, soft shadows and a cinematic grade. */
+  shaders: boolean;
 }
 
 export type ShadowQuality = 'off' | 'low' | 'high';
@@ -58,7 +60,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', ...GRAPHICS_PRESETS.high };
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false, ...GRAPHICS_PRESETS.high };
 
 function load(): { state: SettingsState; manualTouch: boolean } {
   const defaults = { ...DEFAULTS, touchControls: typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true };
@@ -81,6 +83,7 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     state.drawDistance = clamp01(saved.drawDistance, .4, state.drawDistance);
     state.grassDensity = clamp01(saved.grassDensity, 0, state.grassDensity);
     if (saved.shadows === 'off' || saved.shadows === 'low' || saved.shadows === 'high') state.shadows = saved.shadows;
+    if (typeof saved.shaders === 'boolean') state.shaders = saved.shaders;
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;
     else if (saved.firstPerson === true) state.cameraMode = 'first-person';

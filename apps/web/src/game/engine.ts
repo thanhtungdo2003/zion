@@ -117,6 +117,7 @@ import { Avatar } from './render/avatars';
 import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
 import { BuildingController } from './building-controller';
 import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
+import { ShaderPack } from './render/shader-pack';
 import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
 import { prepareGuardModel } from './render/guard-model';
@@ -241,6 +242,8 @@ export class GameEngine {
   private preview: CharacterPreview | null = null;
   private nearNurse = false;
   private nearArchitect = false;
+  /** Graphics option: the post-processing shader pack (null while off). */
+  private shaderPack: ShaderPack | null = null;
   /** Melee juice: hit-stop, camera punch, layered sounds, combos (cosmetic). */
   private readonly meleeFeel = new MeleeFeel((name, volume, rate) => this.sounds?.play(name, { volume, rate }));
   private feel: MeleeFeelFrame = { timeScale: 1, yaw: 0, pitch: 0, roll: 0, fov: 0, shake: 0, push: 0 };
@@ -736,6 +739,8 @@ export class GameEngine {
     this.powerCables?.dispose(); this.powerCables = null;
     this.squadMarkers.dispose();
     this.zombieOutline?.dispose();
+    this.shaderPack?.dispose();
+    this.shaderPack = null;
     if (this.disposed) return;
     this.disposed = true;
     for (const b of this.bubbles) b.el.remove();
@@ -2018,7 +2023,17 @@ export class GameEngine {
     }
     this.updateAmmoHud(now);
 
-    if (this.outlinedZombies.length) {
+    if (settingsStore.get().shaders && this.sky) {
+      this.shaderPack ??= new ShaderPack(this.renderer, this.scene, this.camera);
+      const outlined = this.outlinedZombies.length > 0;
+      if (outlined) this.zombieOutline ??= new ZombieOutline();
+      this.shaderPack.render(this.camera, this.sky.sunDir, this.sky.night, this.elapsed, outlined ? (target) => {
+        const before = this.renderer.getRenderTarget();
+        this.renderer.setRenderTarget(target);
+        this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
+        this.renderer.setRenderTarget(before);
+      } : undefined);
+    } else if (this.outlinedZombies.length) {
       this.zombieOutline ??= new ZombieOutline();
       this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
     } else this.renderer.render(this.scene, this.camera);
@@ -3164,7 +3179,7 @@ export class GameEngine {
   private graphicsKey = '';
   /** Applies the graphics settings when they change (resolution, shadows, distances, grass). */
   private applyGraphics(settings: ReturnType<typeof settingsStore.get>): void {
-    const key = `${settings.renderScale}:${settings.shadows}:${settings.drawDistance}:${settings.grassDensity}:${!!this.sky}:${!!this.props}:${!!this.vegetation}`;
+    const key = `${settings.renderScale}:${settings.shadows}:${settings.drawDistance}:${settings.grassDensity}:${settings.shaders}:${!!this.sky}:${!!this.props}:${!!this.vegetation}`;
     if (key === this.graphicsKey || !this.renderer?.shadowMap) return;
     const shadowsBefore = this.renderer.shadowMap.enabled;
     this.graphicsKey = key;
@@ -3173,12 +3188,16 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = shadows;
     this.renderer.shadowMap.type = settings.shadows === 'high' ? PCFSoftShadowMap : PCFShadowMap;
     if (this.sky) {
-      const light = this.sky.light, size = settings.shadows === 'high' ? 2048 : 1024;
+      // Shaders on: a finer shadow map with soft, wide penumbrae.
+      const light = this.sky.light, size = settings.shaders && shadows ? 4096 : settings.shadows === 'high' ? 2048 : 1024;
       light.castShadow = shadows;
+      light.shadow.radius = settings.shaders ? 4 : 1;
+      light.shadow.blurSamples = settings.shaders ? 16 : 8;
       if (light.shadow.mapSize.x !== size) { light.shadow.mapSize.set(size, size); light.shadow.map?.dispose(); light.shadow.map = null; }
     }
     // Switching shadows on or off changes every lit shader.
     if (shadowsBefore !== shadows) this.scene.traverse((o) => { const m = (o as { material?: { needsUpdate: boolean } | Array<{ needsUpdate: boolean }> }).material; if (Array.isArray(m)) m.forEach(x => { x.needsUpdate = true; }); else if (m) m.needsUpdate = true; });
+    if (!settings.shaders && this.shaderPack) { this.shaderPack.dispose(); this.shaderPack = null; }
     this.props?.setDistanceScale(settings.drawDistance);
     this.vegetation?.setQuality(settings.grassDensity, settings.grassDensity < .35 ? 1 : 2);
   }

@@ -22,7 +22,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
   const settings = useSettings();
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, t } = settings;
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, t } = settings;
   const preset = graphicsPreset(settings);
 
   useEffect(() => {
@@ -180,6 +180,15 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
                 <b>{q === 'off' ? 'TẮT BÓNG' : q === 'low' ? 'BÓNG THẤP' : 'BÓNG CAO'}</b>
                 <small>{q === 'off' ? 'Nhẹ GPU nhất' : q === 'low' ? 'Bóng mờ, nhẹ' : 'Bóng sắc nét'}</small>
                 <i aria-hidden><Icon name={shadows === q ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
+          <div className="set-langs set-camera" role="radiogroup" aria-label="Shader ánh sáng">
+            {([false, true] as const).map((on) => (
+              <button key={String(on)} type="button" role="radio" aria-checked={shaders === on} className="set-lang" onClick={() => settingsStore.set({ shaders: on })}>
+                <b>{on ? 'SHADER BẬT' : 'SHADER TẮT'}</b>
+                <small>{on ? 'Bóng mềm, ánh sáng toả, tia nắng, AO · nặng GPU' : 'Hình ảnh thường, nhẹ máy'}</small>
+                <i aria-hidden><Icon name={shaders === on ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>
