@@ -38,6 +38,8 @@ const skyFragment = /* glsl */ `
   uniform float uSkyReady;
   uniform sampler2D uNightImage;
   uniform float uNightReady;
+  uniform vec3 uPole;
+  uniform float uSkyTurn;
   varying vec3 vDir;
 
   ${cloudShader}
@@ -54,11 +56,19 @@ const skyFragment = /* glsl */ `
     vec3 col = mix(uHorizon, uTop, smoothstep(-0.02, 0.45, h));
     col = mix(col, uHorizon * 0.55, smoothstep(0.0, -0.25, h));
     // Equirectangular photo; fade the captured horizon/sun into the live atmosphere.
-    vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5,
-                   asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
+    // The Earth turns: the whole sky (stars, Milky Way, clouds in the photo) wheels round the
+    // celestial pole with the sun and the moon, once a day.
+    float ct = cos(uSkyTurn), st = sin(uSkyTurn);
+    vec3 sd3 = d * ct + cross(uPole, d) * st + uPole * dot(uPole, d) * (1.0 - ct);
+    vec2 uv = vec2(atan(sd3.z, sd3.x) / 6.2831853 + 0.5,
+                   asin(clamp(sd3.y, -1.0, 1.0)) / 3.14159265 + 0.5);
     // Day: a photographed sky (CC0, Poly Haven); night: a photographed starry night sky.
     vec3 day = texture2D(uSkyImage, uv).rgb * mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight) * mix(1.0, 0.055, uNight);
-    vec3 night = texture2D(uNightImage, uv).rgb * vec3(0.72, 0.78, 0.95);
+    // Night, game-styled: only the brighter stars as crisp points over a faint Milky Way, on a
+    // deep blue; dim stars and the photo's haze drop away.
+    vec3 nightPhoto = texture2D(uNightImage, uv).rgb;
+    float starLum = dot(nightPhoto, vec3(0.2126, 0.7152, 0.0722));
+    vec3 night = uTop * 0.55 + min(nightPhoto, vec3(0.5)) * vec3(0.07, 0.085, 0.13) + vec3(0.85, 0.9, 1.0) * smoothstep(0.55, 0.9, starLum) * 0.7;
     vec3 photo = mix(day, night, uNight * uNightReady);
     float ready = mix(uSkyReady, max(uSkyReady, uNightReady), uNight);
     col = mix(col, photo, ready * smoothstep(0.04, 0.22, h) * 0.92);
@@ -165,6 +175,8 @@ export class SkySystem {
         uSunDir: { value: this.sunDir },
         uSunColor: { value: this.sunColor },
         uNight: { value: 0 },
+        uPole: { value: new Vector3(0, -Math.sin(LATITUDE), Math.cos(LATITUDE)) },
+        uSkyTurn: { value: 0 },
         uTime: { value: 0 },
         uCloudTime: { value: 0 },
         uCloudSeed: { value: (cosmeticSeed >>> 0) % 10000 },
@@ -265,6 +277,8 @@ export class SkySystem {
 
     this.fog.color.copy(this.horizon).multiplyScalar(0.92);
     this.material.uniforms.uNight!.value = this.night;
+    // Turned with the sun: as authored at midnight.
+    this.material.uniforms.uSkyTurn!.value = -(angle + Math.PI / 2);
     this.material.uniforms.uTime!.value = elapsed;
     this.material.uniforms.uCloudTime!.value = serverSeconds;
   }
