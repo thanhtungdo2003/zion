@@ -30,6 +30,7 @@ async function setup() {
   const enemy = new Player(3, 'c', 'Enemy', session, 502, 0, 500);
   const server = Object.create(GameServer.prototype) as CombatHarness;
   server.vehicles = { blast: vi.fn(), release: vi.fn() };
+  Object.assign(server, { shocks: [] });
   server.deps = { teams }; server.players = new Map([[1, a], [2, b], [3, enemy]]);
   server.spawns = { inSafeZone: () => false }; server.broadcastNear = vi.fn();
   server.broadcastPlayerList = vi.fn();

@@ -8,7 +8,7 @@ import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
-import { type ThrowSpec } from '@zion/shared';
+import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
@@ -229,6 +229,8 @@ export class GameServer {
   private readonly epoch = performance.now();
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
+  /** Shock waves racing out from blasts: each body is struck once, when the front reaches it. */
+  private readonly shocks: Array<{ x: number; y: number; z: number; radius: number; damage: number; owner: Player | null; label: string; start: number; hit: Set<unknown> }> = [];
   private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number; spec: ThrowSpec }> = [];
   private readonly c4Charges = new Map<number, C4Charge>();
   private nextGrenadeId = 1;
@@ -2312,6 +2314,7 @@ export class GameServer {
     }
 
     this.stepGrenades(now);
+    this.stepShocks(now);
     this.activeScratch.length = 0;
     for (const p of this.players.values()) if (p.active) this.activeScratch.push(p);
     if (!this.arena) {
@@ -3001,6 +3004,40 @@ export class GameServer {
     this.explode(charge.id, charge.s.x, charge.s.y, charge.s.z, spec.radius, spec.damage, p, 'grenade', now);
   }
 
+  private stepShocks(now: number): void {
+    for (let i = this.shocks.length - 1; i >= 0; i--) {
+      const w = this.shocks[i]!, front = shockwaveFront(w.radius, (now - w.start) / 1000), reach = shockwaveFront(w.radius, Infinity);
+      const liveOwner = w.owner && this.players.get(w.owner.id) === w.owner ? w.owner : null;
+      // Inside the blast radius the fireball already struck: the wave carries the harm beyond it.
+      const struck = (body: unknown, d: number) => d <= front && d >= w.radius && !w.hit.has(body) && (w.hit.add(body), true);
+      const cx = Math.floor(w.x / CHUNK_SIZE), cz = Math.floor(w.z / CHUNK_SIZE);
+      for (const zb of this.zombies.near(w.x, w.z, front)) {
+        if (zb.dead) continue;
+        const tx = zb.state.x - w.x, tz = zb.state.z - w.z, d = Math.hypot(tx, zb.state.y + .6 - w.y, tz);
+        if (!struck(zb, d)) continue;
+        const amount = shockwaveDamage(w.radius, w.damage, d);
+        zb.state.vy += 2.5 * (1 - d / reach);
+        if (amount > 0) this.hitZombie(liveOwner, zb, amount, 'torso', zb.state.x, zb.state.y + .8, zb.state.z, tx, tz, 6 * (1 - d / reach), now);
+      }
+      for (const t of this.grid.query(cx, cz, Math.ceil(front / CHUNK_SIZE) + 1, this.scratch)) {
+        if (!t.active || t.dead) continue;
+        const tx = t.state.x - w.x, tz = t.state.z - w.z, d = Math.hypot(tx, t.state.y + .9 - w.y, tz);
+        if (!struck(t, d)) continue;
+        const amount = shockwaveDamage(w.radius, w.damage, d), h = Math.hypot(tx, tz) || 1;
+        if (amount > 0) this.damage(w.owner?.id ?? null, t, amount, 'blast', t.state.x, t.state.y + .9, t.state.z, now, w.label, { kx: tx / h, kz: tz / h, force: 6 * (1 - d / reach) });
+      }
+      for (const bot of this.bots?.near(w.x, w.z, front) ?? []) {
+        const d = Math.hypot(bot.state.x - w.x, bot.state.y + .9 - w.y, bot.state.z - w.z);
+        if (!struck(bot, d)) continue;
+        const amount = shockwaveDamage(w.radius, w.damage, d);
+        if (amount <= 0) continue;
+        if (this.infection) this.infectionBotDamage(bot, amount, w.owner?.id ?? null, { x: w.x, z: w.z }, 'blast', now);
+        else this.bots!.hit(bot, amount, w.owner?.username ?? w.label, { x: w.x, z: w.z }, now, 'blast', w.owner?.id ?? null);
+      }
+      if (front >= reach) this.shocks.splice(i, 1);
+    }
+  }
+
   private stepGrenades(now: number): void {
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i]!, spec = g.spec;
@@ -3057,6 +3094,8 @@ export class GameServer {
     const near = this.grid.query(cx, cz, ENTITY_INTEREST_RADIUS_CHUNKS, []);
     for (const o of near) o.session.sendJson({ t: 'explosion', id, x, y, z, radius, kind });
     this.zombies.alert(x, z, 60, now);
+    // The shock wave follows the fireball out, striking as its front passes (stepShocks).
+    this.shocks.push({ x, y: y + .3, z, radius, damage, owner, label: kind === 'grenade' ? 'lựu đạn' : kind === 'rocket' ? 'rocket' : 'lựu đạn 40 mm', start: now, hit: new Set() });
     for (const zb of this.zombies.near(x, z, radius)) {
       if (zb.dead) continue;
       const tx = zb.state.x - x;

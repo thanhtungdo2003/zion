@@ -312,3 +312,20 @@ export function weaponAttackStaminaCost(weapon: number, baseCost: number, armorF
 export function rollsDecapitation(blade: MeleeSpec | undefined, random = Math.random): boolean {
   return !!blade?.decapitationChance && random() < blade.decapitationChance;
 }
+
+/**
+ * Shock wave of an explosion: a sphere racing out from the blast to `reach` × its radius in
+ * `seconds` (fast at first, easing out). Whoever the front sweeps over takes up to `damage` × the
+ * blast's damage, less with distance, through walls too (the pressure wave bends round cover).
+ */
+export const SHOCKWAVE = { reach: 2.2, seconds: 0.45, damage: 0.4 } as const;
+/** Radius of the front `t` seconds after the blast (0 … reach × radius). */
+export function shockwaveFront(radius: number, t: number): number {
+  const k = Math.min(1, Math.max(0, t / SHOCKWAVE.seconds));
+  return radius * SHOCKWAVE.reach * (1 - (1 - k) ** 3);
+}
+/** Damage of the front at distance `d` (blast damage scale): strongest close in, nothing at its edge. */
+export function shockwaveDamage(radius: number, damage: number, d: number): number {
+  const reach = radius * SHOCKWAVE.reach;
+  return d >= reach ? 0 : Math.round(damage * SHOCKWAVE.damage * (1 - d / reach) ** 1.5);
+}

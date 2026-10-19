@@ -20,6 +20,7 @@ import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
 import { groundMaterial } from './render/natural-material';
 import { GroundTextures } from './render/ground-textures';
+import { Shockwaves } from './render/shockwave';
 import { MAP_LAYER, MapCartographer, mapCaptures } from './render/map-capture';
 import { BaseLifeRenderer } from './render/base-life';
 import { NPC_MODELS, type QuestNpcMessage } from '@zion/shared';
@@ -234,6 +235,8 @@ export class GameEngine {
   private readonly groundTextures = new GroundTextures(this.terrainMaterial);
   /** Photographs streamed chunks from above for the minimap and the world map. */
   private cartographer: MapCartographer | null = null;
+  /** Blast shock waves: clear spheres bending the light as they race out. */
+  private readonly shockwaves = new Shockwaves();
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
@@ -794,6 +797,7 @@ export class GameEngine {
     this.resources.release(this.terrainMaterial);
     this.groundTextures.dispose();
     this.cartographer?.dispose();
+    this.shockwaves.dispose();
     this.resources.release(this.coinRingGeometry);
     this.resources.release(this.coinRingMaterial);
     if (this.waterMaterial) this.resources.release(this.waterMaterial);
@@ -1625,6 +1629,7 @@ export class GameEngine {
         break;
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
+        if (m.kind !== 'flash') this.shockwaves.add(m.x, m.y + .3, m.z, m.radius);
         break;
       case 'flashbang':
         // Blinded white and deafened, both easing back over the next seconds.
@@ -2048,6 +2053,7 @@ export class GameEngine {
       this.zombieOutline ??= new ZombieOutline();
       this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines);
     } else this.renderer.render(this.scene, this.camera);
+    if (this.shockwaves.active) this.shockwaves.render(this.renderer, this.camera);
 
     if (now - this.lastPing > PING_INTERVAL_MS) {
       this.lastPing = now;

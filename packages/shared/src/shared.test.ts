@@ -240,3 +240,16 @@ describe('quest content', () => {
     expect(bad.ok).toBe(false);
   });
 });
+
+import { SHOCKWAVE, shockwaveDamage, shockwaveFront } from './weapons';
+describe('shock wave', () => {
+  it('races out fast, then eases to its reach', () => {
+    expect(shockwaveFront(7, 0)).toBe(0);
+    expect(shockwaveFront(7, SHOCKWAVE.seconds / 3)).toBeGreaterThan(7 * SHOCKWAVE.reach * .6);
+    expect(shockwaveFront(7, 10)).toBeCloseTo(7 * SHOCKWAVE.reach);
+  });
+  it('hurts less with distance and nothing past its reach', () => {
+    expect(shockwaveDamage(7, 200, 8)).toBeGreaterThan(shockwaveDamage(7, 200, 12));
+    expect(shockwaveDamage(7, 200, 7 * SHOCKWAVE.reach)).toBe(0);
+  });
+});
