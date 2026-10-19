@@ -9,6 +9,7 @@ import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, inf
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
+import { PropKnock } from './prop-knock';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
 import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
@@ -229,6 +230,8 @@ export class GameServer {
   private readonly epoch = performance.now();
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
+  /** Light props knocked away by vehicles, bullets and blasts. */
+  private readonly knock: PropKnock;
   /** Shock waves racing out from blasts: each body is struck once, when the front reaches it. */
   private readonly shocks: Array<{ x: number; y: number; z: number; radius: number; damage: number; owner: Player | null; label: string; start: number; hit: Set<unknown> }> = [];
   private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number; spec: ThrowSpec }> = [];
@@ -423,6 +426,13 @@ export class GameServer {
       save: (list) => this.deps.worlds.saveStructures?.(this.deps.worldId, list) ?? Promise.resolve(),
       error: (err, what) => this.log.error({ err }, what),
       now: () => this.serverTime,
+    });
+    // After base building, whose felled trees also leave the collision world.
+    this.knock = new PropKnock({
+      world: deps.world, registry: deps.registry, physics: this.physics,
+      broadcastAt: (x, z, msg) => this.broadcastAt(x, z, msg),
+      broadcast: (msg) => this.broadcast(msg),
+      occupied: (x, z, r) => [...this.players.values()].some((p) => !p.dead && Math.hypot(p.state.x - x, p.state.z - z) < r) || this.zombies.near(x, z, r).some((zb) => !zb.dead),
     });
     this.worldTimeMs = deps.initialWorldTimeMs;
     this.applyContent(this.content);
@@ -1254,6 +1264,7 @@ export class GameServer {
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
     if (this.battle || this.deathCrates.size) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
     this.building?.welcome(player);
+    if (this.knock) player.session.sendJson(this.knock.message());
     session.sendJson(this.npcList());
     session.sendJson({ t: 'coins', drops: [...this.coinDrops].map(([id, c]) => ({ id, x: c.x, y: c.y, z: c.z, amount: c.amount })) });
     this.broadcastPlayerList();
@@ -2275,6 +2286,12 @@ export class GameServer {
       this.collision.removeOwnerColliders(vehicleOwner(v.id));
       this.explode(0x60000000 + v.id, v.x, v.y + .8, v.z, 7, 220, null, 'rocket', now);
     }, (p, speed) => this.damage(null, p, Math.round((speed - 8) * 1.8), 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now));
+    // Signs, cones, barrels and saplings in the way give.
+    for (const v of this.vehicles.states.values()) {
+      if (v.exploded) continue;
+      const lateral = v.motion?.lateral ?? 0;
+      this.knock?.vehicle(v.x, v.z, -Math.sin(v.yaw) * v.speed + Math.cos(v.yaw) * lateral, -Math.cos(v.yaw) * v.speed - Math.sin(v.yaw) * lateral, VEHICLES[v.kind].halfZ, now);
+    }
     this.vehicles.strike(now, (v, r) => this.zombies.near(v.x, v.z, r).filter((z) => !z.dead), (z) => z.state, 80,
       (z, v, amount, dx, dz, impulse) => this.hitZombie(v.driver ? this.players.get(v.driver) ?? null : null, z, amount, 'vehicle', z.state.x, z.state.y + 0.8, z.state.z, dx, dz, impulse, now));
     this.vehicles.strike(now, (v, r) => [...this.players.values()].filter((p) => !p.dead && !p.vehicleId && Math.hypot(p.state.x - v.x, p.state.z - v.z) < r), (p) => p.state, 80,
@@ -2353,6 +2370,7 @@ export class GameServer {
     }
     if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT) || this.architect.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
     this.building?.step(TICK_DT, now);
+    this.knock?.step(now);
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
@@ -3087,6 +3105,7 @@ export class GameServer {
   private explode(id: number, x: number, y: number, z: number, radius: number, damage: number, owner: Player | null, kind: 'grenade' | 'grenade40' | 'rocket', now: number): void {
     this.vehicles.blast(x, y, z, radius, damage, now);
     this.building?.blast(x, y, z, radius, damage);
+    this.knock?.blast(x, y, z, radius, now);
     const liveOwner = owner && this.players.get(owner.id) === owner ? owner : null;
     this.vegetation.explode(x, y, z, radius, now);
     const cx = Math.floor(x / CHUNK_SIZE);
@@ -3221,7 +3240,7 @@ export class GameServer {
       const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
-      if (stopped && !hit.target && !npcHit) { this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag); this.building?.bulletHit(hit.colliderTag, r.damage, r.x, r.y, r.z); }
+      if (stopped && !hit.target && !npcHit) { this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag); this.building?.bulletHit(hit.colliderTag, r.damage, r.x, r.y, r.z); if (hit.colliderTag) this.knock?.bullet(hit.colliderTag, r.x, r.y, r.z, dx, dy, dz, r.damage, now); }
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
       this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped, normal: !npcHit && !hit.target && stopped ? hit.normal : undefined });
       if (r.spec.blast) {

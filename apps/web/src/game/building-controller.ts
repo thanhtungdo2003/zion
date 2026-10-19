@@ -1,4 +1,4 @@
-import type { Scene } from 'three';
+import { Group, Mesh, Vector3, type Scene } from 'three';
 import {
   BLUEPRINT_BY_ITEM,
   CAMP_BUILD_EXCLUSION,
@@ -68,6 +68,8 @@ export class BuildingController {
   private readonly hologram: PlacementHologram;
   private readonly supply: SupplyRenderer;
   private removed = new Set<string>();
+  /** Light props knocked away (vehicles, bullets, blasts) until they stand again. */
+  private knocked = new Set<string>();
   private spent = new Set<string>();
   /** Chunks as the server sent them (props unfiltered), to restore trees that grew back. */
   private readonly rawChunks = new Map<number, ChunkData>();
@@ -97,8 +99,8 @@ export class BuildingController {
   /** A chunk from the server: remember it, and hand on a copy without the felled trees. */
   filterChunk(c: ChunkData): ChunkData {
     this.rawChunks.set(chunkKey(c.cx, c.cz), c);
-    if (!this.removed.size) return c;
-    const props = c.props.filter((p) => !this.removed.has(propKey(c.cx, c.cz, p.lx, p.lz)));
+    if (!this.removed.size && !this.knocked.size) return c;
+    const props = c.props.filter((p) => { const k = propKey(c.cx, c.cz, p.lx, p.lz); return !this.removed.has(k) && !this.knocked.has(k); });
     return props.length === c.props.length ? c : { ...c, props };
   }
 
@@ -126,12 +128,50 @@ export class BuildingController {
     }
   }
 
+  /** Re-shows the chunks holding these prop keys with the current filters. */
+  private refilter(keys: Iterable<string>): void {
+    const chunks = new Set([...keys].map((k) => { const [cx, cz] = k.split(':'); return `${cx}:${cz}`; }));
+    const store = this.host.store();
+    if (!store || !chunks.size) return;
+    for (const [, c] of this.rawChunks) {
+      if (!chunks.has(`${c.cx}:${c.cz}`)) continue;
+      const shown = store.get(c.cx, c.cz);
+      if (shown && shown.lod === c.lod) store.set(this.filterChunk(c));
+    }
+  }
+
+  /** A prop knocked away: hide it and throw its model (a small tree topples over its foot). */
+  private knockAway(m: Extract<ServerJsonMessage, { t: 'knock' }>): void {
+    this.knocked.add(m.key);
+    this.refilter([m.key]);
+    const visual = this.host.library.get(m.asset), debris = this.host.debris();
+    this.host.play(m.tree ? 'knockdown' : 'arrowHitHard', m, m.tree ? 1 : .7);
+    if (!visual || !debris) return;
+    const obj = new Group();
+    for (const part of visual.parts) { const mesh = new Mesh(part.geometry, part.material); mesh.castShadow = true; obj.add(mesh); }
+    obj.position.set(m.x, m.y, m.z);
+    obj.rotation.y = m.rotY;
+    obj.scale.setScalar(m.scale);
+    obj.updateMatrixWorld(true);
+    const vel = new Vector3(m.vx, m.vy, m.vz), h = Math.hypot(m.vx, m.vz) || 1;
+    // Tumbling about the axis across the push; a tree only tips (its foot stays put).
+    const spin = m.tree ? new Vector3(m.vz / h, 0, -m.vx / h).multiplyScalar(1.2) : new Vector3(m.vz, (Math.random() - .5) * 4, -m.vx).multiplyScalar(.6);
+    debris.add(obj, m.tree ? vel.multiplyScalar(.3) : vel, spin, null, m.tree ? 40 : 25);
+  }
+
   /* --------------------------------------- messages ------------------------------------ */
 
   /** Handles base-building messages; false for anything else. */
   onMessage(m: ServerJsonMessage): boolean {
     switch (m.t) {
       case 'trees': this.applyTrees(m); return true;
+      case 'knocked': {
+        const next = new Set(m.keys), changed = [...this.knocked].filter((k) => !next.has(k)).concat(m.keys.filter((k) => !this.knocked.has(k)));
+        this.knocked = next;
+        this.refilter(changed);
+        return true;
+      }
+      case 'knock': this.knockAway(m); return true;
       case 'structures':
         this.structures.setAll(m.list);
         for (const s of m.list) this.host.store()?.collision.setOwnerColliders(structureOwner(s.id), structureColliders(s));

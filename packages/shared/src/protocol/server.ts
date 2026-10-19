@@ -273,6 +273,16 @@ export interface TreesMessage {
   /** Rocks worked out (no more ore until they recover). */
   spent: string[];
 }
+/** A light prop knocked away (vehicle, bullet, blast): its model flies off as debris. */
+export interface KnockEvent {
+  t: 'knock';
+  key: string; asset: number; x: number; y: number; z: number; rotY: number; scale: number;
+  vx: number; vy: number; vz: number;
+  /** A small tree: it falls over instead of flying. */
+  tree: boolean;
+}
+/** Every prop currently knocked down (join, and whenever some stand again). */
+export interface KnockedMessage { t: 'knocked'; keys: string[] }
 /** Player structures: the full list (join), one changed, or one gone. */
 export interface StructuresMessage { t: 'structures'; list: import('../building').StructureState[] }
 export interface StructureMessage { t: 'structure'; s: import('../building').StructureState; hit?: { piece: number; x: number; y: number; z: number; broke: boolean } }
@@ -283,6 +293,8 @@ export interface BlueprintsMessage { t: 'blueprints'; progress: import('../build
 export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | import('../building').OreKind }
 export type ServerJsonMessage =
   | ChopEvent
+  | KnockEvent
+  | KnockedMessage
   | TreesMessage
   | StructuresMessage
   | StructureMessage

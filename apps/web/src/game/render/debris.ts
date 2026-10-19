@@ -25,6 +25,8 @@ interface Piece {
   long: Vector3;
   tipAxis: Vector3;
   age: number;
+  /** Seconds before it sinks away (sinking starts 2.5 s earlier). */
+  life: number;
   rest: number;
   /** Seconds spent touching the ground. */
   grounded: number;
@@ -59,7 +61,7 @@ export class DebrisSystem {
    * Takes ownership of `obj` (already placed in world space), re-pivots it on its centre and
    * launches it.
    */
-  add(obj: Object3D, vel: Vector3, spin: Vector3, onLand: Piece['onLand'] = null): void {
+  add(obj: Object3D, vel: Vector3, spin: Vector3, onLand: Piece['onLand'] = null, life = LIFETIME): void {
     obj.removeFromParent();
     obj.updateMatrixWorld(true);
     box.setFromObject(obj);
@@ -82,7 +84,7 @@ export class DebrisSystem {
     if (tipAxis.lengthSq() < 1e-4) tipAxis.set(Math.random() - 0.5, 0, Math.random() - 0.5);
     tipAxis.normalize();
     this.scene.add(pivot);
-    this.pieces.push({ obj: pivot, vel: vel.clone(), spin: spin.clone(), corners, inertia, long, tipAxis, age: 0, rest: 0, grounded: 0, sleeping: false, onLand });
+    this.pieces.push({ obj: pivot, vel: vel.clone(), spin: spin.clone(), corners, inertia, long, tipAxis, age: 0, life, rest: 0, grounded: 0, sleeping: false, onLand });
     while (this.pieces.length > MAX_PIECES) this.remove(0);
   }
 
@@ -96,12 +98,12 @@ export class DebrisSystem {
     for (let i = this.pieces.length - 1; i >= 0; i--) {
       const p = this.pieces[i]!;
       p.age += dt;
-      if (p.age > LIFETIME) {
+      if (p.age > p.life) {
         this.remove(i);
         continue;
       }
       const o = p.obj;
-      if (p.age > SINK_AFTER) {
+      if (p.age > p.life - (LIFETIME - SINK_AFTER)) {
         o.position.y -= dt * 0.25;
         continue;
       }
