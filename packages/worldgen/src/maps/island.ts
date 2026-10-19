@@ -7,7 +7,7 @@
 
 export type Point = readonly [number, number];
 
-export type ZoneKind = 'port' | 'town' | 'military' | 'power_plant' | 'airfield' | 'village' | 'radar' | 'substation' | 'farm' | 'lighthouse' | 'school' | 'church' | 'station';
+export type ZoneKind = 'port' | 'town' | 'military' | 'power_plant' | 'airfield' | 'village' | 'radar' | 'substation' | 'farm' | 'lighthouse' | 'school' | 'church' | 'station' | 'stadium' | 'park';
 
 export interface MapZone {
   id: string;
@@ -20,7 +20,8 @@ export interface MapZone {
   radius: number;
 }
 
-export interface MapRoad { points: Point[]; width: number; paved: boolean }
+/** `route`: the points are waypoints; between them the road finds its own way over the ground (a winding pass instead of a cutting). */
+export interface MapRoad { points: Point[]; width: number; paved: boolean; route?: boolean }
 export interface PowerLine { points: Point[]; kind: 'tower' | 'hframe'; spacing: number }
 export interface Hill { x: number; z: number; radius: number; height: number }
 
@@ -83,6 +84,8 @@ export const ISLAND: AuthoredMap = {
     { id: 'lighthouse', name: 'Mũi Hải Đăng', kind: 'lighthouse', x: 3480, z: 2700, radius: 40 },
     // Everyday island life: a school, a church, a fuel station, farms and hamlets along the roads.
     { id: 'school', name: 'Trường Thạch Lâm', kind: 'school', x: 2175, z: 2700, radius: 60 },
+    { id: 'stadium', name: 'Sân vận động Thạch Lâm', kind: 'stadium', x: 2330, z: 2520, radius: 80 },
+    { id: 'park', name: 'Công viên Hồ Sen', kind: 'park', x: 1690, z: 2790, radius: 50 },
     { id: 'church', name: 'Nhà thờ Thạch Lâm', kind: 'church', x: 1815, z: 2700, radius: 45 },
     { id: 'fuel', name: 'Cây xăng Đèo Gió', kind: 'station', x: 2195, z: 2185, radius: 35 },
     { id: 'westfarm', name: 'Trang trại Đồng Cỏ', kind: 'farm', x: 1380, z: 2440, radius: 70 },
@@ -96,7 +99,9 @@ export const ISLAND: AuthoredMap = {
   ],
   roads: [
     // Main avenue: harbour gate → town high street → mountain pass → base.
-    { paved: true, width: 11.34, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100], [2180, 1950], [2140, 1720], [2050, 1560], [1930, 1440], [1850, 1300], [1900, 1150], [2010, 1030], [2100, 960]] },
+    { paved: true, width: 11.34, points: [[2080, 3020], [2040, 2930], [1980, 2850], [1980, 2520], [2010, 2440], [2090, 2280], [2140, 2100]] },
+    // ...then up through the mountains as a winding pass, round the slopes, over the col and down to the base.
+    { paved: true, width: 9.2, route: true, points: [[2140, 2100], [1850, 1300], [2010, 1030], [2100, 960]] },
     // East road: town → substation → power plant.
     { paved: true, width: 10.26, points: [[2120, 2602], [2240, 2380], [2400, 2250], [2620, 2160], [2850, 2120], [3050, 2040], [3200, 1990]] },
     // West road: town → airfield.

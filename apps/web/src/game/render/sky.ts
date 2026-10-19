@@ -35,6 +35,8 @@ const skyFragment = /* glsl */ `
   uniform float uCloudSeed;
   uniform sampler2D uSkyImage;
   uniform float uSkyReady;
+  uniform sampler2D uNightImage;
+  uniform float uNightReady;
   varying vec3 vDir;
 
   ${cloudShader}
@@ -53,10 +55,12 @@ const skyFragment = /* glsl */ `
     // Equirectangular photo; fade the captured horizon/sun into the live atmosphere.
     vec2 uv = vec2(atan(d.z, d.x) / 6.2831853 + 0.5,
                    asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5);
-    vec3 photo = texture2D(uSkyImage, uv).rgb;
-    vec3 photoTint = mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight);
-    photo *= photoTint * mix(1.0, 0.055, uNight);
-    col = mix(col, photo, uSkyReady * smoothstep(0.04, 0.22, h) * 0.92);
+    // Day: a photographed sky (CC0, Poly Haven); night: a photographed starry night sky.
+    vec3 day = texture2D(uSkyImage, uv).rgb * mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight) * mix(1.0, 0.055, uNight);
+    vec3 night = texture2D(uNightImage, uv).rgb * vec3(0.55, 0.62, 0.85) * 0.9;
+    vec3 photo = mix(day, night, uNight * uNightReady);
+    float ready = mix(uSkyReady, max(uSkyReady, uNightReady), uNight);
+    col = mix(col, photo, ready * smoothstep(0.04, 0.22, h) * 0.92);
     vec2 clouds = cloudDensity(d, uCloudTime, uCloudSeed);
     float cloudAlpha = clamp(clouds.x + clouds.y, 0.0, 0.8);
     vec3 cloudColor = mix(vec3(0.8, 0.85, 0.92), uHorizon * 0.5, uNight);
@@ -69,7 +73,7 @@ const skyFragment = /* glsl */ `
     float md = max(dot(d, moonDir), 0.0);
     col += vec3(0.75, 0.8, 0.95) * smoothstep(0.9990, 0.9994, md) * uNight * 1.5;
     col += vec3(0.2, 0.25, 0.4) * pow(md, 24.0) * uNight * 0.3;
-    if (uNight > 0.01 && h > 0.0) {
+    if (uNight > 0.01 && h > 0.0 && uNightReady < 0.5) {
       vec3 cell = floor(d * 380.0);
       float s = hash(cell);
       float twinkle = 0.6 + 0.4 * sin(uTime * 3.0 + s * 50.0);
@@ -145,6 +149,7 @@ export class SkySystem {
   private readonly dome: Mesh;
   private readonly material: ShaderMaterial;
   private readonly skyImage;
+  private readonly nightImage;
   private disposed = false;
   /** 0 by day … 1 at full night. */
   night = 0;
@@ -164,6 +169,8 @@ export class SkySystem {
         uCloudSeed: { value: (cosmeticSeed >>> 0) % 10000 },
         uSkyImage: { value: null },
         uSkyReady: { value: 0 },
+        uNightImage: { value: null },
+        uNightReady: { value: 0 },
       },
       vertexShader: skyVertex,
       fragmentShader: skyFragment,
@@ -171,7 +178,14 @@ export class SkySystem {
       depthWrite: false,
       fog: false,
     });
-    this.skyImage = new TextureLoader().load('/textures/sky/day-sky.webp', (texture) => {
+    this.nightImage = new TextureLoader().load('/textures/sky/night-sky.jpg', (texture) => {
+      if (this.disposed) { texture.dispose(); return; }
+      this.material.uniforms.uNightReady!.value = 1;
+    });
+    this.nightImage.colorSpace = SRGBColorSpace;
+    this.nightImage.wrapS = RepeatWrapping;
+    this.material.uniforms.uNightImage!.value = this.nightImage;
+    this.skyImage = new TextureLoader().load('/textures/sky/day-sky-2.jpg', (texture) => {
       if (this.disposed) { texture.dispose(); return; }
       this.material.uniforms.uSkyReady!.value = 1;
     });
@@ -262,6 +276,7 @@ export class SkySystem {
     this.dome.geometry.dispose();
     this.material.dispose();
     this.skyImage.dispose();
+    this.nightImage.dispose();
     this.light.dispose();
   }
 }

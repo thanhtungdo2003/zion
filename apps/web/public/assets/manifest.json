@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-18T16:05:52.412Z",
+  "generatedAt": "2026-10-19T04:59:34.861Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -314,6 +314,66 @@
       "bytes": 16671,
       "kind": "bbmodel"
     },
+    "dists/signs/sign-crossing.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-crossing.0b10161ce101.bbmodel",
+      "sha256": "0b10161ce101700d7387c5ca6f54733af84cc5a068c3cfdf0be56691b90630cf",
+      "bytes": 2415,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-curveleft.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-curveleft.7f4dff94b673.bbmodel",
+      "sha256": "7f4dff94b67346a874199f55c961b84927fdb1c5d61ee7d5292d4224f1e8c532",
+      "bytes": 2414,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-curveright.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-curveright.867bd83b7e14.bbmodel",
+      "sha256": "867bd83b7e14a68baf54d937b618e00603e1b3d8aeb3c340105cc47d8c4590d4",
+      "bytes": 2417,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-danger.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-danger.02d1f0c6cf35.bbmodel",
+      "sha256": "02d1f0c6cf357ce0df0daf86574c202069bdc2085a4811eed5efa504c1d0fc19",
+      "bytes": 2405,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-giveway.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-giveway.f184778abf46.bbmodel",
+      "sha256": "f184778abf46c80f3ea9d692177a56a8616eadf02526d54c73558e2401552775",
+      "bytes": 2360,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-oneway.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-oneway.4b1d3b85fa29.bbmodel",
+      "sha256": "4b1d3b85fa293ee11b1a803100efec36f28eb22d3c028e2a1b65b710bedcc1a4",
+      "bytes": 2233,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-speed50.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-speed50.f4156d6d9ed8.bbmodel",
+      "sha256": "f4156d6d9ed88733a44e9b06ea6a7c823105dc0742399e8a71e8258e59b295ee",
+      "bytes": 2348,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-speed80.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-speed80.2319f77487b9.bbmodel",
+      "sha256": "2319f77487b9e124f4d090ebbc7d4311a8f0220ec00a32bbda9845cf1679b183",
+      "bytes": 2344,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-stop.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-stop.7db140222cb2.bbmodel",
+      "sha256": "7db140222cb2c7a835041195f592cece9844e11d03eec6a758b0c70dd908f13d",
+      "bytes": 2323,
+      "kind": "bbmodel"
+    },
+    "dists/signs/sign-zombies.bbmodel": {
+      "url": "/assets/models/dists_signs_sign-zombies.b61416549eb5.bbmodel",
+      "sha256": "b61416549eb5216974f098aefa8cef9c493b645273bdfffb24de899ada9aefd2",
+      "bytes": 2420,
+      "kind": "bbmodel"
+    },
     "dists/straight-lamp-post.bbmodel": {
       "url": "/assets/models/dists_straight-lamp-post.443a63f10d91.bbmodel",
       "sha256": "443a63f10d910f4ea0b57234561cb3bdb4d5d07bd8a25bd15286367afe7bd198",
@@ -433,6 +493,12 @@
       "sha256": "f179f4933c1f47030b3e17a80ee1e59c069518a85cf30d1a4d030d4c50cf8d23",
       "bytes": 7463,
       "kind": "bbmodel"
+    },
+    "materias/classic_wooden_barrier__traffic_cone_pack.glb": {
+      "url": "/assets/models/materias_classic_wooden_barrier__traffic_cone_pack.ea40f43d3678.glb",
+      "sha256": "ea40f43d367850d692857365b687ade788d00f5c8bb04d357ef31abb6e21ea8a",
+      "bytes": 1857964,
+      "kind": "glb"
     },
     "materias/coal-in-old-carton.bbmodel": {
       "url": "/assets/models/materias_coal-in-old-carton.39c4fc3aa64d.bbmodel",
@@ -734,6 +800,12 @@
       "bytes": 8505,
       "kind": "bbmodel"
     },
+    "materias/simple_low_poly_street_trafic_lights.glb": {
+      "url": "/assets/models/materias_simple_low_poly_street_trafic_lights.6f1cd85103ad.glb",
+      "sha256": "6f1cd85103adceea5177afed5ff4f68ce8505204bd9f5f31b3e2a314028b03e8",
+      "bytes": 733384,
+      "kind": "glb"
+    },
     "materias/small-transformer.bbmodel": {
       "url": "/assets/models/materias_small-transformer.07f68bb89cc1.bbmodel",
       "sha256": "07f68bb89cc1c3569e1e215de823196904cc1a6774cd9a2139cf15feb977a5ee",
@@ -1020,6 +1092,48 @@
       "url": "/assets/models/prepared_barrack04.efed7a082dd6.glb",
       "sha256": "efed7a082dd6c54c9175568d641ebfca111b884df48761c3a5bccac9ba39649b",
       "bytes": 162504,
+      "kind": "glb"
+    },
+    "prepared/barrier_2m.glb": {
+      "url": "/assets/models/prepared_barrier_2m.a8aa85006208.glb",
+      "sha256": "a8aa850062083182adda1202252840081a1bbcfc2874104db71676db9f7de141",
+      "bytes": 133920,
+      "kind": "glb"
+    },
+    "prepared/barrier_3m.glb": {
+      "url": "/assets/models/prepared_barrier_3m.34efc9fb3d0d.glb",
+      "sha256": "34efc9fb3d0d7a19e3033f37e98e3b825282638b2164bb74751fe9520b02cec1",
+      "bytes": 133920,
+      "kind": "glb"
+    },
+    "prepared/barrier_3m_left.glb": {
+      "url": "/assets/models/prepared_barrier_3m_left.f72da70421f8.glb",
+      "sha256": "f72da70421f88f5d989c81dfa086f1e0275f00157fa381bdaed513e43da69b43",
+      "bytes": 125068,
+      "kind": "glb"
+    },
+    "prepared/barrier_3m_right.glb": {
+      "url": "/assets/models/prepared_barrier_3m_right.5c6a1b675d33.glb",
+      "sha256": "5c6a1b675d3304f7331933a8eda17dea5613fe25f9a01be8879cdbdd80a3bf0c",
+      "bytes": 125072,
+      "kind": "glb"
+    },
+    "prepared/barrier_3m_sign.glb": {
+      "url": "/assets/models/prepared_barrier_3m_sign.5b3886ba9ca8.glb",
+      "sha256": "5b3886ba9ca82132b8665c4a687061e48374071eb01687c164330b47b0205253",
+      "bytes": 134800,
+      "kind": "glb"
+    },
+    "prepared/barrier_6m.glb": {
+      "url": "/assets/models/prepared_barrier_6m.175874951f52.glb",
+      "sha256": "175874951f520c92fca973d7af1a9407d565526a26969b1acdc470e314b64e4a",
+      "bytes": 143716,
+      "kind": "glb"
+    },
+    "prepared/barrier_8m.glb": {
+      "url": "/assets/models/prepared_barrier_8m.ba6b6847093d.glb",
+      "sha256": "ba6b6847093db13abf7aadea734f4e7442a245070430bfa038290805823c1985",
+      "bytes": 153384,
       "kind": "glb"
     },
     "prepared/bench01.glb": {
@@ -1376,6 +1490,12 @@
       "bytes": 370764,
       "kind": "glb"
     },
+    "prepared/pedestrian_light.glb": {
+      "url": "/assets/models/prepared_pedestrian_light.0fcc82afc3b1.glb",
+      "sha256": "0fcc82afc3b1b8f5426858641d8265a1ffcf731964086ddb23a4cead3b0b4802",
+      "bytes": 50228,
+      "kind": "glb"
+    },
     "prepared/pine_big.glb": {
       "url": "/assets/models/prepared_pine_big.ffa81fb89854.glb",
       "sha256": "ffa81fb898547d30747200fe3075fc839dbed31686f90e2c27456dcb3f7d9308",
@@ -1434,6 +1554,18 @@
       "url": "/assets/models/prepared_pylon_tower.d9d24e086005.glb",
       "sha256": "d9d24e086005285f149d4770918b23e37fcc03cbc29d1aec64a0888a6a094136",
       "bytes": 173228,
+      "kind": "glb"
+    },
+    "prepared/road_post.glb": {
+      "url": "/assets/models/prepared_road_post.000c47cb0030.glb",
+      "sha256": "000c47cb0030a78251a02a8ad249beab9af1640a85efcc54a646c49ba93c33ad",
+      "bytes": 86180,
+      "kind": "glb"
+    },
+    "prepared/road_post_grey.glb": {
+      "url": "/assets/models/prepared_road_post_grey.ed5f854e0712.glb",
+      "sha256": "ed5f854e07127769468ee28e4779ba5fe3420e3fde547e5c2fa735eddfd8608c",
+      "bytes": 72648,
       "kind": "glb"
     },
     "prepared/rock_big_a.glb": {
@@ -1524,6 +1656,30 @@
       "url": "/assets/models/prepared_tower_crane.c80b0d8c9b5b.glb",
       "sha256": "c80b0d8c9b5bf84b5cb6580cb49ead906edab5272f028912f764e6ab0d0705b8",
       "bytes": 5552388,
+      "kind": "glb"
+    },
+    "prepared/traffic_cone.glb": {
+      "url": "/assets/models/prepared_traffic_cone.c1f3c878758b.glb",
+      "sha256": "c1f3c878758bc3265f5b9f91b7836da54f8f91ff83439a71366f1c6f292b89bc",
+      "bytes": 84652,
+      "kind": "glb"
+    },
+    "prepared/traffic_cone_pole.glb": {
+      "url": "/assets/models/prepared_traffic_cone_pole.5abc222ff181.glb",
+      "sha256": "5abc222ff1817f7c84f0eb203dea99bbd995796add27c46a926368a8c0fecf05",
+      "bytes": 162652,
+      "kind": "glb"
+    },
+    "prepared/traffic_light_long.glb": {
+      "url": "/assets/models/prepared_traffic_light_long.b458602b53db.glb",
+      "sha256": "b458602b53dbe310fec2f3f4fc8bce5686ca8dbfb9eff13f1c87fe929e061669",
+      "bytes": 53432,
+      "kind": "glb"
+    },
+    "prepared/traffic_light_short.glb": {
+      "url": "/assets/models/prepared_traffic_light_short.90e848a2345e.glb",
+      "sha256": "90e848a2345e18e2d86a7fbb935adf69d1848262b40a581c62fe3fb7de59813b",
+      "bytes": 53436,
       "kind": "glb"
     },
     "prepared/trailer01.glb": {

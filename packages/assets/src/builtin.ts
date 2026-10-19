@@ -1,5 +1,6 @@
 import { STREET_ASSETS } from './street-assets';
 import { MATERIAL_ASSETS } from './material-assets';
+import { CIVIC_ASSETS, ROAD_ASSETS } from './road-assets';
 import { CAMP_ASSETS } from './camp-assets';
 import { BRIDGE_ASSETS } from './bridge-assets';
 import { BATTLE_ASSETS } from './battle-assets';
@@ -26,6 +27,8 @@ export const BUILTIN_ASSETS: readonly AssetDefinitionInput[] = [
   ...GRID_ASSETS,
   ...STREET_ASSETS,
   ...MATERIAL_ASSETS,
+  ...ROAD_ASSETS,
+  ...CIVIC_ASSETS,
   {
     id: 'nature.tree.spruce',
     numericId: 1,

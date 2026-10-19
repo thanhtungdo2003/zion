@@ -73,6 +73,14 @@ const jobs = [
     [['Crane-Global_82', 'Crane2-Global_90'], 'vox_hoist', 9], ['Box1-Global_98', 'vox_crate', .8], ['Box1$$(1)-Global_100', 'vox_crate_small', .4],
     [['Box1$$(3)-Global_104', 'Box1$$(4)-Global_106', 'Box1$$(5)-Global_108', 'Box1$$(6)-Global_110'], 'vox_beams', .6], ['Box1$$(11)-Global_120', 'vox_crate_tall', .85]]
     .map(([node, name, height], i) => ['buildings/voxel_construction_materials_asset_pack.glb', node, name, 2660 + i, 1, { height, collider: name === 'vox_hoist' ? 'legs' : 'box', footing: 3, category: 'decor', tags: ['construction'] }]),
+  // Road furniture: wooden road barriers (plain, with a sign, end pieces), posts, cones; traffic lights.
+  ...[['Barieraka_Drewno_3m_Znak', 'barrier_3m_sign', 'box'], ['Barieraka_Drewno_3m', 'barrier_3m', 'box'], ['Barieraka_Drewno_6m', 'barrier_6m', 'box'],
+    ['Barieraka_Drewno_2m', 'barrier_2m', 'box'], ['Barieraka_Drewno_8m', 'barrier_8m', 'box'], ['Barierka_Slupek_Szary', 'road_post_grey', 'box'],
+    ['Barierka_Slupek', 'road_post', 'box'], ['Pacholek_Drogowy_PRL', 'traffic_cone', 'none'], ['Pacholek_Drogowy_PRL_Tyczka', 'traffic_cone_pole', 'none'],
+    ['Barieraka_Drewno_3m_lewa', 'barrier_3m_left', 'box'], ['Barieraka_Drewno_3m_prawa', 'barrier_3m_right', 'box']]
+    .map(([node, name, collider], i) => ['materias/classic_wooden_barrier__traffic_cone_pack.glb', node, name, 2680 + i, 1, { collider, category: 'decor', tags: ['road-furniture'] }]),
+  ...[['FarolaModernaRodonaDe1.010', 'traffic_light_short'], ['FarolaModernaRodonaDe1.011', 'traffic_light_long'], ['FarolaModernaRodonaDe1.014', 'pedestrian_light']]
+    .map(([node, name], i) => ['materias/simple_low_poly_street_trafic_lights.glb', node, name, 2691 + i, 1.3, { collider: 'footing', footing: 3, category: 'decor', tags: ['road-furniture'] }]),
   // Infection's Warehouse: one whole map model at true scale; it collides as merged voxels.
   ['maps/warehouse_map_chicken_gun.glb', null, 'warehouse_map', 2700, 1, { collider: 'voxel', voxel: .25, tags: ['infection-map'] }],
 ];

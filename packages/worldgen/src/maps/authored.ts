@@ -10,6 +10,7 @@ import { battleTower as guardTower, modularBuilding } from '../battle-map';
 /** Prepared island assets (see apps/web/scripts/prepare-world-assets.mjs). */
 import { FLORA_ASSET, fromStand, standValue } from '../flora';
 import { constructionSite, masonryBuilding } from '../masonry';
+import { CIVIC_ASSET, ROAD_ASSET, SIGN_ASSET, type SignKind } from '@zion/assets';
 
 export const ISLAND_ASSET = {
   // The TVA pack (2431) holds a row of pylon variants, not one pylon; poles use the camp utility pole.
@@ -54,6 +55,8 @@ export class AuthoredWorld {
   constructor(readonly map: AuthoredMap, readonly host: Host) {
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
+    // Routed roads find their own way between their waypoints (switchbacks round the slopes).
+    if (map.roads.some((r) => r.route)) this.map = { ...map, roads: map.roads.map((r) => (r.route ? { ...r, points: this.routeRoad(r.points) } : r)) };
   }
 
   /* ------------------------------------------------------------------------------ terrain */
@@ -74,10 +77,75 @@ export class AuthoredWorld {
     return (inside ? best : -best) + wobble;
   }
 
+  /**
+   * A mountain road between waypoints: the cheapest way over the natural ground on a 12 m grid,
+   * where steepness costs far more than distance (so it winds round the slopes and zig-zags up
+   * them like a real pass instead of cutting through), then simplified and rounded into curves.
+   */
+  private routeRoad(waypoints: ReadonlyArray<readonly [number, number]>): Array<[number, number]> {
+    const out: Array<[number, number]> = [[waypoints[0]![0], waypoints[0]![1]]];
+    const step = 12, sea = this.host.seaLevel;
+    for (let w = 1; w < waypoints.length; w++) {
+      const [ax, az] = waypoints[w - 1]!, [bx, bz] = waypoints[w]!;
+      const pad = 420, x0 = Math.min(ax, bx) - pad, z0 = Math.min(az, bz) - pad;
+      const nx = Math.ceil((Math.max(ax, bx) + pad - x0) / step) + 1, nz = Math.ceil((Math.max(az, bz) + pad - z0) / step) + 1;
+      const h = new Float32Array(nx * nz);
+      for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) h[j * nx + i] = this.terrain(x0 + i * step, z0 + j * step);
+      const cost = new Float64Array(nx * nz).fill(Infinity), from = new Int32Array(nx * nz).fill(-1), done = new Uint8Array(nx * nz);
+      const idx = (x: number, z: number) => Math.round((z - z0) / step) * nx + Math.round((x - x0) / step);
+      const start = idx(ax, az), goal = idx(bx, bz);
+      cost[start] = 0;
+      // Binary heap of [priority, cell].
+      const heap: Array<[number, number]> = [[0, start]];
+      const push = (p: number, c: number) => { heap.push([p, c]); let k = heap.length - 1; while (k > 0) { const up = (k - 1) >> 1; if (heap[up]![0] <= p) break; [heap[k], heap[up]] = [heap[up]!, heap[k]!]; k = up; } };
+      const pop = () => { const top = heap[0]!, last = heap.pop()!; if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = k * 2 + 1, r = l + 1; let m = k; if (l < heap.length && heap[l]![0] < heap[m]![0]) m = l; if (r < heap.length && heap[r]![0] < heap[m]![0]) m = r; if (m === k) break; [heap[k], heap[m]] = [heap[m]!, heap[k]!]; k = m; } } return top; };
+      const moves = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1], [2, 1], [1, 2], [-2, 1], [-1, 2], [2, -1], [1, -2], [-2, -1], [-1, -2]] as const;
+      while (heap.length) {
+        const [, c] = pop();
+        if (done[c]) continue;
+        done[c] = 1;
+        if (c === goal) break;
+        const ci = c % nx, cj = (c - ci) / nx;
+        for (const [di, dj] of moves) {
+          const i = ci + di, j = cj + dj;
+          if (i < 0 || j < 0 || i >= nx || j >= nz) continue;
+          const n = j * nx + i;
+          if (done[n] || h[n]! < sea + 1.5) continue;
+          const run = Math.hypot(di, dj) * step, grade = Math.abs(h[n]! - h[c]!) / run;
+          // A good mountain road climbs at ~6–9 %; steeper costs steeply more, beyond 14 % almost never.
+          const g = cost[c]! + run * (1 + 260 * Math.max(0, grade - .07) ** 2 + 40 * Math.max(0, grade - .14));
+          if (g >= cost[n]!) continue;
+          cost[n] = g; from[n] = c;
+          const gi = goal % nx, gj = (goal - gi) / nx;
+          push(g + Math.hypot(gi - i, gj - j) * step, n);
+        }
+      }
+      // Walk back, then thin the cells (keep every bend) and round the corners.
+      const cells: Array<[number, number]> = [];
+      for (let c = goal; c >= 0 && c !== start; c = from[c]!) { const i = c % nx; cells.push([x0 + i * step, z0 + (c - i) / nx * step]); }
+      cells.reverse();
+      const thin = cells.filter((_, k) => k % 3 === 0 || k === cells.length - 1);
+      let line: Array<[number, number]> = [[ax, az], ...thin.slice(0, -1), [bx, bz]];
+      for (let pass = 0; pass < 3; pass++) {
+        const next: Array<[number, number]> = [line[0]!];
+        for (let k = 0; k < line.length - 1; k++) {
+          const [px, pz] = line[k]!, [qx, qz] = line[k + 1]!;
+          next.push([px * .75 + qx * .25, pz * .75 + qz * .25], [px * .25 + qx * .75, pz * .25 + qz * .75]);
+        }
+        next.push(line[line.length - 1]!);
+        line = next;
+      }
+      out.push(...line.slice(1));
+    }
+    return out;
+  }
+
   /** Natural ground height before districts and roads level it. */
   terrain(x: number, z: number): number {
     const sea = this.host.seaLevel, d = this.coastDistance(x, z);
-    if (d < 0) return sea - Math.min(34, 1.5 + -d * .09);
+    // The shore: a gentle beach running down under the water (wade out and back), then the
+    // sea bed falls away further out.
+    if (d < 0) return d > -55 ? sea + .6 + d * .045 : sea + .6 - 55 * .045 - Math.min(30, (-d - 55) * .09);
     let h = sea + .6 + 13 * smoothstep(0, 320, d) + 10 * smoothstep(250, 900, d);
     const inland = smoothstep(30, 260, d);
     for (const hill of this.map.hills) {
@@ -313,13 +381,11 @@ function along(points: readonly Point[], spacing: number): Array<[number, number
 
 /** A traffic light: pole, an arm reaching over the road towards (dx, dz), the head with its lights. */
 function trafficLight(k: Kit, x: number, z: number, dx: number, dz: number): void {
-  const l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l, armYaw = Math.atan2(-uz, ux);
-  k.put(STREET_ASSET.trafficPole, x, z);
-  k.put(STREET_ASSET.trafficArm, x + ux * 1.6, z + uz * 1.6, 4.2, armYaw);
-  const hx = x + ux * 3.1, hz = z + uz * 3.1, fx = -uz, fz = ux;
-  k.put(STREET_ASSET.trafficHead, hx, hz, 3.05, armYaw);
-  for (const [asset, h] of [[STREET_ASSET.lampRed, 3.85], [STREET_ASSET.lampAmber, 3.55], [STREET_ASSET.lampGreen, 3.25]] as const)
-    k.put(asset, hx + fx * .19, hz + fz * .19, h, armYaw + Math.PI / 2);
+  // The traffic-light model (pole with its heads on a short arm), the arm reaching over the road.
+  const l = Math.hypot(dx, dz) || 1, ux = dx / l, uz = dz / l;
+  k.put(ROAD_ASSET.lightLong, x + ux * .9, z + uz * .9, 0, Math.atan2(ux, uz));
+  // A pedestrian light on the corner.
+  k.put(ROAD_ASSET.pedestrianLight, x - uz * 1.2, z + ux * 1.2, 0, Math.atan2(-uz, ux));
 }
 
 /** Site-local building kit: every part placed relative to the site centre. */
@@ -639,6 +705,27 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     school.rect(0, 2, 40, 38, CAMP_ASSET['iron-fence'], 2.25, 'w');
     site('town', zone('school').x, zone('school').z, [42, 40], school, { ground: Surface.Gravel });
 
+    // The town stadium: a pitch inside a running track, grandstands either side, floodlights.
+    const stadium = new Kit(gid * 31);
+    stadium.put(CIVIC_ASSET.pitch, 0, 0, .06);
+    const pitchLine = (x: number, z: number, across: boolean) => stadium.put(CIVIC_ASSET.pitchLine, x, z, .15, across ? Math.PI / 2 : 0);
+    for (let x = -49; x <= 49; x += 1) { pitchLine(x, -31, false); pitchLine(x, 31, false); }
+    for (let z = -30.5; z <= 30.5; z += 1) { pitchLine(-49.5, z, true); pitchLine(49.5, z, true); pitchLine(0, z, true); }
+    for (let a = 0; a < Math.PI * 2; a += .12) pitchLine(Math.cos(a) * 9.15, Math.sin(a) * 9.15, a % Math.PI > Math.PI / 4 && a % Math.PI < Math.PI * .75);
+    for (const side of [-1, 1]) for (let tier = 0; tier < 8; tier++) for (const x of [-30, -10, 10, 30])
+      stadium.put(CIVIC_ASSET.standTier, x, side * (40 + tier * 1.4), .02 + tier * .4);
+    for (const [x, z] of [[-58, -44], [58, -44], [-58, 44], [58, 44]] as const) stadium.put(CAMP_ASSET['military-lamp-post'], x, z, 0, Math.atan2(-x, -z), 2.4);
+    stadium.rect(0, 0, 66, 54, CAMP_ASSET['iron-fence'], 2.25, 'w');
+    site('town', zone('stadium').x, zone('stadium').z, [68, 56], stadium, { ground: Surface.DirtRoad });
+    // A park west of the high street: paths in a cross and a ring, benches, lamps, shade trees.
+    const park = new Kit(gid * 31);
+    for (let d = -36; d <= 36; d += 2) { park.put(STREET_ASSET.sidewalk, d, 0); park.put(STREET_ASSET.sidewalk, 0, d); }
+    for (let a = 0; a < Math.PI * 2; a += .1) park.put(STREET_ASSET.sidewalk, Math.cos(a) * 20, Math.sin(a) * 20, 0, a);
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + .2; park.put(STREET_ASSET.bench, Math.cos(a) * 22.5, Math.sin(a) * 22.5, 0, -a + Math.PI / 2); }
+    for (const [x, z] of [[4, 4], [-4, -4], [4, -24], [-24, 4], [24, -4], [-4, 24]] as const) park.put(CAMP_ASSET['straight-lamp-post'], x, z);
+    for (let k = 0; k < 14; k++) { const a = k / 14 * Math.PI * 2, r = 32 + (k % 3) * 4; park.put(FLORA_ASSET.forestTree[k % FLORA_ASSET.forestTree.length]!, Math.cos(a) * r, Math.sin(a) * r, 0, a, .8 + (k % 4) * .1); }
+    site('town', zone('park').x, zone('park').z, 44, park, { ground: Surface.Grass });
+
     const church = new Kit(gid * 31);
     church.house(BUILDING_ASSET.barn, 0, -6, Math.PI / 2, 1.6);
     church.tower(0, 16);
@@ -760,6 +847,93 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     for (const [key, k] of tiles) {
       const [tx, tz] = key.split(':').map(Number) as [number, number];
       const cx = tx * 12 + 6, cz = tz * 12 + 6;
+      for (const part of k.parts) { part.x -= cx; part.z -= cz; }
+      sites.push({ kind: 'ruined_camp', x: cx, z: cz, y: 0, yaw: 0, radius: 1, parts: k.parts, gid: gid++, decal: true });
+    }
+  }
+
+  // Road furniture: speed limits, curve warnings and guard rails on the bends of the mountain
+  // pass, stop signs where a minor road meets a bigger one, crossings by the town, zombie warnings
+  // on the way to the base; all standing on the verge, facing the oncoming traffic.
+  {
+    const tiles = new Map<string, Kit>();
+    const put = (asset: number, x: number, z: number, yaw: number) => {
+      const key = `${Math.floor(x / 48)}:${Math.floor(z / 48)}`;
+      let k = tiles.get(key); if (!k) tiles.set(key, k = new Kit());
+      k.put(asset, x, z, 0, yaw);
+    };
+    const taken: Array<[number, number]> = [];
+    const free = (x: number, z: number, r: number) => !taken.some(([tx, tz]) => Math.hypot(tx - x, tz - z) < r);
+    const onSite = (x: number, z: number, pad: number) => sites.some((site) => !site.decal && site.radius > 1 && world.padDistance(site, x, z) <= pad);
+    /** A sign on the right-hand verge for traffic heading along (dx, dz). */
+    const sign = (rd: { width: number }, kind: SignKind, x: number, z: number, dx: number, dz: number) => {
+      const off = rd.width + 2.2, sx = x - dz * off, sz = z + dx * off;
+      if (!free(sx, sz, 18) || world.coastDistance(sx, sz) < 4 || onSite(sx, sz, 3)) return;
+      taken.push([sx, sz]);
+      put(SIGN_ASSET[kind], sx, sz, Math.atan2(dx, dz));
+    };
+    const town = (x: number, z: number) => map.zones.some((zn) => Math.hypot(zn.x - x, zn.z - z) < zn.radius + 140);
+    for (const rd of map.roads) {
+      if (rd.width > 12) continue;
+      const samples = along(rd.points, 20);
+      // Speed limits every ~400 m, both directions: 50 near settlements, 80 on the open road.
+      samples.forEach(([x, z, dx, dz], i) => {
+        if (i % 20 !== 3) return;
+        const kind = town(x, z) ? 'speed50' : 'speed80';
+        sign(rd, kind, x, z, dx, dz);
+        sign(rd, kind, x, z, -dx, -dz);
+      });
+      // Bends: the heading turns more than ~35° within 80 m.
+      for (let i = 2; i + 4 < samples.length; i++) {
+        const [, , ax, az] = samples[i]!, [, , bx, bz] = samples[i + 4]!;
+        const turn = Math.atan2(ax * bz - az * bx, ax * bx + az * bz);
+        if (Math.abs(turn) < .6) continue;
+        const [x, z] = samples[i]!;
+        if (!free(x, z, 90)) continue;
+        // Warnings before the bend from both sides, a guard rail along its outside.
+        const before = samples[Math.max(0, i - 3)]!, after = samples[Math.min(samples.length - 1, i + 7)]!;
+        sign(rd, turn > 0 ? 'curveleft' : 'curveright', before[0], before[1], before[2], before[3]);
+        sign(rd, turn > 0 ? 'curveright' : 'curveleft', after[0], after[1], -after[2], -after[3]);
+        const outside = turn > 0 ? 1 : -1;
+        for (let k = i; k <= i + 4; k++) {
+          const [rx, rz, rdx, rdz] = samples[k]!, off = (rd.width + 1.6) * outside;
+          const gx = rx - rdz * off, gz = rz + rdx * off;
+          if (onSite(gx, gz, 2)) continue;
+          put(ROAD_ASSET.barrier8, gx, gz, Math.atan2(-rdz, rdx));
+        }
+        taken.push([x, z]);
+      }
+    }
+    // Junctions: the smaller road stops, a crossing sign by the zebra in town.
+    map.roads.forEach((minor) => map.roads.forEach((major) => {
+      if (minor === major || minor.width > 12 || major.width > 12 || minor.width > major.width) return;
+      for (const end of [0, minor.points.length - 1]) {
+        const [px, pz] = minor.points[end]!;
+        const near = along(major.points, 10).some(([x, z]) => Math.hypot(x - px, z - pz) < major.width + 3);
+        if (!near) continue;
+        const [qx, qz] = minor.points[end === 0 ? 1 : end - 1]!, l = Math.hypot(px - qx, pz - qz) || 1, dx = (px - qx) / l, dz = (pz - qz) / l;
+        const at = major.width + 14;
+        sign(minor, minor.width < major.width - .5 ? 'stop' : 'giveway', px - dx * at, pz - dz * at, dx, dz);
+        if (town(px, pz)) sign(minor, 'crossing', px - dx * (at + 22), pz - dz * (at + 22), dx, dz);
+      }
+    }));
+    // The road up to the military base: zombie warnings and a checkpoint of barriers and cones.
+    const base = map.zones.find((zn) => zn.kind === 'military');
+    if (base) for (const rd of map.roads) {
+      const [ex, ez] = rd.points[rd.points.length - 1]!;
+      if (Math.hypot(ex - base.x, ez - base.z) > base.radius + 220) continue;
+      const pts = along(rd.points, 30), n = pts.length;
+      for (const k of [n - 10, n - 22]) if (k > 0) { const [x, z, dx, dz] = pts[k]!; sign(rd, k === n - 10 ? 'zombies' : 'danger', x, z, dx, dz); }
+      const [cx, cz, dx, dz] = pts[Math.max(0, n - 5)]!;
+      for (const side of [-1, 1]) {
+        const off = (rd.width - 2.5) * side;
+        put(ROAD_ASSET.barrier3Sign, cx - dz * off, cz + dx * off, Math.atan2(-dz, dx));
+        for (let c = 0; c < 4; c++) put(ROAD_ASSET.cone, cx - dz * (off - side * c * 1.4) - dx * 5, cz + dx * (off - side * c * 1.4) - dz * 5, 0);
+      }
+    }
+    for (const [key, k] of tiles) {
+      const [tx, tz] = key.split(':').map(Number) as [number, number];
+      const cx = tx * 48 + 24, cz = tz * 48 + 24;
       for (const part of k.parts) { part.x -= cx; part.z -= cz; }
       sites.push({ kind: 'ruined_camp', x: cx, z: cz, y: 0, yaw: 0, radius: 1, parts: k.parts, gid: gid++, decal: true });
     }

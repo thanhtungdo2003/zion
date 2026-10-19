@@ -129,6 +129,9 @@ export function constructionSite(parts: CampPart[], spawns: SpawnSpot[], cx: num
   wall(12, -12, 12, 12, [2]);
   // Materials and plant round the frame.
   put(SITE_ASSET.cabin, 9, 8.5, 0, Math.PI / 2, .7);
+  // The gate: a striped barrier to one side and cones out on the street.
+  put(2681, 4.5, -13.2, 0, 0);
+  for (let i = 0; i < 4; i++) put(2687, -3 + i * 2, -14.6, 0, 0);
   // The site office's supplies.
   put(CAMP_ASSET['military-wooden-crate'], 6, 6.5, 0, 0);
   put(SITE_ASSET.hoist, -9, -8, 0);
