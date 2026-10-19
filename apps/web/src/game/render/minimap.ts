@@ -5,6 +5,7 @@ import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, p
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
 import { drawLocationIcon } from './location-icon';
+import { mapCaptures, mapTone } from './map-capture';
 
 /** Chunk raster resolution (px per metre): enough for trees, rocks and building outlines. */
 const PX_PER_M = 2;
@@ -97,6 +98,10 @@ export class Minimap {
     const texel = size / (n - 1);
     ctx.drawImage(terrain, -texel / 2, -texel / 2, size + texel, size + texel);
     this.drawProps(ctx, c);
+    // Same grey map tone as the photographed chunks it stands in for.
+    const toned = ctx.getImageData(0, 0, size, size);
+    mapTone(toned.data);
+    ctx.putImageData(toned, 0, 0);
     this.cache.set(c, cv);
     return cv;
   }
@@ -209,7 +214,8 @@ export class Minimap {
       const sz = (z0 - (pz - half)) * scale;
       const size = CHUNK_SIZE * scale;
       // Overlap a hair so neighbouring chunks meet without seams.
-      ctx.drawImage(this.raster(c), sx - 0.25, sz - 0.25, size + 0.5, size + 0.5);
+      // The photographed chunk (real models) once taken, else the drawn one.
+      ctx.drawImage(mapCaptures.get(c.cx, c.cz) ?? this.raster(c), sx - 0.25, sz - 0.25, size + 0.5, size + 0.5);
     }
     // Daylight: multiply the map by the light colour of the current time of day.
     ctx.save();

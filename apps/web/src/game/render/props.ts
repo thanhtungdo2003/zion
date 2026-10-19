@@ -1,3 +1,4 @@
+import { MAP_LAYER } from './map-capture';
 import { DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, type BufferGeometry, type Material, type Scene } from 'three';
 import { farFoliageMaterial, farMaterial, simplifyAsset } from './far-lod';
 import { PROPS_MAX_LOD, propTransform, type ChunkData } from '@zion/shared';
@@ -210,6 +211,7 @@ export class PropRenderer {
           mesh.frustumCulled = false;
           mesh.castShadow = !far && v.def.render.castShadow;
           mesh.receiveShadow = true;
+          mesh.layers.enable(MAP_LAYER);
           this.meshes.set(key, mesh);
           this.scene.add(mesh);
         }

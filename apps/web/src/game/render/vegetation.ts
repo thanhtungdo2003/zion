@@ -1,3 +1,4 @@
+import { MAP_LAYER } from './map-capture';
 import {
   Color,
   DynamicDrawUsage,
@@ -328,6 +329,7 @@ export class VegetationRenderer {
           mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
           mesh.frustumCulled = false;
           mesh.receiveShadow = true;
+          mesh.layers.enable(MAP_LAYER);
           mesh.userData.cells = new Int32Array(capacity);
           mesh.userData.chunks = new Int32Array(capacity);
           mesh.userData.matrices = new Float32Array(capacity * 16);

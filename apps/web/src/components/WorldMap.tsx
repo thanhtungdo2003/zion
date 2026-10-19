@@ -5,6 +5,7 @@ import { MAP_ICONS, type WorldMapStore } from '@/game/world-map';
 import { mapHeading, mapToScreen, screenToMap, zoomMap, type MapCamera } from '@/game/map-camera';
 import { Icon } from './Icon';
 import { AtlasTiles } from '@/game/atlas-tiles';
+import { mapCaptures, mapTone } from '@/game/render/map-capture';
 import { drawBattleCircles } from '@/game/battle-map-overlay';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 
@@ -23,6 +24,7 @@ function decodeRaster(source: { pixels: number; rgb: string }): HTMLCanvasElemen
   for (let i = 0; i < cv.width * cv.height; i++) {
     data.data[i * 4] = rgb.charCodeAt(i * 3); data.data[i * 4 + 1] = rgb.charCodeAt(i * 3 + 1); data.data[i * 4 + 2] = rgb.charCodeAt(i * 3 + 2); data.data[i * 4 + 3] = 255;
   }
+  mapTone(data.data);
   ctx.putImageData(data, 0, 0);
   return cv;
 }
@@ -43,6 +45,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
   const tiles = useRef<AtlasTiles | null>(null);
   const tileRasters = useRef(new Map<string, HTMLCanvasElement>());
   const [tileRevision, setTileRevision] = useState(0);
+  const captured = useSyncExternalStore((l) => mapCaptures.subscribe(l), () => mapCaptures.revision, () => 0);
   useEffect(() => {
     if (!state.world) return;
     const cache = new AtlasTiles(state.world.worldId, () => setTileRevision((n) => n + 1), state.world.mode);
@@ -120,6 +123,16 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
         let image = tileRasters.current.get(key);
         if (!image) { image = decodeRaster(tile); tileRasters.current.set(key, image); }
         ctx.imageSmoothingEnabled = false; ctx.drawImage(image, p.x, p.y, side, side);
+      }
+    }
+    // Where the player has been: the chunks photographed from above (the real models).
+    if (state.world) {
+      const chunk = state.world.chunkSize, side = chunk * camera.scale;
+      ctx.imageSmoothingEnabled = true;
+      for (const [key, image] of mapCaptures.entries()) {
+        const [cx, cz] = key.split(':').map(Number) as [number, number], p = to(cx * chunk, cz * chunk);
+        if (p.x + side < 0 || p.y + side < 0 || p.x > size.width || p.y > size.height) continue;
+        ctx.drawImage(image, p.x - .25, p.y - .25, side + .5, side + .5);
       }
     }
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -240,7 +253,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     for (let x = Math.ceil(tl.x / grid) * grid; x < br.x; x += grid) { const p = to(x, 0); ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, size.height); ctx.stroke(); ctx.fillText(String(x), p.x + 4, 14); }
     for (let z = Math.ceil(tl.z / grid) * grid; z < br.z; z += grid) { const p = to(0, z); ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(size.width, p.y); ctx.stroke(); ctx.fillText(String(z), 4, p.y - 4); }
     if (camp) { const c = to(camp.x, camp.z); ctx.beginPath(); ctx.arc(c.x, c.y, 1000 * camera.scale, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,176,0,.45)'; ctx.setLineDash([5, 7]); ctx.stroke(); }
-  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle]);
+  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle, captured]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
