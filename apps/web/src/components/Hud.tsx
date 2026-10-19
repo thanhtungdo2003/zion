@@ -150,6 +150,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
       {state.damageDirAt > 0 && <div key={`dmg-${state.damageDirAt}`} className="hud-damage-dir" style={{ transform: `rotate(${-state.damageDir}rad)` }} aria-hidden><i /></div>}
       {state.killAt > 0 && <div key={`kill-${state.killAt}`} className="hud-kill" role="status"><b>{state.killStreak > 1 ? `HẠ GỤC ×${state.killStreak}` : 'HẠ GỤC'}</b><span>{state.killName}</span></div>}
+      {state.meleeCombo && <div key={`combo-${state.meleeCombo.at}`} className="hud-combo" aria-hidden><b>×{state.meleeCombo.n}</b><span>COMBO</span></div>}
       {state.hitMarkAt > 0 && <div key={state.hitMarkAt} className={`hud-hitmark${state.hitMarkHead ? ' head' : ''}`} aria-hidden><i /><i /><i /><i /></div>}
       {showWorld && (
         <>

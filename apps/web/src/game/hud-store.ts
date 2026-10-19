@@ -110,6 +110,8 @@ export interface HudState {
   rollCd: number;
   /** F3 debug overlay numbers. */
   debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number } | null;
+  /** Melee combo: blows chained in quick succession (shown near the crosshair). */
+  meleeCombo: { n: number; at: number } | null;
   /** Supply drops on the way (map icons with heading) and where each comes down. */
   supply: { planes: Array<{ x: number; z: number; yaw: number; ownerName: string }>; targets: Array<{ x: number; z: number }> } | null;
   /** Holding a blueprint up: what it is and whether it may stand where the hologram is. */
@@ -188,6 +190,7 @@ export function initialHud(): HudState {
     healing: null,
     guides: [],
     supply: null,
+    meleeCombo: null,
     planning: null,
     rollCd: 0,
   };

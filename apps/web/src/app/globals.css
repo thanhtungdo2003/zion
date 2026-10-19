@@ -3122,3 +3122,8 @@ kbd {
 .ix-presets { flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .ix-presets .btn { padding: 3px 8px; font-size: 12px; }
 .ix-presets .btn.on { background: var(--accent); color: var(--accent-ink); }
+/* Melee combo: pops beside the crosshair, then fades. */
+.hud-combo { position: absolute; left: calc(50% + 34px); top: calc(50% - 30px); display: flex; align-items: baseline; gap: 4px; color: #ffe2a0; text-shadow: 0 0 8px rgba(255,120,40,.8), 0 2px 2px #000; pointer-events: none; animation: hud-combo 1.3s ease-out forwards; }
+.hud-combo b { font-size: 26px; font-weight: 900; font-style: italic; }
+.hud-combo span { font-size: 10px; font-weight: 800; letter-spacing: .14em; }
+@keyframes hud-combo { 0% { transform: scale(1.7) rotate(-6deg); opacity: 0; } 12% { transform: scale(1) rotate(-3deg); opacity: 1; } 70% { opacity: 1; } 100% { transform: translateY(-8px) rotate(-3deg); opacity: 0; } }

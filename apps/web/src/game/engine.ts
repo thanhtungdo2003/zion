@@ -116,6 +116,7 @@ import { ResourceDisposer } from './render/resources';
 import { Avatar } from './render/avatars';
 import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
 import { BuildingController } from './building-controller';
+import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
 import { prepareGuardModel } from './render/guard-model';
@@ -240,6 +241,9 @@ export class GameEngine {
   private preview: CharacterPreview | null = null;
   private nearNurse = false;
   private nearArchitect = false;
+  /** Melee juice: hit-stop, camera punch, layered sounds, combos (cosmetic). */
+  private readonly meleeFeel = new MeleeFeel((name, volume, rate) => this.sounds?.play(name, { volume, rate }));
+  private feel: MeleeFeelFrame = { timeScale: 1, yaw: 0, pitch: 0, roll: 0, fov: 0, shake: 0, push: 0 };
   /** Survival base building (trees, structures, blueprints, supply drops). */
   private building: BuildingController | null = null;
   private architectTemplate: CharacterTemplate | null = null;
@@ -1488,9 +1492,16 @@ export class GameEngine {
         if (m.attackerId === this.welcome?.playerId && m.targetId !== m.attackerId && m.damage > 0) {
           const head = m.zone === 'head' || m.zone === 'decapitation';
           this.hud.set({ hitMarkAt: performance.now(), hitMarkHead: head });
-          // A crisp tick on every hit, a bright ring on head shots (heard only by the shooter).
-          this.sounds?.play('bulletHit', { volume: .75, rate: .96 + Math.random() * .08 });
-          if (head) this.sounds?.play('headshot', { volume: .45 });
+          const now = performance.now();
+          if (weaponSpec(this.equippedWeapon())?.kind === 'melee' && now - this.meleeFeel.lastSwing < 900) {
+            // Our blow landed: hit-stop, punch and the layered impact (instead of the gun tick).
+            this.meleeFeel.impact(now, { head, damage: m.damage, slash: m.zone === 'slash' || m.zone === 'decapitation' });
+            if (this.meleeFeel.combo >= 2) this.hud.set({ meleeCombo: { n: this.meleeFeel.combo, at: now } });
+          } else {
+            // A crisp tick on every hit, a bright ring on head shots (heard only by the shooter).
+            this.sounds?.play('bulletHit', { volume: .75, rate: .96 + Math.random() * .08 });
+            if (head) this.sounds?.play('headshot', { volume: .45 });
+          }
         }
         if (m.targetId === this.welcome?.playerId && m.attackerId && m.attackerId !== m.targetId && this.local) {
           // Damage direction: where the hit came from, relative to where we are looking.
@@ -1540,6 +1551,7 @@ export class GameEngine {
           const now = performance.now(), hud = this.hud.get();
           const name = isZombieId(m.playerId) ? 'Zombie' : this.names.get(m.playerId) ?? 'Đối thủ';
           this.hud.set({ killAt: now, killName: name, killStreak: now - hud.killAt < 6000 ? hud.killStreak + 1 : 1 });
+          if (weaponSpec(this.equippedWeapon())?.kind === 'melee' && now - this.meleeFeel.lastSwing < 1200) this.meleeFeel.kill(now);
           this.sounds?.play(isZombieId(m.playerId) ? 'knockdown' : 'killConfirm', { volume: .8 });
         }
         if (!isZombieId(m.playerId)) {
@@ -1896,7 +1908,8 @@ export class GameEngine {
     this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.setInfected(this.selfInfected);
-    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt, this.elapsed, local.state);
+    this.feel = this.meleeFeel.update(dt, performance.now());
+    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state);
     { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
     this.localAvatar?.posePlan(!!this.building?.planning);
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the
@@ -1928,7 +1941,7 @@ export class GameEngine {
     if (this.localAvatar && this.firstPerson && !local.state.flight) this.localAvatar.root.visible = false;
     if (this.viewModel) {
       const axes = this.input.axes();
-      this.viewModel.update(dt, {
+      this.viewModel.update(dt * this.feel.timeScale, {
         visible: this.firstPerson && !this.scoped && !local.dead && !local.state.flight && !driving,
         moving: axes.mx !== 0 || axes.mz !== 0,
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
@@ -2234,10 +2247,11 @@ export class GameEngine {
     } else if (action === 'melee' && spec?.kind === 'melee') {
       const variant = this.localAvatar?.slash() ?? 1;
       this.viewModel?.swing(variant, spec.animationMs);
+      this.meleeFeel.swing(variant, spec.animationMs ?? spec.swingMs, spec.weight, performance.now());
       const avatar = this.localAvatar;
       if (avatar) this.slashAt(
         () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
-        weapon, variant,
+        weapon, variant, true,
       );
     } else if (action === 'detonate') {
       this.viewModel?.kick(.15);
@@ -2528,14 +2542,15 @@ export class GameEngine {
   }
 
   /** Blade swing visual and sound (local or remote), from the weapon's reach. */
-  private slashAt(follow: () => SlashPose | null, weapon: number, variant: number): void {
+  private slashAt(follow: () => SlashPose | null, weapon: number, variant: number, own = false): void {
     const spec = weaponSpec(weapon);
     if (spec?.kind !== 'melee') return;
     const pose = follow();
     if (!pose) return;
     const reach = spec.animationMs ? spec.range : Math.min(spec.range, 2.8);
     this.slashes?.spawn(follow, reach * 0.85, variant, spec.hitDelayMs === undefined ? undefined : spec.hitDelayMs / 1000);
-    this.sounds?.play('swordSlash', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25 });
+    // Our own whoosh comes from the melee feel (pitched by weapon weight).
+    if (!own) this.sounds?.play('swordSlash', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25 });
   }
 
   /* --------------------------------------- shop ------------------------------------------ */
@@ -3291,7 +3306,7 @@ export class GameEngine {
       const opticPower = this.currentOptic()?.magnification ?? 1;
       const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.firstPerson ? 1.25 : 1.35 : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
-      const fov = scopeFov(FP_FOV, zoom);
+      const fov = scopeFov(FP_FOV, zoom) + this.feel.fov;
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
@@ -3309,11 +3324,19 @@ export class GameEngine {
         if (ride) this.vehicles!.withoutOwnColliders(ride, () => this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming));
         else this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
         if (this.leanBlend) cam.rotateZ(-this.leanBlend * .08);
+        // Melee: the shoulder camera leans into the swing, punches in on a hit and shakes.
+        const feel = this.feel;
+        if (feel.yaw || feel.pitch || feel.roll || feel.push || feel.shake) {
+          cam.position.lerp(leaned, Math.min(.25, feel.push * .35));
+          cam.rotateY(feel.yaw * .7); cam.rotateX(feel.pitch * .7); cam.rotateZ(feel.roll * .8);
+          if (feel.shake) cam.position.add(this.focus.set((Math.random() - .5) * feel.shake, (Math.random() - .5) * feel.shake, (Math.random() - .5) * feel.shake));
+        }
       } else {
         cam.position.set(leaned.x - Math.sin(this.input.yaw) * 0.12, leaned.y, leaned.z - Math.cos(this.input.yaw) * 0.12);
         const shake = (this.effects?.shake ?? 0) * 0.25;
         if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
-        cam.rotation.set(this.input.pitch, this.input.yaw, -this.leanBlend * .2, 'YXZ');
+        cam.rotation.set(this.input.pitch + this.feel.pitch, this.input.yaw + this.feel.yaw, -this.leanBlend * .2 + this.feel.roll, 'YXZ');
+        if (this.feel.shake) cam.position.add(this.focus.set((Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6));
         if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
           const rolling=this.local.state.rollTicks>0;
           const alongLook=Math.abs(Math.cos(this.local.state.rollYaw-this.input.yaw))>.65;
@@ -3363,7 +3386,12 @@ export class GameEngine {
     cam.position.set(f.x + pan.x + Math.sin(CAM_YAW) * h, f.y + Math.sin(CAM_PITCH) * dist, f.z + pan.z + Math.cos(CAM_YAW) * h);
     const shake = this.effects?.shake ?? 0;
     if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
-    cam.rotation.set(-CAM_PITCH, CAM_YAW, 0, 'YXZ');
+    // Melee from above: a quick dolly towards the player on a hit, a tilt into the swing, a shake.
+    if (this.feel.push || this.feel.shake || this.feel.roll) {
+      cam.position.lerp(this.focus.set(px, py + 1, pz), Math.min(.12, this.feel.push * .16));
+      if (this.feel.shake) cam.position.add(this.focus.set((Math.random() - .5) * this.feel.shake * 2, (Math.random() - .5) * this.feel.shake * 2, (Math.random() - .5) * this.feel.shake * 2));
+    }
+    cam.rotation.set(-CAM_PITCH, CAM_YAW, this.feel.roll * .5, 'YXZ');
     occlusionUniforms.uFadeCam.value.copy(cam.position);
     occlusionUniforms.uFadeTarget.value.set(px, py + 1.0, pz);
     // Whole props between the camera and the player turn see-through.
