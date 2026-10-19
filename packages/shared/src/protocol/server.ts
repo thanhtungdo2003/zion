@@ -249,7 +249,8 @@ export interface RespawnEvent {
 
 export interface PlayerInfoEvent {
   t: 'players';
-  players: Array<{ id: number; name: string; rank?: RankTitle; pvp?: boolean }>;
+  /** Scoreboard: kills and deaths this match/session, out of the fight, infected, a bot. */
+  players: Array<{ id: number; name: string; rank?: RankTitle; pvp?: boolean; kills?: number; deaths?: number; dead?: boolean; zombie?: boolean; bot?: boolean }>;
 }
 
 export interface QuestStateMessage {

@@ -65,7 +65,7 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean };
+  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean; scoreboard?: (open: boolean) => void };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
@@ -86,6 +86,7 @@ export class InputController {
       /** Left click / wheel used by a mode (placing a structure): true = taken. */
       primary?: () => boolean;
       wheel?: (dir: number) => boolean;
+      scoreboard?: (open: boolean) => void;
     },
   ) {
     this.onChat = handlers.openChat;
@@ -117,7 +118,7 @@ export class InputController {
         this.onChat();
         return;
       }
-      // Inventory: E. Tab switches to the next weapon.
+      // Inventory: E. Tab (held): the scoreboard.
       if (e.code === 'KeyE') {
         e.preventDefault();
         if (!e.repeat) { this.keys.clear(); this.mouseButtons = 0; this.handlers.openInventory('KeyE'); }
@@ -125,7 +126,7 @@ export class InputController {
       }
       if (e.code === 'Tab') {
         e.preventDefault();
-        if (!e.repeat) this.handlers.cycleHotbar(1);
+        if (!e.repeat) this.handlers.scoreboard?.(true);
         return;
       }
       if (e.code === 'KeyX' && !e.repeat) { this.crouch = !this.crouch; if (this.crouch) this.prone = false; }
@@ -147,9 +148,11 @@ export class InputController {
     });
     on('keyup', (e) => {
       this.keys.delete(e.code);
+      if (e.code === 'Tab') { e.preventDefault(); this.handlers.scoreboard?.(false); }
     });
     on('blur', () => {
       this.clearInput();
+      this.handlers.scoreboard?.(false);
     });
     on('resize', () => this.resetTouch());
     const visibility = () => { if (document.hidden) this.clearInput(); };

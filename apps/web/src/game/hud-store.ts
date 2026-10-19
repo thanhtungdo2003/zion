@@ -63,6 +63,10 @@ export interface HudState {
   trianglesK: number;
   playersNearby: number;
   playersOnline: number;
+  /** Tab held: the scoreboard, from the last player list (our own id marks our row). */
+  scoreboard: boolean;
+  scorePlayers: Array<{ id: number; name: string; rank?: string; kills: number; deaths: number; dead: boolean; zombie: boolean; bot: boolean }>;
+  selfId: number;
   health: number;
   swimming: boolean;
   username: string;
@@ -160,6 +164,9 @@ export function initialHud(): HudState {
     trianglesK: 0,
     playersNearby: 0,
     playersOnline: 0,
+    scoreboard: false,
+    scorePlayers: [],
+    selfId: 0,
     health: 100,
     swimming: false,
     username: '',

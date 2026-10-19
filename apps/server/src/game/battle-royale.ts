@@ -66,6 +66,9 @@ export class BattleRoyaleMatch {
     else if (this.phase !== 'finished') { this.entrants.delete(id); this.squads.delete(id); }
   }
   eliminate(id: number): void {
+    // Out before the drop (a bot killed in the lobby): no longer an entrant at all. Otherwise it
+    // would stay "alive" in the count for the whole match and the match could never end.
+    if (this.phase === 'waiting' || this.phase === 'countdown') { this.entrants.delete(id); this.squads.delete(id); return; }
     if (this.phase !== 'running' || !this.entrants.has(id) || this.eliminated.has(id)) return;
     // Placement counts sides: a squad member out while the squad still fights shares its fate.
     this.eliminated.set(id, this.aliveSides);

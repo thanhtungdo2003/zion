@@ -547,6 +547,7 @@ export class GameEngine {
       hotbar: (slot) => this.inventory.selectSlot(slot),
       // Through a night-vision scope the wheel switches night vision instead of weapons.
       cycleHotbar: (dir) => { if (!this.toggleNightVision()) this.inventory.cycle(dir); },
+      scoreboard: (open) => this.hud.set({ scoreboard: open }),
       reload: () => this.weaponCtl.reload(performance.now(), this.equippedWeapon()),
       heal: () => void this.useMedkit(),
       primary: () => this.building?.primary() ?? false,
@@ -1471,7 +1472,7 @@ export class GameEngine {
         this.ranks.clear();
         for (const p of m.players) { this.names.set(p.id, p.name); if (p.rank) this.ranks.set(p.id, p.rank); }
         for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id), this.pvpNames.has(id));
-        this.hud.set({ playersOnline: m.players.length });
+        this.hud.set({ playersOnline: m.players.length, selfId: this.welcome?.playerId ?? 0, scorePlayers: m.players.map((p) => ({ id: p.id, name: p.name, rank: p.rank?.title, kills: p.kills ?? 0, deaths: p.deaths ?? 0, dead: !!p.dead, zombie: !!p.zombie, bot: !!p.bot })) });
         break;
       case 'teamState': {
         const previous = this.hud.get().team;

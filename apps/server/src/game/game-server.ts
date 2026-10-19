@@ -230,6 +230,9 @@ export class GameServer {
   private readonly epoch = performance.now();
   private readonly stepInfo: StepInfo = { frozen: false, hitWall: false, jumped: false, steppedUp: false, reverted: false };
   private readonly scratch: Player[] = [];
+  /** Scoreboard: kills and deaths per player or bot id this match / session. */
+  private readonly stats = new Map<number, { kills: number; deaths: number }>();
+  private statsDirty = false;
   /** Light props knocked away by vehicles, bullets and blasts. */
   private readonly knock: PropKnock;
   /** Shock waves racing out from blasts: each body is struck once, when the front reaches it. */
@@ -1667,6 +1670,7 @@ export class GameServer {
       this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear();
       this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
       this.battle = this.newBattleMatch();
+      this.stats.clear();
       this.battleFlightStarted = false;
       this.bots?.clear(); this.nextBotAt = 0;
       this.scatterGroundLoot();
@@ -1709,6 +1713,12 @@ export class GameServer {
     }
     if (this.tick % TICK_RATE !== 0) return;
     if (match.phase === 'running') {
+      // Safety net: an entrant with no living body (a bot gone, a player who left) is out.
+      const living = new Set<number>();
+      for (const p of this.players.values()) if (!p.dead) living.add(p.id);
+      for (const bot of this.bots?.bots ?? []) if (!bot.dead) living.add(bot.id);
+      for (const r of this.rejoins.values()) living.add(r.id);
+      for (const id of match.entrants.keys()) if (!match.eliminated.has(id) && !living.has(id)) match.eliminate(id);
       for (const p of this.players.values()) if (!p.dead && match.outside(p.state.x, p.state.z)) {
         this.damage(null, p, match.state(now).damagePerSecond, 'red_zone', p.state.x, p.state.y + 1, p.state.z, now);
       }
@@ -2153,6 +2163,7 @@ export class GameServer {
     return new BattleRoyaleMatch((Math.random() * 0x7fffffff) | 0, gen.worldSize, (x, z) => gen.heightAt(x, z) > gen.seaLevel + .5);
   }
   private botDied(bot: BattleBot, by: string, now: number, killerId: number | null = null): void {
+    this.credit(killerId, bot.id);
     this.battle?.eliminate(bot.id);
     this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId });
     this.broadcast({ t: 'chat', from: 'BATTLE ROYALE', fromId: 0, system: true, text: `${bot.name} đã bị loại bởi ${by}.` });
@@ -2371,6 +2382,7 @@ export class GameServer {
     if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT) || this.architect.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
     this.building?.step(TICK_DT, now);
     this.knock?.step(now);
+    if (this.statsDirty && this.tick % 40 === 0) this.broadcastPlayerList();
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
     this.stepDowned(now);
@@ -2822,6 +2834,7 @@ export class GameServer {
   /** Final death. Active quests are lost, and so are the quest items being carried. */
   private killPlayer(t: Player, attackerId: number | null, now: number, cause?: number | string): void {
     if (t.dead) return;
+    this.credit(attackerId, t.id);
     this.vehicles.release(t);
     t.downed = false;
     t.bleed = 0;
@@ -3818,9 +3831,20 @@ export class GameServer {
     for (const p of this.grid.query(center.chunkX, center.chunkZ, ENTITY_INTEREST_RADIUS_CHUNKS, [])) p.session.sendJson(msg);
   }
 
+  /** A kill for the scoreboard (`killer` null or the victim itself: only the death counts). */
+  private credit(killer: number | null, victim: number): void {
+    const s = (id: number) => { let v = this.stats.get(id); if (!v) this.stats.set(id, v = { kills: 0, deaths: 0 }); return v; };
+    s(victim).deaths++;
+    if (killer !== null && killer !== victim) s(killer).kills++;
+    this.statsDirty = true;
+  }
+
   private broadcastPlayerList(): void {
-    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled }));
-    for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' }, pvp: false });
+    this.statsDirty = false;
+    const score = (id: number) => this.stats.get(id) ?? { kills: 0, deaths: 0 };
+    const zombie = (id: number) => this.infection?.zombies.has(id) ?? false;
+    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled, ...score(p.id), dead: p.dead || (this.battle?.eliminated.has(p.id) ?? false), zombie: zombie(p.id) }));
+    for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' }, pvp: false, ...score(bot.id), dead: bot.dead, zombie: zombie(bot.id), bot: true } as (typeof players)[number]);
     this.broadcast({ t: 'players', players });
   }
 

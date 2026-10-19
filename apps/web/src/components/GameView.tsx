@@ -1,5 +1,6 @@
 'use client';
 
+import { Scoreboard } from './Scoreboard';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { WEAPON_BY_ITEM, weaponSpec, type ClientMessage } from '@zion/shared';
@@ -158,6 +159,7 @@ export default function GameView() {
       {inWorld && inv.open && hud.mode === 'infection' && <LoadoutPanel store={inventory} locked={!!hud.infection?.infected} onChange={(l) => engineRef.current?.setLoadout(l)} />}
       {inWorld && !inv.open && hud.groundNear.length >= 2 && <GroundPanel items={hud.groundNear} onPick={(id) => engineRef.current?.pickUp(id)} />}
       {inWorld && inv.open && hud.mode !== 'infection' && <InventoryPanel ground={hud.groundNear} onPickGround={(id) => engineRef.current?.pickUp(id)} state={inv} store={inventory} coins={hud.mode === 'battle-royale' ? null : hud.coins} side={hud.dialogue ? rail('inventory') : undefined} />}
+      {inWorld && hud.scoreboard && <Scoreboard hud={hud} />}
       {inWorld && hud.mapOpen && <WorldMap store={worldMap} hud={hud} onClose={() => engineRef.current?.setMapOpen(false)} />}
     </div>
   );
