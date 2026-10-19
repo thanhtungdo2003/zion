@@ -11,6 +11,7 @@ import { AuthError, type AuthService } from '../security/auth-service';
 import type { AccessClaims, TokenService } from '../security/tokens';
 import { registerAuthRoutes } from './routes/auth';
 import { registerTeamRoutes } from './routes/teams';
+import { registerWorldChatRoutes } from './routes/world-chat';
 import { registerCareerRoutes } from './routes/career';
 import type { ProgressionService } from '../game/progression';
 import type { TeamService } from '../game/teams';
@@ -128,6 +129,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerHealthRoutes(app, deps.health, config.METRICS_TOKEN);
   registerAuthRoutes(app, deps);
   registerTeamRoutes(app, deps);
+  registerWorldChatRoutes(app, deps);
   registerCareerRoutes(app, deps);
   registerGameRoutes(app, deps);
   registerLibraryRoutes(app, deps);

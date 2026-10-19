@@ -3168,3 +3168,26 @@ kbd {
 .ifx-skill small { color: #c99; font-weight: 500; }
 .ifx-skill.on { border-color: #ff3b2a; box-shadow: 0 0 18px rgba(255, 50, 30, .45); }
 .ifx-skill.wait { opacity: .6; }
+
+/* ---- Main menu world chat ---- */
+.world-chat { position: fixed; left: 16px; bottom: 16px; z-index: 40; width: min(380px, calc(100vw - 32px)); font: 500 13px/1.35 var(--sans, system-ui); }
+.world-chat-bar { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; background: rgba(8, 11, 14, .78); border: 1px solid rgba(255,255,255,.1); border-left: 3px solid #ffb000; color: #dfe3e6; cursor: pointer; text-align: left; backdrop-filter: blur(6px); }
+.world-chat-tag { flex: none; padding: 2px 6px; background: #ffb000; color: #111; font: 800 10px/1.3 var(--sans, system-ui); letter-spacing: .08em; text-transform: uppercase; }
+.world-chat-last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-chat-last b { color: #ffcf66; }
+.world-chat .muted { color: #7d868c; }
+.world-chat-bar i { font-style: normal; min-width: 20px; padding: 1px 5px; border-radius: 9px; background: #e5432f; color: #fff; font-size: 11px; text-align: center; }
+.world-chat-panel { display: flex; flex-direction: column; height: min(420px, 60vh); background: rgba(8, 11, 14, .9); border: 1px solid rgba(255,255,255,.1); border-top: 3px solid #ffb000; box-shadow: 0 18px 48px rgba(0,0,0,.5); backdrop-filter: blur(8px); }
+.world-chat-panel header { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.world-chat-panel header b { letter-spacing: .14em; font-size: 12px; }
+.world-chat-panel header small { color: #7d868c; flex: 1; }
+.world-chat-panel header button { background: none; border: 0; color: #c7cdd1; cursor: pointer; }
+.world-chat-list { flex: 1; overflow-y: auto; padding: 8px 12px; display: grid; align-content: start; gap: 6px; }
+.world-chat-list p { margin: 0; overflow-wrap: anywhere; }
+.world-chat-list time { color: #6b747a; font-size: 11px; margin-right: 6px; }
+.world-chat-list b { color: #7fd1ff; margin-right: 6px; }
+.world-chat-list p.mine b { color: #ffb000; }
+.world-chat-panel form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(255,255,255,.07); }
+.world-chat-panel input { flex: 1; min-width: 0; padding: 8px 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #fff; }
+.world-chat-login, .world-chat-error { margin: 0; padding: 8px 12px; color: #9aa3a8; font-size: 12px; }
+.world-chat-error { color: #ff8a7a; }

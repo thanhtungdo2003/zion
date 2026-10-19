@@ -20,6 +20,7 @@ import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
 import { LeaderboardModal } from '@/components/LeaderboardModal';
 import { InstallAppButton } from '@/components/InstallAppButton';
+import { WorldChat } from '@/components/WorldChat';
 import { SQUAD_LIMIT, TEAM_LIMIT, type TeamAction, type TeamLobby as Lobby } from '@zion/shared';
 
 // WebGL: client only.
@@ -464,6 +465,7 @@ export default function MainMenu() {
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {loading && <LoadingScreen onDone={doneLoading} />}
+      <WorldChat session={session} />
     </main>
   );
 }

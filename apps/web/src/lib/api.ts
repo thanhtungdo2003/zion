@@ -369,3 +369,13 @@ export function getHandbook(): Promise<HandbookEntry[]> { return request('/api/h
 export function getNews(): Promise<NewsPost[]> { return request('/api/news'); }
 export function studioNews(): Promise<NewsDraft[]> { return studioRequest('/api/studio/news'); }
 export function studioNewsAction(action: NewsAction): Promise<NewsDraft | null> { return studioRequest('/api/studio/news', { method: 'POST', body: JSON.stringify(action) }); }
+
+/** The world channel (main menu chat, every player on the server). */
+export interface WorldChatLine { id: number; at: number; name: string; text: string }
+export function worldChat(after: number): Promise<{ latest: number; lines: WorldChatLine[] }> {
+  return request(`/api/chat?after=${after}`);
+}
+export async function sendWorldChat(text: string): Promise<WorldChatLine> {
+  await ensureAccess();
+  return request('/api/chat', { method: 'POST', auth: true, body: JSON.stringify({ text }) });
+}
