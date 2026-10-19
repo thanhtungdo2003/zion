@@ -114,7 +114,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     }
     ctx.clip();
     const origin = to(0, 0), worldSize = state.world ? state.world.sizeChunks * state.world.chunkSize : 4096;
-    ctx.fillStyle = '#26352b'; ctx.fillRect(origin.x, origin.y, worldSize * camera.scale, worldSize * camera.scale);
+    ctx.fillStyle = '#1c2326'; ctx.fillRect(origin.x, origin.y, worldSize * camera.scale, worldSize * camera.scale);
     if (atlas && raster.current) { ctx.imageSmoothingEnabled = true; ctx.drawImage(raster.current, origin.x, origin.y, atlas.size * camera.scale, atlas.size * camera.scale); }
     if (camera.scale >= 0.75 && tiles.current) {
       for (const key of tileRasters.current.keys()) if (!tiles.current.tiles.has(key)) tileRasters.current.delete(key);
@@ -151,11 +151,11 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
       ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
       const dx = shadowOff * MAP_SHADOW_DIR.x, dz = shadowOff * MAP_SHADOW_DIR.z, c = Math.cos(rot), s = Math.sin(rot);
       ctx.fillStyle = 'rgba(16,18,22,.42)'; ctx.fillRect(dx * c + dz * s - hx, -dx * s + dz * c - hz, hx * 2, hz * 2);
-      const v = Math.round(234 - tone * 30);
-      ctx.fillStyle = `rgb(${v},${v + 1},${v - 2})`; ctx.fillRect(-hx, -hz, hx * 2, hz * 2);
+      const v = Math.round(184 - tone * 30);
+      ctx.fillStyle = `rgb(${v},${v + 6},${v + 8})`; ctx.fillRect(-hx, -hz, hx * 2, hz * 2);
       if (hx > 2 && hz > 2) {
-        ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(-hx, -hz, hx * 2, 1.2); ctx.fillRect(-hx, -hz, 1.2, hz * 2);
-        ctx.strokeStyle = 'rgba(110,112,110,.9)'; ctx.lineWidth = .8; ctx.strokeRect(-hx, -hz, hx * 2, hz * 2);
+        ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-hx, -hz, hx * 2, 1.2); ctx.fillRect(-hx, -hz, 1.2, hz * 2);
+        ctx.strokeStyle = 'rgba(60,66,70,.95)'; ctx.lineWidth = .8; ctx.strokeRect(-hx, -hz, hx * 2, hz * 2);
       }
       ctx.restore();
     };

@@ -1,5 +1,5 @@
 import { setImmediate } from 'node:timers/promises';
-import { type AtlasFootprint, type AtlasTile, type WorldAtlas } from '@zion/shared';
+import { BIOME_MAP_COLORS, type AtlasFootprint, type AtlasTile, type WorldAtlas } from '@zion/shared';
 import { allStructures, authoredWorld, CAMP_LAYOUT, makeColumnSample, type AuthoredWorld, type CampPart, type WorldGenerator } from '@zion/worldgen';
 import { LruCache } from './lru';
 
@@ -89,17 +89,19 @@ function battleOverlay(generator: WorldGenerator, world: AuthoredWorld): Pick<Wo
 const SUN_ELEVATION = 0.42;
 /** Unit vector towards the sun: west (−X) and a little south (+Z), low in the sky. */
 const SUN = (() => { const c = Math.cos(SUN_ELEVATION), a = .26; return { x: -Math.cos(a) * c, y: Math.sin(SUN_ELEVATION), z: Math.sin(a) * c }; })();
-const GROUND = [170, 173, 165] as const, WATER = [126, 138, 150] as const;
+/** Water; the ground takes its biome's colour (the client tones the map down to near-grey). */
+const WATER = [96, 116, 132] as const;
 
 async function terrainRgb(generator: WorldGenerator, x: number, z: number, size: number, pixels: number): Promise<string> {
   const step = size / pixels, margin = Math.min(48, pixels / 4) | 0, n = pixels + margin * 2;
-  const heights = new Float32Array(n * n), wet = new Uint8Array(n * n), column = makeColumnSample();
+  const heights = new Float32Array(n * n), wet = new Uint8Array(n * n), colour = new Uint32Array(n * n), column = makeColumnSample();
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
       const sample = generator.sampleColumn(x + (i - margin + .5) * step, z + (j - margin + .5) * step, column);
       const water = Number.isFinite(sample.water) ? Math.max(sample.water, generator.seaLevel) : generator.seaLevel;
       heights[j * n + i] = Math.max(sample.height, water);
       wet[j * n + i] = sample.height < water - .05 ? 1 : 0;
+      colour[j * n + i] = BIOME_MAP_COLORS[generator.classifyBiome(sample, 0)] ?? 0x8a8a84;
     }
     await setImmediate();
   }
@@ -119,7 +121,10 @@ async function terrainRgb(generator: WorldGenerator, x: number, z: number, size:
         if (heights[sj * n + si]! > h + s * step * tanSun + .3) { shade = .84; break; }
       }
       const f = Math.max(.6, Math.min(1.15, (.62 + .38 * lit / SUN.y) * shade));
-      const base = wet[k] ? WATER : GROUND, o = (j * pixels + i) * 3;
+      // The biome gives only a hue: every ground colour is brought to the same lightness, so the
+      // map reads by its relief, not by light and dark patches of land.
+      const c = colour[k]!, cr = (c >> 16) & 255, cg = (c >> 8) & 255, cb = c & 255, even = 150 / Math.max(1, .2126 * cr + .7152 * cg + .0722 * cb);
+      const base = wet[k] ? WATER : [cr * even, cg * even, cb * even] as const, o = (j * pixels + i) * 3;
       rgb[o] = Math.min(255, base[0] * f); rgb[o + 1] = Math.min(255, base[1] * f); rgb[o + 2] = Math.min(255, base[2] * f);
     }
     if (j % 32 === 31) await setImmediate();

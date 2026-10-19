@@ -1,7 +1,7 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
 import type { BattleState } from '@zion/shared';
 import { drawBattleCircles } from '../battle-map-overlay';
-import { Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type ChunkData } from '@zion/shared';
+import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
 import { drawLocationIcon } from './location-icon';
@@ -83,19 +83,21 @@ export class Minimap {
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
         const k = j * n + i;
-        // One grey ground (roads a shade darker, water blue-grey); only the relief shows, lit by
-        // the map's low afternoon sun from the west-south-west, as on the world map.
+        // The biome's colour (toned down to near-grey below), roads darker, water blue-grey; the
+        // relief lit by the map's low afternoon sun from the west-south-west, as on the world map.
         const surface = c.surface[k]!, h = dequantizeHeight(c.heights[heightIndex(n, i, j)]!);
         const road = surface === Surface.Asphalt || surface === Surface.MossyAsphalt || surface === Surface.BrokenAsphalt || surface === Surface.GravelRoad || surface === Surface.DirtRoad;
         const wq = c.water[k]!, wet = h < this.seaLevel || (wq > 0 && dequantizeHeight(wq) > h + .05);
-        const col = wet ? 0x7e8a96 : road ? 0x9c9e98 : 0xaaada5;
+        const col = wet ? 0x607486 : road ? 0x6a6d6a : BIOME_MAP_COLORS[c.biome[k]! as Biome] ?? 0x8a8a84;
         const dx = (dequantizeHeight(c.heights[heightIndex(n, i + 1, j)]!) - dequantizeHeight(c.heights[heightIndex(n, i - 1, j)]!)) * .55;
         const dz = (dequantizeHeight(c.heights[heightIndex(n, i, j + 1)]!) - dequantizeHeight(c.heights[heightIndex(n, i, j - 1)]!)) * .55;
         const lit = Math.max(0, (-dx * MAP_SUN.x + MAP_SUN.y - dz * MAP_SUN.z) / Math.hypot(dx, 1, dz));
         const shade = wet ? 1 : Math.max(.6, Math.min(1.15, .62 + .38 * lit / MAP_SUN.y));
-        img.data[k * 4] = Math.min(255, ((col >> 16) & 255) * shade);
-        img.data[k * 4 + 1] = Math.min(255, ((col >> 8) & 255) * shade);
-        img.data[k * 4 + 2] = Math.min(255, (col & 255) * shade);
+        // Biomes only tint: every ground colour at the same lightness (relief does the rest).
+        const even = wet || road ? 1 : 150 / Math.max(1, .2126 * ((col >> 16) & 255) + .7152 * ((col >> 8) & 255) + .0722 * (col & 255));
+        img.data[k * 4] = Math.min(255, ((col >> 16) & 255) * shade * even);
+        img.data[k * 4 + 1] = Math.min(255, ((col >> 8) & 255) * shade * even);
+        img.data[k * 4 + 2] = Math.min(255, (col & 255) * shade * even);
         img.data[k * 4 + 3] = 255;
       }
     }
@@ -160,7 +162,7 @@ export class Minimap {
     const px = new Uint8ClampedArray([r / n * 255, g / n * 255, b / n * 255, 255]);
     mapTone(px);
     // Lifted a little: dark foliage still reads as its colour from above.
-    const lift = (v: number) => Math.round(v * .8 + 52);
+    const lift = (v: number) => Math.round(v * .9 + 18);
     const css = `rgb(${lift(px[0]!)},${lift(px[1]!)},${lift(px[2]!)})`;
     this.colours.set(asset, css);
     return css;
@@ -203,10 +205,10 @@ export class Minimap {
         if (s.deck) { draw(0, 0, '#a9aba6'); continue; }
         draw(sx, sz, shadow);
         const shade = Math.max(0, Math.min(1, (height - .5) / 8));
-        draw(0, 0, `rgb(${Math.round(232 - shade * 18)},${Math.round(233 - shade * 18)},${Math.round(230 - shade * 16)})`, 'rgba(120,122,120,.9)');
+        draw(0, 0, `rgb(${Math.round(184 - shade * 20)},${Math.round(190 - shade * 20)},${Math.round(192 - shade * 18)})`, 'rgba(70,76,80,.95)');
         for (const q of rects) {
           ctx.save(); ctx.translate(q.x, q.z); ctx.rotate(q.a);
-          ctx.fillStyle = 'rgba(255,255,255,.55)';
+          ctx.fillStyle = 'rgba(255,255,255,.35)';
           ctx.fillRect(-q.w / 2, -q.h / 2, q.w, Math.min(1.2, q.h));
           ctx.fillRect(-q.w / 2, -q.h / 2, Math.min(1.2, q.w), q.h);
           ctx.restore();
@@ -262,7 +264,7 @@ export class Minimap {
     ctx.beginPath();
     ctx.rect(0, 0, W, W);
     ctx.clip();
-    ctx.fillStyle = '#1d4f7a';
+    ctx.fillStyle = '#2a3a44';
     ctx.fillRect(0, 0, W, W);
     // Rotate the world so the camera's "up" direction is up on the map.
     ctx.translate(W / 2, W / 2);
