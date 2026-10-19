@@ -161,6 +161,8 @@ export class Player {
   speedMul = 1;
   /** Infected hit by a bullet: slowed to `slowFactor` until `slowUntil` (server time). */
   slowUntil = 0;
+  /** Who killed this player last (battle royale: a solo player watches them after dying). */
+  killedBy: number | null = null;
   /** Battle royale / infection: joined the server but still loading; enters the match on 'ready'. */
   pendingMatch: { squad?: { id: string; name: string; size: number }; since: number } | null = null;
   slowFactor = 1;

@@ -4,13 +4,17 @@ import { BATTLE_MAP, BATTLE_FLIGHT, battlePlaneAt, Rng, clamp, type BattleCircle
 /** A lobby short of players starts anyway this long after its first player arrived. */
 export const BATTLE_LOBBY_WAIT_MS = 60_000;
 
+/**
+ * Zone stages: how far it shrinks (share of the island), the wait before it moves, how long it
+ * takes to close in and the damage outside. Each closing takes 20 s longer than the one before.
+ */
 export const BATTLE_STAGES = [
-  { ratio: .72, wait: 180_000, shrink: 120_000, damage: 1 },
-  { ratio: .48, wait: 120_000, shrink: 90_000, damage: 2 },
-  { ratio: .29, wait: 90_000, shrink: 75_000, damage: 4 },
-  { ratio: .15, wait: 75_000, shrink: 60_000, damage: 7 },
-  { ratio: .06, wait: 60_000, shrink: 50_000, damage: 12 },
-  { ratio: 0, wait: 45_000, shrink: 40_000, damage: 20 },
+  { ratio: .72, wait: 210_000, shrink: 120_000, damage: 1 },
+  { ratio: .48, wait: 150_000, shrink: 140_000, damage: 2 },
+  { ratio: .29, wait: 120_000, shrink: 160_000, damage: 4 },
+  { ratio: .15, wait: 100_000, shrink: 180_000, damage: 7 },
+  { ratio: .06, wait: 85_000, shrink: 200_000, damage: 12 },
+  { ratio: 0, wait: 70_000, shrink: 220_000, damage: 20 },
 ] as const;
 
 /** Match clock and elimination rules, independent of physics and persistent survival characters. */

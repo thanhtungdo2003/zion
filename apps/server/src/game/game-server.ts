@@ -2261,8 +2261,11 @@ export class GameServer {
         if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
         if (this.battle && this.tick % 6 === 0) {
           // Eliminated: the world streams around the teammate being spectated.
+          // Squads watch a living teammate; solo players the one who killed them (while alive).
           const mate = [...this.players.values()].find((q) => q !== p && !q.dead && this.battle!.allies(p.id, q.id));
-          p.viewFrom = mate ? { x: mate.state.x, z: mate.state.z } : null;
+          const killer = p.killedBy === null ? undefined : this.players.get(p.killedBy) ?? this.bots?.bots.find((b) => b.id === p.killedBy);
+          const watch = mate ?? (killer && !killer.dead ? killer : undefined);
+          p.viewFrom = watch ? { x: watch.state.x, z: watch.state.z } : null;
           this.grid.update(p); p.streamer.setCenter(p.chunkX, p.chunkZ);
           this.sendTeam(p);
         } else if (this.tick % TICK_RATE === 0) this.sendTeam(p);
@@ -2871,6 +2874,7 @@ export class GameServer {
   private killPlayer(t: Player, attackerId: number | null, now: number, cause?: number | string): void {
     if (t.dead) return;
     this.credit(attackerId, t.id);
+    t.killedBy = attackerId !== t.id ? attackerId : null;
     this.vehicles.release(t);
     t.downed = false;
     t.bleed = 0;

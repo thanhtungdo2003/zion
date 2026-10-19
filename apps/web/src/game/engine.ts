@@ -454,6 +454,8 @@ export class GameEngine {
   private readonly xrayOutlines = new Set<Object3D>();
   /** Told the server the map is loaded (it then puts us into matchmaking). */
   private sentReady = false;
+  /** Who killed us last (solo battle royale spectating). */
+  private killerId: number | null = null;
   private readonly targetVisibility = new TargetVisibility();
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private lootCrateRenderer: BaseLifeRenderer | null = null;
@@ -1571,6 +1573,8 @@ export class GameEngine {
         if (m.targetId === this.welcome?.playerId) { this.healBreakAt = performance.now(); this.hud.set({ hurtAt: this.healBreakAt, hurtAmount: Math.min(1, 0.35 + m.damage / 40) }); }
         break;
       case 'death':
+        // Our own death: remember who did it (solo battle royale follows them).
+        if (m.playerId === this.welcome?.playerId) this.killerId = m.killerId !== m.playerId ? m.killerId ?? null : null;
         if (m.killerId === this.welcome?.playerId && m.playerId !== m.killerId) {
           // Kill confirmation: sound, banner and a streak that keeps counting for a few seconds.
           const now = performance.now(), hud = this.hud.get();
@@ -3284,7 +3288,13 @@ export class GameEngine {
   private spectateTarget(): { name: string; x: number; y: number; z: number } | null {
     if (!this.local?.dead || this.welcome?.mode !== 'battle-royale') return null;
     const mate = (this.hud.get().team?.members ?? []).find((m) => m.entityId !== undefined && m.entityId !== this.welcome?.playerId && m.inGame && (m.health ?? 0) > 0 && m.x !== undefined);
-    if (!mate) return null;
+    if (!mate) {
+      // Solo: the camera follows whoever killed us, while they live.
+      const killer = this.killerId !== null ? this.remotes.get(this.killerId) : undefined;
+      if (!killer || (killer.entity.pose.flags & EntityFlags.Dead) || killer.entity.pose.health <= 0) return null;
+      const name = this.names.get(this.killerId!) ?? 'Đối thủ';
+      return { name: `${name} (người hạ bạn)`, x: killer.entity.pose.x, y: killer.entity.pose.y, z: killer.entity.pose.z };
+    }
     const body = this.remotes.get(mate.entityId!);
     const x = body ? body.entity.pose.x : mate.x!, z = body ? body.entity.pose.z : mate.z!;
     const y = body ? body.entity.pose.y : mate.y ?? this.groundY(x, z);
