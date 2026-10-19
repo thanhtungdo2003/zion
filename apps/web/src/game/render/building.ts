@@ -1,4 +1,5 @@
 import {
+  Quaternion,
   Box3,
   BoxGeometry,
   BufferGeometry,
@@ -298,18 +299,37 @@ export class StructureRenderer {
     mesh.position.z += (Math.random() - .5) * .03;
   }
 
-  /** A broken piece: chunks in its colour flying apart (the debris system gives them physics). */
+  /**
+   * A broken piece: fragments of its own model (same texture, the planks, bricks or sheet it is
+   * made of) breaking off and tumbling down; the debris system gives them physics.
+   */
   private shatter(mesh: Object3D, color: string, hit?: { x: number; y: number; z: number }): void {
     const debris = this.debris();
     mesh.updateMatrixWorld(true);
     const bounds = new Box3().setFromObject(mesh);
     const centre = bounds.getCenter(new Vector3()), size = bounds.getSize(new Vector3());
-    const mat = new MeshLambertMaterial({ color });
-    const n = Math.min(10, Math.max(3, Math.round(size.x * size.y * size.z * 3)));
+    const parts: Mesh[] = [];
+    mesh.traverse((o) => { if (o instanceof Mesh && o.name !== 'crack') parts.push(o); });
+    const plain = parts.length ? null : new MeshLambertMaterial({ color });
+    const n = Math.min(9, Math.max(4, Math.round(size.x * size.y * size.z * 2.5)));
+    const world = new Vector3(), q = new Quaternion(), scale = new Vector3();
     for (let k = 0; k < n; k++) {
-      const chunk = new Mesh(box, mat);
-      chunk.scale.set(Math.max(.12, size.x / 3) * (.6 + Math.random() * .6), Math.max(.12, size.y / 3) * (.6 + Math.random() * .6), Math.max(.12, size.z / 3) * (.6 + Math.random() * .6));
-      chunk.position.set(centre.x + (Math.random() - .5) * size.x, centre.y + (Math.random() - .5) * size.y, centre.z + (Math.random() - .5) * size.z);
+      let chunk: Object3D;
+      if (plain) {
+        chunk = new Mesh(box, plain);
+        chunk.scale.set(Math.max(.12, size.x / 3), Math.max(.12, size.y / 3), Math.max(.12, size.z / 3)).multiplyScalar(.6 + Math.random() * .6);
+      } else {
+        // A shrunken copy of the piece's model: reads as a broken-off plank, brick or panel.
+        const src = parts[k % parts.length]!;
+        src.matrixWorld.decompose(world, q, scale);
+        const piece = new Mesh(src.geometry, src.material);
+        piece.castShadow = true;
+        const shrink = .22 + Math.random() * .2;
+        piece.scale.set(scale.x * shrink * (.7 + Math.random() * .6), scale.y * shrink, scale.z * shrink * (.7 + Math.random() * .6));
+        piece.quaternion.copy(q).multiply(new Quaternion().setFromAxisAngle(new Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize(), (Math.random() - .5) * 1.2));
+        chunk = piece;
+      }
+      chunk.position.set(centre.x + (Math.random() - .5) * size.x * .8, centre.y + (Math.random() - .5) * size.y * .8, centre.z + (Math.random() - .5) * size.z * .8);
       chunk.castShadow = true;
       this.scene.add(chunk);
       const away = hit ? new Vector3(chunk.position.x - hit.x, .6, chunk.position.z - hit.z).normalize().multiplyScalar(2 + Math.random() * 3) : new Vector3((Math.random() - .5) * 3, 1.5, (Math.random() - .5) * 3);

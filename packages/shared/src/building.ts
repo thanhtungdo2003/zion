@@ -89,8 +89,8 @@ export interface StructurePiece { kind: PieceKind; x: number; y: number; z: numb
  * roof and pillars. 0 = the nuclear power cell (the core, drawn from its own item model).
  */
 export const MATERIAL_KIT: Record<BuildMaterial, Record<Exclude<PieceKind, 'core'>, number>> = {
-  // Wooden fence panels, a dusty board door and old beams across the top.
-  wood: { wall: 2028, door: 2012, roof: 2016, pillar: 2016 },
+  // Solid board walls (no gaps between slats), a board door and old beams across the top.
+  wood: { wall: 2012, door: 2012, roof: 2016, pillar: 2016 },
   // Large stone brick walls, a corrugated sheet door, a metal-plate roof.
   stone: { wall: 2009, door: 2020, roof: 2023, pillar: 2034 },
   // Corrugated steel walls, an iron-bar gate, metal plates and concrete pillars.
@@ -129,8 +129,8 @@ export function blueprintPieces(def: BlueprintDef): StructurePiece[] {
   const hp = MATERIAL_HP[def.material], t = def.thickness, h = def.h, base = -STRUCTURE_SINK;
   const wall = (x: number, z: number, hx: number, hz: number, y0: number, y1: number, kind: PieceKind = 'wall', k = 1) =>
     out.push({ kind, x, y: (y0 + y1) / 2, z, hx, hy: (y1 - y0) / 2, hz, hp: Math.round(hp * k), asset: MATERIAL_KIT[def.material][kind === 'core' ? 'wall' : kind] });
-  // Four sides, cut into ~2 m panels; the middle panel of the front is the door, the middle ones
-  // of the other sides carry a firing slit (a gap too narrow to climb through).
+  // Four sides, cut into ~2 m panels; the middle panel of the front is the door. Stone and metal
+  // walls carry firing slits (gaps too narrow to climb through); wood is closed all round.
   const sides: Array<{ len: number; at: (s: number) => [number, number]; along: 'x' | 'z'; front: boolean }> = [
     { len: def.w, at: (s) => [s, -def.d / 2 + t / 2], along: 'x', front: true },
     { len: def.w, at: (s) => [s, def.d / 2 - t / 2], along: 'x', front: false },
@@ -148,7 +148,7 @@ export function blueprintPieces(def: BlueprintDef): StructurePiece[] {
         wall(x, z, hx, hz, 0, 2.5, 'door', .8);
         wall(x, z, hx, hz, 2.5, h);
         wall(x, z, hx, hz, base, 0);
-      } else if (!side.front && (i === mid || (def.material !== 'wood' && (i === 1 || i === n - 2)))) {
+      } else if (!side.front && def.material !== 'wood' && (i === mid || i === 1 || i === n - 2)) {
         wall(x, z, hx, hz, base, SLIT_LOW);
         wall(x, z, hx, hz, SLIT_HIGH, h);
       } else wall(x, z, hx, hz, base, h);
@@ -202,7 +202,8 @@ export interface StructureState {
 
 /** Structures use collider tags from here (tag = base + id × 64 + piece). */
 export const STRUCTURE_TAG_BASE = 1_000_000;
-export const structureOwner = (id: number): number => 0xc0000000 + id;
+/** Owner id of a structure's colliders (its own range: vehicles use 0xc0000000 + id). */
+export const structureOwner = (id: number): number => 0xd0000000 + id;
 
 /** What the client is told about the architect's ledger for one blueprint. */
 export interface BlueprintProgress { id: string; given: Record<string, number> }
