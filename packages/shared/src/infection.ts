@@ -4,7 +4,7 @@ import type { InventoryData, PlacedItem } from './inventory';
 import { compatibleSlot } from './attachments';
 
 /** Bolt-action and marksman rifles: Infection hands them out scoped. */
-const SNIPERS = new Set(['svd', 'awm', 'kar98k']);
+const SNIPERS = new Set(['svd', 'awm', 'kar98k', 'remington700']);
 
 /**
  * Infection ("Lây Nhiễm"): a small, dense night map; everyone starts human with a chosen loadout

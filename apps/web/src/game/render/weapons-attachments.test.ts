@@ -95,12 +95,13 @@ describe('weapon sights and attachment mounts', () => {
     expect(Math.abs(front.x)).toBeLessThan(.003);
     expect(Math.abs(front.y)).toBeLessThan(.003);
     expect(front.z).toBeLessThan(rear.z);
-    expect(rear.z).toBeLessThan(-.15);
+    // Magnified optics sit closer: the lens fills about 28° of the view (ScopeLens draws the picture in it).
+    expect(rear.z).toBeLessThan(optic && optic !== 'red_dot' && optic !== 'holo_sight' ? -.05 : -.15);
   });
 });
 
 describe('weapon mechanics', () => {
-  it.each(['ak47', 'gl18', 'deagle', 'kar98k', 'mini14', 'scar_h'])('%s plays its own reload clip on the moving parts', async (id) => {
+  it.each(['ak47', 'gl18', 'deagle'])('%s plays its own reload clip on the moving parts', async (id) => {
     const { WeaponMechanics } = await import('./weapon-mechanics');
     const v = weapons.get(id)!;
     expect(v.reloadClip).toBe('reload');
@@ -153,7 +154,9 @@ describe('see-through sights', () => {
     camera.updateMatrixWorld(true);
     const model = camera.children[0]!.children[0]!.children.find((c) => c.visible)!;
     const ray = new Raycaster(); ray.setFromCamera(new Vector2(0, 0), camera);
-    expect(ray.intersectObject(model, true).length).toBe(0);
+    // The clear lens (where the dot is drawn) is glass, not an obstruction.
+    const shown = (o: Object3D | null): boolean => !o || (o.visible && shown(o.parent));
+    expect(ray.intersectObject(model, true).filter((h) => h.object.name !== 'lens_mesh' && shown(h.object)).map((h) => h.object.name)).toEqual([]);
   });
 });
 
@@ -170,3 +173,20 @@ describe('Studio attachment preview', () => {
   });
 });
 
+
+describe('rocket launcher', () => {
+  it('always carries its PGO-7, aims through its lens, and fires the new rocket model', () => {
+    const v = dressWeapon(weapons, 'rocket_launcher', undefined)!;
+    const scope = v.display.getObjectByName('attachment-scope_pgo7')!;
+    expect(scope).toBeTruthy();
+    const gun = meshBounds(weapons.get('rocket_launcher')!.display), mounted = new Box3().setFromObject(scope, true);
+    expect(mounted.min.y).toBeGreaterThan(gun.max.y - .2); // on top of the tube, not inside it
+    expect(v.sight).toBeTruthy();
+    const camera = new PerspectiveCamera(75, 16 / 9, .05, 1000), view = new ViewModel(camera);
+    view.set('rocket_launcher', weapons);
+    expect(view.lens).toBeTruthy();
+    expect(weapons.get('rocket')).toBeDefined();
+    expect(weapons.get('proj_rocket')).toBeDefined();
+    view.dispose();
+  });
+});

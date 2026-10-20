@@ -15,6 +15,8 @@ import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
+import { ScopeLens } from './render/scope-lens';
+import { ThrowArc, type ArcLaunch } from './render/throw-arc';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
@@ -93,6 +95,9 @@ import {
   leanOf,
   leanOffset,
   throwScatter,
+  throwSpeed,
+  lobSpeed,
+  GRENADE_GRAVITY,
   WEAPON_BY_ITEM,
   WEAPON_SPECS,
   WeaponId,
@@ -460,6 +465,16 @@ export class GameEngine {
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private lootCrateRenderer: BaseLifeRenderer | null = null;
   private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
+  /** Scoped through an optic whose `lens` shows the magnified picture (no overlay, gun stays up). */
+  private lensScopeReady(): boolean { return this.firstPerson && !!this.viewModel?.lens; }
+  private get lensScoped(): boolean { return this.scoped && this.firstPerson && !!this.viewModel?.lens; }
+  /** Sight picture drawn on the optic's lens: magnified optics while scoped, red dots / holos once raised to the eye. */
+  private get lensSight(): boolean {
+    if (this.lensScoped) return true;
+    const reticle = this.currentOptic()?.reticle;
+    return (reticle === 'dot' || reticle === 'holo') && this.aiming && this.firstPerson && !!this.viewModel?.lens && this.viewModel.aimed > .82;
+  }
+  private scopeLens: ScopeLens | null = null;
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
   /** Eased lean of the local view (−1 left … 1 right) and the leaned eye point. */
@@ -785,6 +800,10 @@ export class GameEngine {
     this.zombies.clear();
     this.vision?.dispose();
     this.viewModel?.dispose();
+    this.scopeLens?.dispose();
+    this.throwArc?.dispose();
+    this.throwArc = null;
+    this.scopeLens = null;
     this.debris?.dispose();
     this.effects?.dispose();
     this.sounds?.dispose();
@@ -1985,7 +2004,7 @@ export class GameEngine {
     if (this.viewModel) {
       const axes = this.input.axes();
       this.viewModel.update(dt * this.feel.timeScale, {
-        visible: this.firstPerson && !this.scoped && !local.dead && !local.state.flight && !driving,
+        visible: this.firstPerson && (!this.scoped || this.lensScoped) && !local.dead && !local.state.flight && !driving,
         moving: axes.mx !== 0 || axes.mz !== 0,
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
@@ -2027,10 +2046,11 @@ export class GameEngine {
     const hud = this.hud.get();
     // Night vision amplifies the light inside the lens (everything else is the scope housing),
     // so dark scenes read clearly without seeing through anything that blocks the view.
-    const exposure = settingsStore.get().brightness * (nightVision ? 3.2 : 1);
+    const lensSight = this.lensSight;
+    const exposure = settingsStore.get().brightness * (nightVision && !this.lensScoped ? 3.2 : 1);
     if (Math.abs(this.renderer.toneMappingExposure - exposure) > 1e-3) this.renderer.toneMappingExposure = exposure;
-    if (hud.aiming !== this.aiming || hud.scoped !== this.scoped || hud.scopeMagnification !== scopeMagnification || hud.reticle !== reticle || hud.nightVision !== nightVision || hud.nvScope !== nvScope) {
-      this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification, reticle, nightVision, nvScope });
+    if (hud.aiming !== this.aiming || hud.scoped !== this.scoped || hud.scopeMagnification !== scopeMagnification || hud.reticle !== reticle || hud.nightVision !== nightVision || hud.nvScope !== nvScope || hud.lensScope !== lensSight) {
+      this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification, reticle, nightVision, nvScope, lensScope: lensSight });
     }
     this.vision?.update(px, py + characterEyeHeight(local.state), pz, this.input.yaw, 0, this.sky.night, this.camera, py, this.store?.collision);
     this.sky.follow(this.camera.position.x, this.camera.position.y, this.camera.position.z);
@@ -2061,6 +2081,12 @@ export class GameEngine {
     }
     this.updateAmmoHud(now);
 
+    const lens = this.lensSight ? this.viewModel!.lens : null;
+    if (lens && optic) {
+      (this.scopeLens ??= new ScopeLens()).render(this.renderer, this.scene, this.camera, lens.mesh, this.viewModel!.object, {
+        magnification: optic.magnification ?? 1, reticle: optic.reticle ?? null, nightVision: !!optic.nightVision && this.nightVision,
+      });
+    } else this.scopeLens?.release();
     if (settingsStore.get().shaders && this.sky) {
       this.shaderPack ??= new ShaderPack(this.renderer, this.scene, this.camera);
       const outlined = this.outlinedZombies.length > 0;
@@ -2425,7 +2451,7 @@ export class GameEngine {
   private readonly shotRayObj = new Ray();
 
   private localWeaponPoint(point: 'muzzle' | 'eject', out: Vector3): boolean {
-    if (this.firstPerson && !this.scoped) return this.viewModel?.weaponPoint(point, out) ?? false;
+    if (this.firstPerson && (!this.scoped || this.lensScoped)) return this.viewModel?.weaponPoint(point, out) ?? false;
     if (this.firstPerson) return false;
     return this.localAvatar?.weaponPoint(point, out) ?? false;
   }
@@ -3031,9 +3057,14 @@ export class GameEngine {
   /** Grenade aim: centre and scatter radius (r = 0 when not holding a throwable). */
   private readonly throwAim = { x: 0, z: 0, r: 0 };
   private throwMarker: Group | null = null;
+  private throwArc: ThrowArc | null = null;
 
-  /** Faint red disc around the cursor while a throwable is in hand: where it may land. */
-  private updateThrowMarker(px: number, pz: number): void {
+  /**
+   * While a throwable or a lobbing launcher is in hand: the faint flight path from the hand /
+   * muzzle to where it comes down (the server's own launch), dashes drifting forward, and a thin
+   * ring where it lands.
+   */
+  private updateThrowMarker(px: number, py: number, pz: number): void {
     const spec = weaponSpec(this.equippedWeapon());
     // Hand grenades show where they may land; the lobbing grenade launcher shows its blast radius.
     // (Straight-firing rockets need no marker.)
@@ -3043,6 +3074,7 @@ export class GameEngine {
     if (!show) {
       this.throwAim.r = 0;
       if (this.throwMarker) this.throwMarker.visible = false;
+      if (this.throwArc) this.throwArc.mesh.visible = false;
       return;
     }
     let dx = this.aimPoint.x - px;
@@ -3060,8 +3092,9 @@ export class GameEngine {
     if (!this.throwMarker) {
       const m = new Group();
       const mat = { color: 0xff2a1a, transparent: true, depthWrite: false };
-      const fill = new Mesh(new CircleGeometry(1, 40), new MeshBasicMaterial({ ...mat, opacity: 0.18 }));
-      const edge = new Mesh(new RingGeometry(0.94, 1, 48), new MeshBasicMaterial({ ...mat, opacity: 0.45 }));
+      const mat2 = { ...mat, color: 0xfff4e0 };
+      const fill = new Mesh(new CircleGeometry(1, 40), new MeshBasicMaterial({ ...mat2, opacity: 0.06 }));
+      const edge = new Mesh(new RingGeometry(0.94, 1, 48), new MeshBasicMaterial({ ...mat2, opacity: 0.3 }));
       for (const o of [fill, edge]) {
         o.rotation.x = -Math.PI / 2;
         o.renderOrder = 5;
@@ -3074,12 +3107,35 @@ export class GameEngine {
     this.throwMarker.visible = true;
     this.throwMarker.position.set(a.x, (Number.isFinite(ground) ? ground : this.aimPoint.y - 1) + 0.06, a.z);
     this.throwMarker.scale.setScalar(a.r);
+
+    // Same launch as the server (game-server tryThrow / launcher lob): origin ahead of the body,
+    // speed solved so the round comes down on the aim point.
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.3) { if (this.throwArc) this.throwArc.mesh.visible = false; return; }
+    const prone = !!this.local?.state.prone, crouched = !!this.local?.state.crouched;
+    const fx = dx / dist, fz = dz / dist;
+    const groundY = Number.isFinite(ground) ? ground : py;
+    let launch: ArcLaunch;
+    if (spec?.kind === 'throw') {
+      const oy = py + (prone ? muzzleHeight(true) : 1.6);
+      launch = { origin: this.tmpB.set(px + fx * 0.4, oy, pz + fz * 0.4), dirX: fx, dirZ: fz, elevation: spec.elevation, gravity: GRENADE_GRAVITY, groundY,
+        speed: throwSpeed(spec, Math.max(0, dist - 0.4), groundY - oy) };
+    } else {
+      const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
+      if (!proj?.lob) return;
+      const { lob, gravity } = { lob: proj.lob, gravity: proj.gravity };
+      const oy = py + muzzleHeight(prone, crouched);
+      launch = { origin: this.tmpB.set(px + fx * 0.7, oy, pz + fz * 0.7), dirX: fx, dirZ: fz, elevation: lob.elevation, gravity, groundY,
+        speed: lobSpeed(lob.elevation, lob.maxRange, Math.max(0.5, dist - 0.7), groundY - oy, gravity) };
+    }
+    if (!this.throwArc) { this.throwArc = new ThrowArc(); this.scene.add(this.throwArc.mesh); }
+    this.throwArc.update(launch, this.camera, this.elapsed);
   }
 
   /** Turns the free cursor into an aim point on the ground; the character faces it. */
   private updateAim(px: number, py: number, pz: number): void {
     this.updateAimInner(px, py, pz);
-    this.updateThrowMarker(px, pz);
+    this.updateThrowMarker(px, py, pz);
   }
 
   private updateShoulderAim(px: number, py: number, pz: number): void {
@@ -3373,7 +3429,10 @@ export class GameEngine {
       const opticPower = this.currentOptic()?.magnification ?? 1;
       const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.firstPerson ? 1.25 : 1.35 : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
-      const fov = scopeFov(FP_FOV, zoom) + this.feel.fov;
+      // Through a lens optic the world outside the lens stays at the normal field of view; only the
+      // lens is magnified (ScopeLens), but aim sensitivity still follows the optic's power.
+      const viewZoom = opticPower > 1 && this.lensScopeReady() ? 1 : zoom;
+      const fov = scopeFov(FP_FOV, viewZoom) + this.feel.fov;
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
@@ -3592,7 +3651,7 @@ export class GameEngine {
 function heavyKick(weapon: number): boolean {
   return weapon === WeaponId.Shotgun || weapon === WeaponId.Saiga12 || weapon === WeaponId.DoubleBarrel || weapon === WeaponId.AWM || weapon === WeaponId.SVD
     || weapon === WeaponId.RocketLauncher || weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.Revolver || weapon === WeaponId.PKM || weapon === WeaponId.Barrett
-    || weapon === WeaponId.Deagle || weapon === WeaponId.Kar98k;
+    || weapon === WeaponId.Deagle || weapon === WeaponId.Kar98k || weapon === WeaponId.M79 || weapon === WeaponId.Remington700;
 }
 
 /** Reload sound (and playback rate) for each gun. */
@@ -3617,6 +3676,8 @@ function reloadSound(weapon: number): [SoundName, number] {
     case WeaponId.Saiga12:
     case WeaponId.GrenadeLauncher:
       return ['shotgunReload', weapon === WeaponId.GrenadeLauncher ? 0.85 : 1];
+    case WeaponId.M79:
+      return ['doubleBarrelReload', 0.9];
     case WeaponId.DoubleBarrel:
       return ['doubleBarrelReload', 1];
     case WeaponId.RocketLauncher:
@@ -3639,6 +3700,7 @@ function reloadSound(weapon: number): [SoundName, number] {
     case WeaponId.P90:
       return ['rifleReload', .95];
     case WeaponId.Kar98k:
+    case WeaponId.Remington700:
       return ['rifleReload', 0.92];
     default:
       return ['pistolReload', 1];

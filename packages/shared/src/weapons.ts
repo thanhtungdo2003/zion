@@ -42,9 +42,11 @@ export const WeaponId = {
   Flashbang: 36,
   SmokeGrenade: 37,
   Pickaxe: 38,
+  M79: 39,
+  Remington700: 40,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 38;
+export const MAX_WEAPON_ID = 40;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'ballistic' | 'projectile' | 'flame';
@@ -167,6 +169,13 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
     kind: 'gun', weight: 7, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 45, magazine: 6, reloadMs: 3400, auto: false,
     projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
   },
+  // Single-shot break-open 40 mm launcher: same round as the six-shot launcher, light and quick to bring up.
+  [WeaponId.M79]: {
+    kind: 'gun', weight: 2.9, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 40, magazine: 1, reloadMs: 2300, auto: false,
+    projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 40 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
+  },
+  // Bolt-action .308 hunting / police sniper rifle.
+  [WeaponId.Remington700]: { kind: 'gun', weight: 4.1, fireMs: 1650, damage: 90, pellets: 1, spread: 0.0045, range: 130, magazine: 5, reloadMs: 2900, auto: false },
   [WeaponId.RocketLauncher]: {
     kind: 'gun', weight: 9, fire: 'projectile', fireMs: 600, damage: 0, pellets: 1, spread: 0.01, range: 90, magazine: 1, reloadMs: 4000, auto: false,
     projectile: { kind: 'rocket', speed: 34, gravity: 0.6, blast: { radius: 9.5, damage: 260 }, maxFlightSec: 3 },
@@ -220,6 +229,8 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   saiga12: WeaponId.Saiga12,
   double_barrel: WeaponId.DoubleBarrel,
   grenade_launcher: WeaponId.GrenadeLauncher,
+  m79: WeaponId.M79,
+  remington700: WeaponId.Remington700,
   rocket_launcher: WeaponId.RocketLauncher,
   crossbow: WeaponId.Crossbow,
   flamethrower: WeaponId.Flamethrower,

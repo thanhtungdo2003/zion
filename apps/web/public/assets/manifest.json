@@ -1,11 +1,23 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-19T10:25:01.242Z",
+  "generatedAt": "2026-10-20T15:18:08.792Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
       "sha256": "c5eb16b65f02819aa782b6f96451f86b2d50ec30bf30134c2520dcd40590b97f",
       "bytes": 6141,
+      "kind": "bbmodel"
+    },
+    "accessorys/compensator-multiport.bbmodel": {
+      "url": "/assets/models/accessorys_compensator-multiport.88292271a052.bbmodel",
+      "sha256": "88292271a05253cc0cd7d1266fe334f57e434bf5255d01974eb78f195ac96cfb",
+      "bytes": 70202,
+      "kind": "bbmodel"
+    },
+    "accessorys/compensator-rifle.bbmodel": {
+      "url": "/assets/models/accessorys_compensator-rifle.52e1e9af75bc.bbmodel",
+      "sha256": "52e1e9af75bc88bffa9f2f24a81c5a7253785c41bfd22b45539538320372b436",
+      "bytes": 52329,
       "kind": "bbmodel"
     },
     "accessorys/holo-sight.bbmodel": {
@@ -14,10 +26,28 @@
       "bytes": 7495,
       "kind": "bbmodel"
     },
+    "accessorys/holo-xps.bbmodel": {
+      "url": "/assets/models/accessorys_holo-xps.86fcba9a569e.bbmodel",
+      "sha256": "86fcba9a569ed64195f2aaf601a8ee22d471bb7aab87e522105ef7b717ebe100",
+      "bytes": 62486,
+      "kind": "bbmodel"
+    },
     "accessorys/night-vision-scope-6x.bbmodel": {
       "url": "/assets/models/accessorys_night-vision-scope-6x.198b74f3d8bb.bbmodel",
       "sha256": "198b74f3d8bb00d04f17be3fe1b242619b0f0f9cbcc10e04bf55d1f9af58fb79",
       "bytes": 14334,
+      "kind": "bbmodel"
+    },
+    "accessorys/nv-scope-x6.bbmodel": {
+      "url": "/assets/models/accessorys_nv-scope-x6.faec553aa228.bbmodel",
+      "sha256": "faec553aa22831090a663e96129a4cae3bada23070b7373e6eef26d3fe1b9242",
+      "bytes": 235871,
+      "kind": "bbmodel"
+    },
+    "accessorys/red-dot-exps.bbmodel": {
+      "url": "/assets/models/accessorys_red-dot-exps.d93753e1e997.bbmodel",
+      "sha256": "d93753e1e997b4f5ec41933641eb7eb616e4075ec20e27c0a899ea3eba0fc569",
+      "bytes": 60606,
       "kind": "bbmodel"
     },
     "accessorys/red-dot-sight.bbmodel": {
@@ -32,6 +62,12 @@
       "bytes": 25008,
       "kind": "bbmodel"
     },
+    "accessorys/scope-2x-fixed.bbmodel": {
+      "url": "/assets/models/accessorys_scope-2x-fixed.fe96f4a62800.bbmodel",
+      "sha256": "fe96f4a62800d06fc997773a200ede4e1bbe11a28ae63fbbe82bd7b477e9e4ae",
+      "bytes": 197587,
+      "kind": "bbmodel"
+    },
     "accessorys/scope-2x.bbmodel": {
       "url": "/assets/models/accessorys_scope-2x.aa007b1de229.bbmodel",
       "sha256": "aa007b1de229ffdda200570f1ca48203224d04ac521179129b7eaab8efa4f5f2",
@@ -44,10 +80,40 @@
       "bytes": 25127,
       "kind": "bbmodel"
     },
+    "accessorys/scope-4x32.bbmodel": {
+      "url": "/assets/models/accessorys_scope-4x32.cfad57bf1695.bbmodel",
+      "sha256": "cfad57bf1695bd0b56d582e66b357374883c07d2af4e9eee95ce711bc34e0907",
+      "bytes": 228523,
+      "kind": "bbmodel"
+    },
     "accessorys/scope-8x.bbmodel": {
       "url": "/assets/models/accessorys_scope-8x.174342560f9a.bbmodel",
       "sha256": "174342560f9a4bb97b696d07932cff8a6ac99b335118f77c91a4223293eaa456",
       "bytes": 25191,
+      "kind": "bbmodel"
+    },
+    "accessorys/scope-8x40.bbmodel": {
+      "url": "/assets/models/accessorys_scope-8x40.9e0a7ebed9c1.bbmodel",
+      "sha256": "9e0a7ebed9c140a0101b239ff693b9cfec50866761407c801dca0b0c56c46837",
+      "bytes": 252387,
+      "kind": "bbmodel"
+    },
+    "accessorys/scope-pgo7.bbmodel": {
+      "url": "/assets/models/accessorys_scope-pgo7.b37cd41119f5.bbmodel",
+      "sha256": "b37cd41119f5215e310e0f93a862b02892aa29091bf1810803bcaae908d213f1",
+      "bytes": 185831,
+      "kind": "bbmodel"
+    },
+    "accessorys/suppressor-compact.bbmodel": {
+      "url": "/assets/models/accessorys_suppressor-compact.706edfe3c94a.bbmodel",
+      "sha256": "706edfe3c94a9bc85f4d8633cc0f1b07186107469a719137cd9a490be2763e3b",
+      "bytes": 72106,
+      "kind": "bbmodel"
+    },
+    "accessorys/suppressor-heavy.bbmodel": {
+      "url": "/assets/models/accessorys_suppressor-heavy.bf428b7ee925.bbmodel",
+      "sha256": "bf428b7ee9250d9f3669c42ebc38baab374174f04022ffe1a702e4c4b927e246",
+      "bytes": 110577,
       "kind": "bbmodel"
     },
     "accessorys/suppressor-pistol.bbmodel": {
@@ -60,6 +126,12 @@
       "url": "/assets/models/accessorys_suppressor-rifle.5b15bc19a414.bbmodel",
       "sha256": "5b15bc19a414a4a2514e5f67609de4516700f6c9dc85c74b1c897189ec1c2f68",
       "bytes": 10367,
+      "kind": "bbmodel"
+    },
+    "accessorys/suppressor-standard.bbmodel": {
+      "url": "/assets/models/accessorys_suppressor-standard.363132a48b80.bbmodel",
+      "sha256": "363132a48b80415bb54c1e792becd9b2087b0bac5dafc395acd2db2b833128a5",
+      "bytes": 85579,
       "kind": "bbmodel"
     },
     "ak47-rifle.bbmodel": {
@@ -1892,6 +1964,12 @@
       "bytes": 6950,
       "kind": "bbmodel"
     },
+    "weapons/awm-338-lapua.bbmodel": {
+      "url": "/assets/models/weapons_awm-338-lapua.6d1ab2010901.bbmodel",
+      "sha256": "6d1ab201090182c451c0bc992e2b216ddfea1c8ad52bb8a5ce63479307f1f45b",
+      "bytes": 137415,
+      "kind": "bbmodel"
+    },
     "weapons/awm-sniper-4x.bbmodel": {
       "url": "/assets/models/weapons_awm-sniper-4x.2ee5d91a6719.bbmodel",
       "sha256": "2ee5d91a6719987349c76dd21ba6cd92decc100d0a01f1451fff00fa46fcafb5",
@@ -1902,6 +1980,12 @@
       "url": "/assets/models/weapons_barrett-m82.4c402d4417fa.bbmodel",
       "sha256": "4c402d4417fac9889783249da2ed52f899004aa0f2e6667234f3527ff4f87747",
       "bytes": 20975,
+      "kind": "bbmodel"
+    },
+    "weapons/barrett-m82a1.bbmodel": {
+      "url": "/assets/models/weapons_barrett-m82a1.63d362f5f654.bbmodel",
+      "sha256": "63d362f5f6548d7110432a101d03321afc0dd263ee1e9171827c1c023518f38d",
+      "bytes": 156567,
       "kind": "bbmodel"
     },
     "weapons/baseball-bat.bbmodel": {
@@ -2024,6 +2108,12 @@
       "bytes": 8427,
       "kind": "bbmodel"
     },
+    "weapons/kriss-vector-gen1.bbmodel": {
+      "url": "/assets/models/weapons_kriss-vector-gen1.dafb38d15272.bbmodel",
+      "sha256": "dafb38d15272064ace78a6006ddc2fb3bcf353865dd1d5a4cb3e37848da621b7",
+      "bytes": 179442,
+      "kind": "bbmodel"
+    },
     "weapons/kriss-vector.glb": {
       "url": "/assets/models/weapons_kriss-vector.8a3a9acc6615.glb",
       "sha256": "8a3a9acc6615abe426cb3f8d06b4cb547207b3af34080a18b726c63880134a67",
@@ -2036,16 +2126,46 @@
       "bytes": 11292,
       "kind": "bbmodel"
     },
+    "weapons/m2-flamethrower.bbmodel": {
+      "url": "/assets/models/weapons_m2-flamethrower.97657d77c813.bbmodel",
+      "sha256": "97657d77c8132f0dae882055ccc666937efaf72222c206f714a5c28f5653d424",
+      "bytes": 182340,
+      "kind": "bbmodel"
+    },
     "weapons/m4a1-rifle.bbmodel": {
       "url": "/assets/models/weapons_m4a1-rifle.2014bba7a7db.bbmodel",
       "sha256": "2014bba7a7dba33538a413e89b9cd968b14736284984285f8d2964e76b309ae3",
       "bytes": 17294,
       "kind": "bbmodel"
     },
+    "weapons/m4a1-sopmod.bbmodel": {
+      "url": "/assets/models/weapons_m4a1-sopmod.e4dbb22b5b3d.bbmodel",
+      "sha256": "e4dbb22b5b3dcf50b4eedc9a716d4956d6d8da0575498faf92e5e2679a651ffd",
+      "bytes": 200596,
+      "kind": "bbmodel"
+    },
+    "weapons/m79-grenade-launcher.bbmodel": {
+      "url": "/assets/models/weapons_m79-grenade-launcher.34a61a42eb99.bbmodel",
+      "sha256": "34a61a42eb99a0e4fb663cba7da38ee4858c3459256d166a45b59e03a5b8ed3c",
+      "bytes": 121208,
+      "kind": "bbmodel"
+    },
     "weapons/machete.bbmodel": {
       "url": "/assets/models/weapons_machete.ff379e9e73d5.bbmodel",
       "sha256": "ff379e9e73d5476bd5d7924b05c9a6510bf3c25110708d955d3e67a91fb8b07f",
       "bytes": 8306,
+      "kind": "bbmodel"
+    },
+    "weapons/mauser-kar98k.bbmodel": {
+      "url": "/assets/models/weapons_mauser-kar98k.c049067188f4.bbmodel",
+      "sha256": "c049067188f429ae6210ee7e410199737e790edeb23fa808d5043152021d40e1",
+      "bytes": 188643,
+      "kind": "bbmodel"
+    },
+    "weapons/milkor-mgl.bbmodel": {
+      "url": "/assets/models/weapons_milkor-mgl.9c7cee41e65e.bbmodel",
+      "sha256": "9c7cee41e65e13aadea0a37e5e4bf7a838fd658b1e8219ace7019faec10d3279",
+      "bytes": 174282,
       "kind": "bbmodel"
     },
     "weapons/mini-14-rifle.bbmodel": {
@@ -2066,11 +2186,23 @@
       "bytes": 10222,
       "kind": "bbmodel"
     },
+    "weapons/mp5a3.bbmodel": {
+      "url": "/assets/models/weapons_mp5a3.15cb666e4c77.bbmodel",
+      "sha256": "15cb666e4c77c1fe90ab1f9d404b7475b921ac6727b6f3dce7984c252e29de90",
+      "bytes": 120965,
+      "kind": "bbmodel"
+    },
     "weapons/p90.glb": {
       "url": "/assets/models/weapons_p90.3fec72c27716.glb",
       "sha256": "3fec72c27716509d2a2855c2a5364afb549e1704b7ad959acc5b97a647db21db",
       "bytes": 145048,
       "kind": "glb"
+    },
+    "weapons/pkm-762x54r.bbmodel": {
+      "url": "/assets/models/weapons_pkm-762x54r.69b4de0a09e1.bbmodel",
+      "sha256": "69b4de0a09e191e7f9f121e680b9965edc63fbc4e3566d71a67963b7b720e8a7",
+      "bytes": 229069,
+      "kind": "bbmodel"
     },
     "weapons/pkm-ammo-box.bbmodel": {
       "url": "/assets/models/weapons_pkm-ammo-box.9ecf5cc4ac68.bbmodel",
@@ -2088,6 +2220,12 @@
       "url": "/assets/models/weapons_pump-shotgun.5b7a1b543c38.bbmodel",
       "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
       "bytes": 12792,
+      "kind": "bbmodel"
+    },
+    "weapons/remington-700.bbmodel": {
+      "url": "/assets/models/weapons_remington-700.18d7cd026873.bbmodel",
+      "sha256": "18d7cd0268732456384c6fbc0096e22691d0b9dade80a7b3bca7d6e8b0e8296e",
+      "bytes": 45558,
       "kind": "bbmodel"
     },
     "weapons/remote-c4-bomb.bbmodel": {
@@ -2120,16 +2258,46 @@
       "bytes": 19065,
       "kind": "bbmodel"
     },
+    "weapons/rpg32-hashim.bbmodel": {
+      "url": "/assets/models/weapons_rpg32-hashim.9e4a58251879.bbmodel",
+      "sha256": "9e4a58251879ccf388f014b8895c146ae33567b566b93b4fc4011640c0f94bbd",
+      "bytes": 17772,
+      "kind": "bbmodel"
+    },
+    "weapons/rpg32-rocket-v2.bbmodel": {
+      "url": "/assets/models/weapons_rpg32-rocket-v2.04fc408e7679.bbmodel",
+      "sha256": "04fc408e7679a3e47e56a9e86d56fd6483710927ef27a6cb750b2e139a9e4fb5",
+      "bytes": 38225,
+      "kind": "bbmodel"
+    },
     "weapons/rpg32-rocket.bbmodel": {
       "url": "/assets/models/weapons_rpg32-rocket.1a6eb0c2c73a.bbmodel",
       "sha256": "1a6eb0c2c73aa20c6f323d00c4fa39340fb46e8721c9b642fe5266e71c8d156b",
       "bytes": 12375,
       "kind": "bbmodel"
     },
+    "weapons/ruger-mini-14-gb.bbmodel": {
+      "url": "/assets/models/weapons_ruger-mini-14-gb.6a0e1fd1f992.bbmodel",
+      "sha256": "6a0e1fd1f992480ea5bf6093c3ea34f333daab84a1e99dbcacea1aa2544b6fa9",
+      "bytes": 121440,
+      "kind": "bbmodel"
+    },
     "weapons/saiga-12-shotgun.bbmodel": {
       "url": "/assets/models/weapons_saiga-12-shotgun.ff6bd8622d03.bbmodel",
       "sha256": "ff6bd8622d03dca66a7022b40b79fd539b6d0b843841d71a6376b918a0903a66",
       "bytes": 11732,
+      "kind": "bbmodel"
+    },
+    "weapons/saiga-12k.bbmodel": {
+      "url": "/assets/models/weapons_saiga-12k.8fda6f9f49b5.bbmodel",
+      "sha256": "8fda6f9f49b5114d6dec624909603bec5ace4afad526564bf572d75d5c9e51b5",
+      "bytes": 155583,
+      "kind": "bbmodel"
+    },
+    "weapons/scar-h-mk17.bbmodel": {
+      "url": "/assets/models/weapons_scar-h-mk17.c4a277cb3434.bbmodel",
+      "sha256": "c4a277cb3434b4cbe691ada378c46c25b735b2bcd5f61959c6960e6591419b02",
+      "bytes": 201853,
       "kind": "bbmodel"
     },
     "weapons/scar-h-rifle.bbmodel": {
@@ -2144,10 +2312,34 @@
       "bytes": 14404,
       "kind": "bbmodel"
     },
+    "weapons/steyr-aug-a3.bbmodel": {
+      "url": "/assets/models/weapons_steyr-aug-a3.6b1c17e4ad78.bbmodel",
+      "sha256": "6b1c17e4ad78cea632b6e771d791dd96ce3f776239ff57bb3619b84a1f2d3d4b",
+      "bytes": 131455,
+      "kind": "bbmodel"
+    },
+    "weapons/svd-dragunov-v2.bbmodel": {
+      "url": "/assets/models/weapons_svd-dragunov-v2.e979456a8bd0.bbmodel",
+      "sha256": "e979456a8bd091f1cdb750cf346eebcdd22d68092c71c8d0163506c646ebe4dc",
+      "bytes": 175448,
+      "kind": "bbmodel"
+    },
     "weapons/svd-dragunov.bbmodel": {
       "url": "/assets/models/weapons_svd-dragunov.e48a85bd81d4.bbmodel",
       "sha256": "e48a85bd81d4899eacd51d198d82776583b6b3d0c496d00020c9c4112fb064b7",
       "bytes": 13416,
+      "kind": "bbmodel"
+    },
+    "weapons/sw-model-10.bbmodel": {
+      "url": "/assets/models/weapons_sw-model-10.c6612bcb7a67.bbmodel",
+      "sha256": "c6612bcb7a670682ed04f971cf3c7dac6778cd76b5f4dc61c9c9af9b8e031e31",
+      "bytes": 57458,
+      "kind": "bbmodel"
+    },
+    "weapons/sxs-double-barrel.bbmodel": {
+      "url": "/assets/models/weapons_sxs-double-barrel.9970e6626435.bbmodel",
+      "sha256": "9970e662643530b0b9ac4c950a3deeaab01eba507bdb6134141de7a41d94e9d6",
+      "bytes": 125000,
       "kind": "bbmodel"
     },
     "weapons/uzi-imi.glb": {

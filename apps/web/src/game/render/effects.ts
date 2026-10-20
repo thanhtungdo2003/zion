@@ -147,7 +147,7 @@ export class CombatEffects {
     const s = { play: (name: Parameters<SoundBank['play']>[0], o: { at: Vector3; rate?: number; volume?: number; maxDistance?: number }) => bank.play(name, suppressed ? { ...o, rate: (o.rate ?? 1) * 1.18, volume: (o.volume ?? 1) * .4, maxDistance: (o.maxDistance ?? 90) * .3 } : o) };
     // A recording chosen in the Studio wins over the gun's usual voice.
     const own = (weaponSpec(weapon) as { sound?: string } | undefined)?.sound as Parameters<SoundBank['play']>[0] | undefined;
-    if (own) { s.play(own, { at, volume: 0.9, maxDistance: 100 }); if (weapon === WeaponId.AWM || weapon === WeaponId.Kar98k) this.rechamber(at, 1.15); return; }
+    if (own) { s.play(own, { at, volume: 0.9, maxDistance: 100 }); if (weapon === WeaponId.AWM || weapon === WeaponId.Kar98k || weapon === WeaponId.Remington700) this.rechamber(at, 1.15); return; }
     switch (weapon) {
       case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
       case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); break;
@@ -163,6 +163,7 @@ export class CombatEffects {
       case WeaponId.Uzi: s.play('pistol9mmShot', { at, rate: 1.1, volume: 0.7, maxDistance: 60 }); break;
       case WeaponId.ScarH: s.play('akShot', { at, rate: .9, volume: 1, maxDistance: 120 }); break;
       case WeaponId.Kar98k: s.play('sniperRifleShot', { at, rate: .95, volume: 1.2, maxDistance: 170 }); this.rechamber(at, 1.15); break;
+      case WeaponId.Remington700: s.play('sniperRifleShot', { at, rate: 1.02, volume: 1.15, maxDistance: 170 }); this.rechamber(at, 1.15); break;
       case WeaponId.Mini14: s.play('rifleShot', { at, rate: 1.02, volume: 0.95, maxDistance: 120 }); break;
       case WeaponId.Vector: s.play('pistol9mmShot', { at, rate: 1.15, volume: 0.65, maxDistance: 60 }); break;
       case WeaponId.P90: s.play('pistol9mmShot', { at, rate: 1.25, volume: 0.7, maxDistance: 65 }); break;
@@ -192,7 +193,7 @@ export class CombatEffects {
       // Back-blast out of the rear of the tube.
       for (let i = 0; i < 8; i++) this.particles.smoke.emit({ x: m.x - d.x * 1.2, y: m.y, z: m.z - d.z * 1.2, vx: -d.x * 5, vy: 0.6, vz: -d.z * 5, spread: 1.5, life: 1.4, size: 0.4, sizeEnd: 1.6, color: [0.8, 0.78, 0.74], alpha: 0.6, drag: 2.5 });
       this.sounds?.play('rocketLaunch', { at: m, volume: 1.1, maxDistance: 120 });
-    } else if (weapon === WeaponId.GrenadeLauncher) this.sounds?.play('grenadeLauncherShot', { at: m, volume: 1, maxDistance: 90 });
+    } else if (weapon === WeaponId.GrenadeLauncher || weapon === WeaponId.M79) this.sounds?.play('grenadeLauncherShot', { at: m, volume: 1, maxDistance: 90 });
     else this.sounds?.play('arrowFly', { at: m, volume: 0.9, maxDistance: 40 });
   }
 

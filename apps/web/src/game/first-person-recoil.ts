@@ -85,6 +85,8 @@ const KICK: Partial<Record<WeaponId, number>> = {
   [WeaponId.AWM]: 2.4,
   [WeaponId.SVD]: 1.6,
   [WeaponId.GrenadeLauncher]: 2.8,
+  [WeaponId.M79]: 2.6,
+  [WeaponId.Remington700]: 2.3,
   [WeaponId.RocketLauncher]: 3.3,
   [WeaponId.Crossbow]: .45,
   [WeaponId.Flamethrower]: .045,

@@ -1,6 +1,6 @@
-import { DoubleSide, Euler, Group, Matrix4, Mesh, Quaternion, Vector3, type Camera, type Material, type Object3D } from 'three';
-import { ITEMS, attachmentModifier, opticOf, type Attachments } from '@zion/shared';
-import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
+import { Box3, CircleGeometry, DoubleSide, Euler, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Camera, type Material, type Object3D } from 'three';
+import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
+import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
@@ -18,6 +18,8 @@ export class ViewModel {
   private readonly models = new Map<string, Group>();
   /** Per dressed model: its sight line and moving parts. */
   private readonly rigs = new Map<string, { visual: WeaponVisual; mechanics: WeaponMechanics }>();
+  /** Per dressed model with a magnified optic: the lens the scope image is drawn on. */
+  private readonly lenses = new Map<string, OpticLens>();
   private current: string | null = null;
   /** ADS speed and eye relief of the current setup. */
   private adsSpeed = 1;
@@ -126,14 +128,15 @@ export class ViewModel {
     }
   }
 
-  set(itemId: string | null, weapons: WeaponLibrary | null, attachments?: Attachments): void {
+  set(itemId: string | null, weapons: WeaponLibrary | null, given?: Attachments): void {
     if (itemId === 'c4') itemId = 'c4_detonator';
+    const attachments = withBuiltinOptic(itemId, given);
     // Each attachment combination is its own dressed model (cached).
     const key = itemId ? `${itemId}|${attachments?.optic ?? ''}|${attachments?.muzzle ?? ''}` : null;
     if (key === this.current) return;
     this.rig()?.mechanics.cancel();
     this.adsSpeed = attachmentModifier(attachments, 'adsSpeed');
-    const optic = opticOf(attachments);
+    const optic = weaponOptic(itemId, given);
     this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') || ITEMS[itemId ?? '']?.category === 'pistol' ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
     // Studio weapons may set their own hip position and eye relief.
     const spec = itemId ? weapons?.get(itemId)?.spec : undefined;
@@ -164,7 +167,7 @@ export class ViewModel {
       });
       this.pivot.add(model);
       this.models.set(key, model);
-      this.rigs.set(key, { visual, mechanics: new WeaponMechanics(model, visual, itemId === 'kar98k' || itemId === 'awm') });
+      this.rigs.set(key, { visual, mechanics: new WeaponMechanics(model, visual, itemId === 'kar98k' || itemId === 'awm' || itemId === 'remington700') });
       const support = weapons?.get(itemId)?.firstPersonSupport;
       const trigger = weapons?.get(itemId)?.firstPersonTrigger;
       const pistol = ITEM_PISTOLS.has(itemId);
@@ -183,6 +186,13 @@ export class ViewModel {
         if (arm) { arm.name = 'first-person-arm-right'; model.add(arm); }
       }
     }
+    if (!this.lenses.has(key) && optic && ((optic.magnification ?? 1) > 1 || optic.reticle)) {
+      const lens = opticLens(model, visual, optic.id);
+      if (lens) this.lenses.set(key, lens);
+    }
+    // A magnified optic is held close enough that its lens fills a comfortable part of the view.
+    const lens = this.lenses.get(key);
+    if (lens && (optic?.magnification ?? 1) > 1) this.eyeRelief = Math.min(.25, Math.max(.05, lens.radius / Math.tan(LENS_HALF_ANGLE)));
     model.visible = true;
     this.current = key;
     this.strikeAxes = weapons?.get(itemId)?.melee?.display ?? null;
@@ -234,6 +244,12 @@ export class ViewModel {
   }
 
   /** Aimed through sights that line up with the screen centre (red dot / iron sights). */
+  /** The current optic's lens (magnified optics only). */
+  get lens(): OpticLens | null { return this.current ? this.lenses.get(this.current) ?? null : null; }
+
+  /** The first-person gun and arms, to leave out of the scope image. */
+  get object(): Object3D { return this.root; }
+
   get aimed(): number { return this.aimBlend; }
 
   private rig() { return this.current ? this.rigs.get(this.current) : undefined; }
@@ -441,4 +457,54 @@ const ITEM_PISTOLS = new Set(['gl18', 'deagle', 'revolver']);
 function ease(t: number): number {
   const x = Math.min(1, Math.max(0, t));
   return x * x * (3 - 2 * x);
+}
+
+export interface OpticLens {
+  /** The mesh the scope image is drawn on: the optic's `lens` group, or a generated disc. */
+  mesh: Mesh;
+  /** Lens radius in the first-person model's units. */
+  radius: number;
+}
+
+/** Apparent half-size of a magnified optic's lens when aimed (≈ 28° across). */
+const LENS_HALF_ANGLE = 14 * Math.PI / 180;
+
+/**
+ * The optic's lens in a dressed first-person model. Optics drawn in the Gun Studio carry clear
+ * blocks in a group named `lens` (merged into the mesh `lens_mesh`). Older optics have none: an
+ * invisible octagonal disc is placed on the sight line at the eye point instead, sized to the
+ * optic's width, so the scope image still has a surface to appear on.
+ */
+function opticLens(model: Group, visual: WeaponVisual, opticId: string): OpticLens | null {
+  const optic = model.getObjectByName(`attachment-${opticId}`);
+  if (!optic) return null;
+  model.updateMatrixWorld(true);
+  const toModel = new Matrix4().copy(model.matrixWorld).invert();
+  const inModel = (mesh: Mesh) => {
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    return mesh.geometry.boundingBox!.clone().applyMatrix4(new Matrix4().multiplyMatrices(toModel, mesh.matrixWorld));
+  };
+  const authored = optic.getObjectByName('lens_mesh');
+  if (authored instanceof Mesh) {
+    const size = inModel(authored).getSize(new Vector3()).toArray().sort((a, b) => a - b);
+    // A lens is a thin disc (or two discs along the tube): its diameter is the middle extent.
+    return { mesh: authored, radius: size[1]! / 2 };
+  }
+  if (!visual.sight) return null;
+  const box = new Box3();
+  optic.traverse((o) => { if (o instanceof Mesh) box.union(inModel(o)); });
+  const rear = visual.sight.rear, front = visual.sight.front;
+  const along = front.clone().sub(rear).normalize();
+  const extent = box.getSize(new Vector3());
+  // Width across the sight line (the model's lateral axis is the one least aligned with it).
+  const lateral = Math.abs(along.z) < .5 ? extent.z : extent.x;
+  const radius = Math.max(.004, lateral * .38);
+  const disc = new Mesh(new CircleGeometry(radius, 8), new MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: DoubleSide }));
+  disc.name = 'lens_mesh';
+  disc.position.copy(rear);
+  disc.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), along);
+  disc.visible = false;
+  disc.frustumCulled = false;
+  model.add(disc);
+  return { mesh: disc, radius };
 }

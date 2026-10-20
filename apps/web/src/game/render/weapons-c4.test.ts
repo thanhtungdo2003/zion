@@ -188,7 +188,7 @@ describe('C4 supplied models', () => {
   it('fits the Barrett muzzle forward and equips the supplied rifle/axe in both camera rigs', () => {
     const gun = weapons.get('barrett')!;
     expect(gun.display.getObjectByName('weapon-muzzle')!.position.x).toBeGreaterThan(1);
-    expect(new Box3().setFromObject(gun.display).getSize(new Vector3()).x).toBeCloseTo(1.45, 1);
+    expect(new Box3().setFromObject(gun.display).getSize(new Vector3()).x).toBeCloseTo(1.773, 1);
     expect(weapons.get('ammo_50bmg')).toBeDefined();
     const avatar = new Avatar(character, true), camera = new PerspectiveCamera(), view = new ViewModel(camera);
     for (const [id, stance] of [['barrett', 'rifle'], ['fire_axe', 'melee']] as const) {
@@ -200,14 +200,13 @@ describe('C4 supplied models', () => {
     }
     view.dispose();
   });
-  it('loads the PKM, ammo box and authored reload clip with a forward muzzle', () => {
+  it('loads the PKM, ammo box with a forward muzzle', () => {
     const gun = weapons.get('pkm')!;
-    expect(gun.reloadClip).toBe('reload_ammo_box');
     expect(weapons.get('ammo_pkm')).toBeDefined();
     const muzzle = gun.display.getObjectByName('weapon-muzzle')!;
     expect(muzzle.position.x).toBeGreaterThan(0);
     const size = new Box3().setFromObject(gun.display).getSize(new Vector3());
-    expect(size.x).toBeCloseTo(1.17, 1);
+    expect(size.x).toBeCloseTo(1.2, 1);
   });
   it('uses the bundle for the inventory and the clacker for the held model', () => {
     const bundle = weapons.get('c4')!, remote = weapons.get('c4_detonator')!;

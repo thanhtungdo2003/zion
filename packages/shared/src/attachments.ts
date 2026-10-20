@@ -45,16 +45,20 @@ export const ATTACHMENTS: Record<string, AttachmentDef> = {
   scope_10x: { id: 'scope_10x', slot: 'optic', magnification: 10, reticle: 'mildot', modifiers: { adsSpeed: .62 } },
   suppressor_pistol: { id: 'suppressor_pistol', slot: 'muzzle', modifiers: { recoil: .9, loudness: .3, flash: 0, spread: .95 } },
   suppressor_rifle: { id: 'suppressor_rifle', slot: 'muzzle', modifiers: { recoil: .88, loudness: .35, flash: 0, spread: .95 } },
+  suppressor_sniper: { id: 'suppressor_sniper', slot: 'muzzle', modifiers: { recoil: .82, loudness: .3, flash: 0, spread: .93, adsSpeed: .95 } },
+  compensator: { id: 'compensator', slot: 'muzzle', modifiers: { recoil: .8, spread: .97 } },
+  compensator_rifle: { id: 'compensator_rifle', slot: 'muzzle', modifiers: { recoil: .78, spread: .96 } },
 };
 
 /** Stable order for the snapshot byte that tells other players what is mounted (index + 1). */
-export const ATTACHMENT_ORDER: readonly string[] = ['red_dot', 'scope_2x', 'scope_4x', 'nv_scope_6x', 'scope_8x', 'scope_10x', 'suppressor_pistol', 'suppressor_rifle', 'holo_sight'];
+export const ATTACHMENT_ORDER: readonly string[] = ['red_dot', 'scope_2x', 'scope_4x', 'nv_scope_6x', 'scope_8x', 'scope_10x', 'suppressor_pistol', 'suppressor_rifle', 'holo_sight', 'suppressor_sniper', 'compensator', 'compensator_rifle'];
 
 const SHORT_OPTICS = ['red_dot', 'holo_sight', 'scope_2x', 'scope_4x'];
 const ALL_OPTICS = ['red_dot', 'holo_sight', 'scope_2x', 'scope_4x', 'nv_scope_6x', 'scope_8x', 'scope_10x'];
 const LONG_OPTICS = ['scope_4x', 'nv_scope_6x', 'scope_8x', 'scope_10x'];
-const PISTOL_CAN = ['suppressor_pistol'];
-const RIFLE_CAN = ['suppressor_rifle'];
+const PISTOL_CAN = ['suppressor_pistol', 'compensator'];
+const RIFLE_CAN = ['suppressor_rifle', 'compensator_rifle'];
+const SNIPER_CAN = ['suppressor_sniper', 'suppressor_rifle', 'compensator_rifle'];
 
 /** Which attachments each gun (inventory item id) accepts, per slot. Guns not listed take none. */
 export const WEAPON_ATTACHMENTS: Readonly<Record<string, Partial<Record<AttachmentSlot, readonly string[]>>>> = {
@@ -62,7 +66,8 @@ export const WEAPON_ATTACHMENTS: Readonly<Record<string, Partial<Record<Attachme
   deagle: { optic: ['red_dot'], muzzle: PISTOL_CAN },
   mp5: { optic: ['red_dot', 'holo_sight', 'scope_2x'], muzzle: PISTOL_CAN },
   uzi: { optic: ['red_dot', 'holo_sight'], muzzle: PISTOL_CAN },
-  vector: { muzzle: PISTOL_CAN },
+  // The Gen I model carries its own suppressor and holographic sight.
+  vector: {},
   p90: { optic: ['red_dot'], muzzle: RIFLE_CAN },
   ak47: { optic: SHORT_OPTICS, muzzle: RIFLE_CAN },
   m4a1: { optic: ['red_dot', 'holo_sight'], muzzle: RIFLE_CAN },
@@ -70,9 +75,10 @@ export const WEAPON_ATTACHMENTS: Readonly<Record<string, Partial<Record<Attachme
   aug: { optic: [...SHORT_OPTICS, 'nv_scope_6x'], muzzle: RIFLE_CAN },
   scar_h: { optic: [...SHORT_OPTICS, 'nv_scope_6x', 'scope_8x'], muzzle: RIFLE_CAN },
   mini14: { optic: ALL_OPTICS.slice(0, 6), muzzle: RIFLE_CAN },
-  svd: { optic: LONG_OPTICS, muzzle: RIFLE_CAN },
-  kar98k: { optic: LONG_OPTICS, muzzle: RIFLE_CAN },
-  awm: { optic: LONG_OPTICS, muzzle: RIFLE_CAN },
+  svd: { optic: LONG_OPTICS, muzzle: SNIPER_CAN },
+  kar98k: { optic: LONG_OPTICS, muzzle: SNIPER_CAN },
+  awm: { optic: LONG_OPTICS, muzzle: SNIPER_CAN },
+  remington700: { optic: LONG_OPTICS, muzzle: SNIPER_CAN },
   barrett: { optic: ['nv_scope_6x', 'scope_8x', 'scope_10x'] },
   pkm: {},
   saiga12: { optic: ['red_dot', 'holo_sight'] },
@@ -118,9 +124,9 @@ export function attachmentModifier(attachments: Attachments | undefined, stat: k
 }
 
 /** The installed optic (if any). */
-/** Sights built into a weapon (no attachment slot): the rocket launcher's 3× rangefinding sight. */
+/** Sights built into a weapon (no attachment slot): the rocket launcher's PGO-7 (2.7×, rangefinding). */
 export const BUILTIN_OPTICS: Readonly<Record<string, AttachmentDef>> = {
-  rocket_launcher: { id: 'rocket_sight', slot: 'optic', magnification: 3, reticle: 'rocket', modifiers: {} },
+  rocket_launcher: { id: 'scope_pgo7', slot: 'optic', magnification: 2.7, reticle: 'rocket', modifiers: {} },
 };
 
 /** The optic a weapon aims through: the fitted attachment, else its built-in sight. */

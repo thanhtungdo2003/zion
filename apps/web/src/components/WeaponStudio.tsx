@@ -35,6 +35,34 @@ const OPTICS = Object.values(ATTACHMENTS).filter((a) => a.slot === 'optic').map(
 const MUZZLES = Object.values(ATTACHMENTS).filter((a) => a.slot === 'muzzle').map((a) => a.id);
 const AMMO = Object.values(ITEMS).filter((d) => d.ammo).map((d) => d.id);
 
+/**
+ * Fitting data embedded in a `.bbmodel` by ModelGen Gun Studio (`zion_weapon`): barrel/up axes,
+ * hand and attachment points (in the file's Blockbench pixels) and the real length. Without it
+ * a new model starts with the default axes and must be oriented by hand.
+ */
+async function modelHints(file: File): Promise<Partial<Draft['model']> | null> {
+  if (!file.name.toLowerCase().endsWith('.bbmodel')) return null;
+  try {
+    const raw = (JSON.parse(await file.text()) as { zion_weapon?: Record<string, unknown> }).zion_weapon;
+    if (!raw || typeof raw !== 'object') return null;
+    const vec = (v: unknown): Vec3 | undefined =>
+      Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n)) ? [v[0], v[1], v[2]] as Vec3 : undefined;
+    const hints: Partial<Draft['model']> = {};
+    const length = raw.length;
+    if (typeof length === 'number' && length >= .1 && length <= 3) hints.length = length;
+    for (const key of ['barrel', 'up', 'grip', 'support', 'muzzle', 'eject', 'rail'] as const) {
+      const v = vec(raw[key]);
+      if (v) hints[key] = v;
+    }
+    const sight = raw.sight as { rear?: unknown; front?: unknown } | undefined;
+    const rear = vec(sight?.rear), front = vec(sight?.front);
+    if (rear && front) hints.sight = { rear, front };
+    return hints.barrel && hints.up ? hints : null;
+  } catch {
+    return null;
+  }
+}
+
 function blankDraft(kind: 'gun' | 'melee' | 'throw', format: 'glb' | 'bbmodel'): Draft {
   return {
     id: `cw_${Math.random().toString(36).slice(2, 8)}`, name: kind === 'gun' ? 'Súng mới' : kind === 'throw' ? 'Lựu đạn mới' : 'Vũ khí cận chiến mới', info: '', kind, format,
@@ -152,7 +180,10 @@ export function WeaponManagerPage() {
       </div>
       {creating && <NewWeaponDialog onCancel={() => setCreating(false)} onPick={(kind, file) => {
         setCreating(false);
-        setFresh({ draft: blankDraft(kind, file.name.toLowerCase().endsWith('.glb') ? 'glb' : 'bbmodel'), file });
+        void modelHints(file).then((hints) => {
+          const draft = blankDraft(kind, file.name.toLowerCase().endsWith('.glb') ? 'glb' : 'bbmodel');
+          setFresh({ draft: hints ? { ...draft, model: { ...draft.model, ...hints } } : draft, file });
+        });
       }} />}
     </div>
   );
@@ -264,6 +295,14 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
               if (f.size > 8 * 1024 * 1024) { setError('File lớn hơn 8 MB.'); return; }
               setFile(f); set({ format: f.name.toLowerCase().endsWith('.glb') ? 'glb' : 'bbmodel' }); setTab('model');
               setError(null); setNotice(`Đã chọn ${f.name}: kiểm tra lại hướng nòng và các điểm gắn rồi bấm Lưu.`);
+              // Per-attachment offsets were tuned in the OLD model's units and axes (on one file Y is the
+              // barrel, on the next it may be up): carried over, they lift or sink every optic. Start clean.
+              if (d.model.attachmentOffset) setModel({ attachmentOffset: undefined });
+              void modelHints(f).then((hints) => {
+                if (!hints) return;
+                setModel({ ...hints, attachmentOffset: undefined });
+                setNotice(`Đã chọn ${f.name}: hướng nòng, hướng lên và các điểm gắn được lấy từ file (Gun Studio). Kiểm tra lại rồi bấm Lưu.`);
+              });
             }} />
           </label>
           {onRemove && <button className={`btn ${builtin ? 'ws-reset' : 'btn-danger'}`} onClick={onRemove} disabled={busy}><Icon name={builtin ? 'lucide:rotate-ccw' : 'lucide:trash-2'} /> {builtin ? 'Reset mặc định' : 'Xóa'}</button>}
@@ -398,18 +437,32 @@ function AttachmentPicker({ slot, chosen, mounted, onChange, shown, onShow, slot
 }
 
 /** Orbitable model with the hand / attachment points; a click on the model places the active one. */
+const VIEWER_BG_KEY = 'zion-weapon-viewer-bg';
+const BACKDROP = {
+  dark: { clear: 0x15181a, gridMajor: 0x3a3f42, grid: 0x24282a },
+  light: { clear: 0xd9dde2, gridMajor: 0x8e969e, grid: 0xb4bbc2 },
+} as const;
+
 function PointEditor({ url, format, draft, previews, picking, onPick }: { url: string; format: 'glb' | 'bbmodel'; draft: Draft; previews: string[]; picking: PointKey | null; onPick: (p: Vec3) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{ markers: (d: Draft) => void; attachments: (d: Draft, ids: string[]) => void } | null>(null);
   const pick = useRef(onPick); pick.current = onPick;
   const active = useRef(picking); active.current = picking;
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  // Light or dark backdrop: black parts vanish on the dark one. Remembered per browser.
+  const [light, setLight] = useState(() => { try { return localStorage.getItem(VIEWER_BG_KEY) === 'light'; } catch { return false; } });
+  const lightRef = useRef(light); lightRef.current = light;
+  const backdrop = useRef<((light: boolean) => void) | null>(null);
+  useEffect(() => {
+    backdrop.current?.(light);
+    try { localStorage.setItem(VIEWER_BG_KEY, light ? 'light' : 'dark'); } catch { /* private mode: not remembered */ }
+  }, [light]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
     let disposed = false, frame = 0;
     const renderer = new WebGLRenderer({ antialias: true });
-    renderer.outputColorSpace = SRGBColorSpace; renderer.setClearColor(new Color(0x15181a));
+    renderer.outputColorSpace = SRGBColorSpace; renderer.setClearColor(new Color(lightRef.current ? BACKDROP.light.clear : BACKDROP.dark.clear));
     el.appendChild(renderer.domElement);
     const scene = new Scene(), holder = new Group(), markers = new Group();
     scene.add(holder, new AmbientLight(0xffffff, 1.7));
@@ -476,9 +529,21 @@ function PointEditor({ url, format, draft, previews, picking, onPick }: { url: s
       framed = true;
       const box = new Box3().setFromObject(root), size = box.getSize(new Vector3()), center = box.getCenter(new Vector3());
       radius = Math.max(size.x, size.y, size.z) * .018;
-      const grid = new GridHelper(Math.max(size.x, size.z) * 2, 20, 0x3a3f42, 0x24282a); grid.position.y = box.min.y; scene.add(grid);
+      gridSize = Math.max(size.x, size.z) * 2; gridY = box.min.y;
+      setBackdrop(lightRef.current);
       controls.target.copy(center); camera.position.copy(center).add(new Vector3(0, size.length() * .25, size.length() * 1.25)); controls.update();
     };
+    let grid: GridHelper | null = null, gridSize = 0, gridY = 0;
+    const setBackdrop = (isLight: boolean) => {
+      const look = isLight ? BACKDROP.light : BACKDROP.dark;
+      renderer.setClearColor(new Color(look.clear));
+      if (gridSize > 0) {
+        if (grid) { scene.remove(grid); grid.dispose(); }
+        grid = new GridHelper(gridSize, 20, look.gridMajor, look.grid); grid.position.y = gridY; scene.add(grid);
+      }
+      redraw();
+    };
+    backdrop.current = setBackdrop;
     void loadWeaponModel(url, undefined, format).then(({ root: r }) => {
       if (disposed) return;
       // Markers, gizmo handle and attachment previews sit beside the model (same frame), never in it.
@@ -498,7 +563,7 @@ function PointEditor({ url, format, draft, previews, picking, onPick }: { url: s
       pick.current([+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)]);
     };
     renderer.domElement.addEventListener('pointerdown', down); renderer.domElement.addEventListener('pointerup', up);
-    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); gizmo.dispose(); controls.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); api.current = null; };
+    return () => { disposed = true; backdrop.current = null; cancelAnimationFrame(frame); observer.disconnect(); gizmo.dispose(); controls.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); api.current = null; };
   }, [url, format]);
   const draftRef = useRef(draft); draftRef.current = draft;
   useEffect(() => { api.current?.markers(draft); }, [draft, picking]);
@@ -510,6 +575,9 @@ function PointEditor({ url, format, draft, previews, picking, onPick }: { url: s
   return <div className="ws-viewer" ref={host}>
     {state === 'loading' && <div className="ws-viewer-state"><Spinner /> Đang tải model…</div>}
     {state === 'failed' && <div className="ws-viewer-state">Không đọc được file model.</div>}
+    <button type="button" className="ws-viewer-bg" onClick={() => setLight((v) => !v)} title={light ? 'Chuyển sang nền tối' : 'Chuyển sang nền sáng'} aria-pressed={light}>
+      <Icon name={light ? 'lucide:moon' : 'lucide:sun'} /> {light ? 'Nền tối' : 'Nền sáng'}
+    </button>
     {picking && state === 'ready' && <div className="ws-viewer-hint">Nhấp lên model để đặt: <b>{POINTS[picking].label}</b> · kéo mũi tên để dời điểm · kéo nền để xoay</div>}
   </div>;
 }

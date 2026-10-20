@@ -109,6 +109,8 @@ export interface HudState {
   reticle: 'dot' | 'holo' | 'duplex' | 'mildot' | 'rocket' | null;
   /** Looking through a night-vision scope, and whether night vision is on. */
   nvScope: boolean;
+  /** The optic's lens shows the magnified view in the 3D scene: no screen overlay. */
+  lensScope: boolean;
   nightVision: boolean;
   /** ZCoin balance (server wallet). */
   coins: number;
@@ -200,6 +202,7 @@ export function initialHud(): HudState {
     scopeMagnification: 1,
     reticle: null,
     nvScope: false,
+    lensScope: false,
     nightVision: false,
     coins: 0,
     healing: null,

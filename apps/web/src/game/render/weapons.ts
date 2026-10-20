@@ -1,6 +1,6 @@
 import { Group, Matrix4, Vector3, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ATTACHMENT_SLOTS, type Attachments } from '@zion/shared';
+import { ATTACHMENT_SLOTS, attachmentDef, type Attachments } from '@zion/shared';
 import { cachedFetch } from '@/lib/preload';
 import { loadCustomWeapons } from '../custom-weapons';
 import { ResourceDisposer } from './resources';
@@ -67,6 +67,8 @@ export interface WeaponSpec {
   /** Attachments: length once mounted on a gun (metres). Their `grip` is the pivot: the centre of
    * the face that touches the gun (an optic's base underside, a muzzle device's rear face). */
   mountLength?: number;
+  /** Optic that always comes with this weapon (shown and aimed through when no other is fitted). */
+  builtinOptic?: string;
 }
 
 /**
@@ -99,52 +101,53 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   // Rifles and pistols with the sight line (iron sights) and optic rail they are aimed and dressed with.
   ak47: { url: '/models/weapons/ak47-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 16.5, -5], support: [0, 36, -1], muzzle: [0, 56, 0], eject: [2, 24, 1.5], reloadClip: 'reload', sight: { rear: [0, 32.5, 4.3], front: [0, 50.75, 4.5] }, rail: [0, 22, 3.5] },
   deagle: { url: '/models/weapons/desert-eagle.bbmodel', length: 0.27, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 5, 4.5], muzzle: [0, 15, -13.5], eject: [1.5, 16, 0], reloadClip: 'reload', sight: { rear: [0, 18, 6.5], front: [0, 19, -11.5] }, rail: [0, 17, 4.207], attachmentScale: { red_dot: 0.65 } },
-  kar98k: { url: '/models/weapons/kar98k-rifle.bbmodel', length: 1.1, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 16, -1], support: [0, 38, 0], muzzle: [0, 54, 2], eject: [1, 24, 3], reloadClip: 'reload', sight: { rear: [0, 34.5, 5], front: [0, 53, 4] }, rail: [0, 21.992, 4] },
-  mini14: { url: '/models/weapons/mini-14-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [1, 0, 0], grip: [-3, 14.5, 0], support: [-1, 32, 0], muzzle: [0.5, 49, 0], eject: [3, 23, 0], reloadClip: 'reload', sight: { rear: [3, 19, 0], front: [4, 45.5, 0] }, rail: [3, 23, 0] },
-  scar_h: { url: '/models/weapons/scar-h-rifle.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 0.5, -6.5], support: [0, 26, -0.5], muzzle: [0, 46, 2], eject: [2.5, 11, 2], reloadClip: 'reload', sight: { rear: [0, 2, 7], front: [0, 29.5, 7] }, rail: [0, 11, 5], attachmentOffset: { scope_8x: [0, 2.037, 0] } },
+  kar98k: { url: '/models/weapons/mauser-kar98k.bbmodel', length: 1.116, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -10.5, -2], support: [0, -7.176, 35], muzzle: [0, 0, 82.5], eject: [-1.725, -0.6, 11], sight: { rear: [0, 3.5, 28.25], front: [0, 3, 80.25] }, rail: [0, -0.5, 11] },
+  mini14: { url: '/models/weapons/ruger-mini-14-gb.bbmodel', length: 0.987, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -6, -2], support: [0, -5, 27.25], muzzle: [0, 0, 65.5], eject: [-1.5, -0.3, 8.5], sight: { rear: [0, 5, 3.75], front: [0, 3.5, 48] }, rail: [0, 2.5, 8.5] },
+  scar_h: { url: '/models/weapons/scar-h-mk17.bbmodel', length: 0.963, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -13, 5], support: [0, -14.94, 43], muzzle: [0, 0, 69.5], eject: [-3.144, 0.25, 25], sight: { rear: [0, 9, 3], front: [0, 9.75, 47] }, rail: [0, 5, 25.286] },
   // Imported GLBs: points are in the file's own units.
   uzi: { url: '/models/weapons/uzi-imi.glb', length: 0.47, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, -0.75, -0.399], support: [0, -0.25, -1.3], muzzle: [0, -0.26, -2.494], eject: [0.14, 0.02, -0.9], sight: { rear: [0, 0.13, 0.42], front: [0, 0.112, -1.64] }, rail: [0, 0.019, 0.04] },
-  vector: { url: '/models/weapons/kriss-vector.glb', length: 0.7, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-5.8, 3.5, 0], support: [-1, 7, 0], muzzle: [6.5, 8.1, 0], eject: [-3, 9, 0.5], sight: { rear: [-7.5, 10.4, 0], front: [-1, 10.4, 0] }, rail: [-6.5, 11.001, 0] },
+  vector: { url: '/models/weapons/kriss-vector-gen1.bbmodel', length: 0.95, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -6.5, 2.9], support: [0, -3.482, 34.75], muzzle: [0, 0, 75.5], eject: [-2.86, 0.85, 14.5], sight: { rear: [0, 9, 8.25], front: [0, 9, 36.25] }, rail: [0, 6.5, 21.279] },
   p90: { url: '/models/weapons/p90.glb', length: 0.5, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0.18, 0.46], support: [0, 0.18, 0.6], muzzle: [0, 0.415, 0.91], eject: [0, 0.12, 0.2], sight: { rear: [0, 0.715, 0.31], front: [0, 0.715, 0.68] }, rail: [0.007, 0.6341, 0.436], fpHip: [0.2, -0.2604, -0.3187], fpRot: [0, 0], attachmentOffset: { scope_2x: [0, 0.0799, 0] } },
   // Muzzle toward −Z (the thin flash hider end); the folding stock is the +Z end.
   scar_l: { url: '/models/weapons/fn-scar-l.glb', length: 0.9, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0.205, 0.18, 0.27], support: [0.205, 0.29, -0.03], muzzle: [0.2, 0.35, -0.322], eject: [0.25, 0.38, 0.2], sight: { rear: [0.205, 0.475, 0.47], front: [0.205, 0.475, -0.11] }, rail: [0.203, 0.431, 0.3725], attachmentOffset: { scope_2x: [0, 0, -0.081], scope_4x: [0, 0, -0.128], nv_scope_6x: [0, 0, -0.115] } },
   // Attachments (inventory icons, previews and mounting): `barrel` = toward the target, `grip` = mounting point.
-  red_dot: { url: '/models/accessorys/red-dot-sight.bbmodel', length: 0.11, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 6.5, 5], mountLength: 0.07 },
-  nv_scope_6x: { url: '/models/accessorys/night-vision-scope-6x.bbmodel', length: 0.3, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 18, -8], eye: [0, 0, 0], mountLength: 0.33 },
-  scope_2x: { url: '/models/accessorys/scope-2x.bbmodel', length: 0.12, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, -2], eye: [0, 4.5, 6.7], mountLength: 0.25 },
-  scope_4x: { url: '/models/accessorys/scope-4x.bbmodel', length: 0.17, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, -3.5], eye: [0, 4.5, 6.7], mountLength: 0.32 },
-  scope_8x: { url: '/models/accessorys/scope-8x.bbmodel', length: 0.26, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, -6], eye: [0, 4.5, 6.7], mountLength: 0.39 },
+  red_dot: { url: '/models/accessorys/red-dot-exps.bbmodel', length: 0.086, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 9.5, -15], mountLength: 0.087 },
+  nv_scope_6x: { url: '/models/accessorys/nv-scope-x6.bbmodel', length: 0.284, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 16.672, -45.312], mountLength: 0.288 },
+  scope_2x: { url: '/models/accessorys/scope-2x-fixed.bbmodel', length: 0.287, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -48.512], mountLength: 0.289 },
+  scope_4x: { url: '/models/accessorys/scope-4x32.bbmodel', length: 0.305, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -49.472], mountLength: 0.308 },
+  scope_8x: { url: '/models/accessorys/scope-8x40.bbmodel', length: 0.303, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -45.632], mountLength: 0.305 },
   scope_10x: { url: '/models/accessorys/scope-10x.bbmodel', length: 0.3, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, -7.5], eye: [0, 4.5, 6.7], mountLength: 0.42 },
-  holo_sight: { url: '/models/accessorys/holo-sight.bbmodel', length: 0.1, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 4.5, 0], mountLength: 0.075 },
-  suppressor_pistol: { url: '/models/accessorys/suppressor-pistol.bbmodel', length: 0.15, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, -8], mountLength: 0.12 },
-  suppressor_rifle: { url: '/models/accessorys/suppressor-rifle.bbmodel', length: 0.2, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, -11], mountLength: 0.2 },
+  holo_sight: { url: '/models/accessorys/holo-xps.bbmodel', length: 0.099, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12, -16.5], mountLength: 0.1 },
+  suppressor_pistol: { url: '/models/accessorys/suppressor-compact.bbmodel', length: 0.168, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 54.125], mountLength: 0.171 },
+  suppressor_rifle: { url: '/models/accessorys/suppressor-standard.bbmodel', length: 0.181, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 58.5], mountLength: 0.184 },
   badge_recruit: { url: '/models/materias/tanbinh-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_private: { url: '/models/materias/binhnhi-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_corporal: { url: '/models/materias/corporal-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_sergeant: { url: '/models/materias/sergeant-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   badge_elite: { url: '/models/materias/elite-badge.bbmodel', length: 0.15, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
-  pkm: { url: '/models/weapons/pkm-machine-gun.bbmodel', length: 1.17, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -5], support: [0, 29, -2], muzzle: [0, 52, 0], eject: [2, 22, 0], reloadClip: 'reload_ammo_box', sight: { rear: [0, 23, 4], front: [0, 45.5, 3] }, rail: [0, 19, 3], attachmentOffset: { scope_2x: [0, -0.889, 0], scope_4x: [0, -2.222, 0] } },
+  pkm: { url: '/models/weapons/pkm-762x54r.bbmodel', length: 1.2, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12.5, 8.5], muzzle: [0, 0, 94.25], eject: [-2.8, -2, 15], sight: { rear: [0, 5.5, 28], front: [0.25, 7.5, 81.75] }, rail: [0, 3, 15] },
   ammo_pkm: { url: '/models/weapons/pkm-ammo-box.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
-  barrett: { url: '/models/weapons/barrett-m82.bbmodel', length: 1.45, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 15, -6], support: [0, 31, -2], muzzle: [0.045, 52, 1.541], eject: [2, 23.41, 1.7], sight: { rear: [-0.013, 15.715, 7.5], front: [-0.011, 28.523, 7.5] }, rail: [-0.031, 21.492, 4.647], fpHip: [0.2, -0.4123, -0.2137], opticScale: 1.42, attachmentScale: { scope_8x: 1.34, scope_10x: 1.36 }, attachmentOffset: { scope_8x: [0, 0.538, 0], scope_10x: [0, 0.359, 0], nv_scope_6x: [0, 0.359, 0] } },
+  barrett: { url: '/models/weapons/barrett-m82a1.bbmodel', length: 1.773, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12.85, 1.55], support: [0, -4.05, 51], muzzle: [0, 0, 140], eject: [-3.65, -3, 18], sight: { rear: [0, 7, 14.28], front: [0, 7, 138] }, rail: [0, 5.5, 20.28], fpHip: [0.2, -0.4123, -0.2137] },
   ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
   fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], edge: [1, 0, 0], strikePoint: [0, 27, 0] },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0.115, 9.604, -9.1], eject: [1.05, 10.677, -0.739], reloadClip: 'reload', sight: { rear: [0.046, 11.5, 3.866], front: [0.041, 12.5, -7.42] }, rail: [0.028, 11.052, 2.022], attachmentScale: { red_dot: 0.65 } },
-  awm: { url: '/models/weapons/awm-sniper-4x.bbmodel', length: 1.15, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 13.5, -4.5], muzzle: [-0.21, 61.467, 2.067], eject: [1.5, 23.545, 2.42], sight: { rear: [0.068, 17.856, 6.75], front: [0.006, 56.308, 6.75] }, rail: [-0.088, 21.598, 5.478], attachmentOffset: { scope_4x: [0, 3.504, 0], scope_8x: [0, 5.391, 0], scope_10x: [0, 6.47, 0], nv_scope_6x: [0, 1.348, 0] } },
-  m4a1: { url: '/models/weapons/m4a1-rifle.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 0.5, -3.5], support: [0.38, 12.481, -1], muzzle: [0.035, 35, 1.578], eject: [2, 4.234, 1.779], sight: { rear: [0.05, 8.485, 7], front: [0.032, 24.59, 6] }, rail: [0, 1.993, 3.967], attachmentOffset: { scope_2x: [0, -4.083, 0], scope_4x: [0, -5.989, 0], scope_8x: [0, -7.894, 0], nv_scope_6x: [0, -6.806, 0] } },
-  aug: { url: '/models/weapons/steyr-aug.bbmodel', length: 0.8, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 16.5, -3.5], muzzle: [0, 47.25, 3], eject: [2, 24, 3], sight: { rear: [0, 20, 5.6], front: [0, 32, 5.6] }, rail: [0, 24, 5] },
-  svd: { url: '/models/weapons/svd-dragunov.bbmodel', length: 1.2, barrel: [0, 1, 0], up: [1, 0, 0], grip: [-4.5, 11.253, 0], muzzle: [1, 61, 0], eject: [1, 23, 1], sight: { rear: [4, 26, 0], front: [4, 52.5, 0] }, rail: [3, 19.709, 0], attachmentScale: { scope_8x: 0.95, scope_10x: 1.04 }, attachmentOffset: { scope_8x: [0, 1.022, 0] } },
-  saiga12: { url: '/models/weapons/saiga-12-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 2.5, 5], muzzle: [0, 39, 0], eject: [2.5, 11, -0.5], sight: { rear: [0, 14, -3], front: [0, 34, -3] }, rail: [0, 7, -3] },
-  double_barrel: { url: '/models/weapons/double-barrel-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 12, -1.5], muzzle: [0, 44, 1] },
-  revolver: { url: '/models/weapons/revolver.bbmodel', length: 0.3, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 2, 4.5], muzzle: [0, 26, -4] },
-  mp5: { url: '/models/weapons/mp5-smg.bbmodel', length: 0.6, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 3.5, 6.5], muzzle: [0, 10, -18], eject: [1, 10, -6], sight: { rear: [0, 15, 6], front: [0, 15, -14] }, rail: [0, 13, 0] },
+  awm: { url: '/models/weapons/awm-338-lapua.bbmodel', length: 1.27, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -10.2, -2.45], support: [0, -7.165, 36.75], muzzle: [0, 0, 90.6], eject: [-2.508, -0.35, 12.75], sight: { rear: [0, 5.1, 7.25], front: [0, 5.1, 88.6] }, rail: [0, 3.6, 13.25] },
+  m4a1: { url: '/models/weapons/m4a1-sopmod.bbmodel', length: 0.83, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.1, -0.15], support: [0, -2.6, 26.9], muzzle: [0, 0, 59], eject: [-1.27, 0.1, 9], sight: { rear: [0, 7, 18.77], front: [0, 7, 37.25] }, rail: [0, 4, 26.77] },
+  aug: { url: '/models/weapons/steyr-aug-a3.bbmodel', length: 0.732, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -8.25, -0.25], support: [0, -13.9, 16.7], muzzle: [0, 0, 36], eject: [-2.126, 0.75, 8], sight: { rear: [0, 10.05, -5.75], front: [0, 10.05, 34] }, rail: [0, 8.55, 0.25] },
+  svd: { url: '/models/weapons/svd-dragunov-v2.bbmodel', length: 1.187, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7, 1], support: [0, -2.8, 38], muzzle: [0, 0, 92.5], eject: [-1.625, -0.9, 12], sight: { rear: [0, 4, 25], front: [0, 5.5, 80.375] }, rail: [0, 1.5, 12] },
+  saiga12: { url: '/models/weapons/saiga-12k.bbmodel', length: 0.94, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12, 5.5], support: [0, -3.59, 42.5], muzzle: [0, 0, 68.25], eject: [-2.575, -2.25, 15], sight: { rear: [0, 8.5, 8.272], front: [0, 8.5, 56.75] }, rail: [0, 6.5, 16.272] },
+  double_barrel: { url: '/models/weapons/sxs-double-barrel.bbmodel', length: 1.168, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7.5, 1], support: [0, -4.4, 23], muzzle: [0, 0, 76], eject: [-2.3, -1.25, 2.5], sight: { rear: [0, 4, -3.5], front: [0, 4, 74] } },
+  revolver: { url: '/models/weapons/sw-model-10.bbmodel', length: 0.232, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7, 0], muzzle: [0, 0, 20.5], eject: [-1.584, -0.4, 5], sight: { rear: [0, 2.5, 2.25], front: [0, 2, 19] } },
+  mp5: { url: '/models/weapons/mp5a3.bbmodel', length: 0.55, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.041, 6.44], support: [0, -3.568, 33.5], muzzle: [0, 0, 46], eject: [-2.292, -0.5, 13.5], sight: { rear: [-0.188, 7, 3.75], front: [0, 8.375, 40] }, rail: [0, 3.5, 13.5] },
   ammo_57x28: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_762x51: { url: '/models/weapons/ammo-box-762x54r.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [5, 6.5, 0] },
-  grenade_launcher: { url: '/models/weapons/grenade-launcher.bbmodel', length: 0.75, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, -1.5, -5], muzzle: [0, 27, 0] },
+  grenade_launcher: { url: '/models/weapons/milkor-mgl.bbmodel', length: 0.778, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.507, 3.699], support: [0, -14.35, 29.5], muzzle: [0, 0, 52.75], eject: [-2.463, -1, 4.986], sight: { rear: [0, 11.5, 11.5], front: [0, 11.5, 21.5] }, rail: [0, 4, 4.986] },
   crossbow: { url: '/models/weapons/modern-crossbow.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 9.5, -4.5], muzzle: [0, 38, 0] },
   // RPG-32 Hashim: tube along +Y, carry handle on top (+Z), pistol grip and foregrip below, sight on the left.
-  rocket_launcher: { url: '/models/weapons/rpg32-hashim-unloaded.bbmodel', length: 1, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6.5, -7], support: [0, 18.5, -7], muzzle: [0, 27, 0] },
-  flamethrower: { url: '/models/weapons/flamethrower.bbmodel', length: 0.95, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 8.5, -4.5], muzzle: [0, 34, 0] },
+  // The PGO-7 optical sight always rides on the tube (left of the carry handle): its built-in sight.
+  rocket_launcher: { url: '/models/weapons/rpg32-hashim.bbmodel', length: 1, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6.5, -7], support: [0, 18.5, -7], muzzle: [0, 27, 0], rail: [-3.4, 13, 4], builtinOptic: 'scope_pgo7' },
+  flamethrower: { url: '/models/weapons/m2-flamethrower.bbmodel', length: 1.159, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -9.5, 5.25], muzzle: [0, 0, 95.5], eject: [-2.9, 0, 9], sight: { rear: [0, 5.5, 3], front: [0, 5.5, 93.5] } },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
   machete: { url: '/models/weapons/machete.bbmodel', length: 0.65, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 3, 0], edge: [-1, 0, 0], strikePoint: [0, 20, 0], fpHip: [0.3359, -0.235, -0.2537], fpSupport: [0, 0, 0], fpRot: [0.548, 0.0349] },
   baseball_bat: { url: '/models/weapons/baseball-bat.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], edge: [-1, 0, 0], strikePoint: [0, 26, 0], fpHip: [0.255, -0.215, -0.205], fpRot: [0.4538, 0] },
@@ -162,12 +165,12 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_762x54: { url: '/models/weapons/ammo-box-762x54r.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [5, 6.5, 0] },
   ammo_357: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_40mm: { url: '/models/weapons/grenade-40mm-retail-pack.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 6.5, 0.75] },
-  rocket: { url: '/models/weapons/rpg32-rocket.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 20, 0] },
+  rocket: { url: '/models/weapons/rpg32-rocket-v2.bbmodel', length: 0.96, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 72] },
   bolts: { url: '/models/weapons/arrow-quiver.bbmodel', length: 0.6, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 14, -0.5] },
   fuel_tank: { url: '/models/weapons/flamethrower-fuel-tank.bbmodel', length: 0.45, barrel: [0, 1, 0], up: [1, 0, 0], grip: [2.5, 11.5, 0] },
   // Rounds in flight (nose → +X in the display model) and the ZCoin.
   proj_grenade40: { url: '/models/weapons/grenade-launcher-round.bbmodel', length: 0.22, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 0] },
-  proj_rocket: { url: '/models/weapons/rpg32-rocket.bbmodel', length: 0.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 20, 0] },
+  proj_rocket: { url: '/models/weapons/rpg32-rocket-v2.bbmodel', length: 0.96, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 72] },
   proj_bolt: { url: '/models/weapons/arrow.bbmodel', length: 0.6, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 16, 0] },
   medkit: { url: '/models/tools/first-aid-kit.bbmodel', length: 0.35, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5.5, 0] },
   zcoin: { url: '/models/materias/gold-coin-z.bbmodel', length: 0.05, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 7, 0] },
@@ -177,6 +180,13 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   c4: { url: '/models/weapons/remote-c4-bomb.bbmodel', length: .42, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   c4_detonator: { url: '/models/weapons/c4-clacker-detonator.bbmodel', length: .1, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 6, 0] },
   proj_c4: { url: '/models/weapons/c4-bomb.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-3, 0, 0] },
+  // ModelGen Gun Studio models (zion_weapon / zion_attachment): +Z forward, +Y up, Blockbench pixels.
+  m79: { url: '/models/weapons/m79-grenade-launcher.bbmodel', length: 0.739, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -8, 1.5], support: [0, -6.7, 22.75], muzzle: [0, 0, 42], eject: [-2.525, -0.75, 7], sight: { rear: [0.188, 5, 18.688], front: [0, 5, 39.062] } },
+  remington700: { url: '/models/weapons/remington-700.bbmodel', length: 1.09, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -5.4, -0.4], muzzle: [0, 0, 73], eject: [-1.8, 0, 11], sight: { rear: [0, 4.6, 4.4], front: [0, 4.6, 71] }, rail: [0, 3.1, 10.4] },
+  suppressor_sniper: { url: '/models/accessorys/suppressor-heavy.bbmodel', length: 0.181, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 58.5], mountLength: 0.184 },
+  scope_pgo7: { url: '/models/accessorys/scope-pgo7.bbmodel', length: 0.275, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 14.392, -49.472], mountLength: 0.278 },
+  compensator: { url: '/models/accessorys/compensator-multiport.bbmodel', length: 0.061, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 19.75], mountLength: 0.063 },
+  compensator_rifle: { url: '/models/accessorys/compensator-rifle.bbmodel', length: 0.059, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 19.5], mountLength: 0.063 },
 };
 
 // Base building: the pickaxe (held and swung like the axe) and the resources, blueprints and radio.
@@ -253,6 +263,26 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
   return { root, boneNames: [], clips: new Map() };
 }
 
+/**
+ * An accessory drawn in ModelGen's accessory studio carries its own fitting (`zion_attachment`):
+ * it replaces the table's mount pivot, axes, eyepiece and sizes, so a new model seats on the rail
+ * and lines up its optical axis without hand tuning.
+ */
+export function fittedSpec(spec: WeaponSpec, template: CharacterTemplate): WeaponSpec {
+  const fit = template.attachment;
+  if (!fit) return spec;
+  return {
+    ...spec,
+    ...(fit.barrel ? { barrel: fit.barrel } : {}),
+    ...(fit.up ? { up: fit.up } : {}),
+    ...(fit.grip ? { grip: fit.grip } : {}),
+    ...(fit.length ? { length: fit.length } : {}),
+    ...(fit.mountLength ? { mountLength: fit.mountLength } : {}),
+    ...(fit.eye ? { eye: fit.eye } : {}),
+    ...(fit.muzzle ? { tip: fit.muzzle } : {}),
+  };
+}
+
 /** Attachment size relative to their real length: drawn a little smaller so they sit in proportion on the guns. */
 const OPTIC_SCALE = .8;
 const MUZZLE_DEVICE_SCALE = .75;
@@ -292,10 +322,12 @@ function mountTransform(gun: WeaponVisual, part: WeaponVisual, slot: 'optic' | '
  * gun's loaded model, the result goes into it. Null when the gun has no mount for that slot.
  */
 export async function previewAttachment(gunSpec: WeaponSpec, gunRoot: Group, attachment: string): Promise<Group | null> {
-  const partSpec = WEAPON_SPECS[attachment];
-  const slot = attachment.startsWith('suppressor') ? 'muzzle' : 'optic';
-  if (!partSpec) return null;
-  const partRoot = (await loadWeaponModel(partSpec.url, undefined, partSpec.format)).root;
+  const tableSpec = WEAPON_SPECS[attachment];
+  const slot = attachmentDef(attachment)?.slot === 'muzzle' ? 'muzzle' : 'optic';
+  if (!tableSpec) return null;
+  const partModel = await loadWeaponModel(tableSpec.url, undefined, tableSpec.format);
+  const partSpec = fittedSpec(tableSpec, partModel);
+  const partRoot = partModel.root;
   const visual = (itemId: string, spec: WeaponSpec, object: Group): WeaponVisual => ({ itemId, object, display: object, attach: new Matrix4(), clips: new Map(), reloadClip: null, muzzle: null, eject: null, spec });
   const transform = mountTransform(visual('gun', gunSpec, gunRoot), visual(attachment, partSpec, partRoot), slot);
   return transform ? mounted(visual(attachment, partSpec, partRoot), transform) : null;
@@ -317,7 +349,17 @@ const dressed = new WeakMap<WeaponLibrary, Map<string, WeaponVisual>>();
  * muzzle marker moved to the device's end and the sight line moved to the optic's axis. Cached per
  * combination; the bare gun is returned unchanged when nothing is mounted.
  */
-export function dressWeapon(lib: WeaponLibrary | null, itemId: string, attachments: Attachments | undefined): WeaponVisual | undefined {
+/** A weapon's attachments plus the optic it always carries (the rocket launcher's PGO-7). */
+export function withBuiltinOptic(itemId: string | null, attachments: Attachments | undefined): Attachments | undefined {
+  const builtin = itemId ? WEAPON_SPECS[itemId]?.builtinOptic : undefined;
+  return builtin && !attachments?.optic ? { ...attachments, optic: builtin } : attachments;
+}
+
+/** Iron sight groups of a ModelGen gun (and their merged meshes). */
+const IRON_SIGHT = /^(rear|front)-sight(-leaf|-base)?(__pivot)?(_mesh)?$/;
+
+export function dressWeapon(lib: WeaponLibrary | null, itemId: string, given: Attachments | undefined): WeaponVisual | undefined {
+  const attachments = withBuiltinOptic(itemId, given);
   const base = lib?.get(itemId);
   if (!lib || !base || !attachments || !ATTACHMENT_SLOTS.some((slot) => attachments[slot])) return base;
   const key = `${itemId}|${attachments.optic ?? ''}|${attachments.muzzle ?? ''}`;
@@ -343,6 +385,11 @@ export function dressWeapon(lib: WeaponLibrary | null, itemId: string, attachmen
       const eye = new Vector3(...part.spec.eye).multiplyScalar(1 / BB_UNITS_PER_METER).applyMatrix4(transform);
       sight = { rear: eye.clone().applyMatrix4(inner.matrix), front: eye.clone().addScaledVector(forward, .2).applyMatrix4(inner.matrix) };
     }
+  }
+  // With an optic on the rail the iron sights are folded away (flip-up sights) — they would stand
+  // in the optic's sight picture otherwise.
+  if (attachments.optic && sight !== base.sight) {
+    for (const root of [object, display]) root.traverse((o) => { if (IRON_SIGHT.test(o.name)) o.visible = false; });
   }
   const marker = display.getObjectByName('weapon-muzzle');
   if (marker && muzzle) marker.position.copy(muzzle).applyMatrix4(inner.matrix);
@@ -499,11 +546,12 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
   const ownedRoots: Group[] = [];
   const results = await Promise.allSettled(
     ids.map(async (itemId, i) => {
-      const spec = WEAPON_SPECS[itemId]!;
-      const built = await loadWeaponModel(spec.url, (p) => {
+      const tableSpec = WEAPON_SPECS[itemId]!;
+      const built = await loadWeaponModel(tableSpec.url, (p) => {
         progress[i] = p;
         report();
-      }, spec.format);
+      }, tableSpec.format);
+      const spec = fittedSpec(tableSpec, built);
       if (spec.emitter) {
         const lens = new Group(); lens.name = 'weapon-emitter';
         lens.position.set(...spec.emitter).multiplyScalar(1 / BB_UNITS_PER_METER);

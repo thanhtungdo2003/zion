@@ -3,6 +3,8 @@ import {
   BufferGeometry,
   Euler,
   Group,
+  Matrix4,
+  Vector3,
   Mesh,
   MeshLambertMaterial,
   NearestFilter,
@@ -31,6 +33,9 @@ interface RawCube {
   uv_offset?: [number, number];
   mirror_uv?: boolean;
   visibility?: boolean;
+  /** Blockbench element rotation (degrees, applied Z·Y·X about `origin`), or the legacy single-axis form. */
+  origin?: Vec3;
+  rotation?: Vec3 | { angle: number; axis: 'x' | 'y' | 'z'; origin?: Vec3 };
   faces?: Partial<Record<FaceName, { uv?: [number, number, number, number]; rotation?: number; texture?: number | null }>>;
 }
 
@@ -81,6 +86,20 @@ export interface CharacterTemplate {
   root: Group;
   boneNames: string[];
   clips: Map<string, CharacterClip>;
+  /** Fitting metadata written by ModelGen (`zion_attachment`), when the file has it. */
+  attachment?: ModelAttachmentFitting;
+}
+
+/** `zion_attachment` of a ModelGen accessory: points in the file's pixels, +Z forward, +Y up. */
+export interface ModelAttachmentFitting {
+  barrel?: [number, number, number];
+  up?: [number, number, number];
+  grip?: [number, number, number];
+  length?: number;
+  mountLength?: number;
+  eye?: [number, number, number];
+  muzzle?: [number, number, number];
+  lens?: string;
 }
 
 function num(v: string | number | undefined): number {
@@ -113,7 +132,23 @@ function boxUv(cube: RawCube): Record<FaceName, [number, number, number, number]
   return faces;
 }
 
+/** The element's own rotation about its origin, as Blockbench applies it; null when unrotated. */
+function cubeRotation(cube: RawCube): { matrix: Matrix4; origin: Vector3 } | null {
+  const r = cube.rotation;
+  if (!r) return null;
+  if (Array.isArray(r)) {
+    if (!r[0] && !r[1] && !r[2]) return null;
+    return { matrix: new Matrix4().makeRotationFromEuler(new Euler(r[0] * DEG, r[1] * DEG, r[2] * DEG, 'ZYX')), origin: new Vector3(...(cube.origin ?? [0, 0, 0])) };
+  }
+  if (!r.angle) return null;
+  const e = new Euler(r.axis === 'x' ? r.angle * DEG : 0, r.axis === 'y' ? r.angle * DEG : 0, r.axis === 'z' ? r.angle * DEG : 0);
+  return { matrix: new Matrix4().makeRotationFromEuler(e), origin: new Vector3(...(r.origin ?? cube.origin ?? [0, 0, 0])) };
+}
+
 function cubeQuads(cube: RawCube, pivot: Vec3, texW: number, texH: number, out: { pos: number[]; nrm: number[]; uv: number[] }): void {
+  const rotation = cubeRotation(cube);
+  const corner = new Vector3();
+  const normal = new Vector3();
   const inflate = cube.inflate ?? 0;
   const from = cube.from.map((c, i) => Math.min(c, cube.to[i]!) - inflate);
   const to = cube.to.map((c, i) => Math.max(c, cube.from[i]!) + inflate);
@@ -132,14 +167,16 @@ function cubeQuads(cube: RawCube, pivot: Vec3, texW: number, texH: number, out: 
     ];
     const turns = ((face?.rotation ?? 0) / 90) % 4;
     for (let i = 0; i < turns; i++) uvs = [uvs[3]!, uvs[0]!, uvs[1]!, uvs[2]!];
-    const quad = def.corners.map(([cx, cy, cz]) => [
-      ((cx ? to[0]! : from[0]!) - pivot[0]) * s,
-      ((cy ? to[1]! : from[1]!) - pivot[1]) * s,
-      ((cz ? to[2]! : from[2]!) - pivot[2]) * s,
-    ]);
+    const quad = def.corners.map(([cx, cy, cz]) => {
+      corner.set(cx ? to[0]! : from[0]!, cy ? to[1]! : from[1]!, cz ? to[2]! : from[2]!);
+      if (rotation) corner.sub(rotation.origin).applyMatrix4(rotation.matrix).add(rotation.origin);
+      return [(corner.x - pivot[0]) * s, (corner.y - pivot[1]) * s, (corner.z - pivot[2]) * s];
+    });
+    normal.set(...def.normal);
+    if (rotation) normal.transformDirection(rotation.matrix);
     for (const k of [0, 3, 2, 0, 2, 1]) {
       out.pos.push(...quad[k]!);
-      out.nrm.push(...def.normal);
+      out.nrm.push(normal.x, normal.y, normal.z);
       out.uv.push(...uvs[k]!);
     }
   }
@@ -258,7 +295,8 @@ export async function buildBBModel(model: RawModel): Promise<CharacterTemplate> 
   const root = new Group();
   root.name = 'character';
   for (const node of model.outliner) if (typeof node !== 'string') root.add(buildBone(node, [0, 0, 0]));
-  return { root, boneNames, clips: parseClips(model) };
+  const attachment = (model as { zion_attachment?: ModelAttachmentFitting }).zion_attachment;
+  return { root, boneNames, clips: parseClips(model), ...(attachment ? { attachment } : {}) };
 }
 
 /** Samples a track at time t (seconds) into out; linear between keys, holds outside. */

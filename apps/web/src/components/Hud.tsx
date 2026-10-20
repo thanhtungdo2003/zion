@@ -132,10 +132,10 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
 
   return (
     <>
-    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && (
+    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && !state.lensScope && (
       <ScopeOverlay magnification={state.scopeMagnification} reticle={state.reticle} nightVision={state.nightVision} nvScope={state.nvScope} />
     )}
-    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && (state.reticle === 'dot' || state.reticle === 'holo') && <RedDotReticle holo={state.reticle === 'holo'} />}
+    {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && !state.lensScope && (state.reticle === 'dot' || state.reticle === 'holo') && <RedDotReticle holo={state.reticle === 'holo'} />}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">
       {state.vehicle && <div className={`hud-vehicle${state.vehicle.driving ? ' driving' : ''}`} role="status">

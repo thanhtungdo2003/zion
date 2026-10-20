@@ -7,7 +7,7 @@ const PX = 1 / BB_UNITS_PER_METER;
 const v3: [number, number, number] = [0, 0, 0];
 const r3: [number, number, number] = [0, 0, 0];
 
-interface Part { node: Object3D; restPos: Vector3; restRot: Euler; restScale: Vector3 }
+interface Part { node: Object3D; restPos: Vector3; restRot: Euler; restScale: Vector3; restVisible: boolean }
 
 /**
  * Moving parts of one first-person gun: the slide / bolt carrier snapping back on each shot, the
@@ -36,7 +36,7 @@ export class WeaponMechanics {
     const visit = (o: Object3D) => {
       for (const c of o.children) {
         if (c.name.startsWith('weapon-') || c.name.startsWith('attachment-') || c.name.startsWith('first-person')) continue;
-        if (c.name && !this.parts.has(c.name)) this.parts.set(c.name, { node: c, restPos: c.position.clone(), restRot: c.rotation.clone(), restScale: c.scale.clone() });
+        if (c.name && !this.parts.has(c.name)) this.parts.set(c.name, { node: c, restPos: c.position.clone(), restRot: c.rotation.clone(), restScale: c.scale.clone(), restVisible: c.visible });
         visit(c);
       }
     };
@@ -133,7 +133,7 @@ export class WeaponMechanics {
   private reset(): void {
     for (const p of this.parts.values()) {
       p.node.position.copy(p.restPos); p.node.rotation.copy(p.restRot); p.node.scale.copy(p.restScale);
-      p.node.visible = true;
+      p.node.visible = p.restVisible;
     }
   }
 }

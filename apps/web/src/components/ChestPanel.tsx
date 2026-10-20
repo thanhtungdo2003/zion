@@ -8,7 +8,7 @@ import { Icon } from './Icon';
 import type { Tip } from './Inventory';
 
 type Tier = 'common' | 'rare' | 'epic' | 'legendary';
-const ELITE = new Set(['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell']);
+const ELITE = new Set(['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'm79', 'remington700', 'rocket_launcher', 'flamethrower', 'nuclear_cell']);
 const WEAPON = new Set(['rifle', 'pistol', 'smg', 'shotgun', 'heavy', 'melee']);
 function tierOf(id: string): Tier {
   const armor = ARMOR_BY_ITEM.get(id)?.rarity;

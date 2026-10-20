@@ -21,12 +21,12 @@ export interface ChestStateMessage extends ChestData {
 }
 const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'ammo_762x51', 'ammo_57x28', 'bolts'];
 const supplies = ['medkit', 'potato_cooked', 'cooked_mutton', 'cooked_porkchop', 'potato', 'grenade', 'flashbang', 'smoke_grenade'];
-const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol'];
+const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol', 'compensator'];
 const guns = ['gl18', 'revolver', 'deagle', 'uzi', 'vector', 'p90', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar'];
 /** Building materials: raw wood, stone and ore, and now and then a power cell. */
 const resources = ['plank', 'plank', 'stone', 'stone', 'iron_ore', 'copper_ore', 'lead_ore', 'wood_log', 'nuclear_cell'];
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
-const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
+const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'suppressor_sniper', 'compensator_rifle', 'remington700', 'm79', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 
 /** Per-slot odds: ammo 44%, resources 12%, supplies 26%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
 export function rollChestItem(random: () => number = Math.random): string {

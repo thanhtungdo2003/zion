@@ -2772,6 +2772,9 @@ kbd {
 .ws-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; min-height: 0; }
 .ws-viewer { position: relative; min-height: 360px; border: 1px solid var(--line); overflow: hidden; }
 .ws-viewer canvas { width: 100%; height: 100%; display: block; }
+.ws-viewer-bg { position: absolute; right: 10px; top: 10px; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 4px 9px; background: rgba(9, 11, 10, .8); color: var(--text); border: 1px solid var(--line); font: 600 12px var(--sans); cursor: pointer; }
+.ws-viewer-bg:hover { border-color: var(--accent); }
+.ws-viewer-bg[aria-pressed="true"] { background: rgba(255, 255, 255, .85); color: #15181a; }
 .ws-viewer-state, .ws-viewer-hint { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; align-items: center; padding: 4px 8px; background: rgba(9, 11, 10, .8); font-size: 12px; pointer-events: none; }
 .ws-side { overflow: auto; display: grid; gap: 8px; align-content: start; }
 .ws-axes { display: grid; gap: 4px; }

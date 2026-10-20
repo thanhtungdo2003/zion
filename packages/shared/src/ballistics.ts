@@ -22,7 +22,7 @@ export function bulletSpec(weapon: number, gun: GunSpec): ProjectileSpec {
   // Game-paced muzzle speeds: rounds visibly arc and drop past their zero (real ones are ~2× faster).
   const speed = gun.pellets > 1 ? 260
     : [WeaponId.GL18, WeaponId.Revolver, WeaponId.MP5, WeaponId.Uzi, WeaponId.Deagle].some(id => id === weapon) ? 270
-    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD, WeaponId.Kar98k].some(id => id === weapon) ? 560 : 400;
+    : [WeaponId.AWM, WeaponId.Barrett, WeaponId.SVD, WeaponId.Kar98k, WeaponId.Remington700].some(id => id === weapon) ? 560 : 400;
   return { kind: 'bullet', speed, gravity: 9.81, drag: .12, maxFlightSec: gun.range / speed * 1.5, maxRange: gun.range };
 }
 
