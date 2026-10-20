@@ -86,7 +86,7 @@ function builtinEntries(saved: Map<string, StudioWeapon>): Entry[] {
     const v = builtinWeaponVisual(id);
     if (!v) return [];
     const model: Draft['model'] = {
-      length: v.length, barrel: v.barrel, up: v.up, grip: v.grip,
+      base: v.url, length: v.length, barrel: v.barrel, up: v.up, grip: v.grip,
       ...(v.support ? { support: v.support } : {}), ...(v.muzzle ? { muzzle: v.muzzle } : {}), ...(v.eject ? { eject: v.eject } : {}),
       ...(v.sight ? { sight: v.sight } : {}), ...(v.rail ? { rail: v.rail } : {}), ...(v.edge ? { edge: v.edge } : {}), ...(v.strikePoint ? { strikePoint: v.strikePoint } : {}),
       ...(v.fpHip ? { fpHip: v.fpHip } : {}), ...(v.fpEyeRelief ? { fpEyeRelief: v.fpEyeRelief } : {}),
@@ -96,6 +96,8 @@ function builtinEntries(saved: Map<string, StudioWeapon>): Entry[] {
     const shipped = builtinWeaponDraft(id, model, format, builtinRecoilDegrees(WEAPON_BY_ITEM[id] ?? 0));
     if (!shipped) return [];
     const edit = saved.get(id);
+    // An edit made for an older shipped model keeps its stats; the points start from the new model.
+    if (edit && edit.model.base !== v.url) return [{ draft: { ...edit, model, format }, builtin: true, edited: true, modelUrl: v.url }];
     return [{ draft: edit ?? shipped, builtin: true, edited: !!edit, modelUrl: edit?.modelUrl ? `${API_URL}${edit.modelUrl}` : v.url }];
   });
 }

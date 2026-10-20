@@ -7,10 +7,10 @@ let loading: Promise<CustomWeapon[]> | null = null;
 /** Registers a Studio weapon on this client: shared rules (items, specs, shop) and its model. */
 export function applyCustomWeapon(w: CustomWeapon & { modelUrl: string | null }): void {
   registerCustomWeapon(w);
-  const { fpHip, fpEyeRelief, ...model } = w.model;
+  const { fpHip, fpEyeRelief, base, ...model } = w.model;
   registerWeaponVisual(w.id, w.modelUrl ? (w.modelUrl.startsWith('http') ? w.modelUrl : `${API_URL}${w.modelUrl}`) : null, w.format, {
     ...model, ...(fpHip ? { fpHip } : {}), ...(fpEyeRelief ? { fpEyeRelief } : {}),
-  });
+  }, base);
 }
 
 /**

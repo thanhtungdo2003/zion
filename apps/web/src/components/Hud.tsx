@@ -135,6 +135,8 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
     {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && state.scoped && !state.lensScope && (
       <ScopeOverlay magnification={state.scopeMagnification} reticle={state.reticle} nightVision={state.nightVision} nvScope={state.nvScope} />
     )}
+    {/* Looking through a magnified lens: the eye focuses on the sight picture, the rest softens. */}
+    {mouseLook && state.status === 'playing' && !inventoryOpen && state.scoped && state.lensScope && <div className="fp-scope-focus" aria-hidden />}
     {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && !state.lensScope && (state.reticle === 'dot' || state.reticle === 'holo') && <RedDotReticle holo={state.reticle === 'holo'} />}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">

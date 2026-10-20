@@ -95,8 +95,8 @@ describe('weapon sights and attachment mounts', () => {
     expect(Math.abs(front.x)).toBeLessThan(.003);
     expect(Math.abs(front.y)).toBeLessThan(.003);
     expect(front.z).toBeLessThan(rear.z);
-    // Magnified optics sit closer: the lens fills about 28° of the view (ScopeLens draws the picture in it).
-    expect(rear.z).toBeLessThan(optic && optic !== 'red_dot' && optic !== 'holo_sight' ? -.05 : -.15);
+    // Magnified optics sit right at the eye: the lens fills about 48° of the view (ScopeLens draws the picture in it).
+    expect(rear.z).toBeLessThan(optic && optic !== 'red_dot' && optic !== 'holo_sight' ? -.025 : -.15);
   });
 });
 
@@ -187,6 +187,36 @@ describe('rocket launcher', () => {
     expect(view.lens).toBeTruthy();
     expect(weapons.get('rocket')).toBeDefined();
     expect(weapons.get('proj_rocket')).toBeDefined();
+    view.dispose();
+  });
+});
+
+describe('scope lens window', () => {
+  const scoped = guns.flatMap((id) => (WEAPON_ATTACHMENTS[id]!.optic ?? []).map((optic) => [id, optic] as const))
+    .filter(([, optic]) => optic !== 'red_dot' && optic !== 'holo_sight');
+  it.each(scoped)('%s with %s: the picture is drawn on an octagon cut to the eyepiece hollow', (id, optic) => {
+    const camera = new PerspectiveCamera(75, 16 / 9, .05, 1000), view = new ViewModel(camera);
+    view.set(id, weapons, { optic });
+    const marker = camera.getObjectByName(`attachment-${optic}`)?.getObjectByName('lens_mesh');
+    if (!marker) { view.dispose(); return; } // no marked lens: a generated octagonal disc
+    const lens = view.lens!;
+    expect(lens.mesh.name).toBe('lens_window');
+    // The rim (in the model's frame): eight flats, all at least the fitted radius from the centre.
+    const position = lens.mesh.geometry.getAttribute('position');
+    const centre = new Vector3().fromBufferAttribute(position, 0), rim: Vector3[] = [];
+    for (let i = 1; i < position.count; i += 3) rim.push(new Vector3().fromBufferAttribute(position, i));
+    const reach = rim.map((p) => p.distanceTo(centre));
+    expect(Math.min(...reach)).toBeCloseTo(lens.radius, 5);
+    // Octagon: corners stick out by 1/cos(22.5°) over the flats.
+    expect(Math.max(...reach) / lens.radius).toBeGreaterThan(1.04);
+    expect(Math.max(...reach) / lens.radius).toBeLessThan(1.2);
+    // Aimed: the window faces the eye and lies in front of the near plane.
+    for (let i = 0; i < 120; i++) view.update(1 / 60, { visible: true, moving: false, sprint: false, reloading: false, yaw: 0, pitch: 0, aiming: true });
+    camera.updateMatrixWorld(true);
+    const toCamera = new Matrix4().copy(camera.matrixWorld).invert().multiply(lens.mesh.matrixWorld);
+    const [a, b, c] = [0, 1, 2].map((i) => new Vector3().fromBufferAttribute(position, i).applyMatrix4(toCamera));
+    expect(b!.clone().sub(a!).cross(c!.clone().sub(a!)).z).toBeGreaterThan(0);
+    expect(-a!.z).toBeGreaterThan(.015);
     view.dispose();
   });
 });

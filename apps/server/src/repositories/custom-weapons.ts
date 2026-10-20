@@ -54,6 +54,9 @@ export class CustomWeaponStore {
     if (!existing && !model && !builtin) throw new Error('Cần tải lên file model.');
     if (model && model.length > MAX_MODEL_BYTES) throw new Error('File model quá lớn (tối đa 8 MB).');
     if (model) validateModel(model, def.format);
+    // A built-in re-saved for a newer shipped model drops the model uploaded for the old one.
+    const stale = builtin && !model && !!existing?.hasModel && existing.def.model.base !== def.model.base;
+    if (stale) await this.db.query('UPDATE custom_weapons SET model = NULL WHERE id = $1', [def.id]);
     const { weaponId: _w, id: _i, format: _f, ...stored } = def;
     const params = [def.id, def.weaponId, JSON.stringify(stored), def.format, actorId];
     const { rows } = model || (builtin && !existing)
@@ -62,7 +65,7 @@ export class CustomWeaponStore {
       : await this.db.query<{ updated_at: Date }>(`UPDATE custom_weapons SET def = $3::jsonb, model_format = CASE WHEN model IS NULL THEN model_format ELSE $4 END, updated_at = now(), updated_by = $5 WHERE id = $1 AND weapon_id = $2 RETURNING updated_at`, params);
     if (!rows.length) throw new Error('Không tìm thấy vũ khí để cập nhật.');
     registerCustomWeapon(def);
-    const saved = { def, version: new Date(rows[0]!.updated_at).getTime(), hasModel: !!model || !!existing?.hasModel };
+    const saved = { def, version: new Date(rows[0]!.updated_at).getTime(), hasModel: !!model || (!stale && !!existing?.hasModel) };
     this.weapons.set(def.id, saved);
     return saved;
   }

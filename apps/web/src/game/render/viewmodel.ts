@@ -1,4 +1,4 @@
-import { Box3, CircleGeometry, DoubleSide, Euler, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Vector3, type Camera, type Material, type Object3D } from 'three';
+import { Box3, BufferGeometry, CircleGeometry, DoubleSide, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Raycaster, Vector3, type Camera, type Material, type Object3D } from 'three';
 import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
 import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
@@ -187,12 +187,12 @@ export class ViewModel {
       }
     }
     if (!this.lenses.has(key) && optic && ((optic.magnification ?? 1) > 1 || optic.reticle)) {
-      const lens = opticLens(model, visual, optic.id);
+      const lens = opticLens(model, visual, optic.id, (optic.magnification ?? 1) > 1);
       if (lens) this.lenses.set(key, lens);
     }
     // A magnified optic is held close enough that its lens fills a comfortable part of the view.
     const lens = this.lenses.get(key);
-    if (lens && (optic?.magnification ?? 1) > 1) this.eyeRelief = Math.min(.25, Math.max(.05, lens.radius / Math.tan(LENS_HALF_ANGLE)));
+    if (lens && (optic?.magnification ?? 1) > 1) this.eyeRelief = Math.min(.25, Math.max(.03, lens.radius / Math.tan(LENS_HALF_ANGLE)));
     model.visible = true;
     this.current = key;
     this.strikeAxes = weapons?.get(itemId)?.melee?.display ?? null;
@@ -230,6 +230,12 @@ export class ViewModel {
 
   offhandLightPose(origin: Vector3, direction: Vector3): boolean {
     return offhandLightPose(this.offhandModel, origin, direction);
+  }
+
+  /** Shows or hides the round loaded in a muzzle-loaded launcher's tube. */
+  setLoaded(loaded: boolean): void {
+    const round = this.current ? this.models.get(this.current)?.getObjectByName('weapon-round') : null;
+    if (round) round.visible = loaded;
   }
 
   /** A shot: kicks the gun back and up and works its action. */
@@ -466,16 +472,17 @@ export interface OpticLens {
   radius: number;
 }
 
-/** Apparent half-size of a magnified optic's lens when aimed (≈ 28° across). */
-const LENS_HALF_ANGLE = 14 * Math.PI / 180;
+/** Apparent half-size of a magnified optic's lens when aimed (≈ 48° across: the eyepiece close to the eye). */
+const LENS_HALF_ANGLE = 24 * Math.PI / 180;
 
 /**
  * The optic's lens in a dressed first-person model. Optics drawn in the Gun Studio carry clear
- * blocks in a group named `lens` (merged into the mesh `lens_mesh`). Older optics have none: an
- * invisible octagonal disc is placed on the sight line at the eye point instead, sized to the
- * optic's width, so the scope image still has a surface to appear on.
+ * blocks in a group named `lens` (merged into the mesh `lens_mesh`). For magnified optics those
+ * blocks only mark where the picture goes: the picture is drawn on a flat window cut to the
+ * hollow of the eyepiece (see `eyepieceWindow`). Older optics have none: an invisible octagonal
+ * disc is placed on the sight line at the eye point instead, sized to the optic's width.
  */
-function opticLens(model: Group, visual: WeaponVisual, opticId: string): OpticLens | null {
+function opticLens(model: Group, visual: WeaponVisual, opticId: string, magnified: boolean): OpticLens | null {
   const optic = model.getObjectByName(`attachment-${opticId}`);
   if (!optic) return null;
   model.updateMatrixWorld(true);
@@ -486,6 +493,8 @@ function opticLens(model: Group, visual: WeaponVisual, opticId: string): OpticLe
   };
   const authored = optic.getObjectByName('lens_mesh');
   if (authored instanceof Mesh) {
+    const glass = magnified && visual.sight ? eyepieceWindow(model, optic, authored, visual.sight) : null;
+    if (glass) return glass;
     const size = inModel(authored).getSize(new Vector3()).toArray().sort((a, b) => a - b);
     // A lens is a thin disc (or two discs along the tube): its diameter is the middle extent.
     return { mesh: authored, radius: size[1]! / 2 };
@@ -507,4 +516,123 @@ function opticLens(model: Group, visual: WeaponVisual, opticId: string): OpticLe
   disc.frustumCulled = false;
   model.add(disc);
   return { mesh: disc, radius };
+}
+
+/**
+ * The window a magnified picture is drawn on: the inside outline of the eyepiece (an octagon for
+ * the Gun Studio tubes), found by casting rays outward from the marker's centre across the tube,
+ * flat on the eye side of the rear (ocular) marker. Null when the marker is not inside a tube.
+ */
+function eyepieceWindow(model: Group, optic: Object3D, marker: Mesh, sight: { rear: Vector3; front: Vector3 }): OpticLens | null {
+  const along = sight.front.clone().sub(sight.rear).normalize();
+  const toModel = new Matrix4().copy(model.matrixWorld).invert();
+  const markerToModel = new Matrix4().multiplyMatrices(toModel, marker.matrixWorld);
+  const position = marker.geometry.getAttribute('position');
+  if (!position) return null;
+  // The marker's blocks nearest the eye (the ocular, when the objective is marked too).
+  const points: Vector3[] = [];
+  for (let i = 0; i < position.count; i++) points.push(new Vector3().fromBufferAttribute(position, i).applyMatrix4(markerToModel));
+  const depth = points.map((p) => p.dot(along));
+  const near = Math.min(...depth), far = Math.max(...depth);
+  const extent = new Box3();
+  let back = Infinity, front = -Infinity;
+  points.forEach((p, i) => {
+    if (depth[i]! > near + Math.max(.004, (far - near) * .3)) return;
+    extent.expandByPoint(p); back = Math.min(back, depth[i]!); front = Math.max(front, depth[i]!);
+  });
+  if (extent.isEmpty()) return null;
+  const centre = extent.getCenter(new Vector3()).addScaledVector(along, (back + front) / 2 - extent.getCenter(new Vector3()).dot(along));
+  const reach = extent.getSize(new Vector3()).length();
+  // Two axes across the sight line.
+  const u = new Vector3(0, 1, 0).cross(along);
+  if (u.lengthSq() < 1e-6) u.set(1, 0, 0).cross(along);
+  u.normalize();
+  const v = along.clone().cross(u).normalize();
+
+  const walls: Mesh[] = [];
+  optic.traverse((o) => { if (o instanceof Mesh && o !== marker && o.name !== 'lens_mesh') walls.push(o); });
+  const ray = new Raycaster();
+  const toWorld = model.matrixWorld, scale = new Vector3().setFromMatrixScale(toWorld).x;
+  const STEPS = 32;
+  // One ring of rays across the sight line at a depth along it (null if any ray escapes).
+  const slice = (from: Vector3, depth: number, targets: Object3D[] = walls): number[] | null => {
+    const origin = from.clone().addScaledVector(along, depth - from.dot(along)).applyMatrix4(toWorld);
+    const out: number[] = [];
+    for (let k = 0; k < STEPS; k++) {
+      const a = (k / STEPS) * Math.PI * 2;
+      ray.set(origin, u.clone().multiplyScalar(Math.cos(a)).addScaledVector(v, Math.sin(a)).transformDirection(toWorld));
+      ray.far = reach * scale;
+      const hit = ray.intersectObjects(targets, false)[0];
+      if (!hit) return null;
+      out.push(hit.distance / scale);
+    }
+    return out;
+  };
+  // From the marker forward until the tube closes round the sight line (the marker may sit just
+  // behind the eyepiece's rim); the narrowest of the rim's first slices is the opening.
+  const cast = (from: Vector3): number[] | null => {
+    const step = Math.max(front - back, reach * .02) / 2;
+    for (let d = back + step / 2; d < back + reach * 4; d += step) {
+      const ring = slice(from, d);
+      if (!ring) continue;
+      for (const e of [d + step, d + 2 * step]) slice(from, e)?.forEach((r, i) => { ring[i] = Math.min(ring[i]!, r); });
+      return ring;
+    }
+    return null;
+  };
+  const outline = (from: Vector3, d: number[]) => d.map((r, k) => {
+    const a = (k / STEPS) * Math.PI * 2;
+    return from.clone().addScaledVector(u, Math.cos(a) * r).addScaledVector(v, Math.sin(a) * r);
+  });
+  let hits = cast(centre), from = centre;
+  if (hits) {
+    // Re-centre on the hollow (the marker may sit a little off the tube's axis): opposite rays
+    // come out even once the centre is on the axis.
+    for (let pass = 0; pass < 3; pass++) {
+      const shift = new Vector3();
+      for (let k = 0; k < STEPS / 2; k++) {
+        const a = (k / STEPS) * Math.PI * 2, d = (hits[k]! - hits[k + STEPS / 2]!) / STEPS;
+        shift.addScaledVector(u, Math.cos(a) * d).addScaledVector(v, Math.sin(a) * d);
+      }
+      const middle = from.clone().add(shift), again = cast(middle);
+      if (!again) break;
+      hits = again; from = middle;
+    }
+  } else {
+    // A solid tube (no hollow to follow): the regular octagon the marker's square and 45° square
+    // share. Its corners are where the marker's outline comes nearest the centre.
+    const probe = new Mesh(marker.geometry, new MeshBasicMaterial({ side: DoubleSide }));
+    probe.matrixWorld.copy(marker.matrixWorld);
+    const star = slice(centre, (back + front) / 2, [probe]);
+    probe.material.dispose();
+    if (!star) return null;
+    const corner = star.indexOf(Math.min(...star)), apothem = star[corner]! * Math.cos(Math.PI / 8);
+    const flat = (corner / STEPS) * Math.PI * 2 + Math.PI / 8;
+    hits = star.map((_, k) => {
+      const off = ((((k / STEPS) * Math.PI * 2 - flat) % (Math.PI / 4)) + Math.PI / 4) % (Math.PI / 4);
+      return apothem / Math.cos(Math.min(off, Math.PI / 4 - off));
+    });
+  }
+  // Flat on the eye side of the ocular marker.
+  from.addScaledVector(along, back - from.dot(along) - .0005);
+  const rim = outline(from, hits);
+  // A fan facing the eye; `rim` runs 0 at the centre to 1 on the outline (the lens' edge shading).
+  const vertices: number[] = [], edge: number[] = [];
+  for (let k = 0; k < STEPS; k++) {
+    const a = rim[k]!, b = rim[(k + 1) % STEPS]!;
+    vertices.push(from.x, from.y, from.z, b.x, b.y, b.z, a.x, a.y, a.z);
+    edge.push(0, 1, 1);
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('rim', new Float32BufferAttribute(edge, 1));
+  const glass = new Mesh(geometry, new MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: DoubleSide }));
+  glass.name = 'lens_window';
+  glass.visible = false;
+  glass.frustumCulled = false;
+  // Drawn after the optic's clear glass (sorting goes by the mesh origin, which is the model's).
+  glass.renderOrder = 10;
+  model.add(glass);
+  // Radius that fits inside the outline (the octagon's flats), so the whole window is in view.
+  return { mesh: glass, radius: Math.min(...hits) };
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-20T15:18:08.792Z",
+  "generatedAt": "2026-10-20T16:14:28.317Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -2250,6 +2250,12 @@
       "url": "/assets/models/weapons_rocket-missile.36f2c50957f7.bbmodel",
       "sha256": "36f2c50957f712e533c3f9f60604522c7c4f62402fe14f508b8760087f63aed6",
       "bytes": 9784,
+      "kind": "bbmodel"
+    },
+    "weapons/rpg-7v.bbmodel": {
+      "url": "/assets/models/weapons_rpg-7v.5400dce0f08f.bbmodel",
+      "sha256": "5400dce0f08f7f9f9dbf038859da5231506c208c151631032ed43065e81a4ed4",
+      "bytes": 195061,
       "kind": "bbmodel"
     },
     "weapons/rpg32-hashim-unloaded.bbmodel": {

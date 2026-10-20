@@ -2086,7 +2086,10 @@ export class GameEngine {
       (this.scopeLens ??= new ScopeLens()).render(this.renderer, this.scene, this.camera, lens.mesh, this.viewModel!.object, {
         magnification: optic.magnification ?? 1, reticle: optic.reticle ?? null, nightVision: !!optic.nightVision && this.nightVision,
       });
-    } else this.scopeLens?.release();
+    } else {
+      this.scopeLens?.release();
+      if (this.lensScopeReady() && (optic?.magnification ?? 1) > 1) (this.scopeLens ??= new ScopeLens()).warm(this.renderer, this.viewModel!.lens!.mesh, this.camera);
+    }
     if (settingsStore.get().shaders && this.sky) {
       this.shaderPack ??= new ShaderPack(this.renderer, this.scene, this.camera);
       const outlined = this.outlinedZombies.length > 0;
@@ -3048,6 +3051,7 @@ export class GameEngine {
 
   private updateAmmoHud(now: number): void {
     const view = this.weaponCtl.view(now, this.equippedWeapon());
+    this.viewModel?.setLoaded(!view || view.mag > 0);
     const key = view ? `${view.mag}/${view.max}/${view.reserve}/${view.reload === null ? '' : Math.round(view.reload * 20)}` : '';
     if (key === this.lastAmmoKey) return;
     this.lastAmmoKey = key;
@@ -3330,8 +3334,8 @@ export class GameEngine {
     }
     if (this.localAvatar) this.localAvatar.root.visible = true;
     this.camera.fov = mouseLook ? FP_FOV : 40;
-    // First person: a near plane close enough that the aimed gun is not cut open.
-    this.camera.near = fp ? 0.025 : mouseLook ? 0.05 : 0.5;
+    // First person: a near plane close enough that the aimed gun (and a scope lens right at the eye) is not cut open.
+    this.camera.near = fp ? 0.015 : mouseLook ? 0.05 : 0.5;
     this.camera.updateProjectionMatrix();
     this.camFocusInit = false;
   }

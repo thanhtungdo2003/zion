@@ -83,6 +83,11 @@ export const customWeaponSchema = z.object({
    * (toward the target), `up`, `grip` (firing hand), and the optional points below.
    */
   model: z.object({
+    /**
+     * Built-ins: the shipped model file these points (and an uploaded model) were made for. When
+     * the game ships a new model the override no longer matches and the shipped visual is used.
+     */
+    base: z.string().max(200).optional(),
     length: z.number().min(.1).max(3),
     barrel: vec3,
     up: vec3,

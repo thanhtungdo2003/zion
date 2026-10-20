@@ -59,7 +59,7 @@ export const ITEMS: Record<string, ItemDef> = {
   m79: { id: 'm79', name: 'M79', category: 'rifle', w: 4, h: 2, stance: 'rifle', color: '#6b5333', info: 'Single-shot 40 mm launcher · lobbed, explodes on impact' },
   remington700: { id: 'remington700', name: 'Remington 700', category: 'rifle', w: 6, h: 2, stance: 'rifle', color: '#4a4034', info: 'Bolt-action rifle · 7.62×51 NATO · takes 4×–10× optics' },
   crossbow: { id: 'crossbow', name: 'Nỏ', category: 'rifle', w: 4, h: 2, stance: 'rifle', color: '#3c3f44', info: 'Silent · one bolt per reload · RMB 4× scope' },
-  rocket_launcher: { id: 'rocket_launcher', name: 'Súng phóng tên lửa', category: 'heavy', w: 6, h: 2, stance: 'rifle', color: '#4d5a3c', info: 'Single-shot · reload after every rocket' },
+  rocket_launcher: { id: 'rocket_launcher', name: 'RPG-7', category: 'heavy', w: 6, h: 2, stance: 'rifle', color: '#4d5a3c', info: 'Single-shot · reload after every rocket' },
   flamethrower: { id: 'flamethrower', name: 'Súng phun lửa', category: 'heavy', w: 5, h: 2, stance: 'rifle', color: '#7a4a2a', info: 'Short-range fire cone · sets targets ablaze' },
   pkm: { id: 'pkm', name: 'Súng máy PKM', category: 'heavy', w: 7, h: 2, stance: 'rifle', color: '#4e5741', info: '7.62×54R · băng 100 viên · súng máy tự động' },
   barrett: { id: 'barrett', name: 'Barrett M82', category: 'heavy', w: 8, h: 2, stance: 'rifle', color: '#53574e', info: '.50 BMG · băng 10 viên · ngắm 10× · đẩy lùi mạnh' },

@@ -1,5 +1,5 @@
 import {
-  Box3, HalfFloatType, PerspectiveCamera, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget,
+  Box3, DoubleSide, HalfFloatType, PerspectiveCamera, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget,
   type Material, type Mesh, type Object3D, type Scene, type WebGLRenderer,
 } from 'three';
 import { scopeFov } from '../scope';
@@ -26,6 +26,9 @@ const fragment = /* glsl */ `
   uniform float uReticle;
   uniform float uNight;
   uniform float uSee;
+  uniform float uHasRim;
+  uniform vec2 uCenterPx;
+  varying float vRim;
   void main() {
     vec2 uv = gl_FragCoord.xy / uResolution;
     vec3 col = texture2D(tScope, uv).rgb;
@@ -56,6 +59,12 @@ const fragment = /* glsl */ `
       }
     }
     col = mix(col, vec3(0.015), clamp(ink, 0.0, 1.0));
+    if (uSee < 0.5) {
+      // Looking down a tube: the picture darkens from the middle of the lens out to its rim.
+      float edge = uHasRim > 0.5 ? vRim : length(gl_FragCoord.xy - uCenterPx) / max(uRadiusPx, 1.0);
+      float shade = smoothstep(0.5, 1.0, edge);
+      col *= 1.0 - 0.6 * shade * shade;
+    }
     // Red dot / holographic: an illuminated dot (and the holo's 65 MOA ring) on the lens.
     float glow = 0.0;
     float r = length(p);
@@ -70,7 +79,12 @@ const fragment = /* glsl */ `
 `;
 
 const vertex = /* glsl */ `
-  void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+  attribute float rim;
+  varying float vRim;
+  void main() {
+    vRim = rim;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
 `;
 
 export interface ScopeView {
@@ -94,13 +108,35 @@ export class ScopeLens {
       uReticle: { value: 0 },
       uNight: { value: 0 },
       uSee: { value: 0 },
+      uHasRim: { value: 0 },
+      uCenterPx: { value: new Vector2() },
     },
     transparent: true,
+    side: DoubleSide,
     depthWrite: false,
     vertexShader: vertex,
     fragmentShader: fragment,
   });
   private active: { mesh: Mesh; material: Material | Material[]; visible: boolean } | null = null;
+  private warmed: Mesh | null = null;
+
+  /**
+   * Gets everything ready before the scope comes up (an optic with a lens is in hand), so raising
+   * it does not stall: the picture's render target is allocated and the lens shader compiled.
+   */
+  warm(renderer: WebGLRenderer, lens: Mesh, camera: PerspectiveCamera): void {
+    if (this.warmed === lens) return;
+    this.warmed = lens;
+    renderer.getDrawingBufferSize(this.size);
+    const w = Math.max(1, Math.floor(this.size.x)), h = Math.max(1, Math.floor(this.size.y));
+    if (this.target.width !== w || this.target.height !== h) this.target.setSize(w, h);
+    renderer.initRenderTarget(this.target);
+    if (this.active) return;
+    const material = lens.material, visible = lens.visible;
+    lens.material = this.material; lens.visible = true;
+    renderer.compile(lens, camera);
+    lens.material = material; lens.visible = visible;
+  }
 
   /**
    * Renders the magnified view for this frame and puts it on `lens`. Call once per frame, before
@@ -129,12 +165,16 @@ export class ScopeLens {
       const before = renderer.getRenderTarget();
       const wasVisible = hide.visible, lensVisible = lens.visible;
       hide.visible = false; lens.visible = false;
+      // Shadows are drawn once a frame, by the main pass; the scope picture reuses them.
+      const shadows = renderer.shadowMap.autoUpdate;
+      renderer.shadowMap.autoUpdate = false;
       this.target.scissor.set(rect.x, rect.y, rect.w, rect.h);
       this.target.scissorTest = true;
       renderer.setRenderTarget(this.target);
       renderer.clear();
       renderer.render(scene, this.camera);
       renderer.setRenderTarget(before);
+      renderer.shadowMap.autoUpdate = shadows;
       hide.visible = wasVisible; lens.visible = lensVisible;
     }
 
@@ -146,6 +186,8 @@ export class ScopeLens {
     u.uReticle!.value = view.reticle ? RETICLE_CODE[view.reticle] : 0;
     u.uNight!.value = view.nightVision ? 1 : 0;
     u.uSee!.value = view.magnification > 1 ? 0 : 1;
+    u.uHasRim!.value = lens.geometry.getAttribute('rim') ? 1 : 0;
+    u.uCenterPx!.value.set(rect ? rect.x + rect.w / 2 : w / 2, rect ? rect.y + rect.h / 2 : h / 2);
 
     if (!this.active) this.active = { mesh: lens, material: lens.material, visible: lens.visible };
     lens.material = this.material;

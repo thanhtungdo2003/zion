@@ -1,4 +1,4 @@
-import { Group, Matrix4, Vector3, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Vector3, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ATTACHMENT_SLOTS, attachmentDef, type Attachments } from '@zion/shared';
 import { cachedFetch } from '@/lib/preload';
@@ -69,15 +69,23 @@ export interface WeaponSpec {
   mountLength?: number;
   /** Optic that always comes with this weapon (shown and aimed through when no other is fitted). */
   builtinOptic?: string;
+  /**
+   * A round shown loaded in the muzzle (muzzle-loaded launchers): the item whose model it is, its
+   * length and how much of it sits inside the tube, in metres of the displayed gun.
+   */
+  round?: { item: string; length: number; inside: number };
 }
 
 /**
  * Adds a weapon made in the Studio to the visual table (before `loadWeapons`), so it is loaded,
  * held, aimed and iconised like a built-in one. `url` is the absolute model URL.
  */
-export function registerWeaponVisual(itemId: string, url: string | null, format: 'glb' | 'bbmodel', model: Omit<WeaponSpec, 'url' | 'format'>): void {
-  // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
+export function registerWeaponVisual(itemId: string, url: string | null, format: 'glb' | 'bbmodel', model: Omit<WeaponSpec, 'url' | 'format'>, madeFor?: string): void {
   const base = BUILTIN_VISUALS.get(itemId);
+  // A built-in's Studio points / uploaded model only hold for the shipped model they were made
+  // for: once the game ships a new model for it, that model is used as shipped.
+  if (base && madeFor !== base.url) { WEAPON_SPECS[itemId] = base; return; }
+  // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
   WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model } : { ...model, url: url ?? base?.url ?? '', format };
 }
 
@@ -144,9 +152,9 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_762x51: { url: '/models/weapons/ammo-box-762x54r.bbmodel', length: 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [5, 6.5, 0] },
   grenade_launcher: { url: '/models/weapons/milkor-mgl.bbmodel', length: 0.778, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.507, 3.699], support: [0, -14.35, 29.5], muzzle: [0, 0, 52.75], eject: [-2.463, -1, 4.986], sight: { rear: [0, 11.5, 11.5], front: [0, 11.5, 21.5] }, rail: [0, 4, 4.986] },
   crossbow: { url: '/models/weapons/modern-crossbow.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 9.5, -4.5], muzzle: [0, 38, 0] },
-  // RPG-32 Hashim: tube along +Y, carry handle on top (+Z), pistol grip and foregrip below, sight on the left.
-  // The PGO-7 optical sight always rides on the tube (left of the carry handle): its built-in sight.
-  rocket_launcher: { url: '/models/weapons/rpg32-hashim.bbmodel', length: 1, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6.5, -7], support: [0, 18.5, -7], muzzle: [0, 27, 0], rail: [-3.4, 13, 4], builtinOptic: 'scope_pgo7' },
+  // RPG-7V (ModelGen Gun Studio): +Z forward, venturi at the back, trigger group under the barrel.
+  // The PGO-7 optical sight always rides on the tube above the trigger group: its built-in sight.
+  rocket_launcher: { url: '/models/weapons/rpg-7v.bbmodel', length: 0.95, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.9, 55.5], support: [0, -4, 23], muzzle: [0, 0, 73.5], sight: { rear: [0, 5.375, 52], front: [0, 5.5, 68] }, rail: [0, 3.8, 56], builtinOptic: 'scope_pgo7', round: { item: 'rocket', length: .45, inside: .2 } },
   flamethrower: { url: '/models/weapons/m2-flamethrower.bbmodel', length: 1.159, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -9.5, 5.25], muzzle: [0, 0, 95.5], eject: [-2.9, 0, 9], sight: { rear: [0, 5.5, 3], front: [0, 5.5, 93.5] } },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
   machete: { url: '/models/weapons/machete.bbmodel', length: 0.65, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 3, 0], edge: [-1, 0, 0], strikePoint: [0, 20, 0], fpHip: [0.3359, -0.235, -0.2537], fpSupport: [0, 0, 0], fpRot: [0.548, 0.0349] },
@@ -476,6 +484,35 @@ function displayModel(spec: WeaponSpec, root: Group): Group {
 }
 
 /** Extent of all mesh vertices projected on an axis (metres at character scale). */
+/**
+ * Puts a launcher's round in its muzzle (a group `weapon-round`, hidden while unloaded): the
+ * round's model along the barrel, its tail `inside` metres down the tube. Left out of the gun's
+ * measured length, so the gun keeps its size.
+ */
+async function loadRound(root: Group, spec: WeaponSpec, round: NonNullable<WeaponSpec['round']>): Promise<void> {
+  const roundSpec = WEAPON_SPECS[round.item];
+  if (!roundSpec) return;
+  const model = (await loadWeaponModel(roundSpec.url, undefined, roundSpec.format)).root;
+  const barrel = new Vector3(...spec.barrel).normalize();
+  // Display metres per unit of the gun's own frame.
+  const metres = spec.length / Math.max(1e-3, measureAlong(root, barrel.clone()));
+  const along = new Vector3(...roundSpec.barrel).normalize();
+  const box = new Box3().setFromObject(model, true);
+  const size = Math.max(1e-3, box.getSize(new Vector3()).dot(new Vector3(Math.abs(along.x), Math.abs(along.y), Math.abs(along.z))));
+  const tail = box.getCenter(new Vector3()).addScaledVector(along, -size / 2);
+  const scale = round.length / metres / size;
+  const holder = new Group();
+  holder.name = 'weapon-round';
+  holder.userData.noMeasure = true;
+  holder.quaternion.setFromUnitVectors(along, barrel);
+  holder.scale.setScalar(scale);
+  holder.position.copy(new Vector3(...spec.muzzle!).multiplyScalar(1 / BB_UNITS_PER_METER))
+    .addScaledVector(barrel, -round.inside / metres)
+    .sub(tail.multiplyScalar(scale).applyQuaternion(holder.quaternion));
+  holder.add(model);
+  root.add(holder);
+}
+
 function measureAlong(root: Group, axis: Vector3): number {
   axis.normalize();
   let lo = Infinity;
@@ -485,6 +522,7 @@ function measureAlong(root: Group, axis: Vector3): number {
   // Measured in the model's own frame, whatever it is parented to (the Studio rotates it for display).
   const parentInverse = root.parent ? new Matrix4().copy(root.parent.matrixWorld).invert() : new Matrix4();
   root.traverse((o) => {
+    for (let p: Object3D | null = o; p && p !== root; p = p.parent) if (p.userData.noMeasure) return;
     const geo = (o as { geometry?: { getAttribute(n: string): { count: number; getX(i: number): number; getY(i: number): number; getZ(i: number): number } } }).geometry;
     if (!geo) return;
     const pos = geo.getAttribute('position');
@@ -552,6 +590,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         report();
       }, tableSpec.format);
       const spec = fittedSpec(tableSpec, built);
+      if (spec.round && spec.muzzle) await loadRound(built.root, spec, spec.round);
       if (spec.emitter) {
         const lens = new Group(); lens.name = 'weapon-emitter';
         lens.position.set(...spec.emitter).multiplyScalar(1 / BB_UNITS_PER_METER);
