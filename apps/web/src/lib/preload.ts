@@ -29,7 +29,7 @@ export async function cachedFetch(url: string): Promise<Response> {
   return fetch(url);
 }
 
-interface Manifest { files: Record<string, { url: string; bytes?: number }> }
+interface Manifest { generatedAt?: string; files: Record<string, { url: string; bytes?: number }> }
 
 let manifestLoad: Promise<Manifest | null> | null = null;
 function loadManifest(): Promise<Manifest | null> {
@@ -47,7 +47,11 @@ function loadManifest(): Promise<Manifest | null> {
 async function servedUrl(url: string): Promise<string> {
   if (!url.startsWith('/models/')) return url;
   const rel = url.slice('/models/'.length).split('?')[0]!;
-  return (await loadManifest())?.files[rel]?.url ?? url;
+  const manifest = await loadManifest();
+  const hashed = manifest?.files[rel]?.url;
+  if (hashed) return hashed;
+  // Not in the manifest: still a fresh copy per asset build.
+  return manifest?.generatedAt ? `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(manifest.generatedAt)}` : url;
 }
 
 let started: Promise<void> | null = null;

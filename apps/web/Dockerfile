@@ -10,6 +10,8 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml .npmrc tsconfig.base.json ./
 COPY packages ./packages
 COPY assets ./assets
+# Game models: the asset build serves them under content-hashed names (see build-manifest.ts).
+COPY models ./models
 COPY apps/web ./apps/web
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter @zion/web... --filter @zion/assets...
 RUN pnpm --filter @zion/web build

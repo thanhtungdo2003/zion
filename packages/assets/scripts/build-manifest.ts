@@ -55,6 +55,7 @@ function validateGlb(buf: Buffer, rel: string): void {
 
 async function main(): Promise<void> {
   const files = [...await walk(sourceDir), ...await walk(gameModelsDir)].filter((f) => /\.(glb|bbmodel)$/i.test(f));
+  if (!files.some((f) => f.startsWith(gameModelsDir + path.sep))) console.warn(`asset manifest: no game models in ${gameModelsDir} — weapons and characters will load by plain path (cache-prone)`);
   await rm(modelsOut, { recursive: true, force: true });
   await mkdir(modelsOut, { recursive: true });
 
