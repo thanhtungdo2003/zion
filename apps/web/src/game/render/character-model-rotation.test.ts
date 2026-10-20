@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, type Mesh } from 'three';
+import type { Box3, Mesh } from 'three';
 import { buildBBModel, BB_UNITS_PER_METER, type RawModel } from './character-model';
 
 /** One 4×1×1 px cube in one group; `rotation` is the element's own Blockbench rotation. */
