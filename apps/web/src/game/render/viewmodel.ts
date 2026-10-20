@@ -493,7 +493,8 @@ function opticLens(model: Group, visual: WeaponVisual, opticId: string, magnifie
   };
   const authored = optic.getObjectByName('lens_mesh');
   if (authored instanceof Mesh) {
-    const glass = magnified && visual.sight ? eyepieceWindow(model, optic, authored, visual.sight) : null;
+    // Red dots / holos: their `lens` is the window's frame, so the dot is drawn on the opening inside it.
+    const glass = visual.sight ? eyepieceWindow(model, optic, authored, visual.sight, !magnified) : null;
     if (glass) return glass;
     const size = inModel(authored).getSize(new Vector3()).toArray().sort((a, b) => a - b);
     // A lens is a thin disc (or two discs along the tube): its diameter is the middle extent.
@@ -523,7 +524,7 @@ function opticLens(model: Group, visual: WeaponVisual, opticId: string, magnifie
  * the Gun Studio tubes), found by casting rays outward from the marker's centre across the tube,
  * flat on the eye side of the rear (ocular) marker. Null when the marker is not inside a tube.
  */
-function eyepieceWindow(model: Group, optic: Object3D, marker: Mesh, sight: { rear: Vector3; front: Vector3 }): OpticLens | null {
+function eyepieceWindow(model: Group, optic: Object3D, marker: Mesh, sight: { rear: Vector3; front: Vector3 }, framed = false): OpticLens | null {
   const along = sight.front.clone().sub(sight.rear).normalize();
   const toModel = new Matrix4().copy(model.matrixWorld).invert();
   const markerToModel = new Matrix4().multiplyMatrices(toModel, marker.matrixWorld);
@@ -550,7 +551,7 @@ function eyepieceWindow(model: Group, optic: Object3D, marker: Mesh, sight: { re
   const v = along.clone().cross(u).normalize();
 
   const walls: Mesh[] = [];
-  optic.traverse((o) => { if (o instanceof Mesh && o !== marker && o.name !== 'lens_mesh') walls.push(o); });
+  optic.traverse((o) => { if (o instanceof Mesh && (framed || (o !== marker && o.name !== 'lens_mesh'))) walls.push(o); });
   const ray = new Raycaster();
   const toWorld = model.matrixWorld, scale = new Vector3().setFromMatrixScale(toWorld).x;
   const STEPS = 32;

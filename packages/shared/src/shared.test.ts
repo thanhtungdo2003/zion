@@ -193,7 +193,8 @@ describe('server inventory model', () => {
     expect(inv.items.filter((i) => i.itemId === 'grenade')).toHaveLength(2);
     expect(inv.items.filter((i) => i.itemId === 'potato_cooked')).toHaveLength(5);
     expect(inv.items.filter((i) => i.itemId === 'potato')).toHaveLength(1);
-    expect(inv.items).toHaveLength(10);
+    expect(inv.items).toHaveLength(15);
+    expect(inv.items.filter((i) => i.itemId === 'ammo_9mm')).toHaveLength(5);
     expect(inv.add('ammo_762')).toBeTruthy();
     // Overlapping move is refused; a free spot is accepted.
     const box = inv.items.find((i) => i.itemId === 'ammo_762')!;

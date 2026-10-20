@@ -220,3 +220,18 @@ describe('scope lens window', () => {
     view.dispose();
   });
 });
+
+describe('red dot / holo window', () => {
+  it.each(['red_dot', 'holo_sight'])('ak47 with %s: the sight line passes through the window the dot is drawn on', (optic) => {
+    const camera = new PerspectiveCamera(75, 16 / 9, .015, 1000), view = new ViewModel(camera);
+    view.set('ak47', weapons, { optic });
+    for (let i = 0; i < 120; i++) view.update(1 / 60, { visible: true, moving: false, sprint: false, reloading: false, yaw: 0, pitch: 0, aiming: true });
+    camera.updateMatrixWorld(true);
+    const lens = view.lens!;
+    expect(lens.mesh.name).toBe('lens_window');
+    const ray = new Raycaster();
+    ray.setFromCamera(new Vector2(0, 0), camera);
+    expect(ray.intersectObject(lens.mesh).length).toBeGreaterThan(0);
+    view.dispose();
+  });
+});

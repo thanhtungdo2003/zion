@@ -65,7 +65,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'top-down', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false,
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'first-person', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false,
   // The desktop app ships every texture locally: full 1024 px ground; the browser 512 px.
   groundDetail: process.env.NEXT_PUBLIC_API_URL === 'same-origin' ? 'high' : 'medium', ...GRAPHICS_PRESETS.high };
 
@@ -95,6 +95,7 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;
     else if (saved.firstPerson === true) state.cameraMode = 'first-person';
+    else if (saved.firstPerson === false) state.cameraMode = 'top-down';
     // Older versions persisted the default false even without a user choice.
     const manualTouch = saved.manualTouch === true || (saved.manualTouch === undefined && saved.touchControls === true);
     if (manualTouch && typeof saved.touchControls === 'boolean') state.touchControls = saved.touchControls;
@@ -110,7 +111,7 @@ export class SettingsStore {
   private loaded = false;
   private manualTouch = false;
   private mode: GameMode = 'survival';
-  private cameras: Record<GameMode, CameraMode> = { survival: 'top-down', 'battle-royale': 'first-person', infection: 'first-person' };
+  private cameras: Record<GameMode, CameraMode> = { survival: 'first-person', 'battle-royale': 'first-person', infection: 'first-person' };
 
   get = (): SettingsState => this.state;
 

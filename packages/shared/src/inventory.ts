@@ -509,5 +509,6 @@ export function defaultLoadout(): InventoryData {
   for (let i = 0; i < 5; i++) put('potato_cooked', 'backpack', 3 + i, 0);
   put('potato', 'backpack', 3, 1);
   put('medkit', 'backpack', 0, 0);
+  for (let i = 0; i < 5; i++) put('ammo_9mm', 'backpack', i, 2);
   return { items: m.items, equipped: 1 };
 }

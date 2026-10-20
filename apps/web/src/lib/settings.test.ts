@@ -130,3 +130,11 @@ describe('automatic touch controls', () => {
     expect(settings.get().touchControls).toBe(true);
   });
 });
+
+describe('new players', () => {
+  it('start in first person', () => {
+    storage({});
+    const settings = new SettingsStore(); settings.hydrate();
+    expect(settings.get().cameraMode).toBe('first-person');
+  });
+});

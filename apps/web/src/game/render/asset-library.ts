@@ -141,7 +141,7 @@ export class AssetLibrary {
     if (existing) return existing;
     const def = this.registry.byNumericId(numericId);
     if (!def) return undefined;
-    const p = this.build(def)
+    const p = this.buildWithRetry(def)
       .catch((err: unknown) => {
         const msg = `${def.id}: ${(err as Error).message}`;
         this.errors.push(msg);
@@ -171,6 +171,20 @@ export class AssetLibrary {
     for (const visual of this.visuals.values()) this.releaseVisual(visual);
     this.visuals.clear();
     this.loading.clear();
+  }
+
+  /**
+   * A model that fails to download (a dropped connection, a busy server right after a deploy) is
+   * tried again a couple of times before it is shown as a placeholder.
+   */
+  private async buildWithRetry(def: AssetDefinition): Promise<AssetVisual> {
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.build(def); } catch (err) {
+        const missing = err instanceof Error && /missing from manifest/.test(err.message);
+        if (missing || attempt >= 2 || this.disposed) throw err;
+        await new Promise((r) => setTimeout(r, 1000 * 3 ** attempt));
+      }
+    }
   }
 
   private placeholder(def: AssetDefinition): ModelPart {
