@@ -88,7 +88,7 @@ const sources = new Map();
 const hash = createHash('sha256').update(await fs.readFile(fileURLToPath(import.meta.url)));
 for (const [file] of jobs) if (!sources.has(file)) { const b = await fs.readFile(path.join(root,'models',file)); sources.set(file,b); hash.update(b); }
 const signature = hash.digest('hex');
-try { if ((await fs.readFile(cacheFile,'utf8')) === signature && (await fs.stat(sourceOut)).isFile()) { console.log('Prepared world assets are current'); process.exit(0); } } catch {}
+try { if ((await fs.readFile(cacheFile,'utf8')) === signature && (await fs.stat(sourceOut)).isFile()) { console.log('Prepared world assets are current'); process.exit(0); } } catch { /* not prepared yet: build them below */ }
 await fs.mkdir(outDir,{recursive:true});
 const definitions = [];
 const r = n => Math.round(n * 10000) / 10000;

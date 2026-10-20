@@ -1,4 +1,5 @@
 import type { Db } from '../db/pool';
+import type { StructureState } from '@zion/shared';
 
 export interface WorldRecord {
   id: string;
@@ -48,12 +49,12 @@ export class WorldRepository {
   }
 
   /** Player structures standing in this world (base building). */
-  async loadStructures(id: string): Promise<import('@zion/shared').StructureState[]> {
+  async loadStructures(id: string): Promise<StructureState[]> {
     const { rows } = await this.db.query<{ structures: unknown }>('SELECT structures FROM worlds WHERE id = $1', [id]);
-    return Array.isArray(rows[0]?.structures) ? rows[0]!.structures as import('@zion/shared').StructureState[] : [];
+    return Array.isArray(rows[0]?.structures) ? rows[0]!.structures as StructureState[] : [];
   }
 
-  async saveStructures(id: string, list: readonly import('@zion/shared').StructureState[]): Promise<void> {
+  async saveStructures(id: string, list: readonly StructureState[]): Promise<void> {
     await this.db.query('UPDATE worlds SET structures = $2::jsonb, updated_at = now() WHERE id = $1', [id, JSON.stringify(list)]);
   }
 
