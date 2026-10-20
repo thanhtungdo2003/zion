@@ -1,0 +1,30 @@
+# Runs the checks that gate the webhook deploy, so a push shows ❌ here before the deploy fails.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Web lint + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Same ESLint rules that `next build` enforces during the deploy.
+      - name: ESLint (apps/web/src)
+        run: pnpm --filter @zion/web exec eslint src --quiet
+      - name: Typecheck
+        run: pnpm typecheck
