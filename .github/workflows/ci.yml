@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   check:
-    name: Web lint + typecheck
+    name: Lint + typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -23,8 +23,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Same ESLint rules that `next build` enforces during the deploy.
-      - name: ESLint (apps/web/src)
-        run: pnpm --filter @zion/web exec eslint src --quiet
+      # Whole repo; covers the apps/web rules that `next build` enforces during the deploy.
+      - name: ESLint
+        run: pnpm lint --quiet
       - name: Typecheck
         run: pnpm typecheck

@@ -1,6 +1,5 @@
 // Synthesises the UI sound effects (quest accepted / completed; click, equip, eat and footsteps are recorded files) into
 // apps/web/public/sounds as 16-bit mono WAV. Run: node apps/web/scripts/gen-ui-sounds.mjs
-/* global console, Buffer */
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -1,4 +1,4 @@
-import { chunkKey, chunkKeyX, chunkKeyZ } from '@zion/shared';
+import { chunkKey, chunkKeyX, chunkKeyZ, type PropInstance } from '@zion/shared';
 import { buildChunkCollision, type AssetRegistry } from '@zion/assets';
 import type { CollisionWorld } from '@zion/physics';
 import type { Logger } from '../logger';
@@ -25,7 +25,7 @@ export class PhysicsChunkManager {
   ) {}
 
   /** Props left out of the collision world (felled trees); reload a chunk after it changes. */
-  propFilter: ((cx: number, cz: number, prop: import('@zion/shared').PropInstance) => boolean) | null = null;
+  propFilter: ((cx: number, cz: number, prop: PropInstance) => boolean) | null = null;
 
   get loadedCount(): number {
     return this.loaded.size;

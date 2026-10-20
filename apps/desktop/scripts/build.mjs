@@ -49,7 +49,7 @@ const pkg = JSON.parse(await readFile(path.join(desktop, 'package.json'), 'utf8'
 await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'zion', productName: 'ZION', version: pkg.version, main: 'main.cjs' }, null, 2));
 await cp(path.join(desktop, 'main.cjs'), path.join(appDir, 'main.cjs'));
 // The Studios stay on the website: their pages are left out of the app.
-const studioPage = (src) => /^studio([\/.]|$)/.test(path.relative(exported, src));
+const studioPage = (src) => /^studio([/.]|$)/.test(path.relative(exported, src));
 await cp(exported, path.join(out, 'resources/web'), { recursive: true, dereference: true, filter: (src) => !studioPage(src) });
 
 // 4. config.json beside the exe: which online server the game plays on (players may edit it).
