@@ -85,7 +85,9 @@ const jobs = [
   ['maps/warehouse_map_chicken_gun.glb', null, 'warehouse_map', 2700, 1, { collider: 'voxel', voxel: .25, tags: ['infection-map'] }],
 ];
 const sources = new Map();
-const hash = createHash('sha256').update(await fs.readFile(fileURLToPath(import.meta.url)));
+// Line endings differ between a Windows checkout (CRLF) and the Linux server (LF): hash the text
+// with LF, or the server would rebuild every prepared model (and dirty its git tree) on each deploy.
+const hash = createHash('sha256').update((await fs.readFile(fileURLToPath(import.meta.url), 'utf8')).replace(/\r\n/g, '\n'));
 for (const [file] of jobs) if (!sources.has(file)) { const b = await fs.readFile(path.join(root,'models',file)); sources.set(file,b); hash.update(b); }
 const signature = hash.digest('hex');
 try { if ((await fs.readFile(cacheFile,'utf8')) === signature && (await fs.stat(sourceOut)).isFile()) { console.log('Prepared world assets are current'); process.exit(0); } } catch {}

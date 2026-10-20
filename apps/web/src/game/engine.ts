@@ -16,6 +16,7 @@ import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
 import { ScopeLens } from './render/scope-lens';
+import { AimSway } from './aim-sway';
 import { ThrowArc, type ArcLaunch } from './render/throw-arc';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -466,8 +467,13 @@ export class GameEngine {
   private lootCrateRenderer: BaseLifeRenderer | null = null;
   private get firstPerson(): boolean { return this.cameraMode === 'first-person'; }
   /** Scoped through an optic whose `lens` shows the magnified picture (no overlay, gun stays up). */
-  private lensScopeReady(): boolean { return this.firstPerson && !!this.viewModel?.lens; }
-  private get lensScoped(): boolean { return this.scoped && this.firstPerson && !!this.viewModel?.lens; }
+  /**
+   * Seeing through the held gun's eyes: first person, or the shoulder camera while scoped (it moves
+   * to the eye and shows the same lens sight as first person).
+   */
+  private get eyeView(): boolean { return this.firstPerson || (this.cameraMode === 'third-person' && this.scoped); }
+  private lensScopeReady(): boolean { return (this.firstPerson || this.cameraMode === 'third-person') && !!this.viewModel?.lens; }
+  private get lensScoped(): boolean { return this.scoped && this.eyeView && !!this.viewModel?.lens; }
   /** Sight picture drawn on the optic's lens: magnified optics while scoped, red dots / holos once raised to the eye. */
   private get lensSight(): boolean {
     if (this.lensScoped) return true;
@@ -475,6 +481,7 @@ export class GameEngine {
     return (reticle === 'dot' || reticle === 'holo') && this.aiming && this.firstPerson && !!this.viewModel?.lens && this.viewModel.aimed > .82;
   }
   private scopeLens: ScopeLens | null = null;
+  private readonly aimSway = new AimSway();
   private get mouseLook(): boolean { return this.cameraMode !== 'top-down'; }
   private readonly thirdPersonCamera = new ThirdPersonCamera();
   /** Eased lean of the local view (−1 left … 1 right) and the leaned eye point. */
@@ -1831,11 +1838,18 @@ export class GameEngine {
     const offhand = this.inventory.get().items.find(i => i.container === 'offhand')?.itemId ?? null;
     this.viewModel?.setOffhand(offhand, this.weapons);
     if (this.mouseLook && !local.dead && this.hud.get().downed === null && this.input.locked && !this.input.suspended) {
+      // Aiming down the sights the gun has weight: turning drags it and it swings past the mark
+      // before settling; a magnified scope also drifts with the breath (stronger with more power).
+      const aiming = this.aiming && weaponSpec(this.equippedWeapon())?.kind === 'gun' ? 1 : 0;
+      const breath = this.scoped ? .0006 * Math.min(3, Math.max(1, (this.currentOptic()?.magnification ?? 1) / 2.5)) : 0;
+      const sway = this.aimSway.step(this.input.yaw, this.input.pitch, dt, aiming, breath);
+      this.input.yaw += sway.yaw; this.input.pitch += sway.pitch;
       // Change the actual input pitch so the camera, centre reticle and authoritative shots agree.
       const aim = this.recoil.apply(this.input.yaw, this.input.pitch, dt);
       this.input.yaw = Math.atan2(Math.sin(aim.yaw), Math.cos(aim.yaw));
       this.input.pitch = aim.pitch;
-    } else this.recoil.reset();
+      this.aimSway.settle(this.input.yaw, this.input.pitch);
+    } else { this.recoil.reset(); this.aimSway.reset(); }
 
     // Fixed-rate input + prediction, exactly mirroring the server tick.
     this.accumulator += dt;
@@ -2004,7 +2018,7 @@ export class GameEngine {
     if (this.viewModel) {
       const axes = this.input.axes();
       this.viewModel.update(dt * this.feel.timeScale, {
-        visible: this.firstPerson && (!this.scoped || this.lensScoped) && !local.dead && !local.state.flight && !driving,
+        visible: this.eyeView && (!this.scoped || this.lensScoped) && !local.dead && !local.state.flight && !driving,
         moving: axes.mx !== 0 || axes.mz !== 0,
         sprint: (local.lastButtons & Buttons.Sprint) !== 0,
         reloading: this.weaponCtl.reloading,
@@ -2026,7 +2040,7 @@ export class GameEngine {
     if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
     if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
     this.updateShoulderAim(px, py, pz);
-    if (this.firstPerson && this.viewModel) {
+    if (this.eyeView && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
       const ray = this.raycaster.ray;
       let distance = 100;
@@ -2454,7 +2468,7 @@ export class GameEngine {
   private readonly shotRayObj = new Ray();
 
   private localWeaponPoint(point: 'muzzle' | 'eject', out: Vector3): boolean {
-    if (this.firstPerson && (!this.scoped || this.lensScoped)) return this.viewModel?.weaponPoint(point, out) ?? false;
+    if (this.eyeView && (!this.scoped || this.lensScoped)) return this.viewModel?.weaponPoint(point, out) ?? false;
     if (this.firstPerson) return false;
     return this.localAvatar?.weaponPoint(point, out) ?? false;
   }
@@ -3326,7 +3340,8 @@ export class GameEngine {
     if (!wasMouseLook || !mouseLook) this.input.pitch = mode === 'third-person' ? -.12 : 0;
     this.thirdPersonCamera.reset();
     this.shoulderAim = { yaw: this.input.yaw, pitch: this.input.pitch };
-    if (fp && !this.viewModel) {
+    // The held gun in front of the eye: first person, and the shoulder camera's scoped view.
+    if (mouseLook && !this.viewModel) {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
       this.viewModel = new ViewModel(this.camera);
@@ -3437,6 +3452,9 @@ export class GameEngine {
       // lens is magnified (ScopeLens), but aim sensitivity still follows the optic's power.
       const viewZoom = opticPower > 1 && this.lensScopeReady() ? 1 : zoom;
       const fov = scopeFov(FP_FOV, viewZoom) + this.feel.fov;
+      // The shoulder camera at the eye behind a scope lens needs the first-person near plane.
+      const near = this.eyeView ? .015 : .05;
+      if (cam.near !== near) { cam.near = near; cam.updateProjectionMatrix(); }
       this.input.lookScale = 1 / zoom;
       if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       // Eye slightly ahead of the head so the near plane never clips the face/hat.
