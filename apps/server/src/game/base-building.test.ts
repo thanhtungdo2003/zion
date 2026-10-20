@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
-import { BLUEPRINT_BY_ID, MATERIAL_HP, quantizeHeight, quantizeLocal, quantizeScale, structureOwner, treeHits, type PropInstance, type ServerJsonMessage, type StructureState } from '@zion/shared';
+import { BLUEPRINT_BY_ID, MATERIAL_HP, quantizeHeight, quantizeLocal, quantizeScale, structureOwner, treeHits, type ChunkData, type PropInstance, type ServerJsonMessage, type StructureState } from '@zion/shared';
 import { CollisionWorld, Heightfield, Mask, makeRayHit, piecesOf, structurePieceOf } from '@zion/physics';
 import { BaseBuilding, type BuildingDeps } from './base-building';
 import { Player } from './player';
@@ -16,7 +16,7 @@ function setup() {
   // One pine (2449) and one big rock (2468) in chunk (5, 5).
   const prop = (asset: number, x: number, z: number): PropInstance => ({ asset, lx: quantizeLocal(x - 160), lz: quantizeLocal(z - 160), yq: quantizeHeight(GROUND), rot: 0, scale: quantizeScale(1), group: 0 } as PropInstance);
   const props = [prop(2449, 170, 170), prop(2468, 180, 170)];
-  const chunk = { cx: 5, cz: 5, lod: 0, props } as unknown as import('@zion/shared').ChunkData;
+  const chunk = { cx: 5, cz: 5, lod: 0, props } as unknown as ChunkData;
   const world = { peek: (cx: number, cz: number, lod: number) => (cx === 5 && cz === 5 && lod === 0 ? { data: chunk } : undefined) } as unknown as WorldService;
   const physics = { propFilter: null, reload: vi.fn() } as unknown as PhysicsChunkManager;
   const sent: ServerJsonMessage[] = [];

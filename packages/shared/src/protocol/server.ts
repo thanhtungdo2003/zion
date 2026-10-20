@@ -6,6 +6,9 @@ import { BinaryReadError, BinaryReader, BinaryWriter } from '../binary';
 import type { WorldInfo } from '../world';
 import type { TeamStateMessage } from '../teams';
 import type { TutorialStateMessage } from '../tutorial';
+import type { Attachments } from '../attachments';
+import type { BlueprintProgress, OreKind, StructureState, SupplyMessage } from '../building';
+import type { VehiclesMessage } from '../vehicles';
 import type { RankTitle, RankUpdate } from '../ranks';
 
 /* ------------------------------------------------------------------------------------------ */
@@ -205,7 +208,7 @@ export interface ArmorHitEvent {
 /** The player's own inventory (only ever sent to that player). */
 export interface InventoryEvent {
   t: 'inv';
-  items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean; attachments?: import('../attachments').Attachments }>;
+  items: Array<{ uid: number; itemId: string; container: string; x: number; y: number; rotated: boolean; count?: number; mag?: number; issued?: boolean; attachments?: Attachments }>;
   equipped: number | null;
   /** Ammo-cache draws left this world day. */
   cacheLeft?: number;
@@ -287,13 +290,13 @@ export interface KnockEvent {
 /** Every prop currently knocked down (join, and whenever some stand again). */
 export interface KnockedMessage { t: 'knocked'; keys: string[] }
 /** Player structures: the full list (join), one changed, or one gone. */
-export interface StructuresMessage { t: 'structures'; list: import('../building').StructureState[] }
-export interface StructureMessage { t: 'structure'; s: import('../building').StructureState; hit?: { piece: number; x: number; y: number; z: number; broke: boolean } }
+export interface StructuresMessage { t: 'structures'; list: StructureState[] }
+export interface StructureMessage { t: 'structure'; s: StructureState; hit?: { piece: number; x: number; y: number; z: number; broke: boolean } }
 export interface StructureGoneMessage { t: 'structureGone'; id: number }
 /** The architect's ledger: what this player has handed in towards each blueprint. */
-export interface BlueprintsMessage { t: 'blueprints'; progress: import('../building').BlueprintProgress[]; ready?: string }
+export interface BlueprintsMessage { t: 'blueprints'; progress: BlueprintProgress[]; ready?: string }
 /** An axe bit into a tree / a pickaxe into a rock (chips and sound). */
-export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | import('../building').OreKind }
+export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | OreKind }
 export type ServerJsonMessage =
   | ChopEvent
   | KnockEvent
@@ -304,8 +307,8 @@ export type ServerJsonMessage =
   | StructureMessage
   | StructureGoneMessage
   | BlueprintsMessage
-  | import('../building').SupplyMessage
-  | import('../vehicles').VehiclesMessage
+  | SupplyMessage
+  | VehiclesMessage
   | BattleState
   | InfectionState
   | { t: 'pvp'; enabled: boolean; remainingMs: number }
