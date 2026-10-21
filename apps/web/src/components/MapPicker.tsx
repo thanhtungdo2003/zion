@@ -16,7 +16,7 @@ export function MapPicker({ current, fallbackImage, onPick, onClose }: { current
     let alive = true;
     const load = () => listBattleMaps().then((m) => { if (alive) { setMaps(m); setError(null); } }).catch((e: unknown) => { if (alive) setError((e as Error).message); });
     void load();
-    const t = window.setInterval(load, 8000);
+    const t = window.setInterval(() => { void load(); }, 8000);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => { alive = false; window.clearInterval(t); window.removeEventListener('keydown', onKey); };
