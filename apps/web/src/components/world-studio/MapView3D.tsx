@@ -8,7 +8,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
 import { Surface } from '@zion/shared';
-import { riverLevels, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
+import { compositeParts, riverLevels, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
 import { AssetLibrary } from '@/game/render/asset-library';
 import { isBrush, type Tool } from './types';
 import s from './world-studio.module.css';
@@ -17,7 +17,7 @@ const RGB: Record<number, [number, number, number]> = {
   [Surface.Grass]: [.36, .48, .27], [Surface.DryGrass]: [.55, .52, .33], [Surface.ForestFloor]: [.27, .35, .22], [Surface.Sand]: [.76, .7, .52], [Surface.Dirt]: [.47, .39, .29],
   [Surface.Mud]: [.35, .29, .22], [Surface.Gravel]: [.5, .49, .46], [Surface.Rock]: [.45, .44, .42], [Surface.Snow]: [.9, .91, .93], [Surface.Asphalt]: [.28, .28, .29],
 };
-const MAX_INSTANCES = 30000;
+const MAX_INSTANCES = 120000;
 
 /**
  * 3D preview of the map: the edited terrain (one vertex per few grid cells), sea, lakes and
@@ -126,11 +126,16 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     if (!st) return;
     let cancelled = false;
     const clear = () => { for (const c of [...st.objects.children]) { st.objects.remove(c); if (c instanceof InstancedMesh) c.dispose(); else if (c instanceof Mesh) c.geometry.dispose(); } };
-    const placed: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number }> = [];
+    const placed: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number; sx?: number }> = [];
+    for (const f of doc.flora) if (placed.length < MAX_INSTANCES) placed.push({ asset: f[0], x: f[1], y: terrain.heightAt(f[1], f[2]), z: f[2], yaw: f[3], scale: f[4] });
     const results = [...doc.regions.map((r) => r.result).filter((r): r is SettlementResult => !!r), ...(preview ? [preview] : [])];
     for (const r of results) {
-      for (const b of r.buildings) placed.push({ asset: b.asset, x: b.x, y: b.y, z: b.z, yaw: b.yaw, scale: 1 });
-      for (const p of r.props) if (placed.length < MAX_INSTANCES) placed.push({ asset: p.asset, x: p.x, y: p.y, z: p.z, yaw: p.yaw, scale: p.scale });
+      for (const b of r.buildings) {
+        // Kit buildings are rebuilt from their recipe: every brick course and concrete panel.
+        if (b.recipe) for (const q of compositeParts(b.recipe, b.obb.x, b.obb.z, b.yaw)) placed.push({ asset: q.asset, x: q.x, y: b.y + q.y, z: q.z, yaw: q.yaw, scale: q.scale });
+        else placed.push({ asset: b.asset, x: b.x, y: b.y, z: b.z, yaw: b.yaw, scale: 1 });
+      }
+      for (const p of r.props) if (placed.length < MAX_INSTANCES) placed.push({ asset: p.asset, x: p.x, y: p.y, z: p.z, yaw: p.yaw, scale: p.scale, sx: p.sx });
     }
     setStatus(placed.length ? `Đang nạp ${new Set(placed.map((p) => p.asset)).size} model…` : '');
     void (async () => {
@@ -174,7 +179,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
         if (!vis) continue;
         for (const part of vis.parts) {
           const inst = new InstancedMesh(part.geometry, part.material, list.length);
-          list.forEach((p, i) => { m.compose(v.set(p.x, p.y, p.z), q.setFromAxisAngle(up, p.yaw), sc.setScalar(p.scale)); inst.setMatrixAt(i, m); });
+          list.forEach((p, i) => { m.compose(v.set(p.x, p.y, p.z), q.setFromAxisAngle(up, p.yaw), sc.set(p.scale * (p.sx ?? 1), p.scale, p.scale)); inst.setMatrixAt(i, m); });
           inst.computeBoundingSphere();
           st.objects.add(inst);
         }
@@ -182,7 +187,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
       setStatus(placed.length >= MAX_INSTANCES ? `Hiển thị ${MAX_INSTANCES} đối tượng đầu tiên.` : '');
     })();
     return () => { cancelled = true; };
-  }, [doc.regions, doc.base.structures, preview, terrain]);
+  }, [doc.regions, doc.base.structures, doc.flora, preview, terrain]);
 
   // Brush strokes on the 3D ground; orbit with the right button while a brush is active.
   useEffect(() => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { distanceToPolyline, obbCorners, pointInPolygon, type BattleConfig, type Heightfield, type Obb, type Vec2, type WorldMapDoc } from '@zion/worldgen/editor';
+import { distanceToPolyline, floraGroup, obbCorners, pointInPolygon, type BattleConfig, type Heightfield, type Obb, type Vec2, type WorldMapDoc } from '@zion/worldgen/editor';
 import type { TerrainRaster } from '@/studio/world/raster';
 import { drawShape, isBrush, isDraw, sameSelection, type Layers, type Overlay, type Selection, type Tool } from './types';
 
@@ -29,7 +29,7 @@ interface Props {
 }
 
 const CLASS_COLOR: Record<string, string> = { residential: '#d9c08a', commercial: '#e39a54', industrial: '#9aa4ab', military: '#8f9a6a' };
-const PROP_COLOR: Record<string, string> = { hedge: '#4c7a3e', crop: '#9aa64e', wall: '#a7a49c', tree: '#3f6b3a', bush: '#56804a', deadTree: '#6f6450', fence: '#a58a62', perimeter: '#b0a36e', lamp: '#ffd36a', vehicle: '#c35a4a', militaryVehicle: '#6c7a4a', clutter: '#9a8466', industrialClutter: '#8b8f93', militaryClutter: '#7d7a56', bench: '#9b8a6e', debris: '#7a7570' };
+const PROP_COLOR: Record<string, string> = { sign: '#f2f2f2', trafficLight: '#e8c34a', quay: '#9c9a92', pier: '#8b7f6a', pile: '#7a3d2e', breakwater: '#6f6c66', crane: '#e0a530', container: '#b4523a', bollard: '#444', hedge: '#4c7a3e', crop: '#9aa64e', wall: '#a7a49c', tree: '#3f6b3a', bush: '#56804a', deadTree: '#6f6450', fence: '#a58a62', perimeter: '#b0a36e', lamp: '#ffd36a', vehicle: '#c35a4a', militaryVehicle: '#6c7a4a', clutter: '#9a8466', industrialClutter: '#8b8f93', militaryClutter: '#7d7a56', bench: '#9b8a6e', debris: '#7a7570' };
 const ROAD_COLOR: Record<string, string> = { main: '#cfc6ae', secondary: '#b5ad98', alley: '#968f7f', connector: '#cfc6ae' };
 const LOT_FILL: Record<string, string> = { yard: 'rgba(120,160,90,.18)', full: 'rgba(170,150,120,.22)', garden: 'rgba(90,170,80,.3)', orchard: 'rgba(70,140,60,.3)', farm: 'rgba(170,150,70,.3)', walled: 'rgba(150,150,150,.2)', overgrown: 'rgba(80,110,60,.32)', vacant: 'rgba(140,130,100,.15)', work: 'rgba(130,135,140,.22)' };
 const LOOT_COLOR: Record<string, string> = { weapons: '#ff5a4a', ammo: '#ffb000', medical: '#5ad17a', armor: '#5ab0ff', food: '#d9d16a', tools: '#b58cff' };
@@ -109,6 +109,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       for (const r of doc.base.roads) { path(r.points, false); ctx.strokeStyle = r.paved ? 'rgba(206,198,176,.85)' : 'rgba(150,126,92,.85)'; ctx.lineWidth = Math.max(1.2 * px, r.width); ctx.stroke(); }
       ctx.fillStyle = 'rgba(214,190,140,.55)'; ctx.strokeStyle = 'rgba(240,220,170,.7)'; ctx.lineWidth = px;
       for (const st of doc.base.structures) if (visible(st.x, st.z, Math.max(st.hx, st.hz) * 1.5)) { box(st, [0, 0]); ctx.fill(); ctx.stroke(); }
+    }
+
+    /* Painted and generated trees, plants and rocks. */
+    if (layers.props && s > .12) {
+      const r = Math.max(1.2 * px, 1.6);
+      for (const f of doc.flora) {
+        if (!visible(f[1], f[2], 4)) continue;
+        const g = floraGroup.get(f[0]);
+        ctx.fillStyle = g === 'rock' ? '#7d7a74' : g === 'grass' ? '#7f9a55' : g === 'bush' ? '#4f7d40' : '#2f5a2c';
+        ctx.beginPath(); ctx.arc(f[1], f[2], g === 'tree' ? r * 1.6 * f[4] : r * f[4], 0, 6.283); ctx.fill();
+      }
     }
 
     /* Settlements: applied results, then the preview being reviewed. */

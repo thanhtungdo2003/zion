@@ -5,10 +5,12 @@ export type ShapeType = 'region' | 'lake' | 'river' | 'nogo' | 'spawnzone';
 export type PointType = 'spawn' | 'loot' | 'hotspot' | 'poi' | 'rare';
 export type DrawTool = 'draw-region' | 'draw-lake' | 'draw-river' | 'draw-nogo' | 'draw-spawnzone';
 export type PlaceTool = 'place-spawn' | 'place-loot' | 'place-hotspot' | 'place-poi' | 'place-rare' | 'place-playarea';
-export type Tool = 'select' | 'pan' | TerrainTool | DrawTool | PlaceTool;
+export type FloraTool = 'trees' | 'biome';
+export type Tool = 'select' | 'pan' | TerrainTool | FloraTool | DrawTool | PlaceTool;
 
-export const BRUSH_TOOLS: readonly string[] = ['raise', 'lower', 'smooth', 'flatten', 'sculpt', 'noise', 'erosion', 'paint'];
-export const isBrush = (t: Tool): t is TerrainTool => BRUSH_TOOLS.includes(t);
+export const BRUSH_TOOLS: readonly string[] = ['raise', 'lower', 'smooth', 'flatten', 'sculpt', 'noise', 'erosion', 'paint', 'trees', 'biome'];
+export const isBrush = (t: Tool): t is TerrainTool | FloraTool => BRUSH_TOOLS.includes(t);
+export const isFlora = (t: Tool): t is FloraTool => t === 'trees' || t === 'biome';
 export const isDraw = (t: Tool): t is DrawTool => t.startsWith('draw-');
 export const isPlace = (t: Tool): t is PlaceTool => t.startsWith('place-');
 export const drawShape = (t: DrawTool): ShapeType => t.slice(5) as ShapeType;

@@ -6,6 +6,7 @@ import {
   Mesh,
   MeshLambertMaterial,
   type BufferGeometry,
+  type Color,
   type Material,
   type Object3D,
 } from 'three';
@@ -236,9 +237,14 @@ export class AssetLibrary {
           if (m.roughness !== undefined && m.roughness < .85) { m.roughness = .85; m.needsUpdate = true; }
         }
         if (def.category === 'rock' || def.category === 'tree' || def.category === 'vegetation') for (const part of parts) {
-          const m = part.material as { roughness?: number; metalness?: number; roughnessMap?: unknown; metalnessMap?: unknown; needsUpdate: boolean };
+          const m = part.material as { roughness?: number; metalness?: number; roughnessMap?: unknown; metalnessMap?: unknown; map?: unknown; vertexColors?: boolean; color?: Color; needsUpdate: boolean };
           if (m.roughness === undefined) continue;
           m.roughness = 1; m.metalness = 0; m.roughnessMap = null; m.metalnessMap = null; m.needsUpdate = true;
+          // Some packs ship rocks without normals, with vertex colours they do not have, or with a
+          // near-black base colour meant for a texture that is not there: all render pitch black.
+          if (!part.geometry.getAttribute('normal')) part.geometry.computeVertexNormals();
+          if (m.vertexColors && !part.geometry.getAttribute('color')) m.vertexColors = false;
+          if (def.category === 'rock' && m.color && !m.map && m.color.r + m.color.g + m.color.b < .25) m.color.set('#8b877e');
         }
         // Flattened parts own cloned buffers but retain the original materials/textures.
         gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });

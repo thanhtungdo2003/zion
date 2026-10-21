@@ -1,4 +1,4 @@
-export const SETTLEMENT_PRESET_IDS = ['small-village', 'rural-town', 'dense-town', 'small-city', 'industrial-zone', 'military-base', 'residential-district', 'abandoned-settlement'] as const;
+export const SETTLEMENT_PRESET_IDS = ['small-village', 'rural-town', 'dense-town', 'small-city', 'industrial-zone', 'military-base', 'residential-district', 'abandoned-settlement', 'port'] as const;
 export type SettlementPresetId = typeof SETTLEMENT_PRESET_IDS[number];
 export type LotClass = 'residential' | 'commercial' | 'industrial' | 'military';
 
@@ -31,6 +31,8 @@ export interface SettlementSettings {
   fences: boolean;
   lamps: boolean;
   perimeter: boolean;
+  /** Quays, piers, a breakwater and cranes where the region meets the sea or a lake. */
+  harbour: boolean;
   /** Steepest ground a building stands on (rise over run). */
   maxSlope: number;
   /** 0..1: cut and fill before building — how far the ground eases onto a gentle plane. */
@@ -43,7 +45,7 @@ const base: Omit<SettlementSettings, 'preset'> = {
   layout: 'grid', density: .75, randomness: .35, concentration: .5,
   mainRoadWidth: 9, secondaryRoadWidth: 6.5, alleyWidth: 4, blockSize: 100, lotWidth: 20, lotDepth: 28, setback: 4, sizeBias: .5,
   zoning: { residential: .8, commercial: .2, industrial: 0, military: 0 },
-  treeDensity: .5, propDensity: .5, decay: .25, fences: false, lamps: true, perimeter: false,
+  treeDensity: .5, propDensity: .5, decay: .25, fences: false, lamps: true, perimeter: false, harbour: false,
   maxSlope: .2, grading: .6, maxBuildings: 1200, maxProps: 6000,
 };
 
@@ -52,10 +54,11 @@ export const SETTLEMENT_PRESETS: Array<{ id: SettlementPresetId; name: string; d
   { id: 'rural-town', name: 'Thị trấn nông thôn', description: 'Lưới phố thưa quanh trục chính, ít cửa hàng ở trung tâm.', settings: { ...base, preset: 'rural-town', grading: .5, density: .65, mainRoadWidth: 8, secondaryRoadWidth: 6, blockSize: 110, lotWidth: 22, lotDepth: 30, zoning: { residential: .75, commercial: .2, industrial: .05, military: 0 }, treeDensity: .6, fences: true } },
   { id: 'dense-town', name: 'Thị trấn đông đúc', description: 'Ô phố nhỏ, lô hẹp, nhà sát nhau, có ngõ trong khối.', settings: { ...base, preset: 'dense-town', grading: .75, density: .9, concentration: .6, mainRoadWidth: 10, secondaryRoadWidth: 7, alleyWidth: 4, blockSize: 80, lotWidth: 14, lotDepth: 22, setback: 2, sizeBias: .6, zoning: { residential: .55, commercial: .4, industrial: .05, military: 0 }, treeDensity: .3, propDensity: .6 } },
   { id: 'small-city', name: 'Thành phố nhỏ', description: 'Đại lộ hai trục, khối lớn, chung cư và thương mại ở lõi.', settings: { ...base, preset: 'small-city', grading: .85, density: .95, concentration: .7, mainRoadWidth: 14, secondaryRoadWidth: 9, alleyWidth: 5, blockSize: 120, lotWidth: 26, lotDepth: 34, setback: 3, sizeBias: .85, zoning: { residential: .4, commercial: .5, industrial: .1, military: 0 }, treeDensity: .35, propDensity: .7 } },
-  { id: 'industrial-zone', name: 'Khu công nghiệp', description: 'Đường rộng, lô lớn: nhà xưởng, container, bồn nước, bãi vật liệu.', settings: { ...base, preset: 'industrial-zone', grading: .85, density: .7, concentration: .3, mainRoadWidth: 12, secondaryRoadWidth: 9, blockSize: 150, lotWidth: 40, lotDepth: 48, setback: 6, sizeBias: .9, zoning: { residential: 0, commercial: .05, industrial: .95, military: 0 }, treeDensity: .15, propDensity: .85, lamps: true } },
+  { id: 'industrial-zone', name: 'Khu công nghiệp', description: 'Đường rộng, lô lớn: nhà xưởng, container, bồn nước, bãi vật liệu.', settings: { ...base, preset: 'industrial-zone', grading: .85, density: .7, concentration: .3, mainRoadWidth: 12, secondaryRoadWidth: 9, blockSize: 150, lotWidth: 40, lotDepth: 48, setback: 6, sizeBias: .9, zoning: { residential: 0, commercial: .05, industrial: .95, military: 0 }, treeDensity: .15, propDensity: .85, lamps: true, harbour: true } },
   { id: 'military-base', name: 'Căn cứ quân sự', description: 'Lưới đều, doanh trại, lều, xe quân sự và hàng rào bao quanh.', settings: { ...base, preset: 'military-base', grading: .75, density: .75, randomness: .15, concentration: .3, mainRoadWidth: 10, secondaryRoadWidth: 7, blockSize: 110, lotWidth: 30, lotDepth: 36, setback: 5, sizeBias: .7, zoning: { residential: 0, commercial: 0, industrial: .1, military: .9 }, treeDensity: .1, propDensity: .8, perimeter: true } },
   { id: 'residential-district', name: 'Khu dân cư', description: 'Phố nhà ở san sát, sân trước, hàng rào và cây xanh.', settings: { ...base, preset: 'residential-district', grading: .65, density: .85, mainRoadWidth: 9, secondaryRoadWidth: 7, alleyWidth: 4, blockSize: 100, lotWidth: 16, lotDepth: 26, setback: 4, sizeBias: .4, zoning: { residential: .95, commercial: .05, industrial: 0, military: 0 }, treeDensity: .6, fences: true } },
   { id: 'abandoned-settlement', name: 'Khu dân cư bỏ hoang', description: 'Nhà thưa, xe bỏ hoang trên đường, cây mọc um tùm, đổ nát.', settings: { ...base, preset: 'abandoned-settlement', grading: .2, layout: 'organic', density: .5, randomness: .55, concentration: .4, mainRoadWidth: 7, secondaryRoadWidth: 5, lotWidth: 22, lotDepth: 28, zoning: { residential: .8, commercial: .15, industrial: .05, military: 0 }, treeDensity: .95, propDensity: .7, decay: .9, fences: true, lamps: false } },
+  { id: 'port', name: 'Cảng biển', description: 'Vẽ vùng chạm mặt nước: cầu cảng, bến nhô, đê chắn sóng, kè, cần cẩu, bãi container, kho bãi.', settings: { ...base, preset: 'port', grading: .8, density: .7, concentration: .3, mainRoadWidth: 12, secondaryRoadWidth: 9, blockSize: 130, lotWidth: 36, lotDepth: 44, setback: 5, sizeBias: .85, zoning: { residential: 0, commercial: .3, industrial: .7, military: 0 }, treeDensity: .1, propDensity: .9, harbour: true } },
 ];
 
 export function presetSettings(id: SettlementPresetId): SettlementSettings {

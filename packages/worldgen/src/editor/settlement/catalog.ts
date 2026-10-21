@@ -14,7 +14,7 @@ export interface CatalogItem {
   height: number;
 }
 
-export type PropKind = 'hedge' | 'crop' | 'wall' | 'tree' | 'deadTree' | 'bush' | 'fence' | 'perimeter' | 'lamp' | 'vehicle' | 'militaryVehicle' | 'clutter' | 'industrialClutter' | 'militaryClutter' | 'bench' | 'debris';
+export type PropKind = 'sign' | 'trafficLight' | 'quay' | 'pier' | 'pile' | 'breakwater' | 'crane' | 'container' | 'bollard' | 'hedge' | 'crop' | 'wall' | 'tree' | 'deadTree' | 'bush' | 'fence' | 'perimeter' | 'lamp' | 'vehicle' | 'militaryVehicle' | 'clutter' | 'industrialClutter' | 'militaryClutter' | 'bench' | 'debris';
 
 /** Real asset ids per building class (see packages/assets: imported buildings, battle kit, camp). */
 const BUILDINGS: Record<LotClass | 'abandoned', number[]> = {
@@ -39,6 +39,17 @@ const PROPS: Record<PropKind, number[]> = {
   bench: [2537, 2412],
   debris: [2031, 2682],
   wall: [2034, 2008, 2033],
+  // Road furniture: stop, give way, 50, 80, curves, crossing, zombies, danger, one way (SIGN_ASSET).
+  sign: [2720, 2721, 2722, 2723, 2724, 2725, 2726, 2727, 2728, 2729],
+  trafficLight: [2691, 2692, 2693],
+  // Harbour: deck slabs, steel piles, breakwater boulders, the tower crane, containers, bollards.
+  quay: [2100, 2101],
+  pier: [2104, 2105],
+  pile: [2106],
+  breakwater: [2468, 2469, 2470, 2465, 2466],
+  crane: [2432],
+  container: [2213, 2214, 2408],
+  bollard: [2685],
   hedge: [2460, 2461, 2462],
   crop: [2460, 2462],
 };

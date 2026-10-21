@@ -9,6 +9,7 @@ import { seedNumber, stream, type CellRect, type Heightfield } from '../heightfi
 import { riverLevels, waterLevelAt, type WaterData } from '../water';
 import type { Catalog, CatalogItem, PropKind } from './catalog';
 import type { LotClass, SettlementSettings } from './presets';
+import { compositeOptions, type CompositeRecipe } from './composite';
 
 export type RoadKind = 'main' | 'secondary' | 'alley' | 'connector';
 export interface SettlementRoad { id: string; kind: RoadKind; width: number; points: Vec2[] }
@@ -57,8 +58,8 @@ function parcelRun(run: Array<{ a: number; b: number }>, D: number, rng: Rng, ra
   }
   return out;
 }
-export interface PlacedBuilding { id: string; asset: number; x: number; z: number; y: number; yaw: number; obb: Obb; door: Vec2; lot?: string; cls: LotClass; manual?: boolean }
-export interface PlacedProp { id: string; asset: number; kind: PropKind; x: number; z: number; y: number; yaw: number; scale: number; obb: Obb; manual?: boolean }
+export interface PlacedBuilding { id: string; asset: number; x: number; z: number; y: number; yaw: number; obb: Obb; door: Vec2; lot?: string; cls: LotClass; manual?: boolean; /** Kit building (brick / concrete / modular storeys) instead of one model. */ recipe?: CompositeRecipe }
+export interface PlacedProp { id: string; asset: number; kind: PropKind; x: number; z: number; y: number; yaw: number; scale: number; obb: Obb; manual?: boolean; /** Stretch along the model's x (fence pieces fitted to a side). */ sx?: number }
 export interface SettlementIssue { severity: 'error' | 'warning' | 'info'; code: string; message: string; x?: number; z?: number }
 export type SettlementLayer = 'roads' | 'buildings' | 'props';
 
@@ -562,7 +563,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       else l.style = weighted<LotStyle>([['work', 3], ['walled', 1.5], ['full', 1]]);
       const fences: Array<[FenceKind, number]> = l.cls === 'military' ? [['wire', 3], ['wall', 2], ['none', 1]]
         : l.cls === 'industrial' ? [['iron', 2], ['wall', 2], ['wire', 1], ['none', 2]]
-          : l.style === 'walled' ? [['wall', 3], ['iron', 2]]
+          : l.style === 'walled' ? [['iron', 3], ['wood', 2], ['hedge', 1]]
             : l.style === 'full' || l.style === 'vacant' ? [['none', 4], ['wood', 1]]
               : [['none', st.fences ? 1.5 : 4], ['wood', 3], ['hedge', 2], ['iron', 1]];
       l.fence = weighted(fences);
@@ -600,15 +601,25 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       // A plot built over completely sits on the pavement; the others keep a front yard.
       const setback = lot.style === 'full' ? Math.min(1, st.setback) : lot.style === 'farm' ? st.setback + 3 : st.setback;
       const availW = width - (lot.style === 'full' ? 1 : 3), availD = depth - setback - (lot.style === 'full' ? .5 : 1.5);
-      const fits = pool.flatMap((item) => [
+      type Candidate = { item: CatalogItem; turned: boolean; recipe?: CompositeRecipe };
+      const fits: Candidate[] = pool.flatMap((item) => [
         ...(item.w <= availW && item.d <= availD ? [{ item, turned: false }] : []),
         ...(item.d <= availW && item.w <= availD && Math.abs(item.w - item.d) > 1 ? [{ item, turned: true }] : []),
       ]);
+      // Storeyed buildings from the brick / concrete / modular kits: the city core, offices,
+      // barracks and flats. How often depends on the place (a village rarely, a city mostly).
+      const tall = cls === 'military' ? .8 : st.preset === 'small-city' ? .95 : st.preset === 'dense-town' ? .65 : st.sizeBias * .6;
+      const kitShare = cls === 'commercial' ? .55 + tall * .4 : cls === 'military' ? .75 : cls === 'industrial' ? .45 : tall * .7;
+      if (lot.style !== 'farm' && rng.next() < kitShare) {
+        const kits = compositeOptions(cls, rng, tall, availW, availD).map((o): Candidate => ({ item: { asset: o.recipe.kind === 'brick' ? 2050 : 2051, name: o.recipe.kind, w: o.w, d: o.d, ox: 0, oz: 0, height: o.height }, turned: false, recipe: o.recipe }));
+        fits.unshift(...kits);
+      }
+      fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
       if (!fits.length) continue;
       const first = lot.style === 'full' || rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
       const tries = [...fits.slice(first), ...fits.slice(0, first)].slice(0, 4);
       const facing = Math.atan2(lot.dir[0], lot.dir[1]);
-      for (const { item, turned } of tries) {
+      for (const { item, turned, recipe } of tries) {
         const w = turned ? item.d : item.w, d = turned ? item.w : item.d;
         const slide = (rng.next() - .5) * (availW - w) * st.randomness;
         const mid: Vec2 = [(lot.front[0][0] + lot.front[1][0]) / 2, (lot.front[0][1] + lot.front[1][1]) / 2];
@@ -623,7 +634,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const door: Vec2 = [cx + lot.dir[0] * (extent + .5), cz + lot.dir[1] * (extent + .5)];
         // Model origin from the footprint centre.
         const c = Math.cos(yaw), s = Math.sin(yaw), x = cx - (item.ox * c + item.oz * s), z = cz - (-item.ox * s + item.oz * c);
-        const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: hs.reduce((a, v) => a + v, 0) / hs.length, yaw, obb: box, door, lot: lot.id, cls };
+        const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: Math.min(...hs), yaw, obb: box, door, lot: lot.id, cls, ...(recipe ? { recipe } : {}) };
         buildings.push(b);
         solids.insert({ ...box, tag: `b:${b.id}` });
         const corridor = doorCorridor(door, lot.dir, setback + 1);
@@ -644,13 +655,16 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   yield progress(8);
   const props: PlacedProp[] = (prev?.props ?? []).filter((p) => p.manual);
   for (const p of props) solids.insert({ ...p.obb, tag: `p:${p.id}` });
-  const place = (kind: PropKind, item: CatalogItem, x: number, z: number, yaw: number, scale: number, opts: { margin?: number; onRoad?: boolean; tag?: string } = {}): boolean => {
+  const place = (kind: PropKind, item: CatalogItem, x: number, z: number, yaw: number, scale: number, opts: { margin?: number; onRoad?: boolean; onWater?: boolean; tag?: string; y?: number; along?: number } = {}): boolean => {
     if (props.length >= st.maxProps) return false;
     const box = footprint(item, x, z, yaw, scale);
-    if (!pointInPolygon(box.x, box.z, polygon) || ground.water(box.x, box.z)) return false;
-    if (blocked(solids, box, opts.margin ?? .4)) return false;
+    if (opts.along) box.hx = item.w * opts.along / 2;
+    if (!pointInPolygon(box.x, box.z, polygon) || (!opts.onWater && ground.water(box.x, box.z))) return false;
+    // A fence run is a chain: its own pieces touch end to end, everything else keeps clear.
+    const own = opts.tag;
+    if (blocked(solids, box, opts.margin ?? .4, own ? (o) => o.tag === own : undefined)) return false;
     if (!opts.onRoad && roadIndex.hits(box, .3)) return false;
-    const p: PlacedProp = { id: `p${props.length}-${kind}`, asset: item.asset, kind, x, z, y: ground.height(x, z), yaw, scale, obb: box };
+    const p: PlacedProp = { id: `p${props.length}-${kind}`, asset: item.asset, kind, x, z, y: opts.y ?? ground.height(x, z), yaw, scale, obb: box, ...(opts.along && Math.abs(opts.along - 1) > .01 ? { sx: Math.round(opts.along * 1000) / 1000 } : {}) };
     props.push(p); solids.insert({ ...box, tag: opts.tag ?? `p:${p.id}` });
     return true;
   };
@@ -669,6 +683,96 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         place('lamp', pick(rng, catalog.props.lamp), p.x + nx * off, p.z + nz * off, Math.atan2(-nx, -nz), 1, { margin: .3 });
       }
     }
+  }
+  // Road signs where streets meet (stop for side streets, give way in alleys), speed limits on
+  // the main street, traffic lights at the busy junctions of towns and cities.
+  {
+    const rng = stream(seed, 'props-signs');
+    const S = catalog.props.sign, sign = (k: number) => S[k % S.length]!;
+    const lights = st.preset === 'small-city' || st.preset === 'dense-town' || st.preset === 'port' || st.preset === 'industrial-zone';
+    for (const r of roads) {
+      if (r.points.length < 2) continue;
+      for (const atEnd of [false, true]) {
+        const pts = atEnd ? r.points : [...r.points].reverse();
+        const end = pts[pts.length - 1]!, prevPt = pts[pts.length - 2]!, len = Math.hypot(end[0] - prevPt[0], end[1] - prevPt[1]) || 1;
+        const dx = (end[0] - prevPt[0]) / len, dz = (end[1] - prevPt[1]) / len;
+        const meets = roads.find((o) => o !== r && distanceToPolyline(end[0], end[1], o.points) < o.width / 2 + 2);
+        if (!meets) continue;
+        const back = Math.min(len * .8, r.width / 2 + 5), side = r.width / 2 + 1.2;
+        const x = end[0] - dx * back + dz * side, z = end[1] - dz * back - dx * side;
+        const facing = Math.atan2(-dx, -dz);
+        if (lights && r.kind !== 'alley' && meets.kind !== 'alley' && (r.kind === 'main' || meets.kind === 'main')) {
+          place('trafficLight', catalog.props.trafficLight[r.kind === 'main' ? 1 : 0]!, x, z, facing, 1, { margin: .2, tag: 'sign' });
+          place('trafficLight', catalog.props.trafficLight[2]!, end[0] - dx * back - dz * side, end[1] - dz * back + dx * side, facing, 1, { margin: .2, tag: 'sign' });
+        } else if (r.kind !== 'connector') place('sign', sign(r.kind === 'alley' ? 1 : meets.kind === 'main' ? 0 : 1), x, z, facing, 1, { margin: .2, tag: 'sign' });
+      }
+      if (r.kind === 'main' || r.kind === 'connector') {
+        let k = 0;
+        for (const q of walk(r.points, 160, 40)) {
+          const sideK = k++ % 2 ? 1 : -1, off = r.width / 2 + 1.2;
+          const kind = r.kind === 'connector' && st.decay > .5 && rng.next() < .5 ? 7 + Math.floor(rng.next() * 2) : st.layout === 'organic' ? 3 : 2;
+          place('sign', sign(kind), q.x - q.dz * off * sideK, q.z + q.dx * off * sideK, Math.atan2(q.dx * sideK, q.dz * sideK), 1, { margin: .2, tag: 'sign' });
+        }
+      }
+    }
+  }
+  // Harbour where the region meets water: a quay along the shore, piers out into the water on
+  // steel piles, a breakwater offshore with a groyne from the shore, cranes and container yards.
+  if (st.harbour) {
+    const rng = stream(seed, 'props-harbour'), stepH = 6;
+    const wet: Vec2[] = [], dry: Vec2[] = [], shore: Vec2[] = [];
+    for (let z = Math.min(...zs); z <= Math.max(...zs); z += stepH) for (let x = Math.min(...xs); x <= Math.max(...xs); x += stepH) {
+      if (!pointInPolygon(x, z, polygon)) continue;
+      if (ground.water(x, z)) { wet.push([x, z]); continue; }
+      dry.push([x, z]);
+      if ([[stepH, 0], [-stepH, 0], [0, stepH], [0, -stepH]].some(([ox, oz]) => ground.water(x + ox!, z + oz!))) shore.push([x, z]);
+    }
+    if (wet.length > 20 && shore.length > 3 && dry.length) {
+      const mean = (l: Vec2[]): Vec2 => [l.reduce((a, q) => a + q[0], 0) / l.length, l.reduce((a, q) => a + q[1], 0) / l.length];
+      const [wx, wz] = mean(wet), [lx, lz] = mean(dry), sl = Math.hypot(wx - lx, wz - lz) || 1;
+      const sx = (wx - lx) / sl, sz = (wz - lz) / sl, tx = -sz, tz = sx;
+      const deck = input.seaLevel + 1.4;
+      // Quay slabs along the waterline.
+      const quay = catalog.props.quay[0]!;
+      for (const [x, z] of shore) place('quay', quay, x + sx * 2, z + sz * 2, Math.atan2(sx, sz), 1, { onWater: true, onRoad: true, margin: 0, tag: 'harbour', y: Math.max(deck, ground.height(x, z) + .2) });
+      // Piers: every ~70 m along the shore, straight out while there is water.
+      const along = shore.map((q) => ({ q, t: q[0] * tx + q[1] * tz })).sort((a, b) => a.t - b.t);
+      let nextPier = along[0]!.t + 20, cranes = 0;
+      for (const { q, t } of along) {
+        if (t < nextPier) continue;
+        nextPier = t + 60 + rng.next() * 30;
+        const length = 50 + rng.next() * 50;
+        for (let d = 4; d <= length; d += 4) {
+          const cx = q[0] + sx * d, cz = q[1] + sz * d;
+          if (!ground.water(cx, cz) || !pointInPolygon(cx, cz, polygon)) break;
+          for (const o of [-2, 2]) place('pier', catalog.props.quay[1]!, cx + tx * o, cz + tz * o, Math.atan2(sx, sz), 1, { onWater: true, margin: 0, tag: 'harbour', y: deck });
+          if (d % 8 === 0) for (const o of [-4, 4]) place('pile', catalog.props.pile[0]!, cx + tx * o, cz + tz * o, 0, 1, { onWater: true, margin: 0, tag: 'harbour', y: ground.height(cx, cz) });
+          if (d + 4 > length) for (const o of [-3.5, 3.5]) place('bollard', catalog.props.bollard[0]!, cx + tx * o, cz + tz * o, 0, 1, { onWater: true, margin: 0, tag: 'harbour', y: deck });
+        }
+        // A crane on the quay at the root of every other pier, containers stacked behind it.
+        if (cranes < 3 && rng.next() < .6) {
+          if (place('crane', catalog.props.crane[0]!, q[0] - sx * 10, q[1] - sz * 10, Math.atan2(sx, sz), 1, { margin: 1 })) cranes++;
+          for (let row = 0; row < 3; row++) for (let col = -2; col <= 2; col++) {
+            const item = pick(rng, catalog.props.container), bx = q[0] - sx * (28 + row * 4) + tx * col * 7, bz = q[1] - sz * (28 + row * 4) + tz * col * 7;
+            if (place('container', item, bx, bz, Math.atan2(tx, tz), 1, { margin: .3, tag: 'yard' }) && rng.next() < .45)
+              place('container', pick(rng, catalog.props.container), bx, bz, Math.atan2(tx, tz), 1, { margin: -10, tag: 'yard', y: ground.height(bx, bz) + 2.6 });
+          }
+        }
+      }
+      // Breakwater offshore, parallel to the shore, and a groyne from the shore's far end.
+      const t0 = along[0]!.t, t1 = along[along.length - 1]!.t, mid = mean(shore);
+      for (let t = t0 + (t1 - t0) * .05; t <= t1 - (t1 - t0) * .05; t += 11) {
+        const off = 110 + Math.sin(t * .02) * 10, rel = t - (mid[0] * tx + mid[1] * tz);
+        const x = mid[0] + tx * rel + sx * off, z = mid[1] + tz * rel + sz * off;
+        if (ground.water(x, z)) place('breakwater', pick(rng, catalog.props.breakwater), x, z, rng.next() * 6.28, .55 + rng.next() * .25, { onWater: true, margin: -3, tag: 'harbour', y: ground.height(x, z) });
+      }
+      const root = along[along.length - 1]!.q;
+      for (let d = 0; d <= 90; d += 6) {
+        const x = root[0] + sx * d, z = root[1] + sz * d;
+        if (!pointInPolygon(x, z, polygon)) break;
+        place('breakwater', catalog.props.breakwater[3 + Math.floor(rng.next() * 2)]!, x, z, rng.next() * 6.28, .9 + rng.next() * .3, { onWater: true, onRoad: true, margin: -1, tag: 'harbour', y: ground.height(x, z) });
+      }
+    } else issues.push({ severity: 'info', code: 'no-shore', message: 'Vùng không chạm mặt nước — không sinh cầu cảng, đê chắn sóng.' });
   }
   // Military perimeter: wire and sandbags just inside the outline, gates where streets cross.
   if (st.perimeter) {
@@ -698,7 +802,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const pool = fence === 'hedge' ? [] : fenceItems[fence];
         const item = fence === 'hedge' ? null : pick(rng, pool.length ? pool : catalog.props.fence);
         const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], fl = Math.hypot(fx, fz) || 1;
-        const gate: Vec2 = [lot.front[0][0] + fx / 2, lot.front[0][1] + fz / 2];
+        const gate: Vec2 = [lot.front[0][0] + fx / 2 - lot.dir[0] * .6, lot.front[0][1] + fz / 2 - lot.dir[1] * .6];
         const closedFront = fence === 'wall' || fence === 'iron';
         for (let e = 0; e < lot.polygon.length; e++) {
           const a = lot.polygon[e]!, b = lot.polygon[(e + 1) % lot.polygon.length]!, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -709,12 +813,14 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
           if (onStreet && !closedFront) continue;
           // Set the line half a metre inside the plot.
           const ix = -lot.dir[0] * (onStreet ? .6 : 0), iz = -lot.dir[1] * (onStreet ? .6 : 0);
-          const step = item ? item.w : 2.2;
-          for (let t = step / 2 + .3; t <= len - step / 2; t += step) {
-            const x = a[0] + ex * t + ix, z = a[1] + ez * t + iz;
-            if (rng.next() < st.decay * .35 || Math.hypot(x - gate[0], z - gate[1]) < 2.6) continue;
-            if (item) place('fence', item, x, z, Math.atan2(-ez, ex), 1, { margin: .02, tag: 'fence' });
-            else place('hedge', catalog.props.hedge[sp % catalog.props.hedge.length]!, x, z, rng.next() * 6.28, .55 + rng.next() * .2, { margin: .02, tag: 'fence' });
+          // Whole pieces fitted to the side (stretched a little), meeting end to end at the corners.
+          const count = Math.max(1, Math.round(len / (item ? item.w : 1.6))), step = len / count, stretch = item ? step / item.w : 1;
+          const tag = `fence-${lot.id}`;
+          for (let k = 0; k < count; k++) {
+            const t = step * (k + .5), x = a[0] + ex * t + ix, z = a[1] + ez * t + iz;
+            if ((lot.style === 'overgrown' && rng.next() < .3) || (closedFront && onStreet && Math.hypot(x - gate[0], z - gate[1]) < step * .8)) continue;
+            if (item) place('fence', item, x, z, Math.atan2(-ez, ex), 1, { margin: 0, tag, along: stretch });
+            else place('hedge', catalog.props.hedge[sp % catalog.props.hedge.length]!, x, z, rng.next() * 6.28, .55 + rng.next() * .15, { margin: 0, tag });
           }
         }
       }

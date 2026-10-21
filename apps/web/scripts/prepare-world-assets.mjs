@@ -38,7 +38,8 @@ const jobs = [
     .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2460 + i, 1, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }]),
   ...[['Stone_Small_a_LOD0_24', 'stone_small_a'], ['Stone_Small_b_LOD0_22', 'stone_small_b'], ['Rock_Medium_a_LOD0_25', 'rock_medium_a'], ['Rock_Medium_b_LOD0_26', 'rock_medium_b'],
     ['Rock_Medium_c_LOD0_27', 'rock_medium_c'], ['Rock_Big_a_LOD0_32', 'rock_big_a'], ['Rock_Big_b_LOD0_33', 'rock_big_b'], ['Rock_Big_c_LOD0_30', 'rock_big_c'], ['Cliff_a_LOD0_35', 'cliff_a'], ['Cliff_b_LOD0_36', 'cliff_b']]
-    .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2463 + i, 1, { collider: 'box', category: 'rock', tags: ['island-flora', 'rock'] }]),
+    // Rocks collide with their real shape (merged voxels), not a box round them.
+    .map(([node, name], i) => ['nationals/nature_vegetation_pack.glb', node, name, 2463 + i, 1, { collider: 'voxel', voxel: i < 2 ? .2 : i < 5 ? .4 : .9, category: 'rock', tags: ['island-flora', 'rock'] }]),
   ['nationals/banana_tree_low_poly.glb', null, 'banana_tree', 2473, 1, { height: 4.5, collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }],
   // Low-poly forest pack (authored ~2× real size): broadleaf crowns, oaks built from a trunk and
   // its separate branch mesh, undergrowth and small rocks (scaled up to boulders).
@@ -49,7 +50,7 @@ const jobs = [
   ...['.008', '.009', '.010', '.011', '.012']
     .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Background_Tree_Atlas${suffix}`, `forest_shrub_${i}`, 2612 + i, .5, { collider: 'none', category: 'vegetation', tags: ['island-flora', 'bush'] }]),
   ...['', '.001', '.002', '.003', '.004', '.005', '.006', '.007', '.008']
-    .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Rocks${suffix}`, `forest_rock_${i}`, 2617 + i, 1.8, { collider: 'box', category: 'rock', tags: ['island-flora', 'rock'] }]),
+    .map((suffix, i) => ['nationals/low_poly_forest_tree_pack.glb', `Rocks${suffix}`, `forest_rock_${i}`, 2617 + i, 1.8, { collider: 'voxel', voxel: .25, category: 'rock', tags: ['island-flora', 'rock'] }]),
   // Stylized pine pack (14 m tall pines, 8 m young pines, a sapling).
   ...['stylized_pine_var1', 'stylized_pine_var2', 'stylized_pine_var3', 'stylized_pine_var4', 'stylized_pine_var5', 'small_stylized_pine_var1', 'small_stylized_pine_var2', 'small_stylized_pine_var3', 'small_stylized_pine_var4']
     .map((node, i) => ['nationals/stylized_pine_tree_pack.glb', node, node.replace('stylized_', ''), 2626 + i, .85, { collider: 'trunk', category: 'tree', tags: ['island-flora', 'tree'] }]),

@@ -7,10 +7,13 @@ import type { Vec2 } from './geometry';
 import { createMapDoc, type MapKind, type WorldMapDoc } from './document';
 import { Heightfield } from './heightfield';
 import { defaultTerrainSettings, generateTerrain, type TerrainPreset } from './terrain-gen';
+import { autoMap, type AutoParams } from './auto-map';
+export { DEFAULT_AUTO, type AutoParams } from './auto-map';
 
 export const MAP_TEMPLATES = [
   { id: 'hac-son', name: 'Đảo Hắc Sơn (bản đồ BR hiện tại)', description: 'Địa hình, đường, công trình và địa danh lấy từ bộ sinh map của game.' },
   { id: 'blank', name: 'Bản đồ trống', description: 'Mặt đất phẳng để tự nặn từ đầu.' },
+  { id: 'auto', name: 'Tự động', description: 'Sinh trọn một bản đồ: địa hình, núi đồi, sông hồ, thành phố, thị trấn, làng, khu công nghiệp, căn cứ, cảng, đường nối, rừng và cấu hình trận.' },
   { id: 'procedural', name: 'Sinh từ seed', description: 'Địa hình nhiều lớp noise theo preset: đồng bằng, đồi, núi, thung lũng, đảo, hỗn hợp.' },
 ] as const;
 export type MapTemplate = typeof MAP_TEMPLATES[number]['id'];
@@ -27,6 +30,8 @@ export interface NewMapRequest {
   roughness?: number;
   detail?: number;
   seaEdge?: boolean;
+  /** Template 'auto': what to put on the map. */
+  auto?: AutoParams;
 }
 
 /**
@@ -35,6 +40,7 @@ export interface NewMapRequest {
  */
 export function* buildNewMap(req: NewMapRequest, registry: AssetRegistry): Generator<number, { doc: WorldMapDoc; terrain: Heightfield }> {
   if (req.template === 'hac-son') return yield* islandTemplate(req, registry);
+  if (req.template === 'auto') return yield* autoMap(req, registry);
   const settings = { ...defaultTerrainSettings(req.preset, req.seed, req.size) };
   if (req.maxHeight !== undefined) settings.maxHeight = req.maxHeight;
   if (req.roughness !== undefined) settings.roughness = req.roughness;

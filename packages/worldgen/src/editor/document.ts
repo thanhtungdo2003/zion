@@ -5,6 +5,7 @@ import { Heightfield, base64ToBytes, bytesToBase64, decodeHeights, encodeHeights
 import { SETTLEMENT_PRESET_IDS, presetSettings, type SettlementPresetId } from './settlement/presets';
 import type { SettlementLayer, SettlementResult } from './settlement/generate';
 import { TERRAIN_PRESETS, MAP_SIZES, defaultTerrainSettings, validateTerrainSettings, type TerrainSettings } from './terrain-gen';
+import { MAX_FLORA, type FloraItem } from './flora';
 import { lakeSpillLevel, riverLevels, riverMaxGrade, type WaterData } from './water';
 
 export const MAP_KINDS = [
@@ -54,6 +55,8 @@ export interface WorldMapDoc {
   terrain: TerrainSettings;
   water: WaterData;
   regions: Region[];
+  /** Hand-painted and generated trees, plants and rocks outside the settlements. */
+  flora: FloraItem[];
   base: BaseLayer;
   /** Match setups, kept apart from the terrain so one map serves several. */
   gameplay: BattleConfig[];
@@ -70,7 +73,7 @@ const settingsSchema = z.object({
   preset: z.enum(SETTLEMENT_PRESET_IDS), layout: z.enum(['grid', 'organic']), density: n, randomness: n, concentration: n,
   mainRoadWidth: n, secondaryRoadWidth: n, alleyWidth: n, blockSize: n, lotWidth: n, lotDepth: n, setback: n, sizeBias: n,
   zoning: z.object({ residential: n, commercial: n, industrial: n, military: n }).strict(),
-  treeDensity: n, propDensity: n, decay: n, fences: z.boolean(), lamps: z.boolean(), perimeter: z.boolean(), maxSlope: n, grading: n, maxBuildings: n.int(), maxProps: n.int(),
+  treeDensity: n, propDensity: n, decay: n, fences: z.boolean(), lamps: z.boolean(), perimeter: z.boolean(), harbour: z.boolean().default(false), maxSlope: n, grading: n, maxBuildings: n.int(), maxProps: n.int(),
 }).strict();
 const cls = z.enum(['residential', 'commercial', 'industrial', 'military']);
 const resultSchema = z.object({
@@ -79,8 +82,8 @@ const resultSchema = z.object({
   roads: z.array(z.object({ id: z.string(), kind: z.enum(['main', 'secondary', 'alley', 'connector']), width: n, points: z.array(vec).min(2).max(4096) }).strict()).max(2000),
   blocks: z.array(z.object({ id: z.string(), polygon: z.array(vec).max(512), cls: z.union([cls, z.literal('green')]) }).strict()).max(5000),
   lots: z.array(z.object({ id: z.string(), block: z.string(), polygon: z.array(vec).max(96), front: z.tuple([vec, vec]), dir: z.tuple([n, n]), obb, cls: z.union([cls, z.enum(['green', 'empty'])]), shape: z.enum(['rect', 'skew', 'L', 'U', 'wide']).optional(), style: z.enum(['yard', 'full', 'garden', 'orchard', 'farm', 'walled', 'overgrown', 'vacant', 'work']).optional(), fence: z.enum(['none', 'wood', 'iron', 'wall', 'hedge', 'wire']).optional(), flora: n.int().optional() }).strict()).max(20000),
-  buildings: z.array(z.object({ id: z.string(), asset: n.int(), x: n, z: n, y: n, yaw: n, obb, door: z.tuple([n, n]), lot: z.string().optional(), cls, manual: z.boolean().optional() }).strict()).max(4000),
-  props: z.array(z.object({ id: z.string(), asset: n.int(), kind: z.string().max(32), x: n, z: n, y: n, yaw: n, scale: n, obb, manual: z.boolean().optional() }).strict()).max(20000),
+  buildings: z.array(z.object({ id: z.string(), asset: n.int(), x: n, z: n, y: n, yaw: n, obb, door: z.tuple([n, n]), lot: z.string().optional(), cls, manual: z.boolean().optional(), recipe: z.object({ kind: z.enum(['brick', 'concrete', 'modular', 'site']), w: n, d: n, floors: n.int(), finish: z.enum(['ivory', 'gray', 'darkred']).optional(), seed: n.int() }).strict().optional() }).strict()).max(4000),
+  props: z.array(z.object({ id: z.string(), asset: n.int(), kind: z.string().max(32), x: n, z: n, y: n, yaw: n, scale: n, obb, manual: z.boolean().optional(), sx: n.optional() }).strict()).max(20000),
   issues: z.array(z.object({ severity: z.enum(['error', 'warning', 'info']), code: z.string(), message: z.string(), x: n.optional(), z: n.optional() }).strict()).max(5000),
   stats: z.record(n),
 }).strict();
@@ -103,6 +106,7 @@ export const worldMapSchema = z.object({
     rivers: z.array(z.object({ id: z.string(), name: z.string().max(80), points: z.array(z.object({ x: coord, z: coord, width: n.min(1).max(200) }).strict()).min(2).max(512), depth: n.min(0).max(50), levels: z.array(n).optional() }).strict()).max(128),
   }).strict(),
   regions: z.array(regionSchema).max(64),
+  flora: z.array(z.tuple([n.int(), coord, coord, n, n.min(.05).max(10)])).max(MAX_FLORA).default([]),
   base: z.object({
     roads: z.array(z.object({ points: z.array(vec).min(2).max(4096), width: n, paved: z.boolean() }).strict()).max(512),
     structures: z.array(obb).max(10000),
@@ -125,7 +129,7 @@ export function createMapDoc(opts: { name: string; kind: MapKind; description?: 
   return {
     format: 'zion-world-map', version: 1,
     meta: { id: newId('map'), name: opts.name, kind: opts.kind, description: opts.description ?? '', template: opts.template, createdAt: now, updatedAt: now, size: opts.terrain.size, seed: opts.terrain.seed },
-    terrain: opts.terrain, water: { lakes: [], rivers: [] }, regions: [], base: opts.base ?? { roads: [], structures: [] },
+    terrain: opts.terrain, water: { lakes: [], rivers: [] }, regions: [], flora: [], base: opts.base ?? { roads: [], structures: [] },
     gameplay: [gameplay], activeGameplay: gameplay.id,
   };
 }

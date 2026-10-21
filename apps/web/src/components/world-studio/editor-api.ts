@@ -1,4 +1,4 @@
-import type { BattleConfig, BrushSettings, CellRect, Circle, Heightfield, LootCategory, Region, SettlementLayer, SettlementResult, TerrainPatch, WorldMapDoc } from '@zion/worldgen/editor';
+import type { FloraBrush, BattleConfig, BrushSettings, CellRect, Circle, Heightfield, LootCategory, Region, SettlementLayer, SettlementResult, TerrainPatch, WorldMapDoc } from '@zion/worldgen/editor';
 import type { Selection, Tool } from './types';
 
 /** What the inspector panels may read and do; implemented by MapEditor. */
@@ -31,6 +31,8 @@ export interface EditorApi {
   setPickPhase: (i: number | null) => void;
   lootCategory: LootCategory;
   setLootCategory: (c: LootCategory) => void;
+  flora: FloraBrush;
+  setFlora: (f: FloraBrush) => void;
   riverWidth: number;
   setRiverWidth: (w: number) => void;
   busy: boolean;

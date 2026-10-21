@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BIOMES, DEFAULT_FLORA, FLORA_SPECIES, eraseFlora, floraGrid, paintFlora, type FloraBrush, type FloraItem,
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, Simplex2, StrokeRecorder, applyBrush, carveLake, carveRiver, checkSettlement, lakeSpillLevel, newId, newRegion, obbCorners, seedNumber,
   serializeMap, stream, validateMap, validateRegion, type BrushSettings, type CellRect, type Circle, type LootCategory, type MapIssue, type Region, type SettlementLayer,
   type SettlementResult, type Vec2, type WorldMapDoc,
@@ -18,7 +19,7 @@ import { TerrainPanel } from './TerrainPanel';
 import { SettlementPanel } from './SettlementPanel';
 import { GameplayPanel } from './GameplayPanel';
 import { SettingsPanel } from './SettingsPanel';
-import { drawShape, isBrush, isDraw, type DrawTool, type EditorTab, type Layers, type Overlay, type Selection, type Tool } from './types';
+import { drawShape, isBrush, isDraw, isFlora, type DrawTool, type EditorTab, type Layers, type Overlay, type Selection, type Tool } from './types';
 import s from './world-studio.module.css';
 
 const MapView3D = dynamic(() => import('./MapView3D'), { ssr: false, loading: () => <div className={s.empty3d}>Đang tải chế độ 3D…</div> });
@@ -33,6 +34,7 @@ const RAIL: Record<EditorTab, Array<Array<{ id: Tool; name: string; icon: string
     [{ id: 'raise', name: 'Nâng (1)', icon: 'arrow-up-from-line', key: '1' }, { id: 'lower', name: 'Hạ (2)', icon: 'arrow-down-to-line', key: '2' }, { id: 'smooth', name: 'Làm mượt (3)', icon: 'waves', key: '3' },
       { id: 'flatten', name: 'San phẳng (4) — Alt+click lấy độ cao', icon: 'equal', key: '4' }, { id: 'sculpt', name: 'Tạo hình theo mẫu (5)', icon: 'stamp', key: '5' }, { id: 'noise', name: 'Thêm nhiễu (6)', icon: 'sparkles', key: '6' },
       { id: 'erosion', name: 'Xói mòn (7)', icon: 'droplets', key: '7' }, { id: 'paint', name: 'Tô bề mặt (8)', icon: 'paintbrush', key: '8' }],
+    [{ id: 'trees', name: 'Vẽ cây / đá (T) — chọn loài ở bảng bên phải', icon: 'trees', key: 'T' }, { id: 'biome', name: 'Vẽ biome (B): bề mặt + cây cối', icon: 'leaf', key: 'B' }],
     [{ id: 'draw-lake', name: 'Vẽ hồ', icon: 'circle-dashed' }, { id: 'draw-river', name: 'Vẽ sông', icon: 'spline' }],
   ],
   settlement: [
@@ -90,6 +92,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
   const [pickPhase, setPickPhase] = useState<number | null>(null);
   const [lootCategory, setLootCategory] = useState<LootCategory>('weapons');
   const [riverWidth, setRiverWidth] = useState(18);
+  const [floraBrush, setFlora] = useState<FloraBrush>(DEFAULT_FLORA);
   const [saveState, setSaveState] = useState<'saved' | 'dirty' | 'saving' | 'error'>('saved');
   const changeSeq = useRef(0), savedSeq = useRef(0);
   const canvasRef = useRef<MapCanvasHandle>(null);
@@ -282,33 +285,49 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
 
   /* --------------------------------------------------------------- brush strokes */
 
-  const stroke = useRef<{ rec: StrokeRecorder; last: Vec2; dirty: CellRect | null; raf: number; timer: number; at: Vec2 } | null>(null);
+  const stroke = useRef<{ rec: StrokeRecorder; last: Vec2; dirty: CellRect | null; raf: number; timer: number; at: Vec2; before: WorldMapDoc; flora?: FloraItem[]; grid?: ReturnType<typeof floraGrid> } | null>(null);
   const noise = useMemo(() => new Simplex2(seedNumber(doc.meta.seed, 'brush-noise')), [doc.meta.seed]);
   const brushRng = useRef(stream(doc.meta.seed, 'brush'));
   const dab = useCallback((x: number, z: number) => {
     const st = stroke.current;
     if (!st || !isBrush(tool)) return;
-    const r = applyBrush(terrainRef.current, tool, brush, x, z, brushRng.current, noise);
+    let r: CellRect | null;
+    if (isFlora(tool)) {
+      // Trees and biomes: plants into the map's flora layer (a biome also paints its ground).
+      const d = docRef.current, hf = terrainRef.current;
+      st.flora ??= [...d.flora]; st.grid ??= floraGrid(st.flora);
+      if (tool === 'trees' && floraBrush.erase) {
+        const only = floraBrush.species.length ? new Set(floraBrush.species.flatMap((id) => FLORA_SPECIES.find((q) => q.id === id)?.assets ?? [])) : undefined;
+        st.flora = eraseFlora(st.flora, brush, x, z, only); st.grid = undefined;
+      } else {
+        const biome = BIOMES.find((q) => q.id === floraBrush.biome)!;
+        const mix = tool === 'biome' ? biome.mix : floraBrush.species.map((id) => [id, 1] as const);
+        st.flora.push(...paintFlora(st.grid, st.flora.length, hf, d.water, d.terrain.seaLevel, brush, mix, tool === 'biome' ? { ...floraBrush, density: biome.density * floraBrush.density / .8 } : floraBrush, x, z, brushRng.current));
+      }
+      r = tool === 'biome' ? applyBrush(hf, 'paint', { ...brush, surface: BIOMES.find((q) => q.id === floraBrush.biome)!.surface }, x, z, brushRng.current, noise) : null;
+      if (!st.raf) st.raf = requestAnimationFrame(() => { const s2 = stroke.current; if (!s2) return; s2.raf = 0; if (s2.dirty) bump(s2.dirty); s2.dirty = null; setDoc({ ...docRef.current, flora: s2.flora ?? docRef.current.flora }); });
+      if (!r) return;
+    } else r = applyBrush(terrainRef.current, tool, brush, x, z, brushRng.current, noise);
     if (!r) return;
     st.rec.touch(r);
     st.dirty = st.dirty ? { i0: Math.min(st.dirty.i0, r.i0), j0: Math.min(st.dirty.j0, r.j0), i1: Math.max(st.dirty.i1, r.i1), j1: Math.max(st.dirty.j1, r.j1) } : r;
     if (!st.raf) st.raf = requestAnimationFrame(() => { const s2 = stroke.current; if (!s2) return; s2.raf = 0; bump(s2.dirty); s2.dirty = null; });
-  }, [brush, bump, noise, tool]);
+  }, [brush, bump, floraBrush, noise, setDoc, tool]);
   const onBrush = useCallback((phase: 'start' | 'move' | 'end', x: number, z: number) => {
     if (!isBrush(tool)) return;
     if (phase === 'start') {
       if (tool === 'flatten' && alt.current) { setBrush((b) => ({ ...b, targetHeight: Math.round(terrainRef.current.heightAt(x, z) * 10) / 10 })); flash(`Độ cao san phẳng: ${terrainRef.current.heightAt(x, z).toFixed(1)} m`); return; }
-      stroke.current = { rec: new StrokeRecorder(terrainRef.current), last: [x, z], dirty: null, raf: 0, timer: 0, at: [x, z] };
+      stroke.current = { rec: new StrokeRecorder(terrainRef.current), last: [x, z], dirty: null, raf: 0, timer: 0, at: [x, z], before: docRef.current };
       dab(x, z);
       // Holding still keeps working (raise, lower, smooth…), like a real brush.
-      if (tool !== 'paint' && tool !== 'sculpt') stroke.current.timer = window.setInterval(() => { const st = stroke.current; if (st) dab(st.at[0], st.at[1]); }, 90);
+      if (tool !== 'paint' && tool !== 'sculpt' && !isFlora(tool)) stroke.current.timer = window.setInterval(() => { const st = stroke.current; if (st) dab(st.at[0], st.at[1]); }, 90);
       return;
     }
     const st = stroke.current;
     if (!st) return;
     if (phase === 'move') {
       st.at = [x, z];
-      const spacing = Math.max(terrainRef.current.cell, brush.radius * (tool === 'sculpt' ? .9 : .25));
+      const spacing = Math.max(terrainRef.current.cell, brush.radius * (tool === 'sculpt' ? .9 : isFlora(tool) ? .5 : .25));
       const [lx, lz] = st.last, d = Math.hypot(x - lx, z - lz);
       for (let t = spacing; t <= d; t += spacing) dab(lx + (x - lx) * t / d, lz + (z - lz) * t / d);
       if (d >= spacing) st.last = [x, z];
@@ -317,6 +336,14 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     window.clearInterval(st.timer); cancelAnimationFrame(st.raf);
     if (st.dirty) bump(st.dirty);
     stroke.current = null;
+    if (isFlora(tool)) {
+      // One undo step for the whole stroke: the flora layer (and the biome's ground) before and after.
+      const after: WorldMapDoc = { ...docRef.current, flora: st.flora ?? docRef.current.flora };
+      const fpatch = st.rec.finish();
+      history.current.push({ label: tool === 'biome' ? 'Vẽ biome' : floraBrush.erase ? 'Xóa cây' : 'Vẽ cây', doc: { before: st.before, after }, terrain: fpatch ?? undefined });
+      lastCommit.current = null; setDoc(after); touched();
+      return;
+    }
     const patch = st.rec.finish();
     if (!patch) return;
     const names: Record<string, string> = { raise: 'Nâng địa hình', lower: 'Hạ địa hình', smooth: 'Làm mượt', flatten: 'San phẳng', sculpt: 'Tạo hình', noise: 'Thêm nhiễu', erosion: 'Xói mòn', paint: 'Tô bề mặt' };
@@ -325,7 +352,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     lastCommit.current = null;
     if (next !== docRef.current) setDoc(next);
     touched();
-  }, [brush.radius, bump, dab, flash, resettle, setDoc, tool, touched]);
+  }, [brush.radius, bump, dab, flash, floraBrush.erase, resettle, setDoc, tool, touched]);
 
   /* ---------------------------------------------------------- drawing & placing */
 
@@ -518,7 +545,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
   const api: EditorApi = {
     doc, terrain: terrainRef.current, gameplay, tool, setTool, brush, setBrush, selection, setSelection, removeSelection: deleteSelection, commit, updateRegion, updateGameplay, terrainOp,
     generateRegion, preview, applyPreview, discardPreview: () => { setPreview(null); flash('Đã bỏ bản xem trước.'); }, regenerateTerrain, zones, setZones,
-    pickPhase, setPickPhase, lootCategory, setLootCategory, riverWidth, setRiverWidth, busy: !!job, flash,
+    pickPhase, setPickPhase, lootCategory, setLootCategory, flora: floraBrush, setFlora, riverWidth, setRiverWidth, busy: !!job, flash,
     centerOn: (x, z, span) => canvasRef.current?.centerOn(x, z, span),
     confirm: (title, message, run, label) => setConfirm({ title, message, run, label }),
   };

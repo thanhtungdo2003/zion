@@ -1,12 +1,14 @@
 'use client';
 
-import { BRUSH_SHAPES, PAINT_SURFACES, SCULPT_PATTERNS, carveLake, carveRiver, lakeSpillLevel, riverLevels, riverMaxGrade, type BrushShape, type WorldMapDoc } from '@zion/worldgen/editor';
+import { BIOMES, BRUSH_SHAPES, FLORA_SPECIES, PAINT_SURFACES, SCULPT_PATTERNS, carveLake, carveRiver, lakeSpillLevel, riverLevels, riverMaxGrade, type BrushShape, type WorldMapDoc } from '@zion/worldgen/editor';
 import type { EditorApi } from './editor-api';
 import { isBrush } from './types';
 import { Btn, NumberField, Section, Seg, Slider, TextField } from './ui';
 import s from './world-studio.module.css';
 
 const TOOL_TEXT: Record<string, [string, string]> = {
+  trees: ['Vẽ cây / đá', 'Kéo để trồng các loài đã chọn; bật Xóa để nhổ đi. Không trồng xuống nước.'],
+  biome: ['Vẽ biome', 'Tô loại đất của biome và trồng hỗn hợp cây, bụi, đá đặc trưng.'],
   raise: ['Nâng địa hình', 'Kéo để đắp cao. Giữ yên chuột để tiếp tục nâng.'],
   lower: ['Hạ địa hình', 'Kéo để đào thấp.'],
   smooth: ['Làm mượt', 'San đều các mấp mô, giữ dáng tổng thể.'],
@@ -60,7 +62,7 @@ export function TerrainPanel({ api }: { api: EditorApi }) {
     {isBrush(tool) && info && <Section title={info[0]} icon="paintbrush">
       <p className={s.lead}>{info[1]}</p>
       <Slider label="Bán kính" unit=" m" min={4} max={600} value={brush.radius} onChange={(radius) => setBrush({ ...brush, radius })} testId="brush-radius" />
-      {tool !== 'paint' && <Slider label="Cường độ" min={.05} max={1} step={.05} value={brush.strength} onChange={(strength) => setBrush({ ...brush, strength })} format={(v) => `${Math.round(v * 100)}%`} />}
+      {tool !== 'paint' && tool !== 'trees' && tool !== 'biome' && <Slider label="Cường độ" min={.05} max={1} step={.05} value={brush.strength} onChange={(strength) => setBrush({ ...brush, strength })} format={(v) => `${Math.round(v * 100)}%`} />}
       <Slider label="Độ mềm mép" min={0} max={1} step={.05} value={brush.falloff} onChange={(falloff) => setBrush({ ...brush, falloff })} format={(v) => `${Math.round(v * 100)}%`} />
       <div className={s.field}><span className={s.fieldRow}>Hình bút</span><Seg<BrushShape> value={brush.shape} options={BRUSH_SHAPES.map((id) => ({ id, name: id === 'circle' ? 'Tròn' : 'Vuông' }))} onChange={(shape) => setBrush({ ...brush, shape })} /></div>
       {tool === 'flatten' && <NumberField label="Độ cao mục tiêu" unit="m (Alt+click để lấy)" step={.5} value={brush.targetHeight} onChange={(targetHeight) => setBrush({ ...brush, targetHeight })} />}
@@ -68,6 +70,20 @@ export function TerrainPanel({ api }: { api: EditorApi }) {
         <div className={s.field}><span className={s.fieldRow}>Mẫu (pattern preset)</span>
           <div className={s.grid3}>{SCULPT_PATTERNS.map((p) => <button key={p.id} type="button" className={`${s.btn} ${brush.pattern === p.id ? s.primary : ''}`} onClick={() => setBrush({ ...brush, pattern: p.id })}>{p.name}</button>)}</div></div>
         {(brush.pattern === 'ridge' || brush.pattern === 'dune') && <Slider label="Hướng" unit="°" min={0} max={180} value={Math.round(brush.angle * 180 / Math.PI)} onChange={(a) => setBrush({ ...brush, angle: a * Math.PI / 180 })} />}
+      </>}
+      {tool === 'trees' && <>
+        <div className={s.field}><span className={s.fieldRow}>Chế độ</span><Seg value={api.flora.erase ? 'erase' : 'paint'} options={[{ id: 'paint', name: 'Trồng' }, { id: 'erase', name: 'Xóa' }]} onChange={(m) => api.setFlora({ ...api.flora, erase: m === 'erase' })} /></div>
+        {(['tree', 'bush', 'grass', 'rock'] as const).map((g) => <div key={g} className={s.field}><span className={s.fieldRow}>{{ tree: 'Cây', bush: 'Bụi', grass: 'Cỏ', rock: 'Đá' }[g]}</span>
+          <div className={s.grid3}>{FLORA_SPECIES.filter((q) => q.group === g).map((q) => { const on = api.flora.species.includes(q.id); return <button key={q.id} type="button" className={`${s.btn} ${on ? s.primary : ''}`} onClick={() => api.setFlora({ ...api.flora, species: on ? api.flora.species.filter((x) => x !== q.id) : [...api.flora.species, q.id] })}>{q.name}</button>; })}</div></div>)}
+        {!api.flora.species.length && <p className={`${s.note} ${s.warn}`}>{api.flora.erase ? 'Không chọn loài: xóa mọi cây/đá trong bút.' : 'Chọn ít nhất một loài.'}</p>}
+      </>}
+      {tool === 'biome' && <div className={s.field}><span className={s.fieldRow}>Biome</span>
+        <div className={s.grid3}>{BIOMES.map((b) => <button key={b.id} type="button" className={`${s.btn} ${api.flora.biome === b.id ? s.primary : ''}`} onClick={() => api.setFlora({ ...api.flora, biome: b.id })}>{b.name}</button>)}</div></div>}
+      {(tool === 'trees' || tool === 'biome') && !api.flora.erase && <>
+        <Slider label="Mật độ" min={.1} max={3} step={.1} value={api.flora.density} onChange={(density) => api.setFlora({ ...api.flora, density })} format={(v) => `×${v.toFixed(1)}`} />
+        <Slider label="Kích thước nhỏ nhất" min={.4} max={2} step={.05} value={api.flora.scaleMin} onChange={(scaleMin) => api.setFlora({ ...api.flora, scaleMin, scaleMax: Math.max(scaleMin, api.flora.scaleMax) })} format={(v) => `×${v.toFixed(2)}`} />
+        <Slider label="Kích thước lớn nhất" min={.4} max={2.5} step={.05} value={api.flora.scaleMax} onChange={(scaleMax) => api.setFlora({ ...api.flora, scaleMax, scaleMin: Math.min(scaleMax, api.flora.scaleMin) })} format={(v) => `×${v.toFixed(2)}`} />
+        <p className={s.note}>{api.doc.flora.length.toLocaleString('vi-VN')} cây/đá trên bản đồ.</p>
       </>}
       {tool === 'paint' && <div className={s.field}><span className={s.fieldRow}>Bề mặt</span>
         <div className={s.swatches}>{PAINT_SURFACES.map((p) => <button key={p.id} type="button" className={`${s.swatch} ${brush.surface === p.id ? s.on : ''}`} style={{ background: `rgb(${p.color.join(',')})` }} onClick={() => setBrush({ ...brush, surface: p.id })} title={p.name}>{p.name}</button>)}</div></div>}

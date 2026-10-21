@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BATTLE_MAP } from '@zion/shared';
 import { Heightfield, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
-import type { MapTemplate, NewMapRequest } from '@zion/worldgen/editor/templates';
+import { DEFAULT_AUTO, type AutoParams, type MapTemplate, type NewMapRequest } from '@zion/worldgen/editor/templates';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Icon } from '../Icon';
 import { deleteMap, listMaps, loadMap, saveMap, saveMeta } from '@/studio/world/map-store';
@@ -13,6 +13,7 @@ import { Seg, Slider, fmtTime } from './ui';
 import s from './world-studio.module.css';
 
 const TEMPLATES: Array<{ id: MapTemplate; name: string; description: string; icon: string }> = [
+  { id: 'auto', name: 'Tự động — bản đồ đầy đủ', description: 'Chỉnh tham số, hệ thống tự sinh địa hình, núi đồi, sông hồ, thành phố, thị trấn, làng, khu công nghiệp, căn cứ, cảng, đường nối, rừng và cấu hình trận.', icon: 'wand' },
   { id: 'hac-son', name: 'Đảo Hắc Sơn — bản đồ BR hiện tại', description: 'Lấy địa hình, bề mặt, 14 tuyến đường, công trình, địa danh và luật bo từ bộ sinh map của game (4096 m).', icon: 'island' },
   { id: 'procedural', name: 'Sinh từ seed', description: 'Đồng bằng, đồi, núi, thung lũng, đảo hoặc hỗn hợp — nhiều lớp noise, cùng seed cho cùng kết quả.', icon: 'dices' },
   { id: 'blank', name: 'Bản đồ trống', description: 'Mặt đất phẳng để tự nặn từ đầu.', icon: 'square' },
@@ -148,13 +149,14 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [maxHeight, setMaxHeight] = useState<number>(p.maxHeight), [roughness, setRoughness] = useState<number>(p.roughness), [detail, setDetail] = useState<number>(p.detail), [seaEdge, setSeaEdge] = useState(true);
   const [job, setJob] = useState<{ label: string; value: number; cancel: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [auto, setAuto] = useState<AutoParams>(DEFAULT_AUTO);
   const choose = (t: MapTemplate) => {
     setTemplate(t);
     if (t === 'hac-son') setName('Đảo Hắc Sơn — bản chỉnh sửa'); else if (name.startsWith('Đảo Hắc Sơn')) setName(t === 'blank' ? 'Bản đồ trống' : 'Bản đồ mới');
   };
   const create = async () => {
     setError(null);
-    const req: NewMapRequest = { template, name: name.trim() || 'Bản đồ mới', kind, size: template === 'hac-son' ? BATTLE_MAP.sizeChunks * 32 : size, seed: template === 'hac-son' ? BATTLE_MAP.seed : seed, preset, maxHeight, roughness, detail, seaEdge };
+    const req: NewMapRequest = { template, name: name.trim() || 'Bản đồ mới', kind, size: template === 'hac-son' ? BATTLE_MAP.sizeChunks * 32 : size, seed: template === 'hac-son' ? BATTLE_MAP.seed : seed, preset, maxHeight, roughness, detail, seaEdge, ...(template === 'auto' ? { auto } : {}) };
     const handle = runJob<'map'>({ kind: 'new-map', req }, (label, value) => setJob((j) => (j ? { ...j, label, value } : j)));
     setJob({ label: 'Đang chuẩn bị…', value: 0, cancel: handle.cancel });
     try {
@@ -174,7 +176,15 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
       <label className={s.field}><span className={s.fieldRow}>Tên</span><input className={s.input} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} data-testid="new-map-name" /></label>
       <div className={s.field}><span className={s.fieldRow}>Loại map</span><Seg value={kind} options={MAP_KINDS} onChange={setKind} /></div>
       {template !== 'hac-son' && <div className={s.field}><span className={s.fieldRow}>Kích thước</span><Seg value={String(size)} options={MAP_SIZES.map((v) => ({ id: String(v), name: `${v} m` }))} onChange={(v) => setSize(Number(v))} /></div>}
-      {template === 'procedural' && <>
+      {template === 'auto' && <div className={s.grid3}>
+        {([['cities', 'Thành phố', 4], ['towns', 'Thị trấn', 8], ['villages', 'Làng', 16], ['industrial', 'Khu công nghiệp', 6], ['military', 'Căn cứ', 6], ['ports', 'Cảng', 4], ['lakes', 'Hồ', 10], ['rivers', 'Sông', 8]] as const).map(([k, label, max]) =>
+          <label key={k} className={s.field}><span className={s.fieldRow}>{label}</span><input className={s.input} type="number" min={0} max={max} value={auto[k]} onChange={(e) => setAuto({ ...auto, [k]: Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))) })} /></label>)}
+      </div>}
+      {template === 'auto' && <>
+        <Slider label="Độ phủ rừng" min={0} max={1} step={.05} value={auto.forest} onChange={(forest) => setAuto({ ...auto, forest })} format={(v) => `${Math.round(v * 100)}%`} />
+        <label className={s.check}><input type="checkbox" checked={auto.roads} onChange={(e) => setAuto({ ...auto, roads: e.target.checked })} />Nối các khu vực bằng đường</label>
+      </>}
+      {(template === 'procedural' || template === 'auto') && <>
         <div className={s.field}><span className={s.fieldRow}>Preset địa hình</span>
           <div className={s.grid3}>{TERRAIN_PRESETS.map((t) => <button type="button" key={t.id} className={`${s.btn} ${preset === t.id ? s.primary : ''}`} onClick={() => { setPreset(t.id); setMaxHeight(t.maxHeight); setRoughness(t.roughness); setDetail(t.detail); }}>{t.name}</button>)}</div></div>
         <label className={s.field}><span className={s.fieldRow}>Seed</span><div style={{ display: 'flex', gap: 4 }}><input className={s.input} value={seed} onChange={(e) => setSeed(e.target.value.slice(0, 64))} data-testid="new-map-seed" /><button type="button" className={s.iconBtn} onClick={() => setSeed(Math.random().toString(36).slice(2, 9))} title="Seed ngẫu nhiên"><Icon name="lucide:dices" /></button></div></label>
