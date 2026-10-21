@@ -55,6 +55,7 @@ export class AuthoredWorld {
 
   /** Studio maps: the edited height grid (decoded once), and their flora bucketed per chunk. */
   private readonly heightGrid: { size: number; cell: number; cols: number; heights: Float32Array } | null;
+  private readonly surfaceGrid: Uint8Array | null;
   private floraChunks: Map<string, Array<[number, number, number, number, number]>> | null = null;
 
   constructor(readonly map: AuthoredMap, readonly host: Host) {
@@ -63,6 +64,7 @@ export class AuthoredWorld {
       const bytes = Buffer.from(g.data, 'base64');
       this.heightGrid = { size: g.size, cell: g.cell, cols: Math.round(g.size / g.cell) + 1, heights: new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) };
     } else this.heightGrid = null;
+    this.surfaceGrid = map.surfaceGrid ? new Uint8Array(Buffer.from(map.surfaceGrid, 'base64')) : null;
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
     // Routed roads find their own way between their waypoints (switchbacks round the slopes).
@@ -319,6 +321,13 @@ export class AuthoredWorld {
   biome(height: number, slope: number, x: number, z: number): Biome {
     const rel = height - this.host.seaLevel;
     if (rel < 0) return Biome.Ocean;
+    // Studio maps: the climate decides the biome (and with it the ground cover and its colour).
+    switch (this.map.climate) {
+      case 'desert': case 'arid': return rel < 3 ? Biome.Coast : rel > 150 ? Biome.Mountain : Biome.Desert;
+      case 'snow': return rel < 3 ? Biome.Coast : Biome.SnowPeaks;
+      case 'tropical': return rel < 3 ? Biome.Coast : rel > 150 ? Biome.Mountain : Biome.Jungle;
+      default: break;
+    }
     const d = this.coastDistance(x, z);
     if (d < 28 && rel < 4) return Biome.Coast;
     if (rel > 150 || (rel > 95 && slope > .7)) return Biome.Mountain;
@@ -336,6 +345,12 @@ export class AuthoredWorld {
       return site.ground;
     }
     if (site) return this.noise.noise(x * .2, z * .2) > .2 ? Surface.Dirt : Surface.Grass;
+    // Studio maps: the surfaces painted in the World Studio.
+    if (this.surfaceGrid && this.heightGrid) {
+      const g = this.heightGrid, i = Math.max(0, Math.min(g.cols - 1, Math.round(x / g.cell))), j = Math.max(0, Math.min(g.cols - 1, Math.round(z / g.cell)));
+      const v = this.surfaceGrid[j * g.cols + i];
+      if (v !== undefined) return v as Surface;
+    }
     const d = this.coastDistance(x, z);
     if (d < 26 && rel < 4) return slope > .6 ? Surface.Rock : Surface.Sand;
     if (slope > .95) return Surface.Rock;

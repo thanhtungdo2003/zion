@@ -1,3 +1,4 @@
+import { TerrainRaster } from './raster';
 import { Heightfield, checkDoc, type WorldMapDoc, type WorldMapMeta } from '@zion/worldgen/editor';
 
 /**
@@ -85,7 +86,20 @@ export async function storageEstimate(): Promise<{ used: number; quota: number }
 }
 
 /** A small hill-shaded preview for the map list. */
-export function renderThumbnail(terrain: Heightfield, seaLevel: number, px = 160): string {
+/** A small preview for the map list and the game's map picker: the studio raster (surfaces, climate tint, shading), scaled down. */
+export function renderThumbnail(terrain: Heightfield, seaLevel: number, px = 160, tint: readonly number[] = [1, 1, 1]): string {
+  const raster = new TerrainRaster(terrain, seaLevel);
+  raster.contours = false; raster.tint = tint; raster.update();
+  const out = document.createElement('canvas');
+  out.width = out.height = px;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(raster.canvas, 0, 0, px, px);
+  return out.toDataURL('image/webp', .82);
+}
+
+/** The old flat-shaded preview (kept for reference). */
+export function renderThumbnailPlain(terrain: Heightfield, seaLevel: number, px = 160): string {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = px;
   const ctx = canvas.getContext('2d')!;

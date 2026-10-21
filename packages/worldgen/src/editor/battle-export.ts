@@ -1,7 +1,7 @@
 import type { AuthoredMap } from '../maps/island';
 import { compositeParts } from './settlement/composite';
 import type { WorldMapDoc } from './document';
-import { encodeHeights, type Heightfield } from './heightfield';
+import { bytesToBase64, encodeHeights, type Heightfield } from './heightfield';
 
 /**
  * A World Studio map as the game's battle royale generator reads it (`battleIsland`): the
@@ -38,6 +38,8 @@ export function toBattleMap(doc: WorldMapDoc, hf: Heightfield): AuthoredMap {
     zones: (g?.pois ?? []).slice(0, 128).map((p, i) => ({ id: `poi${i}`, name: p.name.slice(0, 120), kind: 'village' as const, x: clamp(p.x, size), z: clamp(p.z, size), radius: Math.max(10, Math.min(2000, p.radius)) })),
     roads: roads.slice(0, 256).map((r) => ({ ...r, points: r.points.slice(0, 2048) })),
     terrainGrid: { size, cell: hf.cell, data: encodeHeights(hf.heights) },
+    surfaceGrid: bytesToBase64(hf.surface),
+    climate: doc.terrain.climate ?? 'temperate',
     placed,
     flora: doc.flora.map((f) => [f[0], f[1], f[2], f[3], f[4]] as [number, number, number, number, number]),
   };

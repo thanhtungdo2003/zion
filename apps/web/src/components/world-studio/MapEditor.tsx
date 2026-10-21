@@ -182,7 +182,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     const seq = changeSeq.current, d = docRef.current, hf = terrainRef.current;
     setSaveState('saving');
     try {
-      const meta = { ...d.meta, updatedAt: Date.now(), thumbnail: renderThumbnail(hf, d.terrain.seaLevel) };
+      const meta = { ...d.meta, updatedAt: Date.now(), thumbnail: renderThumbnail(hf, d.terrain.seaLevel, 160, climateTint(d.terrain.climate)) };
       const next = { ...d, meta };
       await saveMap(next, hf);
       // Keep the new metadata without touching history.

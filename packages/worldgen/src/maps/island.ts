@@ -44,6 +44,10 @@ export interface AuthoredMap {
   dressExtraBuildings?: boolean;
   /** World Studio maps: the edited height grid (float32 little-endian, base64), replacing coast and hills. */
   terrainGrid?: { size: number; cell: number; data: string };
+  /** World Studio maps: painted ground surfaces, one byte per grid vertex (base64), same grid as terrainGrid. */
+  surfaceGrid?: string;
+  /** World Studio maps: battlefield climate (drives biomes, ground cover and colours in game). */
+  climate?: 'temperate' | 'arid' | 'desert' | 'snow' | 'tropical';
   /** World Studio maps: every building and prop as a site (replaces the island's districts). */
   placed?: Array<{ x: number; z: number; y: number; yaw: number; radius: number; halfX?: number; halfZ?: number; decal?: boolean; parts: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number }> }>;
   /** World Studio maps: painted vegetation [asset, x, z, yaw, scale] (replaces the forest scatter). */

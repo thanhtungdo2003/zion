@@ -140,7 +140,9 @@ export class WorldGenerator {
       // Districts sit on levelled pads that blend into the natural ground.
       const height = world.levelled(x, z);
       out.height = height; out.water = NaN; out.waterKind = height < this.seaLevel ? WaterKind.Sea : WaterKind.None;
-      out.river = 0; out.temperature = .6; out.humidity = .5;
+      // Studio maps carry a climate: hot and dry, cold, humid… (ground tint and vegetation follow it).
+      const climate = world.map.climate, [t, h] = climate === 'desert' ? [.95, .05] : climate === 'arid' ? [.85, .18] : climate === 'snow' ? [.05, .45] : climate === 'tropical' ? [.92, .9] : [.6, .5];
+      out.river = 0; out.temperature = t; out.humidity = h;
       out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
       if (roads) { roads.query(x, z, out); out.height += (out.roadHeight - out.height) * roads.blend(out); }
       return out;

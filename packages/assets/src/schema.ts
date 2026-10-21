@@ -34,6 +34,7 @@ export const PROCEDURAL_GENERATORS = [
   'fern',
   'reeds',
   'rock',
+  'blocky_rock',
   'slab',
   'bridge_block',
   'water_tank',

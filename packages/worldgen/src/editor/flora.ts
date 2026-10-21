@@ -28,21 +28,28 @@ export const FLORA_SPECIES = [
   { id: 'stone', name: 'Đá nhỏ', group: 'rock', assets: [2463, 2464, 2617, 2620, 2625] },
   { id: 'rock', name: 'Đá tảng', group: 'rock', assets: [2465, 2466, 2467, 2618, 2619, 2622, 2623] },
   { id: 'boulder', name: 'Đá lớn / vách', group: 'rock', assets: [2468, 2469, 2470, 2471, 2472] },
+  // Blocky rocks (small, medium, large) per climate.
+  { id: 'granite_blocks', name: 'Đá khối granite', group: 'rock', assets: [2760, 2761, 2762] },
+  { id: 'sandstone_blocks', name: 'Đá khối sa thạch', group: 'rock', assets: [2763, 2764, 2765] },
+  { id: 'basalt_blocks', name: 'Đá khối bazan', group: 'rock', assets: [2766, 2767, 2768] },
+  { id: 'snow_blocks', name: 'Đá khối phủ tuyết', group: 'rock', assets: [2769, 2770, 2771] },
+  { id: 'mossy_blocks', name: 'Đá khối phủ rêu', group: 'rock', assets: [2772, 2773, 2774] },
+  { id: 'limestone_blocks', name: 'Đá khối vôi', group: 'rock', assets: [2775, 2776, 2777] },
 ] as const;
 export type FloraSpecies = typeof FLORA_SPECIES[number]['id'];
 export const floraGroup = new Map<number, string>(FLORA_SPECIES.flatMap((s) => s.assets.map((a) => [a, s.group] as [number, string])));
 
 /** Painted biomes: a ground surface plus its plants and rocks, mixed in proportion. */
 export const BIOMES = [
-  { id: 'pine-forest', name: 'Rừng thông', surface: Surface.ForestFloor, density: .9, mix: [['pine', 5], ['smallpine', 3], ['shrub', 2], ['stone', .5]] },
+  { id: 'pine-forest', name: 'Rừng thông', surface: Surface.ForestFloor, density: .9, mix: [['pine', 5], ['smallpine', 3], ['shrub', 2], ['stone', .5], ['granite_blocks', .6]] },
   { id: 'broadleaf-forest', name: 'Rừng lá rộng', surface: Surface.ForestFloor, density: .9, mix: [['forest', 4], ['oak', 2], ['bigtree', 1], ['shrub', 3], ['grass', 2]] },
-  { id: 'jungle', name: 'Rừng nhiệt đới', surface: Surface.JungleFloor, density: 1.2, mix: [['palm', 3], ['broadleaf', 3], ['bush', 4], ['reeds', 2]] },
+  { id: 'jungle', name: 'Rừng nhiệt đới', surface: Surface.JungleFloor, density: 1.2, mix: [['palm', 3], ['broadleaf', 3], ['bush', 4], ['reeds', 2], ['mossy_blocks', .7]] },
   { id: 'meadow', name: 'Đồng cỏ', surface: Surface.Grass, density: .7, mix: [['grass', 5], ['meadow', 4], ['bush', .6], ['broadleaf', .3]] },
-  { id: 'scrub', name: 'Cây bụi khô', surface: Surface.DryGrass, density: .45, mix: [['bush', 3], ['dead', 1], ['stone', 2], ['grass', 2]] },
-  { id: 'swamp', name: 'Đầm lầy', surface: Surface.Mud, density: .8, mix: [['reeds', 6], ['dead', 1.5], ['shrub', 2]] },
-  { id: 'rocky', name: 'Núi đá', surface: Surface.Rock, density: .35, mix: [['rock', 3], ['boulder', 1], ['stone', 3], ['conifer', .6]] },
-  { id: 'beach', name: 'Bãi cát', surface: Surface.Sand, density: .15, mix: [['palm', 1], ['stone', 2], ['reeds', .5]] },
-  { id: 'tundra', name: 'Tuyết', surface: Surface.Snow, density: .25, mix: [['conifer', 2], ['smallpine', 2], ['stone', 2]] },
+  { id: 'scrub', name: 'Cây bụi khô', surface: Surface.DryGrass, density: .45, mix: [['bush', 3], ['dead', 1], ['stone', 2], ['grass', 2], ['sandstone_blocks', 1.2]] },
+  { id: 'swamp', name: 'Đầm lầy', surface: Surface.Mud, density: .8, mix: [['reeds', 6], ['dead', 1.5], ['shrub', 2], ['mossy_blocks', .6]] },
+  { id: 'rocky', name: 'Núi đá', surface: Surface.Rock, density: .35, mix: [['rock', 3], ['boulder', 1], ['stone', 3], ['conifer', .6], ['granite_blocks', 2], ['basalt_blocks', 1]] },
+  { id: 'beach', name: 'Bãi cát', surface: Surface.Sand, density: .15, mix: [['palm', 1], ['stone', 2], ['reeds', .5], ['limestone_blocks', .8]] },
+  { id: 'tundra', name: 'Tuyết', surface: Surface.Snow, density: .25, mix: [['conifer', 2], ['smallpine', 2], ['stone', 2], ['snow_blocks', 1.5]] },
 ] as const;
 export type BiomeId = typeof BIOMES[number]['id'];
 

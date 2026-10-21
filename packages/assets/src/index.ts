@@ -16,3 +16,4 @@ export * from './street-assets';
 export * from './hit-meshes';
 export * from './material-assets';
 export * from './road-assets';
+export * from './rock-assets';

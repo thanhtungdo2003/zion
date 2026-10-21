@@ -246,6 +246,36 @@ function rock(p: Params, rng: Rng): BufferGeometry {
   return merge([paint(g, 0x7a766f, rng, 0.1)]);
 }
 
+/**
+ * Blocky rock: a base slab and 2-5 angular blocks stacked and tilted on it, faceted by a light
+ * jitter of the corners; coloured per style (granite, sandstone strata, basalt, snow-capped,
+ * mossy top, pale limestone).
+ */
+const ROCK_COLORS: Record<string, [number, number, number]> = { granite: [0x7a7872, 0x8d8a83, 0x5f5d58], sandstone: [0xc29a63, 0xd4ae76, 0xa97f4d], basalt: [0x45454a, 0x55555b, 0x34343a], snow: [0x7c8088, 0x8e939b, 0xeef2f6], mossy: [0x6c6d62, 0x7d7e72, 0x4f6b32], limestone: [0xc9c4b4, 0xd8d4c6, 0xaaa597] };
+function blockyRock(p: Params, rng: Rng): BufferGeometry {
+  const s = num(p, 'size', 1), style = typeof p.style === 'string' ? p.style : 'granite', [base, light, top] = ROCK_COLORS[style] ?? ROCK_COLORS.granite!;
+  const parts: BufferGeometry[] = [];
+  const block = (w: number, h: number, d: number, x: number, y: number, z: number, color: number) => {
+    const g = new BoxGeometry(w, h, d, 1, 1, 1);
+    displace(g, rng, .9, 1.04, true);
+    g.rotateY((rng.next() - .5) * .9).rotateZ((rng.next() - .5) * .25).rotateX((rng.next() - .5) * .2).translate(x, y, z);
+    parts.push(paint(g, color, rng, .07));
+  };
+  const bw = s * (1 + rng.next() * .3), bh = s * (.35 + rng.next() * .2), bd = s * (.8 + rng.next() * .3);
+  block(bw, bh, bd, 0, bh / 2 - s * .06, 0, base);
+  let y = bh - s * .08;
+  const n = 2 + Math.floor(rng.next() * 3);
+  for (let i = 0; i < n; i++) {
+    const w = bw * (.45 + rng.next() * .4), h = s * (.22 + rng.next() * .3), d = bd * (.45 + rng.next() * .4), last = i === n - 1;
+    const color = style === 'sandstone' ? (i % 2 ? light : base) : last && (style === 'snow' || style === 'mossy') ? top : rng.next() < .5 ? light : base;
+    block(w, h, d, (rng.next() - .5) * bw * .4, y + h / 2, (rng.next() - .5) * bd * .4, color);
+    y += h * (.7 + rng.next() * .2);
+  }
+  // A fallen chip beside the stack.
+  if (rng.next() < .7) block(s * .3, s * .18, s * .26, bw * .55, s * .07, (rng.next() - .5) * bd, base);
+  return merge(parts);
+}
+
 function slab(p: Params, rng: Rng): BufferGeometry {
   const hx = num(p, 'hx', 2);
   const hy = num(p, 'hy', 1.2);
@@ -326,6 +356,7 @@ const GENERATORS: Record<ProceduralGenerator, (p: Params, rng: Rng) => BufferGeo
   fern,
   reeds,
   rock,
+  blocky_rock: blockyRock,
   slab,
   ivy,
 };
