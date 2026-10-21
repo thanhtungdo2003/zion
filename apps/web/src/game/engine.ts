@@ -1465,11 +1465,18 @@ export class GameEngine {
         if (turned) { this.inventory.setOpen(false); this.hud.set({ hurtAt: performance.now(), hurtAmount: 1 }); this.sounds?.play('knockdown', { volume: .9 }); }
         break;
       }
-      case 'battle':
+      case 'battle': {
+        const lobby = m.phase === 'waiting' || m.phase === 'countdown';
+        const wasLobby = this.hud.get().battle?.phase === 'waiting' || this.hud.get().battle?.phase === 'countdown';
         this.hud.set({ battle: m });
+        // The lobby ring holds everyone in (the server enforces it; predicting it avoids snapping back).
+        if (this.local) this.local.fence = lobby ? m.lobby ?? null : null;
+        // Names over heads while everyone gathers in the lobby; hidden once the match runs.
+        if (lobby !== wasLobby) for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id), this.pvpNames.has(id));
         this.planeReceivedAt = performance.now();
         if (m.phase === 'finished') this.input.release();
         break;
+      }
       case 'door': {
         const was = this.doors.get(m.id)?.open;
         this.doors.set(m.id, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, open: m.open });
@@ -2634,8 +2641,10 @@ export class GameEngine {
     if (kind === EntityKind.Merchant) return MERCHANT_NAME;
     if (kind === EntityKind.Nurse) return NURSE_NAME;
     if (kind === EntityKind.Architect) return ARCHITECT_NAME;
-    // Battle royale hides who is who: no name tags over other players.
-    if (this.welcome?.mode === 'battle-royale') return '';
+    // Battle royale hides who is who once the match runs: no name tags over other players. In the
+    // lobby everyone can see who else came.
+    const phase = this.hud.get().battle?.phase;
+    if (this.welcome?.mode === 'battle-royale' && phase !== 'waiting' && phase !== 'countdown') return '';
     return this.names.get(id) ?? `#${id}`;
   }
 

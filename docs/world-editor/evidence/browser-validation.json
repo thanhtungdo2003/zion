@@ -1,0 +1,12 @@
+{
+  "browser": "Microsoft Edge headless via CDP",
+  "title": "World Editor · Đảo Hắc Sơn",
+  "fileImport": true,
+  "sculpt": true,
+  "checkpointRollback": true,
+  "browserStorageRoundTrip": true,
+  "canvasCount": 2,
+  "originalSites": 1221,
+  "totalSites": 1223,
+  "unhandledExceptions": []
+}

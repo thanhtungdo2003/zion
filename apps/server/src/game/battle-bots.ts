@@ -158,6 +158,8 @@ export interface BotHooks {
   enemy?(bot: BattleBot, id: number): boolean;
   /** Infection: a bot's blow or bullet on another bot, settled by the game (true = handled). */
   botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
+  /** Whether the bot can be hurt now (battle royale: only once the match runs, never in the lobby). */
+  canHurt?(bot: BattleBot): boolean;
 }
 
 export interface BotWorld {
@@ -186,6 +188,7 @@ export class BattleBotDirector {
   private readonly smokes: Array<{ x: number; z: number; radius: number; until: number }> = [];
   /** Server time of the current step (smoke clouds expire against it). */
   private now = 0;
+  private phase: BotWorld['phase'] = 'waiting';
   private nextRoundId = 0x68000000;
   private serial = 0;
 
@@ -241,6 +244,7 @@ export class BattleBotDirector {
   /** Damage from players, other bots, blasts or the zone. */
   hit(bot: BattleBot, amount: number, by: string, from: { x: number; z: number } | null, now: number, zone = 'torso', killerId: number | null = null): void {
     if (bot.dead || amount <= 0) return;
+    if (this.hooks.canHurt && !this.hooks.canHurt(bot)) return;
     const taken = zone === 'red_zone' ? amount : Math.max(1, Math.round(amount * (1 - armorProtection(bot.armor))));
     bot.health = Math.max(0, bot.health - taken);
     bot.healUntil = 0; bot.campUntil = 0;
@@ -261,6 +265,7 @@ export class BattleBotDirector {
 
   step(now: number, tick: number, world: BotWorld, players: readonly Player[]): void {
     this.now = now;
+    this.phase = world.phase;
     this.navigation.beginTick();
     const think = tick % 3 === 0;
     for (const bot of this.bots) {
@@ -314,6 +319,8 @@ export class BattleBotDirector {
   private enemies(bot: BattleBot, players: readonly Player[]): Array<Combatant & { state: CharacterState; id: number }> {
     const list: Array<Combatant & { state: CharacterState; id: number }> = [];
     const enemy = this.hooks.enemy;
+    // Battle royale: nobody is fair game in the lobby or the countdown (no fights, no free kills).
+    if (!enemy && this.phase !== 'running') return list;
     for (const p of players) if (!p.dead && !p.state.flight && p.active && (!enemy || enemy(bot, p.id))) list.push(p);
     for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (enemy ? enemy(bot, other.id) : !bot.squad || other.squad !== bot.squad)) list.push(other);
     return list;

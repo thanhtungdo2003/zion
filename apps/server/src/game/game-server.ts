@@ -12,7 +12,7 @@ import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { PropKnock } from './prop-knock';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
-import { BATTLE_MAP, BATTLE_TIME_OF_DAY, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
+import { BATTLE_LOBBY_RADIUS, BATTLE_MAP, BATTLE_TIME_OF_DAY, keepInCircle, type BattleCircle, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -387,6 +387,7 @@ export class GameServer {
         enemy: (bot: BattleBot, id: number) => !!this.infection?.entrants.has(id) && this.infection.isZombie(bot.id) !== this.infection.isZombie(id),
         botHitsBot: (attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number) => { this.infectionBotDamage(target, damage, attacker.id, attacker.state, zone, now); return true; },
       } : {}),
+      ...(deps.mode === 'battle-royale' ? { canHurt: (bot: BattleBot) => !!this.battle?.canFight(bot.id) } : {}),
       died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
@@ -1177,10 +1178,8 @@ export class GameServer {
       if (back) { await this.physics.ensureArea(Math.floor(back.state.x / CHUNK_SIZE), Math.floor(back.state.z / CHUNK_SIZE), 1); pos = { x: back.state.x, y: back.state.y, z: back.state.z }; }
       else if (this.infection) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
       pos ??= await this.spawns.pickSpawn();
-      if (this.battle && !back) {
-        for (let attempt = 0; attempt < 16 && [...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 50); attempt++) pos = await this.spawns.pickSpawn();
-        if ([...this.players.values()].some(p => Math.hypot(p.state.x - pos!.x, p.state.z - pos!.z) < 30)) throw new Error('No separated battle spawn available');
-      }
+      // Battle royale: everyone waits for the drop together, inside the lobby ring.
+      if (this.battle && !back) pos = await this.lobbySpot(pos);
     } finally {
       this.joining.delete(session.id);
     }
@@ -1715,6 +1714,8 @@ export class GameServer {
         phase: state.phase, circle: state.circle, nextCircle: state.nextCircle, shrinking: state.shrinking, remainingMs: state.remainingMs,
         plane: match.startedAt !== null && state.phase === 'running' ? battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt) : null,
       }, [...this.players.values()]);
+      // Bots wait in the lobby ring too.
+      if (match.inLobby && match.lobby) for (const bot of this.bots.bots) if (!bot.dead && !bot.state.flight) keepInCircle(bot.state, match.lobby);
     }
     if (this.tick % TICK_RATE !== 0) return;
     if (match.phase === 'running') {
@@ -2181,8 +2182,41 @@ export class GameServer {
     if (this.tick % TICK_RATE === 0) this.broadcastInfection();
   }
 
+  /** The current match's lobby ring, picked once (an open patch of ground) when the first player comes. */
+  private battleLobby: Promise<BattleCircle> | null = null;
+  private pickBattleLobby(): Promise<BattleCircle> {
+    const match = this.battle!;
+    this.battleLobby ??= (async () => {
+      let best: { pos: { x: number; z: number }; open: number } | null = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const pos = await this.spawns.pickSpawn();
+        let open = 0;
+        for (let k = 0; k < 8; k++) {
+          const a = k / 8 * Math.PI * 2;
+          if (await this.spawns.validateLoaded(pos.x + Math.cos(a) * BATTLE_LOBBY_RADIUS * .8, pos.z + Math.sin(a) * BATTLE_LOBBY_RADIUS * .8, true)) open++;
+        }
+        if (!best || open > best.open) best = { pos, open };
+        if (open >= 7) break;
+      }
+      match.lobby = { x: best!.pos.x, z: best!.pos.z, radius: BATTLE_LOBBY_RADIUS };
+      return match.lobby;
+    })();
+    return this.battleLobby;
+  }
+  /** A free spot inside the lobby ring for someone joining (the ring's centre if none is open). */
+  private async lobbySpot(fallback: { x: number; y: number; z: number }): Promise<{ x: number; y: number; z: number }> {
+    const ring = await this.pickBattleLobby();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * ring.radius * .7;
+      const pos = await this.spawns.validateLoaded(ring.x + Math.cos(a) * d, ring.z + Math.sin(a) * d, true);
+      if (pos && ![...this.players.values()].some((p) => Math.hypot(p.state.x - pos.x, p.state.z - pos.z) < 1.2)) return pos;
+    }
+    return (await this.spawns.validateLoaded(ring.x, ring.z)) ?? fallback;
+  }
+
   /** Every match draws its own zone sequence over land. */
   private newBattleMatch(): BattleRoyaleMatch {
+    this.battleLobby = null;
     const gen = this.deps.world.generator;
     return new BattleRoyaleMatch((Math.random() * 0x7fffffff) | 0, gen.worldSize, (x, z) => gen.heightAt(x, z) > gen.seaLevel + .5);
   }
@@ -2510,6 +2544,8 @@ export class GameServer {
       this.stepInfo,
     );
     if (!wasRolling && p.state.rollTicks > 0) p.state.rollCooldown = Math.round(this.life.config.stamina.rollCooldown / TICK_DT);
+    // Battle royale lobby: nobody leaves the ring before the drop.
+    if (this.battle?.inLobby && this.battle.lobby) keepInCircle(s, this.battle.lobby);
     // Fall damage: a hard landing (over ~11 m/s, about a 6 m drop) hurts, a long fall kills.
     if (falling > 11 && s.grounded && !s.swimming) this.damage(null, p, Math.round((falling - 11) ** 2 * 1.2), 'fall', s.x, s.y, s.z, now, 'rơi từ trên cao');
     p.frozenTicks = info.frozen ? p.frozenTicks + 1 : 0;

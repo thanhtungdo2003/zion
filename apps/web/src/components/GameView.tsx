@@ -146,7 +146,7 @@ export default function GameView() {
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
       {inWorld && hud.mode === 'survival' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
       {inWorld && hud.infection && <InfectionHud state={hud.infection} health={hud.health} sniffUntil={hud.sniffUntil} sniffReadyAt={hud.sniffReadyAt} onLeave={() => leaveMatch()} />}
-      {inWorld && hud.battle && <BattleHud state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
+      {inWorld && hud.battle && <BattleHud hud={hud} state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       {inWorld && hud.planning && (

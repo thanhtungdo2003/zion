@@ -1,7 +1,9 @@
 'use client';
 import { BATTLE_FLIGHT, BATTLE_MAP, type BattleState } from '@zion/shared';
+import type { HudState } from '@/game/hud-store';
+import { BattleResults } from './BattleResults';
 
-export function BattleHud({ state, position, onLeave }: { state: BattleState; position: readonly number[]; onLeave(): void }) {
+export function BattleHud({ hud, state, position, onLeave }: { hud: HudState; state: BattleState; position: readonly number[]; onLeave(): void }) {
   const outside = Math.hypot(position[0]! - state.circle.x, position[2]! - state.circle.z) >= state.circle.radius;
   const seconds = Math.ceil(state.remainingMs / 1000);
   return <>
@@ -9,6 +11,9 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
     <div className="battle-zone-info" role="status">
       {state.phase === 'waiting' && <><b>Chờ người chơi</b><span>{state.total}/{BATTLE_MAP.maxPlayers} · cần {BATTLE_MAP.minPlayers} người{state.remainingMs > 0 ? ` · tự bắt đầu sau ${Math.ceil(state.remainingMs / 1000)}s` : ''}</span></>}
       {state.phase === 'countdown' && <><b>Bắt đầu sau</b><span>{seconds}s · {state.total} người</span></>}
+      {(state.phase === 'waiting' || state.phase === 'countdown') && !!state.lobbyNames?.length && <ul className="battle-lobby-names" aria-label="Người trong sảnh chờ">
+        {state.lobbyNames.map((name, i) => <li key={`${name}-${i}`}>{name}</li>)}
+      </ul>}
       {state.phase === 'running' && <>
         <div><span>Còn sống</span><b>{state.alive}/{state.total}</b></div>
         <div><span>Bo {state.stage}</span><b className={state.shrinking ? 'shrinking' : undefined}>{state.shrinking ? 'Đang thu' : 'Thu sau'} {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</b></div>
@@ -16,13 +21,7 @@ export function BattleHud({ state, position, onLeave }: { state: BattleState; po
         {state.placement && state.phase === 'running' && <span>Đã bị loại · #{state.placement}</span>}
       </>}
     </div>
-    {state.phase === 'finished' && <div className="overlay battle-result"><div className="overlay-card">
-      <h2>{state.placement === 1 ? 'CHIẾN THẮNG!' : 'TRẬN ĐÃ KẾT THÚC'}</h2>
-      <p>{state.winner ? state.winner.squad ? `Tiểu đội ${state.winner.name} là đội sống sót cuối cùng.` : `${state.winner.name} là người sống sót cuối cùng.` : 'Không còn người sống sót.'}</p>
-      {state.placement && <p>Thứ hạng của bạn: #{state.placement} / {state.total}</p>}
-      <button className="btn btn-primary" onClick={onLeave}>Về sảnh</button>
-      <small>Tự đóng trận sau {seconds}s</small>
-    </div></div>}
+    {state.phase === 'finished' && <BattleResults hud={hud} onLeave={onLeave} />}
   </>;
 }
 

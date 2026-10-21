@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { hashString, infectionMapSchema } from '@zion/shared';
+import { authoredMapSchema } from './maps/schema';
+import type { AuthoredMap } from './maps/island';
 
 /**
  * Bump whenever generation output changes for the same seed. Persisted worlds record the version
@@ -13,6 +15,8 @@ export const worldConfigSchema = z
     mode: z.enum(['survival', 'battle-royale', 'infection']).optional(),
     /** Infection: the Studio map this world is built from (the built-in map when absent). */
     infection: infectionMapSchema.optional(),
+    /** Explicit editor revision; absent means the original island, including legacy matches. */
+    battleIsland: authoredMapSchema.optional(),
     /** World edge length in chunks (32 m each). 128 → 4.096 km. */
     sizeChunks: z.number().int().min(16).max(512),
     seaLevel: z.number().min(0).max(100).default(20),
@@ -21,7 +25,7 @@ export const worldConfigSchema = z
   .strict();
 
 export type WorldConfig = z.infer<typeof worldConfigSchema>;
-export type WorldConfigInput = z.input<typeof worldConfigSchema>;
+export type WorldConfigInput = Omit<z.input<typeof worldConfigSchema>, 'battleIsland'> & { battleIsland?: AuthoredMap };
 
 export function parseWorldConfig(input: WorldConfigInput): WorldConfig {
   const cfg = worldConfigSchema.parse(input);

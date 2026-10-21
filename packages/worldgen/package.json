@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "preview": "tsx scripts/preview.ts",
-    "map:studio": "tsx scripts/map-studio.ts"
+    "map:studio": "tsx scripts/map-studio.ts",
+    "island:edit": "tsx scripts/island-editor.ts"
   },
   "dependencies": {
     "@zion/assets": "workspace:*",

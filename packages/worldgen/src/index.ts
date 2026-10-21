@@ -16,3 +16,5 @@ export * from './maps/island';
 export * from './maps/friday13';
 export * from './maps/infection-map';
 export * from './flora';
+export * from './world-editor';
+export * from './maps/schema';

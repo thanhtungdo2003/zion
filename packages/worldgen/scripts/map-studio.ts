@@ -4,7 +4,7 @@
  *
  *   pnpm --filter @zion/worldgen map:studio -- --mpp 4 --out tmp/island.png [--x 1800 --z 2500 --span 900]
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { createRequire } from 'node:module';
@@ -13,9 +13,12 @@ import { BATTLE_MAP, Surface } from '@zion/shared';
 import { createDefaultRegistry } from '@zion/assets';
 import { WorldGenerator, encodePngRgb, makeColumnSample, normalizeSeed } from '../src/index';
 import { authoredWorld } from '../src/maps/authored';
+import { currentIsland, readIslandDocument, townParcels } from '../src/world-editor';
 
 const arg = (name: string, def: string) => { const i = process.argv.indexOf(`--${name}`); return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : def; };
-const gen = new WorldGenerator({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, mode: 'battle-royale' }, createDefaultRegistry());
+const documentPath = arg('document', '');
+const battleIsland = documentPath ? currentIsland(readIslandDocument(await readFile(documentPath, 'utf8'))) : undefined;
+const gen = new WorldGenerator({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, mode: 'battle-royale', battleIsland }, createDefaultRegistry());
 const world = authoredWorld(gen);
 const span = Number(arg('span', String(gen.worldSize))), mpp = Number(arg('mpp', '4'));
 const x0 = Number(arg('x', String(span / 2))) - span / 2, z0 = Number(arg('z', String(span / 2))) - span / 2;
@@ -56,6 +59,7 @@ const t1 = performance.now();
 // Vector overlay (SVG composited by sharp): districts, grid, contour of the coast, names.
 const to = (x: number, z: number) => [((x - x0) / mpp).toFixed(1), ((z - z0) / mpp).toFixed(1)];
 const svg: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${W}">`];
+for (const parcel of [...townParcels(world.map), ...(world.map.extraBuildings ?? []).flatMap(b=>b.lot?[b.lot]:[])]) svg.push(`<polygon points="${parcel.polygon.map(([x,z]) => to(x,z).join(',')).join(' ')}" fill="none" stroke="#5fffff" stroke-width=".7"/>`);
 for (const site of world.structures()) {
   const c = Math.cos(site.yaw), sn = Math.sin(site.yaw);
   for (const p of site.parts) {

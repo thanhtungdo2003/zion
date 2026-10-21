@@ -21,6 +21,7 @@
     "@zion/assets": "workspace:*",
     "@zion/physics": "workspace:*",
     "@zion/shared": "workspace:*",
+    "@zion/worldgen": "workspace:^",
     "jolt-physics": "^1.1.0",
     "next": "^15.0.3",
     "react": "^19.0.0",

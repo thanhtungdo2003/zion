@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
-import { BATTLE_MAP, Buttons, TICK_RATE, type ChestData, type InputMessage, type ServerJsonMessage } from '@zion/shared';
+import { BATTLE_LOBBY_RADIUS, BATTLE_MAP, Buttons, TICK_RATE, type ChestData, type InputMessage, type ServerJsonMessage } from '@zion/shared';
 import { GENERATOR_VERSION, normalizeSeed } from '@zion/worldgen';
 import { createLogger } from '../logger';
 import { Metrics } from '../metrics';
@@ -43,7 +43,18 @@ describe('isolated Battle Royale simulation', () => {
       expect(a.player!.inv.items).toEqual([]); expect(a.player!.coins).toBe(0);
       expect(a.sendJson).toHaveBeenCalledWith(expect.objectContaining({ t: 'welcome', mode: 'battle-royale' }));
       expect(game.content.npcs).toEqual([]); expect(game.content.quests).toEqual([]);
-      expect(Math.hypot(a.player!.state.x - b.player!.state.x, a.player!.state.z - b.player!.state.z)).toBeGreaterThanOrEqual(30);
+      // Both wait for the drop together inside the small lobby ring.
+      const lobby = (harness as unknown as { battle: { lobby: { x: number; z: number; radius: number } } }).battle.lobby;
+      expect(lobby.radius).toBe(BATTLE_LOBBY_RADIUS);
+      for (const p of [a.player!, b.player!]) expect(Math.hypot(p.state.x - lobby.x, p.state.z - lobby.z)).toBeLessThan(lobby.radius);
+      // Nobody gets hurt while waiting, and nobody leaves the ring.
+      const health = b.player!.health;
+      harness.damage(a.player!.id, b.player!, 40, 'torso', b.player!.state.x, b.player!.state.y + 1, b.player!.state.z, 0);
+      expect(b.player!.health).toBe(health);
+      await harness.physics.ensureArea(Math.floor(lobby.x / 32), Math.floor(lobby.z / 32), 1);
+      Object.assign(a.player!.state, { x: lobby.x + lobby.radius + 3, z: lobby.z });
+      harness.applyInput(a.player!, { t: 'in', s: 0, mx: 0, mz: 0, yaw: 0, pitch: 0, b: 0 }, 0);
+      expect(Math.hypot(a.player!.state.x - lobby.x, a.player!.state.z - lobby.z)).toBeLessThan(lobby.radius);
       expect(harness.playerAttackAllowed(a.player!, b.player!, 0)).toBe(false);
       const [doorId, door] = [...harness.battleDoors][0]!;
       game.handleMessage(a, { t: 'door', id: doorId }); expect(door.open).toBe(false);

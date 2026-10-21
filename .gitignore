@@ -10,6 +10,7 @@ coverage/
 *.log
 .tmp-*/
 .tmp-*.mjs
+/tmp/research/
 .DS_Store
 /packages/worldgen/preview/
 /apps/web/public/assets/models/

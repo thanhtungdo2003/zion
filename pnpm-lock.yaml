@@ -126,6 +126,9 @@ importers:
       '@zion/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@zion/worldgen':
+        specifier: workspace:^
+        version: link:../../packages/worldgen
       jolt-physics:
         specifier: ^1.1.0
         version: 1.1.0

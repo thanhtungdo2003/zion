@@ -1,4 +1,4 @@
-import { Buttons, EntityFlags, TICK_DT, type InputMessage, type SelfState } from '@zion/shared';
+import { Buttons, EntityFlags, TICK_DT, keepInCircle, type BattleCircle, type InputMessage, type SelfState } from '@zion/shared';
 import {
   CharacterController,
   stepAirborne,
@@ -39,6 +39,8 @@ export class LocalPlayer {
   dead = false;
   lastServer: SelfState | null = null;
   reconcileError = 0;
+  /** Battle royale lobby: the ring the body cannot leave (mirrors the server). */
+  fence: BattleCircle | null = null;
 
   constructor(private readonly world: CollisionWorld, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
@@ -161,7 +163,10 @@ export class LocalPlayer {
     if (this.riding) return;
     if (this.state.flight === 1) { if (input.jump) this.state.flight = 2; else { this.state.x += this.state.vx * TICK_DT; this.state.z += this.state.vz * TICK_DT; } }
     else if (this.state.flight) stepAirborne(this.state, input, this.world, TICK_DT);
-    else this.controller.step(this.state, input, TICK_DT);
+    else {
+      this.controller.step(this.state, input, TICK_DT);
+      if (this.fence) keepInCircle(this.state, this.fence);
+    }
   }
 
   decayCorrection(dt: number): void {

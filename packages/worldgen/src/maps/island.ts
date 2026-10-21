@@ -36,6 +36,12 @@ export interface AuthoredMap {
   zones: MapZone[];
   roads: MapRoad[];
   power: PowerLine[];
+  /** Versioned local sculpt strokes; coast, POIs, roads and structure pads are protected. */
+  terrainEdits?: Array<{ x: number; z: number; radius: number; delta: number }>;
+  /** Supplemental homes in validated road-frontage lots; authored gameplay objects stay intact. */
+  extraBuildings?: Array<{ id: string; zone: string; asset: number; x: number; z: number; yaw: number; lot?: { polygon: Point[]; frontage: [Point, Point] } }>;
+  /** Dress supplemental homes with the existing fence and shrub assets. */
+  dressExtraBuildings?: boolean;
 }
 
 export const ISLAND: AuthoredMap = {

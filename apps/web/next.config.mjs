@@ -27,7 +27,7 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   devIndicators: false,
-  transpilePackages: ['@zion/shared', '@zion/physics', '@zion/assets'],
+  transpilePackages: ['@zion/shared', '@zion/physics', '@zion/assets', '@zion/worldgen'],
   // The desktop app ships a static export (served by the app itself); the website a Node server.
   output: desktop ? 'export' : 'standalone',
   // Its own build folder, so building the app never touches the website's build.

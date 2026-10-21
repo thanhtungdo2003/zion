@@ -4,6 +4,17 @@ export interface BattleCircle { x: number; z: number; radius: number }
 /** Fixed battle royale clock (14:00) as a fraction of the day. */
 export const BATTLE_TIME_OF_DAY = 14 / 24;
 export const BATTLE_FLIGHT = { altitude: 650, durationMs: 55_000, autoDeployHeight: 120, deployDelayMs: 10_000 } as const;
+/** The pre-match lobby: everyone waits inside a small red ring until the plane takes off. */
+export const BATTLE_LOBBY_RADIUS = 16;
+/** Keeps a body on the ground inside `fence` (the lobby ring): pushed back to the edge, no outward speed. */
+export function keepInCircle(s: { x: number; z: number; vx: number; vz: number }, fence: BattleCircle, margin = .4): void {
+  const dx = s.x - fence.x, dz = s.z - fence.z, d = Math.hypot(dx, dz), max = fence.radius - margin;
+  if (d <= max || d === 0) return;
+  const nx = dx / d, nz = dz / d;
+  s.x = fence.x + nx * max; s.z = fence.z + nz * max;
+  const out = s.vx * nx + s.vz * nz;
+  if (out > 0) { s.vx -= out * nx; s.vz -= out * nz; }
+}
 export interface BattlePlane { x: number; y: number; z: number; yaw: number; remainingMs: number }
 export function battlePlaneAt(size: number, elapsedMs: number): BattlePlane {
   const t = Math.max(0, Math.min(1, elapsedMs / BATTLE_FLIGHT.durationMs));
@@ -26,6 +37,12 @@ export interface BattleState {
   placement?: number;
   drop?: { phase: 'boarding' | 'falling' | 'parachute' | 'landed'; altitude: number; parachuteOpen: boolean; deployIn?: number; speed?: number; heading?: number };
   plane?: BattlePlane;
+  /** Final places so far (entrant id → place, 1 = the winning side): sent once you are out or it is over. */
+  placements?: Record<number, number>;
+  /** Waiting / countdown: the lobby ring nobody can leave. */
+  lobby?: BattleCircle;
+  /** Waiting / countdown: everyone in the lobby (shown by name). */
+  lobbyNames?: string[];
 }
 
 /**

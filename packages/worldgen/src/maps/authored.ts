@@ -33,6 +33,7 @@ export interface MapArea { id: string; name: string; kind: MapZone['kind']; x: n
 
 interface RoadProbe { roadDistance: number; roadHeight: number; roadAlong: number; roadHalfWidth?: number }
 interface Host {
+  readonly config?: { battleIsland?: AuthoredMap };
   readonly worldSize: number; readonly seaLevel: number; readonly seed: number; heightAt(x: number, z: number): number;
   readonly roads?: { query(x: number, z: number, out: RoadProbe): void } | null;
 }
@@ -194,6 +195,33 @@ export class AuthoredWorld {
   /** Natural ground levelled by the district pads that reach it. */
   levelled(x: number, z: number): number {
     let height = this.terrain(x, z);
+    let sculptDelta = 0;
+    for (const edit of this.map.terrainEdits ?? []) {
+      const distance2 = (x - edit.x) ** 2 + (z - edit.z) ** 2;
+      if (distance2 >= edit.radius * edit.radius) continue;
+      const distance = Math.sqrt(distance2);
+      const weight = 1 - smoothstep(0, edit.radius, distance);
+      sculptDelta += edit.delta * weight * weight;
+    }
+    // Apply sculpting only outside gameplay sites. Site levels and routed mountain roads still
+    // derive from the original natural ground, preserving doors, stairs, loot and the skyline.
+    if (sculptDelta !== 0 && this.coastDistance(x, z) > 100 &&
+      !this.map.zones.some(s => Math.hypot(x - s.x, z - s.z) < s.radius + 60) &&
+      !this.near(x, z, 40, false).length) {
+      let protection = 1;
+      for (const road of this.map.roads) for (let i = 1; i < road.points.length; i++) {
+        const [ax, az] = road.points[i - 1]!, [bx, bz] = road.points[i]!;
+        const dx = bx - ax, dz = bz - az, length2 = dx * dx + dz * dz;
+        const t = length2 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / length2)) : 0;
+        protection = Math.min(protection, smoothstep(road.width + 12, road.width + 40, Math.hypot(x - ax - dx * t, z - az - dz * t)));
+      }
+      // Smooth protection boundaries rather than introducing a height discontinuity.
+      const coastMask = smoothstep(100, 180, this.coastDistance(x, z));
+      let siteMask = 1;
+      for (const s of this.near(x, z, 80, false)) siteMask = Math.min(siteMask, smoothstep(40, 80, this.padDistance(s, x, z)));
+      for (const s of this.map.zones) siteMask = Math.min(siteMask, smoothstep(s.radius + 60, s.radius + 120, Math.hypot(x - s.x, z - s.z)));
+      height += Math.max(-12, Math.min(12, sculptDelta)) * protection * coastMask * siteMask;
+    }
     for (const site of this.near(x, z, 16, false)) height += (site.y - height) * (1 - smoothstep(0, 16, this.padDistance(site, x, z)));
     return height;
   }
@@ -949,6 +977,22 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     if (kind === 'block') k.block(0, 0, 1); else k.tower(0, 0);
     site(kind === 'block' ? 'house_small' : 'watchtower', x + 22, z - 22, 15, k);
   }
+  // Append after all original sites: original gids, per-building loot salts and parts survive.
+  for (const building of map.extraBuildings ?? []) {
+    const kit = new Kit();
+    kit.house(building.asset, 0, 0, building.yaw);
+    if (map.dressExtraBuildings) {
+      const c = Math.cos(building.yaw), sn = Math.sin(building.yaw);
+      const put = (asset: number, x: number, z: number, turn = 0) => kit.put(asset, x*c+z*sn, z*c-x*sn, 0, turn+building.yaw);
+      // The road-facing (-z) side stays open for the entrance and access path.
+      put(CAMP_ASSET['wooden-fence'], 0, 5);
+      put(CAMP_ASSET['wooden-fence'], -5, 2, Math.PI/2);
+      put(CAMP_ASSET['wooden-fence'], 5, 2, Math.PI/2);
+      put(ISLAND_ASSET.bush[0], -4, -1);
+      put(ISLAND_ASSET.bush[1], 4, -1);
+    }
+    site('house_small', building.x, building.z, 8.5, kit);
+  }
   return sites;
 }
 
@@ -956,6 +1000,6 @@ const worlds = new WeakMap<object, AuthoredWorld>();
 /** The authored map of a battle generator (one per generator instance). */
 export function authoredWorld(host: Host): AuthoredWorld {
   let world = worlds.get(host);
-  if (!world) worlds.set(host, world = new AuthoredWorld(ISLAND, host));
+  if (!world) worlds.set(host, world = new AuthoredWorld(host.config?.battleIsland ?? ISLAND, host));
   return world;
 }

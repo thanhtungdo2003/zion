@@ -526,6 +526,7 @@ export default function StudioView() {
         <ContentEditor />
         <NewsEditor />
         <StudioVehiclePhysics />
+        <Link href="/studio/world" className="btn"><Icon name="lucide:map" /> World Editor</Link>
         <Link href="/studio/weapons" className="btn"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
         <Link href="/studio/infection" className="btn"><Icon name="game-icons:biohazard" /> Lây nhiễm</Link>
         <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Bố trí tùy chỉnh' : 'Bố trí mặc định'}</span>

@@ -1,0 +1,116 @@
+{
+  "status": "offline revision; not activated on live server; gameplay visual review pending",
+  "seed": "zion-red-valley-02",
+  "sampleSpacingMetres": 16,
+  "sampledColumns": 66049,
+  "changedColumns": 1549,
+  "maximumHeightDeltaMetres": 7.950066219238664,
+  "coastalMaximumDeltaMetres": 0,
+  "roadsBefore": 14,
+  "roadsAfter": 14,
+  "rejectedRoads": [
+    "1880: protected structure corridor",
+    "1860: protected structure corridor",
+    "1840: protected structure corridor",
+    "1900: protected structure corridor",
+    "2080: protected structure corridor",
+    "2100: grade exceeds 12%",
+    "2120: protected structure corridor",
+    "2060: protected structure corridor"
+  ],
+  "blocks": 0,
+  "townParcels": 0,
+  "ruralFrontageParcels": 2,
+  "supplementalHomes": [
+    {
+      "id": "fishing-4-4-72-1",
+      "zone": "fishing",
+      "asset": 2404,
+      "x": 1252.5240796503892,
+      "z": 3186.8966199161932,
+      "yaw": 2.976443976175166,
+      "lot": {
+        "polygon": [
+          [
+            1259.9220340791303,
+            3197.253756116431
+          ],
+          [
+            1242.1669434501518,
+            3194.2945743449345
+          ],
+          [
+            1245.1261252216482,
+            3176.5394837159556
+          ],
+          [
+            1262.8812158506266,
+            3179.498665487452
+          ]
+        ],
+        "frontage": [
+          [
+            1259.9220340791303,
+            3197.253756116431
+          ],
+          [
+            1242.1669434501518,
+            3194.2945743449345
+          ]
+        ]
+      }
+    },
+    {
+      "id": "fishing-4-5-92--1",
+      "zone": "fishing",
+      "asset": 2404,
+      "x": 1111.4920366903025,
+      "z": 3166.906586293203,
+      "yaw": -0.5880026035475675,
+      "lot": {
+        "polygon": [
+          [
+            1113.9881875733158,
+            3179.3873407082706
+          ],
+          [
+            1099.0112822752349,
+            3169.4027371762163
+          ],
+          [
+            1108.9958858072891,
+            3154.4258318781353
+          ],
+          [
+            1123.97279110537,
+            3164.4104354101896
+          ]
+        ],
+        "frontage": [
+          [
+            1123.97279110537,
+            3164.4104354101896
+          ],
+          [
+            1108.9958858072891,
+            3154.4258318781353
+          ]
+        ]
+      }
+    }
+  ],
+  "originalStructureCount": 1221,
+  "structureCount": 1223,
+  "originalStructuresPreserved": true,
+  "originalLootPreserved": true,
+  "zoneAnchorsPreserved": true,
+  "spawns": 96,
+  "roundTrip": true,
+  "incomplete": [
+    "town roads and enclosed blocks rejected by preservation constraints",
+    "existing building relocation",
+    "end-to-end walking/driving and BR match",
+    "gameplay perspective visual review",
+    "server activation and client revision distribution"
+  ]
+}

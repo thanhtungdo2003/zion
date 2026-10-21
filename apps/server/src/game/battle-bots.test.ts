@@ -111,6 +111,17 @@ describe('battle royale bots', () => {
     run(director, 8);
     expect(a.health < 100 || b.health < 100).toBe(true);
   });
+  it('never fights in the lobby: no targets, and hits do nothing while the game says no', () => {
+    const { director } = setup();
+    const a = director.spawn(120, 10, 128), b = director.spawn(126, 10, 128);
+    a.alert = { x: 126, z: 128, until: 1e9 }; b.alert = { x: 120, z: 128, until: 1e9 };
+    run(director, 8, 0, { ...arena, phase: 'waiting' });
+    expect(a.health).toBe(100); expect(b.health).toBe(100);
+    const guarded = new BattleBotDirector(world(), { shot: () => {}, projectile: () => {}, projectileEnd: () => {}, hitPlayer: () => {}, died: () => {}, chests: () => [], loot: () => [], canHurt: () => false });
+    const c = guarded.spawn(120, 10, 128);
+    guarded.hit(c, 50, 'test', null, 0);
+    expect(c.health).toBe(100);
+  });
   it('picks up a melee weapon from a crate when it has none', () => {
     const { director } = setup([{ id: 'c1', x: 130, y: 10, z: 128, items: [{ uid: 1, itemId: 'machete', container: 'backpack', x: 0, y: 0, rotated: false }] }]);
     const bot = director.spawn(120, 10, 128);

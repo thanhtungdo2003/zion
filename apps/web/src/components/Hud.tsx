@@ -4,6 +4,7 @@ import { RankBadge } from './RankBadge';
 import { RankPromotion } from './RankPromotion';
 import { LoadingBackdrop } from './LoadingBackdrop';
 import { RedDotReticle, ScopeOverlay } from './ScopeOverlay';
+import { BattleResults } from './BattleResults';
 
 import { itemIcons } from '@/game/inventory/icons';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -81,6 +82,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
   // would drop it mid-dispatch (the game's own Enter handler re-renders the HUD synchronously).
   // F3: performance / debug overlay.
   const [debugOpen, setDebugOpen] = useState(false);
+  // Battle royale: the results card after being knocked out, until closed to keep watching.
+  const [resultsClosed, setResultsClosed] = useState(false);
+  useEffect(() => { if (state.status !== 'dead') setResultsClosed(false); }, [state.status]);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.code !== 'F3') return;
@@ -385,20 +389,23 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         </div>
       )}
 
-      {state.status === 'dead' && state.mode === 'battle-royale' && state.spectating && (
+      {state.status === 'dead' && state.mode === 'battle-royale' && state.battle && state.battle.phase !== 'finished' && !resultsClosed && (
+        <BattleResults hud={state} onLeave={onLeave} onSpectate={state.spectating ? () => setResultsClosed(true) : undefined} />
+      )}
+      {state.status === 'dead' && state.mode === 'battle-royale' && state.spectating && resultsClosed && (
         <div className="hud-spectate" role="status">
           <span>Bạn đã bị loại · {state.spectatingKiller ? 'Đang theo dõi người hạ bạn' : 'Đang theo dõi đồng đội'}</span>
           <b>{state.spectating}</b>
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}
-      {state.status === 'dead' && state.mode !== 'infection' && !(state.mode === 'battle-royale' && state.spectating) && (
+      {state.status === 'dead' && state.mode !== 'infection' && state.mode !== 'battle-royale' && (
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>
-            {state.mode === 'battle-royale' ? <><p>Bạn đã bị loại{state.battle?.placement ? ` · Hạng #${state.battle.placement}` : ''}. Không hồi sinh trong trận.</p><button className="btn btn-primary" onClick={onLeave}>Về sảnh</button></> : <button className="btn btn-primary" disabled={state.respawnIn > 0} onClick={onRespawn}>
+            <button className="btn btn-primary" disabled={state.respawnIn > 0} onClick={onRespawn}>
               {state.respawnIn > 0 ? t('hud.respawn_in', { s: state.respawnIn }) : t('hud.respawn')}
-            </button>}
+            </button>
           </div>
         </div>
       )}
