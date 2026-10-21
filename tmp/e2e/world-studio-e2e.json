@@ -1,0 +1,77 @@
+{
+  "browser": "Edg/155.0.4283.62",
+  "steps": [
+    {
+      "name": "Mở trang quản lý map, kho trống"
+    },
+    {
+      "name": "E2E Đồi",
+      "ms": 1866
+    },
+    {
+      "name": "Nâng địa hình bằng brush, hoàn tác, làm lại",
+      "changed": true,
+      "undoRestores": true,
+      "redoReapplies": true
+    },
+    {
+      "name": "Smooth / Flatten / Sculpt / Noise / Erosion / Paint chạy trên viewport",
+      "history": "X 1262 · Z 1262 · cao 35.9 m · 38% | Khu vực 0 | Công trình 0 | Vật thể 0 | Hồ 0 · Sông 0 | Lịch sử 7 |  | Seed e2e-seed"
+    },
+    {
+      "name": "Vẽ hồ (dữ liệu nước riêng + khắc lòng hồ)",
+      "footer": "X 1447 · Z 839 · cao 72.2 m · 38% | Khu vực 0 | Công trình 0 | Vật thể 0 | Hồ 1 · Sông 0 | Lịch sử 8 |  | Seed e2e-seed"
+    },
+    {
+      "name": "Vẽ vùng → sinh thị trấn trong worker → xem trước → áp dụng",
+      "genMs": 598,
+      "stats": "683Công trình485Vật thể61Tuyến đường111Ô phố955Lô đất11.1km đường",
+      "footer": "X 284 · Z 1341 · cao 60.6 m · 38% | Khu vực 1 | Công trình 683 | Vật thể 485 | Hồ 1 · Sông 0 | Lịch sử 11 |  | Seed e2e-seed",
+      "longestMainThreadTaskMs": 54
+    },
+    {
+      "name": "Sinh lại riêng cây/vật thể: công trình giữ nguyên",
+      "footer": "X 284 · Z 1341 · cao 60.6 m · 38% | Khu vực 1 | Công trình 683 | Vật thể 485 | Hồ 1 · Sông 0 | Lịch sử 12 |  | Seed e2e-seed"
+    },
+    {
+      "name": "Chọn công trình trên bản đồ, kéo di chuyển (đánh dấu sửa tay), xóa, hoàn tác",
+      "before": 683,
+      "afterDelete": 682,
+      "afterUndo": 683
+    },
+    {
+      "name": "Gameplay: tự sinh spawn, mô phỏng vòng bo, kiểm tra",
+      "issues": [
+        "51% vùng chơi ban đầu là đất chơi được.",
+        "Tổng thời gian bo: 29 phút qua 6 phase."
+      ]
+    },
+    {
+      "name": "Kiểm tra toàn bản đồ",
+      "issues": [
+        "51% vùng chơi ban đầu là đất chơi được.",
+        "Tổng thời gian bo: 29 phút qua 6 phase."
+      ]
+    },
+    {
+      "name": "Tự lưu → tải lại trang: map mở lại đúng dữ liệu",
+      "footer": "X — · Z — | Khu vực 1 | Công trình 683 | Vật thể 485 | Hồ 1 · Sông 0 | Lịch sử 0 |  | Seed e2e-seed"
+    },
+    {
+      "name": "Xem trước 3D với model thật"
+    },
+    {
+      "name": "Thư viện: nhân bản, đổi tên, tìm kiếm, xóa (có xác nhận)"
+    },
+    {
+      "name": "Mẫu Đảo Hắc Sơn lấy từ WorldGenerator của game",
+      "ms": 8947,
+      "footer": "X — · Z — | Khu vực 0 | Công trình 0 | Vật thể 0 | Hồ 0 · Sông 0 | Lịch sử 0 |  | Seed zion-red-valley-02"
+    },
+    {
+      "name": "Màn hình hẹp: không cuộn trang"
+    }
+  ],
+  "unhandledExceptions": [],
+  "consoleErrors": []
+}

@@ -1,21 +1,6 @@
-import { BATTLE_MAP, BATTLE_FLIGHT, battlePlaneAt, Rng, clamp, type BattleCircle, type BattleState } from '@zion/shared';
+import { BATTLE_MAP, BATTLE_FLIGHT, BATTLE_COUNTDOWN_MS, BATTLE_INITIAL_RADIUS, BATTLE_LOBBY_WAIT_MS, BATTLE_STAGES, battlePlaneAt, Rng, clamp, type BattleCircle, type BattleState } from '@zion/shared';
 
-// Long enough to land, loot a house or two and move before the first circle closes.
-/** A lobby short of players starts anyway this long after its first player arrived. */
-export const BATTLE_LOBBY_WAIT_MS = 60_000;
-
-/**
- * Zone stages: how far it shrinks (share of the island), the wait before it moves, how long it
- * takes to close in and the damage outside. Each closing takes 20 s longer than the one before.
- */
-export const BATTLE_STAGES = [
-  { ratio: .72, wait: 210_000, shrink: 120_000, damage: 1 },
-  { ratio: .48, wait: 150_000, shrink: 140_000, damage: 2 },
-  { ratio: .29, wait: 120_000, shrink: 160_000, damage: 4 },
-  { ratio: .15, wait: 100_000, shrink: 180_000, damage: 7 },
-  { ratio: .06, wait: 85_000, shrink: 200_000, damage: 12 },
-  { ratio: 0, wait: 70_000, shrink: 220_000, damage: 20 },
-] as const;
+export { BATTLE_LOBBY_WAIT_MS, BATTLE_STAGES } from '@zion/shared';
 
 /** Match clock and elimination rules, independent of physics and persistent survival characters. */
 export class BattleRoyaleMatch {
@@ -48,7 +33,7 @@ export class BattleRoyaleMatch {
   /** `isLand`: dry-ground test; safe circles are drawn at random over land. */
   constructor(seed: number, private readonly size: number, private readonly isLand: (x: number, z: number) => boolean = () => true) {
     this.rng = new Rng(seed);
-    this.initialRadius = size * .68;
+    this.initialRadius = size * BATTLE_INITIAL_RADIUS;
     this.circle = { x: size / 2, z: size / 2, radius: this.initialRadius };
     this.from = { ...this.circle }; this.nextCircle = { ...this.circle };
   }
@@ -116,7 +101,7 @@ export class BattleRoyaleMatch {
       if (!humans) this.lobbySince = null;
       else this.lobbySince ??= now;
       this.deadline = this.lobbySince === null ? 0 : this.lobbySince + BATTLE_LOBBY_WAIT_MS;
-      if (humans >= BATTLE_MAP.minPlayers || (humans > 0 && now >= this.deadline)) { this.forced = humans < BATTLE_MAP.minPlayers; this.phase = 'countdown'; this.deadline = now + 30_000; }
+      if (humans >= BATTLE_MAP.minPlayers || (humans > 0 && now >= this.deadline)) { this.forced = humans < BATTLE_MAP.minPlayers; this.phase = 'countdown'; this.deadline = now + BATTLE_COUNTDOWN_MS; }
     }
     if (this.phase === 'countdown') {
       // Someone left before the drop: back to the lobby (a lobby that timed out keeps going while anyone is in).

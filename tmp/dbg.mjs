@@ -1,0 +1,17 @@
+const endpoint = 'http://127.0.0.1:9444';
+const target = await (await fetch(`${endpoint}/json/new?about:blank`, { method: 'PUT' })).json();
+const ws = new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((r) => { ws.onopen = r; });
+let seq = 0; const pending = new Map(); const logs = [];
+ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id) { pending.get(m.id)(m); pending.delete(m.id); } else if (m.method === 'Runtime.consoleAPICalled') logs.push(m.params.args.map(a => a.value ?? a.description).join(' ')); else if (m.method === 'Runtime.exceptionThrown') logs.push('EXC ' + JSON.stringify(m.params.exceptionDetails).slice(0, 500)); };
+const cmd = (method, params = {}) => new Promise((r) => { const id = ++seq; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
+const js = async (expression) => { const r = await cmd("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }); return r.result?.exceptionDetails ? { value: r.result.exceptionDetails.exception?.description } : r.result?.result; };
+await cmd('Runtime.enable'); await cmd('Page.enable'); await cmd('Page.bringToFront');
+await cmd('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+await cmd('Page.navigate', { url: 'http://localhost:3100/studio/world' });
+await new Promise(r => setTimeout(r, 8000));
+await js(`document.querySelector('[data-testid=open-map]').click()`);
+await new Promise(r => setTimeout(r, 6000));
+console.log(JSON.stringify((await js(`(() => { const c = document.querySelector('[data-testid=map-canvas]'); const ctx = c.getContext('2d'); const d = ctx.getImageData(c.width/2, c.height/2, 1, 1).data; const e = ctx.getImageData(30, c.height-20, 1, 1).data; return { w: c.width, h: c.height, cw: c.clientWidth, center: [...d], scalebar: [...e] }; })()`)).value));
+console.log(logs.join('\n'));
+await fetch(`${endpoint}/json/close/${target.id}`); ws.close();

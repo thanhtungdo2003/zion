@@ -1,6 +1,27 @@
 export type GameMode = 'survival' | 'battle-royale' | 'infection';
 export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ', seed: 'zion-red-valley-02', sizeChunks: 128, maxPlayers: 48, minPlayers: 2 } as const;
 export interface BattleCircle { x: number; z: number; radius: number }
+
+// Long enough to land, loot a house or two and move before the first circle closes.
+/** A lobby short of players starts anyway this long after its first player arrived. */
+export const BATTLE_LOBBY_WAIT_MS = 60_000;
+
+/**
+ * Zone stages: how far it shrinks (share of the island), the wait before it moves, how long it
+ * takes to close in and the damage outside. Each closing takes 20 s longer than the one before.
+ */
+export const BATTLE_STAGES = [
+  { ratio: .72, wait: 210_000, shrink: 120_000, damage: 1 },
+  { ratio: .48, wait: 150_000, shrink: 140_000, damage: 2 },
+  { ratio: .29, wait: 120_000, shrink: 160_000, damage: 4 },
+  { ratio: .15, wait: 100_000, shrink: 180_000, damage: 7 },
+  { ratio: .06, wait: 85_000, shrink: 200_000, damage: 12 },
+  { ratio: 0, wait: 70_000, shrink: 220_000, damage: 20 },
+] as const;
+/** Share of the map edge the first safe circle covers (radius). */
+export const BATTLE_INITIAL_RADIUS = .68;
+/** The pre-drop countdown once a lobby has enough players. */
+export const BATTLE_COUNTDOWN_MS = 30_000;
 /** Fixed battle royale clock (14:00) as a fraction of the day. */
 export const BATTLE_TIME_OF_DAY = 14 / 24;
 export const BATTLE_FLIGHT = { altitude: 650, durationMs: 55_000, autoDeployHeight: 120, deployDelayMs: 10_000 } as const;
