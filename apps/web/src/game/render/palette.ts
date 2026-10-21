@@ -31,6 +31,11 @@ const SURFACE_LINEAR: Color[] = Object.values(SURFACE_HEX).map((h) => new Color(
 const GRASS_DRY = new Color(0x9e925f);
 const GRASS_LUSH = new Color(0x527236);
 const GRASS_COLD = new Color(0x58705a);
+const GRASS_BURNT = new Color(0xb79d68);
+const ARID_SOIL = new Color(0xb08a5a);
+const DESERT_SAND = new Color(0xd2b27c);
+const FROST = new Color(0xc9ced4);
+const smooth = (a: number, b: number, v: number) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 const GRASS_TROPIC = new Color(0x48722e);
 const UNDERWATER = new Color(0x1f4d55);
 const tmp = new Color();
@@ -41,7 +46,10 @@ const tmp2 = new Color();
  * saturated when hot and wet. Writes linear RGB into `out`.
  */
 export function grassTint(temperature: number, humidity: number, out: Color): Color {
-  out.copy(GRASS_DRY).lerp(GRASS_LUSH, Math.min(1, humidity * 1.3));
+  // Hot and dry: straw and sun-burnt ochre; green only where it is humid (by the water).
+  const lush = temperature > .7 ? smooth(.3, .7, humidity) : Math.min(1, humidity * 1.3);
+  out.copy(GRASS_DRY).lerp(GRASS_LUSH, lush);
+  if (temperature > .7 && humidity < .3) out.lerp(GRASS_BURNT, (.3 - humidity) / .3 * Math.min(1, (temperature - .7) * 4));
   if (temperature < 0.4) out.lerp(GRASS_COLD, (0.4 - temperature) * 1.8);
   else if (temperature > 0.62 && humidity > 0.5) out.lerp(GRASS_TROPIC, Math.min(1, (temperature - 0.62) * 3));
   return out;
@@ -60,6 +68,12 @@ export function surfaceColor(surface: number, temperature: number, humidity: num
   } else if (surface === Surface.DryGrass) {
     grassTint(temperature, humidity * 0.6, tmp);
     out.lerp(tmp, 0.35);
+  }
+  // The climate colours the whole ground, soil and rock too: ochre in arid land, sand in the desert, frost in the cold.
+  if (surface !== Surface.Snow && surface !== Surface.Asphalt) {
+    const dry = temperature > .7 ? smooth(.45, .05, humidity) : 0;
+    if (dry > 0) { tmp.copy(temperature > .9 ? DESERT_SAND : ARID_SOIL); out.lerp(tmp, dry * (temperature > .9 ? .6 : .4)); }
+    if (temperature < .2) { tmp.copy(FROST); out.lerp(tmp, (.2 - temperature) * 1.5); }
   }
   return out;
 }

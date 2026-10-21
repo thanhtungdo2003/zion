@@ -18,6 +18,7 @@ export const authoredMapSchema = z.object({
   extraBuildings: z.array(z.object({ id: z.string().min(1).max(80), zone: z.string().min(1).max(80), asset: z.literal(2404), x: coordinate, z: coordinate, yaw: z.number().finite().min(-Math.PI * 2).max(Math.PI * 2), lot: z.object({ polygon: z.array(point).length(4), frontage: z.tuple([point,point]) }).strict().optional() }).strict()).max(64).optional(),
   dressExtraBuildings: z.boolean().optional(),
   surfaceGrid: z.string().max(12_000_000).optional(),
+  moistureGrid: z.string().max(2_000_000).optional(),
   climate: z.enum(['temperate', 'arid', 'desert', 'snow', 'tropical']).optional(),
   terrainGrid: z.object({ size: z.number().positive().max(16384), cell: z.number().positive().max(64), data: z.string().max(40_000_000) }).strict().optional(),
   placed: z.array(z.object({

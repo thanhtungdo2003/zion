@@ -2,6 +2,7 @@ import type { AuthoredMap } from '../maps/island';
 import { compositeParts } from './settlement/composite';
 import type { WorldMapDoc } from './document';
 import { bytesToBase64, encodeHeights, type Heightfield } from './heightfield';
+import { waterLevelAt } from './water';
 
 /**
  * A World Studio map as the game's battle royale generator reads it (`battleIsland`): the
@@ -39,11 +40,41 @@ export function toBattleMap(doc: WorldMapDoc, hf: Heightfield): AuthoredMap {
     roads: roads.slice(0, 256).map((r) => ({ ...r, points: r.points.slice(0, 2048) })),
     terrainGrid: { size, cell: hf.cell, data: encodeHeights(hf.heights) },
     surfaceGrid: bytesToBase64(hf.surface),
+    moistureGrid: moistureGrid(doc, hf),
     climate: doc.terrain.climate ?? 'temperate',
     placed,
     flora: doc.flora.map((f) => [f[0], f[1], f[2], f[3], f[4]] as [number, number, number, number, number]),
   };
 }
+/**
+ * How close each 16 m cell is to water (sea, lakes, rivers, marsh): 255 on the shore, fading to 0
+ * about 110 m inland. In a dry climate only this ground stays green.
+ */
+export const MOISTURE_CELL = 16;
+function moistureGrid(doc: WorldMapDoc, hf: Heightfield): string {
+  const n = Math.ceil(hf.size / MOISTURE_CELL) + 1, dist = new Float32Array(n * n).fill(1e9);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = Math.min(hf.size, i * MOISTURE_CELL), z = Math.min(hf.size, j * MOISTURE_CELL);
+    if (waterLevelAt(hf, doc.water, doc.terrain.seaLevel, x, z) !== null || hf.surfaceAt(x, z) === 7 /* Mud */) dist[j * n + i] = 0;
+  }
+  // Two-pass chamfer distance transform (metres).
+  const d1 = MOISTURE_CELL, d2 = MOISTURE_CELL * Math.SQRT2;
+  const relax = (k: number, o: number, w: number) => { const v = dist[o]! + w; if (v < dist[k]!) dist[k] = v; };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i;
+    if (i > 0) relax(k, k - 1, d1);
+    if (j > 0) { relax(k, k - n, d1); if (i > 0) relax(k, k - n - 1, d2); if (i < n - 1) relax(k, k - n + 1, d2); }
+  }
+  for (let j = n - 1; j >= 0; j--) for (let i = n - 1; i >= 0; i--) {
+    const k = j * n + i;
+    if (i < n - 1) relax(k, k + 1, d1);
+    if (j < n - 1) { relax(k, k + n, d1); if (i < n - 1) relax(k, k + n + 1, d2); if (i > 0) relax(k, k + n - 1, d2); }
+  }
+  const out = new Uint8Array(n * n);
+  for (let k = 0; k < out.length; k++) { const t = Math.max(0, 1 - dist[k]! / 110); out[k] = Math.round(t * t * 255); }
+  return bytesToBase64(out);
+}
+
 const clamp = (v: number, size: number) => Math.max(0, Math.min(size, v));
 // World offset → site-local (inverse of the three.js yaw the game applies).
 const rotX = (dx: number, dz: number, yaw: number) => dx * Math.cos(yaw) - dz * Math.sin(yaw);

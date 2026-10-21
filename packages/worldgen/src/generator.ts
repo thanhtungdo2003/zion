@@ -142,7 +142,9 @@ export class WorldGenerator {
       out.height = height; out.water = NaN; out.waterKind = height < this.seaLevel ? WaterKind.Sea : WaterKind.None;
       // Studio maps carry a climate: hot and dry, cold, humid… (ground tint and vegetation follow it).
       const climate = world.map.climate, [t, h] = climate === 'desert' ? [.95, .05] : climate === 'arid' ? [.85, .18] : climate === 'snow' ? [.05, .45] : climate === 'tropical' ? [.92, .9] : [.6, .5];
-      out.river = 0; out.temperature = t; out.humidity = h;
+      // Water keeps its banks green even in a dry climate: humidity rises toward lakes, rivers and the sea.
+      const wet = world.moisture(x, z);
+      out.river = 0; out.temperature = t; out.humidity = h + (Math.max(h, climate === 'snow' ? .5 : .78) - h) * wet;
       out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
       if (roads) { roads.query(x, z, out); out.height += (out.roadHeight - out.height) * roads.blend(out); }
       return out;

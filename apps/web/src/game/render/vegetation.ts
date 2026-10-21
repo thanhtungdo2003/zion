@@ -243,13 +243,16 @@ export class VegetationRenderer {
           add('reeds', lx, lz, k, .8 + rng.next() * .5, false);
           continue;
         }
-        if (base <= 0) continue;
+        // A hot, dry climate: bare ground with a rare dry tuft; grass only by the water (humid ground).
+        const arid = warm > .7 ? smoothstep(.5, .15, wet) : 0;
+        if (arid > .98 && base > 0) { if (rng.next() < .04 * this.density) add('dry', lx, lz, k, .7 + rng.next() * .4, false); continue; }
+        if (base <= 0 || rng.next() < arid) continue;
         // Grass grows in patches: a dense carpet inside, a few stray clumps between.
         const shape = patch(16, 0x73) * .65 + patch(5, 0x5a) * .35;
         const inside = smoothstep(.3, .48, shape);
         // Each patch is one kind of grass (neighbouring patches differ).
         const species = PATCH_SPECIES[Math.min(PATCH_SPECIES.length - 1, Math.floor(patch(26, 0x5e) * PATCH_SPECIES.length))]!;
-        const lush = surface === Surface.Grass || surface === Surface.RoadVerge || surface === Surface.JungleFloor;
+        const lush = arid < .3 && (surface === Surface.Grass || surface === Surface.RoadVerge || surface === Surface.JungleFloor);
         const forest = surface === Surface.ForestFloor || surface === Surface.JungleFloor;
         // Ferns carpet the forest floor in shade.
         if (forest && patch(11, 0xfe) > .6 && rng.next() < .14 * this.density) { add('ferns', lx, lz, k, 1 + rng.next() * .6, false); continue; }

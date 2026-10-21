@@ -46,6 +46,8 @@ export interface AuthoredMap {
   terrainGrid?: { size: number; cell: number; data: string };
   /** World Studio maps: painted ground surfaces, one byte per grid vertex (base64), same grid as terrainGrid. */
   surfaceGrid?: string;
+  /** World Studio maps: closeness to water per 16 m cell (bytes, base64). */
+  moistureGrid?: string;
   /** World Studio maps: battlefield climate (drives biomes, ground cover and colours in game). */
   climate?: 'temperate' | 'arid' | 'desert' | 'snow' | 'tropical';
   /** World Studio maps: every building and prop as a site (replaces the island's districts). */

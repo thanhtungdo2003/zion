@@ -56,7 +56,18 @@ export class AuthoredWorld {
   /** Studio maps: the edited height grid (decoded once), and their flora bucketed per chunk. */
   private readonly heightGrid: { size: number; cell: number; cols: number; heights: Float32Array } | null;
   private readonly surfaceGrid: Uint8Array | null;
+  private readonly moistureGrid: Uint8Array | null;
   private floraChunks: Map<string, Array<[number, number, number, number, number]>> | null = null;
+
+
+  /** 0..1: how close a point is to water on a studio map (bilinear over 16 m cells); 0 without data. */
+  moisture(x: number, z: number): number {
+    const m = this.moistureGrid;
+    if (!m) return 0;
+    const n = Math.round(Math.sqrt(m.length)), fx = Math.max(0, Math.min(n - 1.001, x / 16)), fz = Math.max(0, Math.min(n - 1.001, z / 16));
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, at = (a: number, b: number) => m[Math.min(n - 1, b) * n + Math.min(n - 1, a)]! / 255;
+    return (at(i, j) * (1 - u) + at(i + 1, j) * u) * (1 - v) + (at(i, j + 1) * (1 - u) + at(i + 1, j + 1) * u) * v;
+  }
 
   constructor(readonly map: AuthoredMap, readonly host: Host) {
     const g = map.terrainGrid;
@@ -65,6 +76,7 @@ export class AuthoredWorld {
       this.heightGrid = { size: g.size, cell: g.cell, cols: Math.round(g.size / g.cell) + 1, heights: new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) };
     } else this.heightGrid = null;
     this.surfaceGrid = map.surfaceGrid ? new Uint8Array(Buffer.from(map.surfaceGrid, 'base64')) : null;
+    this.moistureGrid = map.moistureGrid ? new Uint8Array(Buffer.from(map.moistureGrid, 'base64')) : null;
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
     // Routed roads find their own way between their waypoints (switchbacks round the slopes).
