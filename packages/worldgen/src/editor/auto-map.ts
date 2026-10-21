@@ -52,6 +52,8 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   if (req.roughness !== undefined) settings.roughness = req.roughness;
   if (req.detail !== undefined) settings.detail = req.detail;
   settings.seaEdge = req.seaEdge ?? true;
+  if (req.climate) settings.climate = req.climate;
+  if (req.erosion !== undefined) settings.erosion = req.erosion;
   const hf = new Heightfield(settings.size, settings.cell), size = hf.size, sea = settings.seaLevel;
   for (const f of generateTerrain(settings, hf)) yield f * .2;
   const doc = createMapDoc({ name: req.name, kind: req.kind, description: req.description ?? 'Bản đồ sinh tự động.', template: 'auto', terrain: settings });
@@ -171,27 +173,55 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   }
   yield .78;
 
-  /* Forests on open land: by noise, species by height and closeness to the sea. */
+  /* Vegetation where it would really grow: by climate, moisture (hollows, valleys, near water),
+     altitude (tree line), slope and sun; sampled evenly over the whole map, then thinned
+     uniformly to the budget so no part of the map is left bare. */
+  const climate = settings.climate ?? 'temperate';
   const fRng = stream(req.seed, 'auto-forest'), mask = new Simplex2(seedNumber(req.seed, 'auto-forest-mask'));
   const roadPts = new SpatialGrid<{ x: number; z: number; r: number }>(32, (q) => q.r);
   for (const r of doc.base.roads) for (let i = 1; i < r.points.length; i++) { const [ax, az] = r.points[i - 1]!, [bx, bz] = r.points[i]!, n = Math.ceil(Math.hypot(bx - ax, bz - az) / 8); for (let k = 0; k <= n; k++) roadPts.insert({ x: ax + (bx - ax) * k / n, z: az + (bz - az) * k / n, r: r.width / 2 + 4 }); }
-  const flora: FloraItem[] = [], spacing = 9, cap = Math.floor(MAX_FLORA * .9);
+  const riverPts = new SpatialGrid<{ x: number; z: number; r: number }>(64, (q) => q.r);
+  for (const r of doc.water.rivers) for (const q of r.points) riverPts.insert({ x: q.x, z: q.z, r: q.width / 2 + 120 });
+  for (const l of doc.water.lakes) for (const q of l.polygon) riverPts.insert({ x: q[0], z: q[1], r: 100 });
+  const cap = Math.floor(MAX_FLORA * .9), top = Math.max(30, hf.stats().max - sea);
+  const FLORA_MIX: Record<string, { density: number; treeLine: number; wet: Array<[string, number]>; dry: Array<[string, number]>; high: Array<[string, number]>; coast: Array<[string, number]> }> = {
+    temperate: { density: 1, treeLine: .78, wet: [['forest', 4], ['oak', 2], ['bigtree', 1], ['shrub', 3], ['grass', 2], ['reeds', .4]], dry: [['broadleaf', 2], ['bush', 2], ['grass', 4], ['meadow', 2], ['stone', .8]], high: [['pine', 4], ['smallpine', 2], ['conifer', 1], ['rock', 1.2], ['stone', 1]], coast: [['grass', 3], ['bush', 1.5], ['stone', 1], ['broadleaf', .6]] },
+    tropical: { density: 1.25, treeLine: .85, wet: [['palm', 3], ['broadleaf', 4], ['bush', 4], ['reeds', 1.5], ['bigtree', 1]], dry: [['broadleaf', 3], ['bush', 3], ['grass', 3], ['palm', 1]], high: [['forest', 3], ['broadleaf', 2], ['rock', 1]], coast: [['palm', 4], ['bush', 2], ['grass', 2]] },
+    arid: { density: .35, treeLine: .7, wet: [['bush', 3], ['oak', 1], ['grass', 2], ['reeds', 1]], dry: [['bush', 2], ['dead', 1.2], ['stone', 3], ['rock', 1.5], ['grass', 1]], high: [['rock', 3], ['boulder', 1], ['stone', 2], ['conifer', .4]], coast: [['stone', 2], ['bush', 1], ['dead', .5]] },
+    desert: { density: .12, treeLine: .6, wet: [['palm', 2], ['bush', 2], ['reeds', 1]], dry: [['dead', 1], ['stone', 3], ['rock', 2], ['boulder', .6], ['bush', .6]], high: [['rock', 3], ['boulder', 2], ['stone', 2]], coast: [['stone', 2], ['dead', .4]] },
+    snow: { density: .45, treeLine: .55, wet: [['conifer', 3], ['pine', 3], ['smallpine', 2]], dry: [['smallpine', 2], ['conifer', 1.5], ['stone', 2], ['dead', .6]], high: [['rock', 3], ['boulder', 1.5], ['stone', 2]], coast: [['stone', 2], ['rock', 1]] },
+  };
+  const mix = FLORA_MIX[climate] ?? FLORA_MIX.temperate!;
+  const pickFrom = (list: Array<[string, number]>) => { let r = fRng.next() * list.reduce((a, [, w]) => a + w, 0); for (const [id, w] of list) if ((r -= w) <= 0) return id; return list[0]![0]; };
   const pickSp = (id: string) => { const sp = FLORA_SPECIES.find((q) => q.id === id)!; return sp.assets[Math.floor(fRng.next() * sp.assets.length)]!; };
-  for (let z = spacing / 2; z < size && flora.length < cap; z += spacing) for (let x = spacing / 2; x < size && flora.length < cap; x += spacing) {
-    const px = x + (fRng.next() - .5) * spacing, pz = z + (fRng.next() - .5) * spacing, h = hf.heightAt(px, pz);
-    if (h < sea + 1.5) continue;
-    const m = mask.noise(px * .0025, pz * .0025) * .7 + mask.noise(px * .01, pz * .01) * .3;
-    const forest = smoothstep(1 - p.forest * 1.6, 1.15 - p.forest * 1.6, m * .5 + .5);
-    if (fRng.next() > forest * .9 + .03) continue;
-    if (doc.regions.some((r) => pointInPolygon(px, pz, r.polygon)) || roadPts.query(px, pz, 0).length || hf.slopeAt(px, pz) > .9) continue;
-    if (doc.water.lakes.some((l) => pointInPolygon(px, pz, l.polygon))) continue;
-    const rel = (h - sea) / Math.max(30, settings.maxHeight), roll = fRng.next();
-    const species = forest < .3 ? (roll < .6 ? 'grass' : roll < .85 ? 'bush' : 'stone')
-      : rel > .65 ? (roll < .6 ? 'pine' : roll < .8 ? 'conifer' : 'rock')
-        : rel < .08 ? (roll < .4 ? 'palm' : roll < .7 ? 'broadleaf' : 'bush')
-          : roll < .45 ? 'forest' : roll < .65 ? 'oak' : roll < .78 ? 'broadleaf' : roll < .92 ? 'shrub' : 'stone';
-    flora.push([pickSp(species), Math.round(px * 10) / 10, Math.round(pz * 10) / 10, Math.round(fRng.next() * 628) / 100, Math.round((.75 + fRng.next() * .55) * 100) / 100]);
-    if (forest > .6) { const k = hf.index(hf.clampI(Math.round(px / hf.cell)), hf.clampJ(Math.round(pz / hf.cell))); if (hf.surface[k] === Surface.Grass) hf.surface[k] = Surface.ForestFloor; }
+  const spacing = Math.max(7, Math.sqrt(size * size / (cap * 2.2)));
+  const flora: FloraItem[] = [];
+  let seen = 0;
+  for (let z = spacing / 2; z < size; z += spacing) {
+    for (let x = spacing / 2; x < size; x += spacing) {
+      const px = x + (fRng.next() - .5) * spacing, pz = z + (fRng.next() - .5) * spacing, h = hf.heightAt(px, pz), rel = h - sea;
+      if (rel < 1.5) continue;
+      const alt = rel / top, slope = hf.slopeAt(px, pz);
+      if (slope > .95) continue;
+      // Moisture: hollows and valleys, near rivers and lakes; patches by noise.
+      const around = (hf.heightAt(px + 30, pz) + hf.heightAt(px - 30, pz) + hf.heightAt(px, pz + 30) + hf.heightAt(px, pz - 30)) / 4;
+      const hollow = Math.max(-1, Math.min(1, (around - h) / 6));
+      const nearWater = riverPts.query(px, pz, 0).length ? 1 : 0;
+      const patch = mask.noise(px * .0022, pz * .0022) * .65 + mask.noise(px * .009, pz * .009) * .35;
+      const moisture = Math.max(0, Math.min(1, .45 + hollow * .3 + nearWater * .35 + patch * .35 - alt * .25 - slope * .3));
+      const cover = p.forest * mix.density * (alt > mix.treeLine ? .25 : 1) * smoothstep(.15, .75, moisture + (p.forest - .5) * .4);
+      if (fRng.next() > cover) continue;
+      if (doc.regions.some((r) => pointInPolygon(px, pz, r.polygon)) || roadPts.query(px, pz, 0).length) continue;
+      if (doc.water.lakes.some((l) => pointInPolygon(px, pz, l.polygon))) continue;
+      const list = alt > mix.treeLine * .8 ? mix.high : rel < 8 ? mix.coast : moisture > .55 ? mix.wet : mix.dry;
+      const item: FloraItem = [pickSp(pickFrom(list)), Math.round(px * 10) / 10, Math.round(pz * 10) / 10, Math.round(fRng.next() * 628) / 100, Math.round((.75 + fRng.next() * .55) * 100) / 100];
+      // Uniform thinning to the budget (reservoir sampling): every region keeps its share.
+      seen++;
+      if (flora.length < cap) flora.push(item);
+      else { const k = Math.floor(fRng.next() * seen); if (k < cap) flora[k] = item; }
+      if (moisture > .6 && climate === 'temperate') { const k = hf.index(hf.clampI(Math.round(px / hf.cell)), hf.clampJ(Math.round(pz / hf.cell))); if (hf.surface[k] === Surface.Grass) hf.surface[k] = Surface.ForestFloor; }
+    }
+    if (Math.round(z / spacing) % 40 === 0) yield .78 + .14 * z / size;
   }
   doc.flora = flora;
   yield .92;

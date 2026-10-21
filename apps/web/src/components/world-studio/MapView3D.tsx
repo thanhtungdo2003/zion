@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  ACESFilmicToneMapping, BoxGeometry, BufferAttribute, BufferGeometry, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, Group, HemisphereLight, InstancedMesh,
+  ACESFilmicToneMapping, BoxGeometry, ConeGeometry, CylinderGeometry, DodecahedronGeometry, IcosahedronGeometry, type Material, BufferAttribute, BufferGeometry, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, Group, HemisphereLight, InstancedMesh,
   Line, LineBasicMaterial, MOUSE, Matrix4, Mesh, MeshLambertMaterial, PerspectiveCamera, PlaneGeometry, Quaternion, Raycaster, SRGBColorSpace, Scene, Shape, ShapeGeometry, Vector2, Vector3, WebGLRenderer,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
 import { Surface } from '@zion/shared';
-import { compositeParts, riverLevels, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
+import { climateTint, compositeParts, floraGroup, riverLevels, type FloraItem, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
 import { AssetLibrary } from '@/game/render/asset-library';
 import { isBrush, type Tool } from './types';
 import s from './world-studio.module.css';
@@ -83,6 +83,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
   useEffect(() => {
     const st = scene.current;
     if (!st) return;
+    const gt = climateTint(doc.terrain.climate);
     const { ground, step, n } = st, pos = ground.geometry.getAttribute('position') as BufferAttribute, col = ground.geometry.getAttribute('color') as BufferAttribute;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const gi = Math.min(terrain.cols - 1, i * step), gj = Math.min(terrain.rows - 1, j * step), k = j * n + i;
@@ -90,12 +91,12 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
       pos.setXYZ(k, gi * terrain.cell, h, gj * terrain.cell);
       const c = RGB[terrain.surface[terrain.index(gi, gj)]!] ?? RGB[Surface.Grass]!;
       const under = h < doc.terrain.seaLevel ? .55 : 1;
-      col.setXYZ(k, c[0] * under, c[1] * under, c[2] * under);
+      col.setXYZ(k, c[0] * under * gt[0]!, c[1] * under * gt[1]!, c[2] * under * gt[2]!);
     }
     pos.needsUpdate = true; col.needsUpdate = true;
     ground.geometry.computeVertexNormals(); ground.geometry.computeBoundingSphere(); ground.geometry.computeBoundingBox();
     const sea = st.scene.getObjectByName('sea'); if (sea) sea.position.y = doc.terrain.seaLevel;
-  }, [terrain, version, doc.terrain.seaLevel]);
+  }, [terrain, version, doc.terrain.seaLevel, doc.terrain.climate]);
 
   // Lakes and rivers at their own water levels.
   useEffect(() => {
@@ -125,9 +126,10 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     const st = scene.current;
     if (!st) return;
     let cancelled = false;
+    const tint = climateTint(doc.terrain.climate);
+    const tinted = (m: Material | Material[]): Material => { const mat = (Array.isArray(m) ? m[0]! : m).clone() as Material & { color?: Color }; if (mat.color) mat.color.multiply(new Color(tint[0], tint[1], tint[2])); return mat; };
     const clear = () => { for (const c of [...st.objects.children]) { st.objects.remove(c); if (c instanceof InstancedMesh) c.dispose(); else if (c instanceof Mesh) c.geometry.dispose(); } };
     const placed: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number; sx?: number }> = [];
-    for (const f of doc.flora) if (placed.length < MAX_INSTANCES) placed.push({ asset: f[0], x: f[1], y: terrain.heightAt(f[1], f[2]), z: f[2], yaw: f[3], scale: f[4] });
     const results = [...doc.regions.map((r) => r.result).filter((r): r is SettlementResult => !!r), ...(preview ? [preview] : [])];
     for (const r of results) {
       for (const b of r.buildings) {
@@ -178,16 +180,19 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
         const vis = visuals.get(asset);
         if (!vis) continue;
         for (const part of vis.parts) {
-          const inst = new InstancedMesh(part.geometry, part.material, list.length);
+          const inst = new InstancedMesh(part.geometry, tinted(part.material), list.length);
           list.forEach((p, i) => { m.compose(v.set(p.x, p.y, p.z), q.setFromAxisAngle(up, p.yaw), sc.set(p.scale * (p.sx ?? 1), p.scale, p.scale)); inst.setMatrixAt(i, m); });
           inst.computeBoundingSphere();
           st.objects.add(inst);
         }
       }
+      // Painted and generated vegetation: light stand-ins (a trunk and a crown, a bush, a rock)
+      // instanced by the tens of thousands — full models for every tree would stall the view.
+      addFloraImpostors(st.objects, doc.flora, terrain, tint);
       setStatus(placed.length >= MAX_INSTANCES ? `Hiển thị ${MAX_INSTANCES} đối tượng đầu tiên.` : '');
     })();
     return () => { cancelled = true; };
-  }, [doc.regions, doc.base.structures, doc.flora, preview, terrain]);
+  }, [doc.regions, doc.base.structures, doc.flora, doc.terrain.climate, preview, terrain]);
 
   // Brush strokes on the 3D ground; orbit with the right button while a brush is active.
   useEffect(() => {
@@ -221,4 +226,33 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     <div ref={host} style={{ position: 'absolute', inset: 0 }} />
     {status ? <div className={s.hint} style={{ top: 'auto', bottom: 12 }}>{status}</div> : null}
   </div>;
+}
+
+/** Instanced stand-ins for flora, coloured by kind and climate with a little variation. */
+function addFloraImpostors(group: Group, flora: readonly FloraItem[], terrain: Heightfield, tint: readonly number[]) {
+  if (!flora.length) return;
+  const kinds = { tree: [] as FloraItem[], bush: [] as FloraItem[], rock: [] as FloraItem[], grass: [] as FloraItem[] };
+  for (const f of flora) (kinds[(floraGroup.get(f[0]) ?? 'tree') as keyof typeof kinds] ?? kinds.tree).push(f);
+  const m = new Matrix4(), q = new Quaternion(), up = new Vector3(0, 1, 0), v = new Vector3(), sc = new Vector3(), col = new Color();
+  const add = (geo: BufferGeometry, list: FloraItem[], base: string, size: (f: FloraItem) => [number, number, number], lift: (f: FloraItem) => number, vary = .12) => {
+    if (!list.length) return;
+    const inst = new InstancedMesh(geo, new MeshLambertMaterial({ color: '#ffffff' }), list.length);
+    list.forEach((f, i) => {
+      const [sx, sy, sz] = size(f);
+      m.compose(v.set(f[1], terrain.heightAt(f[1], f[2]) + lift(f), f[2]), q.setFromAxisAngle(up, f[3]), sc.set(sx, sy, sz));
+      inst.setMatrixAt(i, m);
+      const k = 1 - vary + ((f[0] * 37 + i * 13) % 100) / 100 * vary * 2;
+      inst.setColorAt(i, col.set(base).multiplyScalar(k).multiply(new Color(tint[0], tint[1], tint[2])));
+    });
+    inst.computeBoundingSphere();
+    group.add(inst);
+  };
+  const crown = new IcosahedronGeometry(1, 0), cone = new ConeGeometry(1, 1, 6), trunk = new CylinderGeometry(.18, .25, 1, 5);
+  const conifer = (id: number) => (id >= 2448 && id <= 2452) || (id >= 2626 && id <= 2634);
+  add(trunk, kinds.tree, '#5a4632', (f) => [f[4], 3.2 * f[4], f[4]], (f) => 1.6 * f[4], .05);
+  add(cone, kinds.tree.filter((f) => conifer(f[0])), '#2f4f30', (f) => [2.4 * f[4], 8 * f[4], 2.4 * f[4]], (f) => 6.2 * f[4]);
+  add(crown, kinds.tree.filter((f) => !conifer(f[0])), '#3f6435', (f) => [3.2 * f[4], 2.8 * f[4], 3.2 * f[4]], (f) => 5 * f[4]);
+  add(crown, kinds.bush, '#4c6e3c', (f) => [1.4 * f[4], 1 * f[4], 1.4 * f[4]], (f) => .6 * f[4]);
+  add(new DodecahedronGeometry(1, 0), kinds.rock, '#8a857b', (f) => [1.2 * f[4], .7 * f[4], 1 * f[4]], (f) => .2 * f[4], .08);
+  add(cone, kinds.grass, '#7d9150', (f) => [.35 * f[4], .5 * f[4], .35 * f[4]], (f) => .25 * f[4]);
 }

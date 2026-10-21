@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BIOMES, DEFAULT_FLORA, FLORA_SPECIES, eraseFlora, floraGrid, paintFlora, type FloraBrush, type FloraItem,
+  BIOMES, DEFAULT_FLORA, climateTint, FLORA_SPECIES, eraseFlora, floraGrid, paintFlora, type FloraBrush, type FloraItem,
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, Simplex2, StrokeRecorder, applyBrush, carveLake, carveRiver, checkSettlement, lakeSpillLevel, newId, newRegion, obbCorners, seedNumber,
   serializeMap, stream, validateMap, validateRegion, type BrushSettings, type CellRect, type Circle, type LootCategory, type MapIssue, type Region, type SettlementLayer,
   type SettlementResult, type Vec2, type WorldMapDoc,
@@ -532,8 +532,8 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
   rasterRef.current.contours = layers.contours;
   useEffect(() => { bump(); }, [layers.contours, bump]);
   // A new sea level recolours the whole map.
-  const seaLevel = doc.terrain.seaLevel;
-  useEffect(() => { rasterRef.current!.reset(terrainRef.current, seaLevel); setVersion((v) => v + 1); }, [seaLevel]);
+  const seaLevel = doc.terrain.seaLevel, climate = doc.terrain.climate;
+  useEffect(() => { rasterRef.current!.tint = climateTint(climate); rasterRef.current!.reset(terrainRef.current, seaLevel); setVersion((v) => v + 1); }, [seaLevel, climate]);
 
   const overlay: Overlay = useMemo(() => ({
     preview: preview ? { region: preview.region, result: preview.result } : null,

@@ -18,6 +18,8 @@ export class TerrainRaster {
   readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   contours = true;
+  /** Climate colour cast (warm and sandy, cold and blue…), multiplied into the land colours. */
+  tint: readonly number[] = [1, 1, 1];
 
   constructor(private terrain: Heightfield, private seaLevel: number) {
     this.canvas = document.createElement('canvas');
@@ -53,7 +55,8 @@ export class TerrainRaster {
       } else {
         const c = SURFACE_RGB[S[k]!] ?? SURFACE_RGB[Surface.Grass]!;
         const lift = Math.min(.18, (z - sea) / 1600);
-        R = (c[0] + 255 * lift) * shade; G = (c[1] + 255 * lift) * shade; B = (c[2] + 255 * lift) * shade;
+        const [tr, tg, tb] = this.tint;
+        R = (c[0] + 255 * lift) * shade * tr!; G = (c[1] + 255 * lift) * shade * tg!; B = (c[2] + 255 * lift) * shade * tb!;
         if (this.contours) {
           const band = Math.floor(z / interval);
           if (band !== Math.floor(rr / interval) || band !== Math.floor(dn / interval)) {

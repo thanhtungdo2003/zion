@@ -99,7 +99,7 @@ export const worldMapSchema = z.object({
     template: z.string().max(40), createdAt: n, updatedAt: n, size: n, seed: z.string().max(64), thumbnail: z.string().max(200_000).optional(),
   }).strict(),
   terrain: z.object({
-    preset: z.enum(TERRAIN_PRESETS.map((p) => p.id) as [string, ...string[]]), seed: z.string(), size: n, cell: n, seaLevel: n, maxHeight: n, roughness: n, detail: n.int(), seaEdge: z.boolean(),
+    preset: z.enum(TERRAIN_PRESETS.map((p) => p.id) as [string, ...string[]]), seed: z.string(), size: n, cell: n, seaLevel: n, maxHeight: n, roughness: n, detail: n.int(), seaEdge: z.boolean(), climate: z.enum(['temperate', 'arid', 'desert', 'snow', 'tropical']).optional(), erosion: n.min(0).max(1).optional(),
   }).strict(),
   water: z.object({
     lakes: z.array(z.object({ id: z.string(), name: z.string().max(80), polygon: z.array(vec).min(3).max(256), level: n, depth: n.min(0).max(100) }).strict()).max(128),

@@ -1,8 +1,9 @@
-import { Surface, smoothstep } from '@zion/shared';
+import { Rng, Surface, smoothstep } from '@zion/shared';
 import { Simplex2 } from '../noise';
 import { type Heightfield, seedNumber } from './heightfield';
 
 export const TERRAIN_PRESETS = [
+  { id: 'tectonic', name: 'Kiến tạo (dãy núi thật)', maxHeight: 360, roughness: .55, detail: 6 },
   { id: 'plains', name: 'Đồng bằng', maxHeight: 40, roughness: .35, detail: 4 },
   { id: 'hills', name: 'Đồi', maxHeight: 110, roughness: .5, detail: 5 },
   { id: 'mountains', name: 'Núi', maxHeight: 320, roughness: .62, detail: 6 },
@@ -11,6 +12,17 @@ export const TERRAIN_PRESETS = [
   { id: 'mixed', name: 'Hỗn hợp', maxHeight: 240, roughness: .55, detail: 6 },
 ] as const;
 export type TerrainPreset = typeof TERRAIN_PRESETS[number]['id'];
+
+/** Battlefield climate: what the ground, plants and rocks look like, and where things grow. */
+export const CLIMATES = [
+  { id: 'temperate', name: 'Ôn đới', tint: [1, 1, 1] },
+  { id: 'arid', name: 'Khô hạn', tint: [1.1, 1.02, .84] },
+  { id: 'desert', name: 'Sa mạc', tint: [1.18, 1.04, .78] },
+  { id: 'snow', name: 'Tuyết phủ', tint: [.94, 1, 1.1] },
+  { id: 'tropical', name: 'Nhiệt đới', tint: [.95, 1.06, .92] },
+] as const;
+export type Climate = typeof CLIMATES[number]['id'];
+export const climateTint = (c: Climate | undefined) => CLIMATES.find((x) => x.id === c)?.tint ?? CLIMATES[0].tint;
 
 export interface TerrainSettings {
   preset: TerrainPreset;
@@ -27,15 +39,18 @@ export interface TerrainSettings {
   detail: number;
   /** Surround the land with sea (always on for the island preset). */
   seaEdge: boolean;
+  climate?: Climate;
+  /** 0..1: hydraulic erosion after uplift (carves valleys and gullies, fills basins). */
+  erosion?: number;
 }
 
 export const MAP_SIZES = [1024, 2048, 4096, 8192] as const;
 /** Grid spacing per map size: always 1025² vertices (about 5 MB per map). */
 export const cellFor = (size: number) => size / 1024;
 
-export function defaultTerrainSettings(preset: TerrainPreset = 'island', seed = 'zion', size = 4096): TerrainSettings {
+export function defaultTerrainSettings(preset: TerrainPreset = 'tectonic', seed = 'zion', size = 4096): TerrainSettings {
   const p = TERRAIN_PRESETS.find((t) => t.id === preset)!;
-  return { preset, seed, size, cell: cellFor(size), seaLevel: 20, maxHeight: p.maxHeight, roughness: p.roughness, detail: p.detail, seaEdge: preset === 'island' };
+  return { preset, seed, size, cell: cellFor(size), seaLevel: 20, maxHeight: p.maxHeight, roughness: p.roughness, detail: p.detail, seaEdge: preset === 'island' || preset === 'tectonic', climate: 'temperate', erosion: .6 };
 }
 
 export function validateTerrainSettings(s: TerrainSettings): string[] {
@@ -48,7 +63,39 @@ export function validateTerrainSettings(s: TerrainSettings): string[] {
   if (!(s.roughness >= 0 && s.roughness <= 1)) issues.push('Độ gồ ghề phải trong 0–1.');
   if (!(Number.isInteger(s.detail) && s.detail >= 1 && s.detail <= 8)) issues.push('Mật độ chi tiết phải là 1–8 lớp.');
   if (!(s.seaLevel >= 0 && s.seaLevel <= 200)) issues.push('Mực nước biển phải trong 0–200 m.');
+  if (s.erosion !== undefined && !(s.erosion >= 0 && s.erosion <= 1)) issues.push('Mức xói mòn phải trong 0–1.');
   return issues;
+}
+
+/**
+ * Tectonic plates: a handful of plates with their own motion. Where two plates converge the
+ * crust is pushed up into long mountain ranges along the boundary (with foothills either side);
+ * where they pull apart a rift valley opens. Continental plates sit high, oceanic ones low.
+ */
+class Plates {
+  readonly seeds: Array<{ x: number; z: number; vx: number; vz: number; base: number }> = [];
+  constructor(seed: string, count: number, oceanic: number) {
+    const rng = new Rng(seedNumber(seed, 'plates'));
+    for (let i = 0; i < count; i++) {
+      const a = rng.next() * Math.PI * 2;
+      this.seeds.push({ x: rng.next() * 1.2 - .1, z: rng.next() * 1.2 - .1, vx: Math.cos(a), vz: Math.sin(a), base: rng.next() < oceanic ? -.15 : .18 + rng.next() * .14 });
+    }
+  }
+  /** Uplift along convergent boundaries (0..1), rifting (≤0) and the plate's base level. */
+  sample(u: number, v: number): { uplift: number; base: number; boundary: number } {
+    let a = -1, b = -1, da = Infinity, db = Infinity;
+    this.seeds.forEach((s, i) => { const d = (s.x - u) ** 2 + (s.z - v) ** 2; if (d < da) { db = da; b = a; da = d; a = i; } else if (d < db) { db = d; b = i; } });
+    const A = this.seeds[a]!, B = this.seeds[b]!;
+    const nx = B.x - A.x, nz = B.z - A.z, nl = Math.hypot(nx, nz) || 1;
+    // Distance to the bisector between the two nearest seeds = distance to the plate boundary.
+    const dist = (db - da) / (2 * nl);
+    const converge = ((A.vx - B.vx) * nx + (A.vz - B.vz) * nz) / nl;
+    const w = .07, near = Math.exp(-((dist / w) ** 2)), wide = Math.exp(-((dist / (w * 3)) ** 2));
+    const uplift = converge > 0 ? converge * (near * .85 + wide * .3) : converge * near * .35;
+    // Plate bases blend across the boundary so the shelf is not a step.
+    const t = smoothstep(-.06, .06, -dist);
+    return { uplift, base: A.base + (B.base - A.base) * t * .5, boundary: dist };
+  }
 }
 
 /** Multi-octave noise sampler for one seed. */
@@ -56,10 +103,12 @@ export class TerrainNoise {
   private readonly base: Simplex2;
   private readonly warp: Simplex2;
   private readonly mask: Simplex2;
-  constructor(seed: string) {
+  readonly plates: Plates;
+  constructor(seed: string, oceanic = .3) {
     this.base = new Simplex2(seedNumber(seed, 'terrain'));
     this.warp = new Simplex2(seedNumber(seed, 'terrain-warp'));
     this.mask = new Simplex2(seedNumber(seed, 'terrain-mask'));
+    this.plates = new Plates(seed, 9, oceanic);
   }
   fbm(x: number, z: number, octaves: number, persistence: number): number {
     let sum = 0, amp = 1, freq = 1, norm = 0;
@@ -88,25 +137,34 @@ export class TerrainNoise {
 export function reliefAt(n: TerrainNoise, s: TerrainSettings, u: number, v: number): number {
   // Feature sizes are in metres (a 4 km map holds four base wavelengths, a 1 km map one), and
   // octaves finer than a few grid cells are dropped: they would only be aliasing.
-  const k = s.size / 4096, o = Math.max(1, Math.min(s.detail, Math.floor(Math.log2(1024 / k / (4 * s.cell)) ) + 1)), p = .3 + s.roughness * .4;
+  const k = s.size / 4096, o = Math.max(1, Math.min(s.detail, Math.floor(Math.log2(1024 / k / (4 * s.cell))) + 1)), p = .3 + s.roughness * .4;
   const [wx, wz] = n.warpOffset(u * 2, v * 2);
   const x = (u * 4 + wx * .35) * k, z = (v * 4 + wz * .35) * k;
+  // Warped plate coordinates: boundaries bend like real ranges instead of running straight.
+  const plate = n.plates.sample(u + wx * .05, v + wz * .05);
+  const range = (scale: number) => Math.max(0, plate.uplift) * (.45 + .55 * n.ridged(x * 1.6, z * 1.6, o, p)) * scale;
   let h: number;
   switch (s.preset) {
-    case 'plains': h = .18 + n.fbm(x * .6, z * .6, o, p) * .25; break;
-    case 'hills': h = .35 + n.fbm(x, z, o, p) * .55; break;
-    case 'mountains': h = .08 + n.ridged(x * .8, z * .8, o, p) * .95; break;
+    case 'tectonic': {
+      // Continents and ocean shelves from the plates, ranges where they collide, rolling
+      // foothills between, a light fbm for the small relief.
+      h = plate.base + range(1.05) + Math.min(0, plate.uplift) * .5 + n.fbm(x * 1.2, z * 1.2, o, p) * .09 + n.fbm(x * .35, z * .35, 3, .5) * .1;
+      break;
+    }
+    case 'plains': h = .18 + n.fbm(x * .6, z * .6, o, p) * .25 + range(.15); break;
+    case 'hills': h = .35 + n.fbm(x, z, o, p) * .45 + range(.35); break;
+    case 'mountains': h = .1 + range(.9) + n.ridged(x * .8, z * .8, o, p) * .35; break;
     case 'valley': {
       // A winding valley floor where a low-frequency line crosses zero, ridges either side.
       const line = Math.abs(n.low(u * 1.6 + wx * .3, v * 1.6 + wz * .3));
-      h = .12 + n.ridged(x * .7, z * .7, o, p) * .8 * smoothstep(.04, .45, line) + n.fbm(x * 2, z * 2, 3, .5) * .04;
+      h = .12 + (n.ridged(x * .7, z * .7, o, p) * .6 + range(.5)) * smoothstep(.04, .45, line) + n.fbm(x * 2, z * 2, 3, .5) * .04;
       break;
     }
-    case 'island': h = .22 + n.fbm(x * .8, z * .8, o, p) * .45 + n.ridged(x * .6, z * .6, Math.max(1, o - 1), p) * .45 * smoothstep(.1, .6, n.low(u * 2, v * 2) + .3); break;
+    case 'island': h = .22 + n.fbm(x * .8, z * .8, o, p) * .3 + range(.75); break;
     default: {
       const m = n.low(u * 1.4, v * 1.4) * .5 + .5;
-      const plains = .15 + n.fbm(x * .6, z * .6, o, p) * .2, hills = .3 + n.fbm(x, z, o, p) * .45, peaks = .1 + n.ridged(x * .8, z * .8, o, p);
-      h = m < .45 ? plains + (hills - plains) * smoothstep(.25, .45, m) : hills + (peaks - hills) * smoothstep(.55, .8, m);
+      const plains = .15 + n.fbm(x * .6, z * .6, o, p) * .2, hills = .3 + n.fbm(x, z, o, p) * .45;
+      h = (m < .45 ? plains + (hills - plains) * smoothstep(.25, .45, m) : hills) + range(.8);
     }
   }
   if (s.seaEdge || s.preset === 'island') {
@@ -121,31 +179,105 @@ export function reliefAt(n: TerrainNoise, s: TerrainSettings, u: number, v: numb
 
 /** Fills `hf` row by row, yielding the fraction done (lets a worker report progress and cancel). */
 export function* generateTerrain(s: TerrainSettings, hf: Heightfield): Generator<number, void> {
-  const n = new TerrainNoise(s.seed), last = hf.cols - 1;
+  const n = new TerrainNoise(s.seed, s.seaEdge ? .35 : .1), last = hf.cols - 1;
+  const erosion = s.erosion ?? 0;
   for (let j = 0; j < hf.rows; j++) {
     for (let i = 0; i < hf.cols; i++) {
       const r = reliefAt(n, s, i / last, j / last);
       hf.heights[j * hf.cols + i] = r < 0 ? s.seaLevel + r * 120 : s.seaLevel + .8 + r * s.maxHeight;
     }
-    if (j % 32 === 31) yield (j + 1) / hf.rows;
+    if (j % 32 === 31) yield (j + 1) / hf.rows * (erosion ? .5 : .95);
   }
-  autoPaint(hf, s.seaLevel);
+  if (erosion > 0) for (const f of erodeTerrain(hf, s.seaLevel, erosion, s.seed)) yield .5 + f * .45;
+  autoPaint(hf, s.seaLevel, s.climate);
   yield 1;
 }
 
-/** Surfaces from height and slope: sand on the shore, rock on cliffs, snow on the peaks. */
-export function autoPaint(hf: Heightfield, seaLevel: number, rect = { i0: 0, j0: 0, i1: hf.cols - 1, j1: hf.rows - 1 }): void {
-  const c = hf.cell;
+/**
+ * Whole-map hydraulic erosion (droplets, after Beyer 2015) followed by a thermal pass: rain
+ * carves gullies and valleys down the mountains, sediment settles into the basins and plains,
+ * and slopes steeper than the talus angle crumble. Deterministic for the seed.
+ */
+export function* erodeTerrain(hf: Heightfield, seaLevel: number, amount: number, seed: string): Generator<number, void> {
+  const { cols, rows, cell } = hf, h = hf.heights, rng = new Rng(seedNumber(seed, 'erosion'));
+  const drops = Math.round(cols * rows * .35 * amount), scale = Math.max(1, 4 / cell);
+  const inertia = .05, capacity = 4 * scale, deposition = .3, erosion = .3, evaporation = .015, gravity = 4, minSlope = .01, radius = 2;
+  for (let n = 0; n < drops; n++) {
+    let px = 1 + rng.next() * (cols - 3), pz = 1 + rng.next() * (rows - 3);
+    let dx = 0, dz = 0, speed = 1, water = 1, sediment = 0;
+    for (let life = 0; life < 48; life++) {
+      const i = Math.floor(px), j = Math.floor(pz), u = px - i, v = pz - j, k = j * cols + i;
+      const a = h[k]!, b = h[k + 1]!, c = h[k + cols]!, d = h[k + cols + 1]!;
+      const gx = (b - a) * (1 - v) + (d - c) * v, gz = (c - a) * (1 - u) + (d - b) * u, here = a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+      if (here < seaLevel - 2) break;
+      dx = dx * inertia - gx * (1 - inertia); dz = dz * inertia - gz * (1 - inertia);
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) break;
+      dx /= len; dz /= len; px += dx; pz += dz;
+      if (px < 1 || pz < 1 || px >= cols - 2 || pz >= rows - 2) break;
+      const ni = Math.floor(px), nj = Math.floor(pz), nu = px - ni, nv = pz - nj, nk = nj * cols + ni;
+      const next = h[nk]! * (1 - nu) * (1 - nv) + h[nk + 1]! * nu * (1 - nv) + h[nk + cols]! * (1 - nu) * nv + h[nk + cols + 1]! * nu * nv;
+      const dh = next - here, cap = Math.max(-dh, minSlope) * speed * water * capacity;
+      if (sediment > cap || dh > 0) {
+        const amountD = dh > 0 ? Math.min(dh, sediment) : (sediment - cap) * deposition;
+        sediment -= amountD;
+        h[k] = h[k]! + amountD * (1 - u) * (1 - v); h[k + 1] = h[k + 1]! + amountD * u * (1 - v); h[k + cols] = h[k + cols]! + amountD * (1 - u) * v; h[k + cols + 1] = h[k + cols + 1]! + amountD * u * v;
+      } else {
+        // Erode from a small disc so gullies are not one cell wide.
+        const amountE = Math.min((cap - sediment) * erosion, -dh);
+        let wsum = 0;
+        for (let oj = -radius; oj <= radius; oj++) for (let oi = -radius; oi <= radius; oi++) wsum += Math.max(0, radius + .5 - Math.hypot(oi, oj));
+        for (let oj = -radius; oj <= radius; oj++) for (let oi = -radius; oi <= radius; oi++) {
+          const ii = i + oi, jj = j + oj, w = Math.max(0, radius + .5 - Math.hypot(oi, oj)) / wsum;
+          if (w > 0 && ii >= 0 && jj >= 0 && ii < cols && jj < rows) h[jj * cols + ii] = h[jj * cols + ii]! - amountE * w;
+        }
+        sediment += amountE;
+      }
+      speed = Math.sqrt(Math.max(0, speed * speed + -dh * gravity));
+      water *= 1 - evaporation;
+    }
+    if (n % 20000 === 19999) yield n / drops * .85;
+  }
+  // Thermal: material slides off slopes steeper than ~40°.
+  const talus = cell * .85;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let j = 1; j < rows - 1; j++) for (let i = 1; i < cols - 1; i++) {
+      const k = j * cols + i;
+      for (const o of [1, -1, cols, -cols]) {
+        const diff = h[k]! - h[k + o]!;
+        if (diff > talus) { const m = (diff - talus) * .25; h[k] = h[k]! - m; h[k + o] = h[k + o]! + m; }
+      }
+    }
+    yield .85 + pass * .05;
+  }
+}
+
+/**
+ * Surfaces from height, slope and climate: the shore, cliffs, scree, valley floors and peaks
+ * look like the climate they are in (green temperate valleys, sandstone desert, snowfields…).
+ */
+export function autoPaint(hf: Heightfield, seaLevel: number, climate: Climate = 'temperate', rect = { i0: 0, j0: 0, i1: hf.cols - 1, j1: hf.rows - 1 }): void {
+  const c = hf.cell, stats = hf.stats(), top = Math.max(30, stats.max - seaLevel);
   for (let j = rect.j0; j <= rect.j1; j++) for (let i = rect.i0; i <= rect.i1; i++) {
-    const h = hf.get(i, j), rel = h - seaLevel;
+    const h = hf.get(i, j), rel = h - seaLevel, alt = rel / top;
     const slope = Math.hypot(hf.get(i + 1, j) - hf.get(i - 1, j), hf.get(i, j + 1) - hf.get(i, j - 1)) / (2 * c);
+    // Hollows (lower than their surroundings) hold moisture: greener, muddier.
+    const around = (hf.get(i + 4, j) + hf.get(i - 4, j) + hf.get(i, j + 4) + hf.get(i, j - 4)) / 4, hollow = around - h > .6;
+    const speck = (i * 7 + j * 13) % 11 === 0;
     let s: Surface;
-    if (rel < 2.5) s = Surface.Sand;
-    else if (slope > .9) s = Surface.Rock;
-    else if (rel > 260) s = Surface.Snow;
-    else if (slope > .55) s = rel > 120 ? Surface.Gravel : Surface.Dirt;
-    else if (rel > 170) s = Surface.DryGrass;
-    else s = ((i * 7 + j * 13) % 11 === 0 && slope > .3) ? Surface.Dirt : Surface.Grass;
+    if (rel < 2.5) s = climate === 'snow' ? Surface.Gravel : climate === 'tropical' && hollow ? Surface.Mud : Surface.Sand;
+    else if (slope > .9) s = climate === 'desert' || climate === 'arid' ? Surface.Sandstone : Surface.Rock;
+    else switch (climate) {
+      case 'desert': s = slope > .45 ? Surface.Sandstone : alt > .7 ? Surface.Rock : hollow && speck ? Surface.Gravel : Surface.Sand; break;
+      case 'arid': s = slope > .5 ? (alt > .5 ? Surface.Rock : Surface.Sandstone) : hollow ? Surface.DryGrass : alt > .55 ? Surface.Gravel : speck ? Surface.Sand : Surface.Dirt; break;
+      case 'snow': s = slope > .55 ? Surface.Rock : alt < .12 && hollow ? Surface.Gravel : Surface.Snow; break;
+      case 'tropical': s = slope > .55 ? Surface.Dirt : hollow ? Surface.JungleFloor : alt > .75 ? Surface.Rock : Surface.Grass; break;
+      default:
+        if (alt > .82) s = Surface.Snow;
+        else if (slope > .55) s = alt > .45 ? Surface.Gravel : Surface.Dirt;
+        else if (alt > .6) s = Surface.DryGrass;
+        else s = speck && slope > .3 ? Surface.Dirt : Surface.Grass;
+    }
     hf.surface[j * hf.cols + i] = s;
   }
 }

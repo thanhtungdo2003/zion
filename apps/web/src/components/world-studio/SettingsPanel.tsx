@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
+import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
 import { storageEstimate } from '@/studio/world/map-store';
 import type { EditorApi } from './editor-api';
@@ -37,6 +37,8 @@ export function SettingsPanel({ api }: { api: EditorApi }) {
       <Slider label="Độ gồ ghề" min={0} max={1} step={.05} value={t.roughness} onChange={(roughness) => terrain({ roughness }, 'rough')} format={(v) => `${Math.round(v * 100)}%`} />
       <Slider label="Mật độ chi tiết (lớp noise)" min={1} max={8} value={t.detail} onChange={(detail) => terrain({ detail }, 'detail')} />
       <NumberField label="Mực nước biển" unit="m" min={0} max={200} step={.5} value={t.seaLevel} onChange={(seaLevel) => terrain({ seaLevel }, 'sea')} />
+      <div className={s.field}><span className={s.fieldRow}>Khí hậu</span><Seg<Climate> value={t.climate ?? 'temperate'} options={CLIMATES} onChange={(climate) => terrain({ climate }, 'climate')} /></div>
+      <Slider label="Xói mòn khi sinh" min={0} max={1} step={.05} value={t.erosion ?? 0} onChange={(erosion) => terrain({ erosion }, 'erosion')} format={(v) => (v ? `${Math.round(v * 100)}%` : 'Tắt')} />
       <Check label="Biển bao quanh (đường bờ)" value={t.seaEdge || t.preset === 'island'} onChange={(seaEdge) => terrain({ seaEdge }, 'edge')} />
       {problems.map((p) => <p key={p} className={`${s.note} ${s.err}`}>{p}</p>)}
       {resized && <p className={`${s.note} ${s.warn}`}>Đổi kích thước cần sinh lại địa hình ({t.size} m, {t.cell} m/ô). Khu vực ngoài biên mới sẽ báo lỗi khi kiểm tra.</p>}

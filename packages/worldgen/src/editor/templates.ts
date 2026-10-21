@@ -6,7 +6,7 @@ import { authoredWorld } from '../maps/authored';
 import type { Vec2 } from './geometry';
 import { createMapDoc, type MapKind, type WorldMapDoc } from './document';
 import { Heightfield } from './heightfield';
-import { defaultTerrainSettings, generateTerrain, type TerrainPreset } from './terrain-gen';
+import { defaultTerrainSettings, generateTerrain, type Climate, type TerrainPreset } from './terrain-gen';
 import { autoMap, type AutoParams } from './auto-map';
 export { DEFAULT_AUTO, type AutoParams } from './auto-map';
 
@@ -30,6 +30,8 @@ export interface NewMapRequest {
   roughness?: number;
   detail?: number;
   seaEdge?: boolean;
+  climate?: Climate;
+  erosion?: number;
   /** Template 'auto': what to put on the map. */
   auto?: AutoParams;
 }
@@ -46,6 +48,8 @@ export function* buildNewMap(req: NewMapRequest, registry: AssetRegistry): Gener
   if (req.roughness !== undefined) settings.roughness = req.roughness;
   if (req.detail !== undefined) settings.detail = req.detail;
   if (req.seaEdge !== undefined) settings.seaEdge = req.seaEdge || req.preset === 'island';
+  if (req.climate) settings.climate = req.climate;
+  if (req.erosion !== undefined) settings.erosion = req.erosion;
   const terrain = new Heightfield(settings.size, settings.cell);
   if (req.template === 'blank') { terrain.heights.fill(settings.seaLevel + 10); terrain.surface.fill(0); yield 1; }
   else yield* generateTerrain(settings, terrain);

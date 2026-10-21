@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BATTLE_MAP } from '@zion/shared';
-import { Heightfield, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
+import { CLIMATES, Heightfield, MAP_KINDS, type Climate, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
 import { DEFAULT_AUTO, type AutoParams, type MapTemplate, type NewMapRequest } from '@zion/worldgen/editor/templates';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Icon } from '../Icon';
@@ -142,7 +142,7 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [template, setTemplate] = useState<MapTemplate>('hac-son');
   const [name, setName] = useState('Đảo Hắc Sơn — bản chỉnh sửa');
   const [kind, setKind] = useState<MapKind>('battle-royale');
-  const [preset, setPreset] = useState<TerrainPreset>('island');
+  const [preset, setPreset] = useState<TerrainPreset>('tectonic');
   const [size, setSize] = useState(4096);
   const [seed, setSeed] = useState(() => Math.random().toString(36).slice(2, 9));
   const p = TERRAIN_PRESETS.find((t) => t.id === preset)!;
@@ -150,13 +150,14 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [job, setJob] = useState<{ label: string; value: number; cancel: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [auto, setAuto] = useState<AutoParams>(DEFAULT_AUTO);
+  const [climate, setClimate] = useState<Climate>('temperate'), [erosion, setErosion] = useState(.6);
   const choose = (t: MapTemplate) => {
     setTemplate(t);
     if (t === 'hac-son') setName('Đảo Hắc Sơn — bản chỉnh sửa'); else if (name.startsWith('Đảo Hắc Sơn')) setName(t === 'blank' ? 'Bản đồ trống' : 'Bản đồ mới');
   };
   const create = async () => {
     setError(null);
-    const req: NewMapRequest = { template, name: name.trim() || 'Bản đồ mới', kind, size: template === 'hac-son' ? BATTLE_MAP.sizeChunks * 32 : size, seed: template === 'hac-son' ? BATTLE_MAP.seed : seed, preset, maxHeight, roughness, detail, seaEdge, ...(template === 'auto' ? { auto } : {}) };
+    const req: NewMapRequest = { template, name: name.trim() || 'Bản đồ mới', kind, size: template === 'hac-son' ? BATTLE_MAP.sizeChunks * 32 : size, seed: template === 'hac-son' ? BATTLE_MAP.seed : seed, preset, maxHeight, roughness, detail, seaEdge, climate, erosion, ...(template === 'auto' ? { auto } : {}) };
     const handle = runJob<'map'>({ kind: 'new-map', req }, (label, value) => setJob((j) => (j ? { ...j, label, value } : j)));
     setJob({ label: 'Đang chuẩn bị…', value: 0, cancel: handle.cancel });
     try {
@@ -185,6 +186,8 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <label className={s.check}><input type="checkbox" checked={auto.roads} onChange={(e) => setAuto({ ...auto, roads: e.target.checked })} />Nối các khu vực bằng đường</label>
       </>}
       {(template === 'procedural' || template === 'auto') && <>
+        <div className={s.field}><span className={s.fieldRow}>Khí hậu chiến trường</span><Seg<Climate> value={climate} options={CLIMATES} onChange={setClimate} /></div>
+        <Slider label="Xói mòn (thung lũng, khe rãnh)" min={0} max={1} step={.05} value={erosion} onChange={setErosion} format={(v) => (v ? `${Math.round(v * 100)}%` : 'Tắt')} />
         <div className={s.field}><span className={s.fieldRow}>Preset địa hình</span>
           <div className={s.grid3}>{TERRAIN_PRESETS.map((t) => <button type="button" key={t.id} className={`${s.btn} ${preset === t.id ? s.primary : ''}`} onClick={() => { setPreset(t.id); setMaxHeight(t.maxHeight); setRoughness(t.roughness); setDetail(t.detail); }}>{t.name}</button>)}</div></div>
         <label className={s.field}><span className={s.fieldRow}>Seed</span><div style={{ display: 'flex', gap: 4 }}><input className={s.input} value={seed} onChange={(e) => setSeed(e.target.value.slice(0, 64))} data-testid="new-map-seed" /><button type="button" className={s.iconBtn} onClick={() => setSeed(Math.random().toString(36).slice(2, 9))} title="Seed ngẫu nhiên"><Icon name="lucide:dices" /></button></div></label>
