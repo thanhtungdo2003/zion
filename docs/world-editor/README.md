@@ -30,6 +30,8 @@ Các stroke bị mask có thể có delta thực thấp hơn thông số brush. 
 
 ## Công cụ và rollback
 
+World Studio có bố cục ba vùng: công cụ/lớp hiển thị, bản đồ và bảng thông số/lịch sử. Chuyển giữa so sánh hai bản và bản chỉnh sửa; kéo để di chuyển, dùng nút thu phóng hoặc chọn POI để xem từng khu vực. Các lớp đường, công trình, lô đất và nhãn địa danh bật/tắt độc lập; hai bản đồ dùng chung khung nhìn. Trên điện thoại, công cụ chuyển thành thanh ngang và các bảng xếp dọc. [Ảnh giao diện điện thoại](evidence/world-studio-mobile.png). Các điều khiển này chỉ thay đổi cách xem; bản gốc và định dạng JSON được giữ nguyên.
+
 Mở `/studio/world` từ nút **World Editor** ở Studio. Trang đọc cùng `ISLAND`/`WorldGenerator` của game, có bản gốc bên trái và revision bên phải. Có Terrain Pass, sculpt tại tọa độ click, Road Pass, phân tích block/parcel, Settlement Pass nông thôn và Environment Pass. Giao diện 2D hiện dùng heightfield thật và overlay footprints; không phải viewer 3D gameplay với toàn bộ model.
 
 Mở `island-revision.json` để xem phiên bản đã áp dụng. Editor kiểm tra schema, giới hạn dung lượng 4 MB, tối đa 64 checkpoint, yêu cầu baseline và các trường được bảo vệ khớp nguồn gốc. Lưu tự động vào browser storage, xuất/nhập JSON. JSON không tin cậy vẫn cần chạy lại generator/geometry validation trước khi kích hoạt; schema không thay kiểm tra gameplay.
