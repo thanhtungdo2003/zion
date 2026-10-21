@@ -60,6 +60,26 @@ export class AuthoredWorld {
   private floraChunks: Map<string, Array<[number, number, number, number, number]>> | null = null;
 
 
+  /**
+   * The painted surface as the map's climate makes it: in arid land grass is dry and forest floor
+   * bare soil, in the desert sand and sandstone, under snow white — except by the water, where
+   * the ground stays green.
+   */
+  private climateSurface(v: Surface, x: number, z: number): Surface {
+    const c = this.map.climate;
+    if (!c || c === 'temperate' || c === 'tropical') return v;
+    const wet = this.moisture(x, z), patch = this.noise.noise(x * .02 + 3, z * .02 - 5);
+    if (c === 'snow') return (v === Surface.Grass || v === Surface.DryGrass || v === Surface.Dirt || v === Surface.Gravel) && patch > -.45 ? Surface.Snow : v;
+    if (wet > .45 + patch * .15) return v;
+    if (c === 'arid') {
+      if (v === Surface.Grass || v === Surface.RoadVerge || v === Surface.JungleFloor) return patch > .25 ? Surface.Dirt : Surface.DryGrass;
+      if (v === Surface.ForestFloor) return patch > 0 ? Surface.Dirt : Surface.DryGrass;
+      return v;
+    }
+    if (v === Surface.Grass || v === Surface.DryGrass || v === Surface.RoadVerge || v === Surface.JungleFloor || v === Surface.ForestFloor) return patch > .35 ? Surface.Sandstone : patch > -.2 ? Surface.Sand : Surface.Dirt;
+    return v === Surface.Gravel ? Surface.Sandstone : v;
+  }
+
   /** 0..1: how close a point is to water on a studio map (bilinear over 16 m cells); 0 without data. */
   moisture(x: number, z: number): number {
     const m = this.moistureGrid;
@@ -361,7 +381,7 @@ export class AuthoredWorld {
     if (this.surfaceGrid && this.heightGrid) {
       const g = this.heightGrid, i = Math.max(0, Math.min(g.cols - 1, Math.round(x / g.cell))), j = Math.max(0, Math.min(g.cols - 1, Math.round(z / g.cell)));
       const v = this.surfaceGrid[j * g.cols + i];
-      if (v !== undefined) return v as Surface;
+      if (v !== undefined) return this.climateSurface(v as Surface, x, z);
     }
     const d = this.coastDistance(x, z);
     if (d < 26 && rel < 4) return slope > .6 ? Surface.Rock : Surface.Sand;

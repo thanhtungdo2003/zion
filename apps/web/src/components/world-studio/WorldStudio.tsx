@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { Heightfield, WorldMapDoc } from '@zion/worldgen/editor';
-import { loadMap } from '@/studio/world/map-store';
+import { climateTint, type Heightfield, type WorldMapDoc } from '@zion/worldgen/editor';
+import { loadMap, renderThumbnail, saveMeta } from '@/studio/world/map-store';
 import { MapManager } from './MapManager';
 import MapEditor from './MapEditor';
 import s from './world-studio.module.css';
@@ -27,7 +27,12 @@ export default function WorldStudio() {
     if (!openId) { setLoaded(null); return; }
     let cancelled = false;
     setError(null);
-    loadMap(openId).then((m) => { if (!cancelled) setLoaded({ id: openId, ...m }); }).catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
+    loadMap(openId).then((m) => {
+      if (cancelled) return;
+      setLoaded({ id: openId, ...m });
+      // Old previews were drawn without the climate: redraw the list thumbnail on open.
+      void saveMeta({ ...m.doc, meta: { ...m.doc.meta, thumbnail: renderThumbnail(m.terrain, m.doc.terrain.seaLevel, 160, climateTint(m.doc.terrain.climate)) } }).catch(() => undefined);
+    }).catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
     return () => { cancelled = true; };
   }, [openId]);
 
