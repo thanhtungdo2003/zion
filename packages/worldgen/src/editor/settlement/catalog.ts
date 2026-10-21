@@ -14,7 +14,7 @@ export interface CatalogItem {
   height: number;
 }
 
-export type PropKind = 'tree' | 'deadTree' | 'bush' | 'fence' | 'perimeter' | 'lamp' | 'vehicle' | 'militaryVehicle' | 'clutter' | 'industrialClutter' | 'militaryClutter' | 'bench' | 'debris';
+export type PropKind = 'hedge' | 'crop' | 'wall' | 'tree' | 'deadTree' | 'bush' | 'fence' | 'perimeter' | 'lamp' | 'vehicle' | 'militaryVehicle' | 'clutter' | 'industrialClutter' | 'militaryClutter' | 'bench' | 'debris';
 
 /** Real asset ids per building class (see packages/assets: imported buildings, battle kit, camp). */
 const BUILDINGS: Record<LotClass | 'abandoned', number[]> = {
@@ -38,6 +38,9 @@ const PROPS: Record<PropKind, number[]> = {
   militaryClutter: [2002, 2024, 2003, 2681],
   bench: [2537, 2412],
   debris: [2031, 2682],
+  wall: [2034, 2008, 2033],
+  hedge: [2460, 2461, 2462],
+  crop: [2460, 2462],
 };
 
 export interface Catalog {

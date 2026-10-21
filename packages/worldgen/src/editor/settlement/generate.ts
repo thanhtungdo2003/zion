@@ -13,7 +13,50 @@ import type { LotClass, SettlementSettings } from './presets';
 export type RoadKind = 'main' | 'secondary' | 'alley' | 'connector';
 export interface SettlementRoad { id: string; kind: RoadKind; width: number; points: Vec2[] }
 export interface Block { id: string; polygon: Vec2[]; cls: LotClass | 'green' }
-export interface Lot { id: string; block: string; polygon: Vec2[]; front: [Vec2, Vec2]; dir: Vec2; obb: Obb; cls: LotClass | 'green' | 'empty' }
+export type ParcelKind = 'rect' | 'skew' | 'L' | 'U' | 'wide';
+/** How a parcel is used and dressed: each one has its own character. */
+export type LotStyle = 'yard' | 'full' | 'garden' | 'orchard' | 'farm' | 'walled' | 'overgrown' | 'vacant' | 'work';
+export type FenceKind = 'none' | 'wood' | 'iron' | 'wall' | 'hedge' | 'wire';
+export interface Lot { id: string; block: string; polygon: Vec2[]; front: [Vec2, Vec2]; dir: Vec2; obb: Obb; cls: LotClass | 'green' | 'empty'; shape?: ParcelKind; style?: LotStyle; fence?: FenceKind; flora?: number }
+
+interface ParcelShape { kind: ParcelKind; a: number; b: number; depth: number; outline: Vec2[] }
+/**
+ * Cuts a run of street-front plots into a jigsaw: side boundaries lean (trapezoids, rhomboids),
+ * some plots take their neighbour's back half (L), wrap round a small front plot (U) or join
+ * into one wide plot. Neighbours share every cut exactly, so the pieces tile the block.
+ * Coordinates: along the street, and depth t from the front.
+ */
+function parcelRun(run: Array<{ a: number; b: number }>, D: number, rng: Rng, randomness: number): ParcelShape[] {
+  const cuts = [run[0]!.a, ...run.map((r) => r.b)], n = run.length;
+  const skew = cuts.map((_, k) => {
+    if (k === 0 || k === n) return 0;
+    const room = Math.min(cuts[k]! - cuts[k - 1]!, cuts[k + 1]! - cuts[k]!) * .38;
+    return (rng.next() * 2 - 1) * room * (.3 + randomness);
+  });
+  const at = (k: number, t: number): Vec2 => [cuts[k]! + skew[k]! * t / D, t];
+  const out: ParcelShape[] = [];
+  for (let i = 0; i < n;) {
+    const roll = rng.next(), m = D * (.4 + rng.next() * .25);
+    if (roll < .1 && i + 2 < n) {
+      // U: wraps round a small shop / kiosk plot on the street.
+      out.push({ kind: 'U', a: cuts[i]!, b: cuts[i + 3]!, depth: D, outline: [at(i, 0), at(i + 1, 0), at(i + 1, m), at(i + 2, m), at(i + 2, 0), at(i + 3, 0), at(i + 3, D), at(i, D)] });
+      out.push({ kind: 'rect', a: cuts[i + 1]!, b: cuts[i + 2]!, depth: m, outline: [at(i + 1, 0), at(i + 2, 0), at(i + 2, m), at(i + 1, m)] });
+      i += 3;
+    } else if (roll < .3 && i + 1 < n) {
+      // L: this plot takes the back of the next one.
+      out.push({ kind: 'L', a: cuts[i]!, b: cuts[i + 1]!, depth: D, outline: [at(i, 0), at(i + 1, 0), at(i + 1, m), at(i + 2, m), at(i + 2, D), at(i, D)] });
+      out.push({ kind: 'rect', a: cuts[i + 1]!, b: cuts[i + 2]!, depth: m, outline: [at(i + 1, 0), at(i + 2, 0), at(i + 2, m), at(i + 1, m)] });
+      i += 2;
+    } else if (roll < .42 && i + 1 < n) {
+      out.push({ kind: 'wide', a: cuts[i]!, b: cuts[i + 2]!, depth: D, outline: [at(i, 0), at(i + 2, 0), at(i + 2, D), at(i, D)] });
+      i += 2;
+    } else {
+      out.push({ kind: skew[i] || skew[i + 1] ? 'skew' : 'rect', a: cuts[i]!, b: cuts[i + 1]!, depth: D, outline: [at(i, 0), at(i + 1, 0), at(i + 1, D), at(i, D)] });
+      i++;
+    }
+  }
+  return out;
+}
 export interface PlacedBuilding { id: string; asset: number; x: number; z: number; y: number; yaw: number; obb: Obb; door: Vec2; lot?: string; cls: LotClass; manual?: boolean }
 export interface PlacedProp { id: string; asset: number; kind: PropKind; x: number; z: number; y: number; yaw: number; scale: number; obb: Obb; manual?: boolean }
 export interface SettlementIssue { severity: 'error' | 'warning' | 'info'; code: string; message: string; x?: number; z?: number }
@@ -403,32 +446,48 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const opposite = horizontal ? (side === 'v0' ? cell.sides.v1 : cell.sides.v0) : (side === 'u0' ? cell.sides.u1 : cell.sides.u0);
         const depth = Math.min(st.lotDepth * (1 + (lotRng.next() - .5) * .3 * st.randomness), opposite ? deep / 2 : deep);
         if (depth < 8) continue;
+        // Collect runs of neighbouring lots, then cut them into irregular parcels that still fit together.
+        const P = (along: number, t: number): Vec2 => side === 'v0' ? [along, cell.v0 + t] : side === 'v1' ? [along, cell.v1 - t] : side === 'u0' ? [cell.u0 + t, along] : [cell.u1 - t, along];
+        const dirL: Vec2 = side === 'v0' ? [0, -1] : side === 'v1' ? [0, 1] : side === 'u0' ? [-1, 0] : [1, 0];
+        const dir: Vec2 = [dirL[0] * frame.c - dirL[1] * frame.s, dirL[0] * frame.s + dirL[1] * frame.c];
+        let run: Array<{ a: number; b: number }> = [];
+        const flush = () => { if (run.length) for (const shape of parcelRun(run, depth, lotRng, st.randomness)) addParcel(shape); run = []; };
+        const addParcel = (shape: ParcelShape) => {
+          const local = shape.outline.map(([al, t]) => P(al, t));
+          const inside = local.every(([u, v]) => pointInPolygon(u, v, localPoly));
+          const rectL = [P(shape.a, 0), P(shape.b, 0), P(shape.b, depth), P(shape.a, depth)];
+          const poly = inside ? local : clipToConvex(localPoly, rectL);
+          if (poly.length < 3) return;
+          const w = shape.b - shape.a, c = toWorld(frame, ...P((shape.a + shape.b) / 2, shape.depth / 2));
+          const box = side[0] === 'v' ? { u0: Math.min(rectL[0]![0], rectL[1]![0]), u1: Math.max(rectL[0]![0], rectL[1]![0]), v0: Math.min(rectL[0]![1], rectL[2]![1]), v1: Math.max(rectL[0]![1], rectL[2]![1]) }
+            : { u0: Math.min(rectL[0]![0], rectL[2]![0]), u1: Math.max(rectL[0]![0], rectL[2]![0]), v0: Math.min(rectL[0]![1], rectL[1]![1]), v1: Math.max(rectL[0]![1], rectL[1]![1]) };
+          lotBoxes.push(box);
+          lots.push({
+            id: `${block.id}-l${made++}`, block: block.id, polygon: poly.map(([u, v]) => toWorld(frame, u, v)),
+            front: [toWorld(frame, ...P(shape.a, 0)), toWorld(frame, ...P(shape.b, 0))], dir,
+            obb: { x: c[0], z: c[1], hx: (side[0] === 'v' ? w : shape.depth) / 2, hz: (side[0] === 'v' ? shape.depth : w) / 2, yaw: -frame.angle },
+            cls: 'empty', shape: shape.kind,
+          });
+        };
         for (let s = span0; s < span1 - 6;) {
           // Big-city cores get wide parcels, so the large blocks of flats have somewhere to go.
           const probe = horizontal ? toWorld(frame, s + st.lotWidth / 2, (cell.v0 + cell.v1) / 2) : toWorld(frame, (cell.u0 + cell.u1) / 2, s + st.lotWidth / 2);
           const core = st.sizeBias > .7 && Math.hypot(probe[0] - frame.cx, probe[1] - frame.cz) < R0 * .5 ? 1.75 : 1;
-          const w = Math.min(span1 - s, st.lotWidth * core * (1 + (lotRng.next() - .5) * .5 * st.randomness));
+          // Real streets: narrow plots next to wide ones.
+          const w = Math.min(span1 - s, st.lotWidth * core * (.55 + lotRng.next() * (.6 + st.randomness * .9)));
           if (w < Math.min(8, st.lotWidth * .5)) break;
           const r = horizontal
             ? (side === 'v0' ? { u0: s, u1: s + w, v0: cell.v0, v1: cell.v0 + depth } : { u0: s, u1: s + w, v0: cell.v1 - depth, v1: cell.v1 })
             : (side === 'u0' ? { u0: cell.u0, u1: cell.u0 + depth, v0: s, v1: s + w } : { u0: cell.u1 - depth, u1: cell.u1, v0: s, v1: s + w });
-          s += w;
-          if (overlapShare(r) > .05) continue;
+          const a = s; s += w;
           const rect: Vec2[] = [[r.u0, r.v0], [r.u1, r.v0], [r.u1, r.v1], [r.u0, r.v1]];
           const clipped = clipToConvex(localPoly, rect);
-          if (clipped.length < 3 || Math.abs(polygonArea(clipped)) < (r.u1 - r.u0) * (r.v1 - r.v0) * .55) continue;
-          // Front edge and the direction to the street, in the local frame.
-          const front: [Vec2, Vec2] = side === 'v0' ? [[r.u0, r.v0], [r.u1, r.v0]] : side === 'v1' ? [[r.u1, r.v1], [r.u0, r.v1]] : side === 'u0' ? [[r.u0, r.v1], [r.u0, r.v0]] : [[r.u1, r.v0], [r.u1, r.v1]];
-          const dirL: Vec2 = side === 'v0' ? [0, -1] : side === 'v1' ? [0, 1] : side === 'u0' ? [-1, 0] : [1, 0];
-          const fw = front.map(([u, v]) => toWorld(frame, u, v)) as [Vec2, Vec2];
-          const fm: Vec2 = [(fw[0][0] + fw[1][0]) / 2, (fw[0][1] + fw[1][1]) / 2];
+          const fm = toWorld(frame, ...P(a + w / 2, 0));
           // Only where a street really runs (pieces may be missing over water or cliffs).
-          if (roadIndex0.edgeDistance(fm[0], fm[1], 30) > 6) continue;
-          const dir: Vec2 = [dirL[0] * frame.c - dirL[1] * frame.s, dirL[0] * frame.s + dirL[1] * frame.c];
-          const center = toWorld(frame, (r.u0 + r.u1) / 2, (r.v0 + r.v1) / 2);
-          lotBoxes.push(r);
-          lots.push({ id: `${block.id}-l${made++}`, block: block.id, polygon: clipped.map(([u, v]) => toWorld(frame, u, v)), front: fw, dir, obb: { x: center[0], z: center[1], hx: (r.u1 - r.u0) / 2, hz: (r.v1 - r.v0) / 2, yaw: -frame.angle }, cls: 'empty' });
+          if (overlapShare(r) > .05 || clipped.length < 3 || Math.abs(polygonArea(clipped)) < (r.u1 - r.u0) * (r.v1 - r.v0) * .55 || roadIndex0.edgeDistance(fm[0], fm[1], 30) > 6) { flush(); continue; }
+          run.push({ a, b: s });
         }
+        flush();
       }
     }
     if (st.layout === 'organic') {
@@ -490,6 +549,24 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         l.cls = r < p ? cls : r < p + (1 - st.density) * .2 && cls !== 'industrial' ? 'green' : 'empty';
       }
     }
+    // Every parcel gets its own character: how it is used, fenced and planted.
+    const styleRng = stream(seed, 'lot-style');
+    const weighted = <T extends string>(list: Array<[T, number]>): T => { let r = styleRng.next() * list.reduce((a, [, w]) => a + w, 0); for (const [k, w] of list) if ((r -= w) <= 0) return k; return list[0]![0]; };
+    const rural = st.layout === 'organic' || st.preset === 'rural-town';
+    for (const l of lots) {
+      l.flora = styleRng.int(1000);
+      if (l.cls === 'green') l.style = weighted<LotStyle>([['garden', 3], ['orchard', rural ? 3 : 1], ['farm', rural ? 2 : 0], ['overgrown', st.decay * 3]]);
+      else if (l.cls === 'empty') l.style = weighted<LotStyle>([['vacant', 2], ['garden', 1], ['overgrown', .5 + st.decay * 3], ['farm', rural ? 1.5 : 0]]);
+      else if (l.cls === 'residential') l.style = weighted<LotStyle>([['yard', 4], ['full', 1.5], ['walled', 1.5], ['farm', rural ? 2 : .3], ['overgrown', st.decay * 3]]);
+      else if (l.cls === 'commercial') l.style = weighted<LotStyle>([['full', 3], ['yard', 1], ['walled', .5]]);
+      else l.style = weighted<LotStyle>([['work', 3], ['walled', 1.5], ['full', 1]]);
+      const fences: Array<[FenceKind, number]> = l.cls === 'military' ? [['wire', 3], ['wall', 2], ['none', 1]]
+        : l.cls === 'industrial' ? [['iron', 2], ['wall', 2], ['wire', 1], ['none', 2]]
+          : l.style === 'walled' ? [['wall', 3], ['iron', 2]]
+            : l.style === 'full' || l.style === 'vacant' ? [['none', 4], ['wood', 1]]
+              : [['none', st.fences ? 1.5 : 4], ['wood', 3], ['hedge', 2], ['iron', 1]];
+      l.fence = weighted(fences);
+    }
     if (alleyCount) issues.push({ severity: 'info', code: 'alleys', message: `Đã thêm ${alleyCount} ngõ trong các ô phố sâu.` });
   }
   const roadIndex = new RoadIndex();
@@ -520,23 +597,25 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], width = Math.hypot(fx, fz);
       const tx = fx / width, tz = fz / width, inward: Vec2 = [-lot.dir[0], -lot.dir[1]];
       const depth = (lot.obb.hx * lot.obb.hz * 4) / width;
-      const availW = width - 3, availD = depth - st.setback - 1.5;
+      // A plot built over completely sits on the pavement; the others keep a front yard.
+      const setback = lot.style === 'full' ? Math.min(1, st.setback) : lot.style === 'farm' ? st.setback + 3 : st.setback;
+      const availW = width - (lot.style === 'full' ? 1 : 3), availD = depth - setback - (lot.style === 'full' ? .5 : 1.5);
       const fits = pool.flatMap((item) => [
         ...(item.w <= availW && item.d <= availD ? [{ item, turned: false }] : []),
         ...(item.d <= availW && item.w <= availD && Math.abs(item.w - item.d) > 1 ? [{ item, turned: true }] : []),
       ]);
       if (!fits.length) continue;
-      const first = rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
+      const first = lot.style === 'full' || rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
       const tries = [...fits.slice(first), ...fits.slice(0, first)].slice(0, 4);
       const facing = Math.atan2(lot.dir[0], lot.dir[1]);
       for (const { item, turned } of tries) {
         const w = turned ? item.d : item.w, d = turned ? item.w : item.d;
         const slide = (rng.next() - .5) * (availW - w) * st.randomness;
         const mid: Vec2 = [(lot.front[0][0] + lot.front[1][0]) / 2, (lot.front[0][1] + lot.front[1][1]) / 2];
-        const cx = mid[0] + tx * slide + inward[0] * (st.setback + d / 2), cz = mid[1] + tz * slide + inward[1] * (st.setback + d / 2);
+        const cx = mid[0] + tx * slide + inward[0] * (setback + d / 2), cz = mid[1] + tz * slide + inward[1] * (setback + d / 2);
         const yaw = facing + (turned ? Math.PI / 2 : 0);
         const box: Obb = { x: cx, z: cz, hx: item.w / 2, hz: item.d / 2, yaw };
-        if (!obbInsidePolygon(box, polygon) || blocked(solids, box, 2) || roadIndex.hits(box, 1)) continue;
+        if (!obbInsidePolygon(box, polygon) || !obbInsidePolygon({ ...box, hx: box.hx - .3, hz: box.hz - .3 }, lot.polygon) || blocked(solids, box, lot.style === 'full' ? 1 : 2) || roadIndex.hits(box, 1)) continue;
         const pts = [...obbCorners(box), [cx, cz] as Vec2];
         const hs = pts.map(([x, z]) => ground.height(x, z));
         if ((Math.max(...hs) - Math.min(...hs)) / Math.max(w, d) > st.maxSlope || pts.some(([x, z]) => ground.water(x, z))) continue;
@@ -547,7 +626,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: hs.reduce((a, v) => a + v, 0) / hs.length, yaw, obb: box, door, lot: lot.id, cls };
         buildings.push(b);
         solids.insert({ ...box, tag: `b:${b.id}` });
-        const corridor = doorCorridor(door, lot.dir, st.setback + 1);
+        const corridor = doorCorridor(door, lot.dir, setback + 1);
         corridors.push(corridor); solids.insert({ ...corridor, tag: 'corridor' });
         break;
       }
@@ -607,22 +686,88 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
     }
   }
   yield progress(8, .2);
-  // Fences on the sides and back of built house lots (the front stays open).
-  if (st.fences) {
-    const rng = stream(seed, 'props-fences');
-    for (const id of builtLots) {
-      const lot = id ? lotById.get(id) : undefined;
-      if (!lot || lot.cls !== 'residential') continue;
-      const item = pick(rng, catalog.props.fence);
-      const c = obbCorners({ ...lot.obb, hx: lot.obb.hx - .6, hz: lot.obb.hz - .6 });
-      for (let e = 0; e < 4; e++) {
-        const a = c[e]!, b = c[(e + 1) % 4]!, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        const ex = (b[0] - a[0]) / len, ez = (b[1] - a[1]) / len, mx = (a[0] + b[0]) / 2 - lot.obb.x, mz = (a[1] + b[1]) / 2 - lot.obb.z;
-        if (mx * lot.dir[0] + mz * lot.dir[1] > 0 && Math.abs(ex * lot.dir[0] + ez * lot.dir[1]) < .5) continue;
-        for (let t = item.w / 2; t <= len - item.w / 2 + .01; t += item.w) {
-          if (rng.next() < st.decay * .4) continue;
-          place('fence', item, a[0] + ex * t, a[1] + ez * t, Math.atan2(-ez, ex), 1, { margin: .05, tag: 'fence' });
+  // Each parcel dressed by its own character: its fence kind along its real outline (street side
+  // open, or a gate for walled plots), its own tree species, beds, orchards and yard things.
+  {
+    const rng = stream(seed, 'props-lots');
+    const fenceItems: Record<Exclude<FenceKind, 'none' | 'hedge'>, CatalogItem[]> = { wood: catalog.props.fence, iron: catalog.props.wall.slice(1, 2), wall: catalog.props.wall.slice(0, 1).concat(catalog.props.wall.slice(2)), wire: catalog.props.perimeter.slice(0, 1) };
+    for (const lot of lots) {
+      if (!lot.style) continue;
+      const built = builtLots.has(lot.id), sp = lot.flora ?? 0, fence = lot.fence ?? 'none';
+      if (fence !== 'none' && (built || lot.style === 'farm' || lot.style === 'orchard' || lot.style === 'walled')) {
+        const pool = fence === 'hedge' ? [] : fenceItems[fence];
+        const item = fence === 'hedge' ? null : pick(rng, pool.length ? pool : catalog.props.fence);
+        const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], fl = Math.hypot(fx, fz) || 1;
+        const gate: Vec2 = [lot.front[0][0] + fx / 2, lot.front[0][1] + fz / 2];
+        const closedFront = fence === 'wall' || fence === 'iron';
+        for (let e = 0; e < lot.polygon.length; e++) {
+          const a = lot.polygon[e]!, b = lot.polygon[(e + 1) % lot.polygon.length]!, len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (len < 1.5) continue;
+          const ex = (b[0] - a[0]) / len, ez = (b[1] - a[1]) / len;
+          const mx = (a[0] + b[0]) / 2 - lot.front[0][0], mz = (a[1] + b[1]) / 2 - lot.front[0][1];
+          const onStreet = Math.abs((ex * fx + ez * fz) / fl) > .9 && Math.abs(mx * lot.dir[0] + mz * lot.dir[1]) < 2;
+          if (onStreet && !closedFront) continue;
+          // Set the line half a metre inside the plot.
+          const ix = -lot.dir[0] * (onStreet ? .6 : 0), iz = -lot.dir[1] * (onStreet ? .6 : 0);
+          const step = item ? item.w : 2.2;
+          for (let t = step / 2 + .3; t <= len - step / 2; t += step) {
+            const x = a[0] + ex * t + ix, z = a[1] + ez * t + iz;
+            if (rng.next() < st.decay * .35 || Math.hypot(x - gate[0], z - gate[1]) < 2.6) continue;
+            if (item) place('fence', item, x, z, Math.atan2(-ez, ex), 1, { margin: .02, tag: 'fence' });
+            else place('hedge', catalog.props.hedge[sp % catalog.props.hedge.length]!, x, z, rng.next() * 6.28, .55 + rng.next() * .2, { margin: .02, tag: 'fence' });
+          }
         }
+      }
+      const c = Math.cos(lot.obb.yaw), s2 = Math.sin(lot.obb.yaw);
+      const local = (u: number, v: number): Vec2 => [lot.obb.x + u * c + v * s2, lot.obb.z - u * s2 + v * c];
+      const inLot = ([x, z]: Vec2) => pointInPolygon(x, z, lot.polygon);
+      const species = catalog.props.tree[sp % catalog.props.tree.length]!, second = catalog.props.tree[(sp >> 3) % catalog.props.tree.length]!;
+      const bush = catalog.props.bush[sp % catalog.props.bush.length]!;
+      const scatter = (count: number, f: (q: Vec2) => void) => {
+        for (let k = 0; k < count; k++) { const q = local((rng.next() * 2 - 1) * Math.max(.5, lot.obb.hx - 1.5), (rng.next() * 2 - 1) * Math.max(.5, lot.obb.hz - 1.5)); if (inLot(q)) f(q); }
+      };
+      const density = .4 + st.treeDensity;
+      switch (lot.style) {
+        case 'orchard': {
+          // Rows of one species.
+          const gap = 5 + (sp % 3);
+          for (let u = -lot.obb.hx + 3; u <= lot.obb.hx - 3; u += gap) for (let v = -lot.obb.hz + 3; v <= lot.obb.hz - 3; v += gap) {
+            const q = local(u, v);
+            if (inLot(q) && rng.next() < .92) place('tree', species, q[0], q[1], rng.next() * 6.28, .6 + rng.next() * .2, { margin: .2 });
+          }
+          break;
+        }
+        case 'farm': {
+          // Crop beds in rows across the plot, a tree by the house.
+          const alongU = lot.obb.hx >= lot.obb.hz, rows = Math.min(2.6, (alongU ? lot.obb.hz : lot.obb.hx) / 4);
+          for (let k = -3; k <= 3; k++) for (let t = -.9; t <= .9; t += .12) {
+            const q = alongU ? local(t * (lot.obb.hx - 2), k * rows) : local(k * rows, t * (lot.obb.hz - 2));
+            if (inLot(q) && rng.next() < .85) place('crop', catalog.props.crop[(sp + k + 7) % catalog.props.crop.length]!, q[0], q[1], rng.next() * 6.28, .32, { margin: .02 });
+          }
+          if (rng.next() < .6) scatter(1, (q) => place('tree', second, q[0], q[1], rng.next() * 6.28, 1, { margin: .5 }));
+          break;
+        }
+        case 'garden':
+          scatter(Math.round((2 + (sp % 5)) * density), (q) => place(rng.next() < .6 ? 'tree' : 'bush', rng.next() < .6 ? species : bush, q[0], q[1], rng.next() * 6.28, .7 + rng.next() * .5, { margin: .5 }));
+          if (rng.next() < .5) scatter(1, (q) => place('bench', pick(rng, catalog.props.bench), q[0], q[1], rng.next() * 6.28, 1, { margin: .4 }));
+          break;
+        case 'overgrown':
+          scatter(Math.round((6 + (sp % 6)) * density), (q) => {
+            const k: PropKind = rng.next() < .3 ? 'deadTree' : rng.next() < .6 ? 'bush' : 'tree';
+            place(k, k === 'tree' ? species : pick(rng, catalog.props[k]), q[0], q[1], rng.next() * 6.28, .6 + rng.next() * .7, { margin: .3 });
+          });
+          if (built || rng.next() < .4) scatter(2, (q) => place('debris', pick(rng, catalog.props.debris), q[0], q[1], rng.next() * 6.28, 1, { margin: .4 }));
+          break;
+        case 'vacant':
+          if (rng.next() < .45) scatter(1 + (sp % 2), (q) => place('bush', pick(rng, catalog.props.bush), q[0], q[1], rng.next() * 6.28, .8, { margin: .4 }));
+          if (rng.next() < st.decay * .5) scatter(1, (q) => place('vehicle', pick(rng, catalog.props.vehicle), q[0], q[1], rng.next() * 6.28, 1, { margin: .6 }));
+          break;
+        case 'yard': case 'walled':
+          // One to three trees of the plot's own species, shrubs on some.
+          scatter(Math.round((sp % 4) * density * .8), (q) => place('tree', species, q[0], q[1], rng.next() * 6.28, .7 + rng.next() * .4, { margin: .6 }));
+          if (sp % 2) scatter(2 + (sp % 3), (q) => place('bush', bush, q[0], q[1], rng.next() * 6.28, .7, { margin: .3 }));
+          break;
+        default: break;
       }
     }
   }
@@ -638,7 +783,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const px = x + (rng.next() - .5) * spacing * .9, pz = z + (rng.next() - .5) * spacing * .9;
       if (!pointInPolygon(px, pz, polygon)) continue;
       const lot = lotGrid.query(px, pz, 1).find((l) => pointInPolygon(px, pz, l.polygon));
-      const zone = lot ? factor[lot.cls]! * (builtLots.has(lot.id) ? .6 : 1) : 1;
+      const zone = lot ? (lot.style ? .12 : factor[lot.cls]! * (builtLots.has(lot.id) ? .6 : 1)) : 1;
       const p = st.treeDensity * zone * smoothstep(-.35, .55, cluster.noise(px * .011, pz * .011)) * .55;
       if (rng.next() >= p || ground.slope(px, pz) > .7) continue;
       const roll = rng.next();
@@ -672,9 +817,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
     const rng = stream(seed, 'props-clutter');
     for (const lot of lots) {
       const built = builtLots.has(lot.id);
-      const kind: PropKind | null = lot.cls === 'industrial' ? 'industrialClutter' : lot.cls === 'military' ? 'militaryClutter' : lot.cls === 'green' ? 'bench' : built ? 'clutter' : null;
+      const kind: PropKind | null = lot.cls === 'industrial' ? 'industrialClutter' : lot.cls === 'military' ? 'militaryClutter' : built && lot.style !== 'full' ? 'clutter' : null;
       if (!kind) continue;
-      const count = Math.round(st.propDensity * (kind === 'industrialClutter' || kind === 'militaryClutter' ? 5 : kind === 'bench' ? 1.5 : 1.2) * (.5 + rng.next()));
+      const count = Math.round(st.propDensity * (kind === 'industrialClutter' || kind === 'militaryClutter' ? 5 : 1.2) * (.5 + rng.next()));
       for (let k = 0; k < count; k++) {
         const u = (rng.next() * 2 - 1) * (lot.obb.hx - 1.5), v = (rng.next() * 2 - 1) * (lot.obb.hz - 1.5), c = Math.cos(lot.obb.yaw), s = Math.sin(lot.obb.yaw);
         place(kind, pick(rng, catalog.props[kind]), lot.obb.x + u * c + v * s, lot.obb.z - u * s + v * c, rng.next() * Math.PI * 2, 1, { margin: .5 });

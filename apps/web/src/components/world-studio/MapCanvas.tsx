@@ -29,8 +29,9 @@ interface Props {
 }
 
 const CLASS_COLOR: Record<string, string> = { residential: '#d9c08a', commercial: '#e39a54', industrial: '#9aa4ab', military: '#8f9a6a' };
-const PROP_COLOR: Record<string, string> = { tree: '#3f6b3a', bush: '#56804a', deadTree: '#6f6450', fence: '#a58a62', perimeter: '#b0a36e', lamp: '#ffd36a', vehicle: '#c35a4a', militaryVehicle: '#6c7a4a', clutter: '#9a8466', industrialClutter: '#8b8f93', militaryClutter: '#7d7a56', bench: '#9b8a6e', debris: '#7a7570' };
+const PROP_COLOR: Record<string, string> = { hedge: '#4c7a3e', crop: '#9aa64e', wall: '#a7a49c', tree: '#3f6b3a', bush: '#56804a', deadTree: '#6f6450', fence: '#a58a62', perimeter: '#b0a36e', lamp: '#ffd36a', vehicle: '#c35a4a', militaryVehicle: '#6c7a4a', clutter: '#9a8466', industrialClutter: '#8b8f93', militaryClutter: '#7d7a56', bench: '#9b8a6e', debris: '#7a7570' };
 const ROAD_COLOR: Record<string, string> = { main: '#cfc6ae', secondary: '#b5ad98', alley: '#968f7f', connector: '#cfc6ae' };
+const LOT_FILL: Record<string, string> = { yard: 'rgba(120,160,90,.18)', full: 'rgba(170,150,120,.22)', garden: 'rgba(90,170,80,.3)', orchard: 'rgba(70,140,60,.3)', farm: 'rgba(170,150,70,.3)', walled: 'rgba(150,150,150,.2)', overgrown: 'rgba(80,110,60,.32)', vacant: 'rgba(140,130,100,.15)', work: 'rgba(130,135,140,.22)' };
 const LOOT_COLOR: Record<string, string> = { weapons: '#ff5a4a', ammo: '#ffb000', medical: '#5ad17a', armor: '#5ab0ff', food: '#d9d16a', tools: '#b58cff' };
 
 /**
@@ -116,7 +117,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       for (const road of r.roads) { path(road.points, false); ctx.strokeStyle = preview ? 'rgba(255,190,80,.95)' : ROAD_COLOR[road.kind]!; ctx.lineWidth = Math.max(1.2 * px, road.width); ctx.stroke(); }
       if (s > .5) {
         ctx.strokeStyle = preview ? 'rgba(255,176,0,.35)' : 'rgba(120,200,180,.28)'; ctx.lineWidth = px;
-        for (const lot of r.lots) if (visible(lot.obb.x, lot.obb.z, lot.obb.hx + lot.obb.hz)) { path(lot.polygon, true); ctx.stroke(); }
+        for (const lot of r.lots) if (visible(lot.obb.x, lot.obb.z, lot.obb.hx + lot.obb.hz)) {
+          // Each parcel tinted by its use, so the jigsaw of plots reads at a glance.
+          path(lot.polygon, true);
+          if (!preview && lot.style) { ctx.fillStyle = LOT_FILL[lot.style] ?? 'transparent'; ctx.fill(); }
+          ctx.stroke();
+        }
       }
       if (layers.buildings) for (const b of r.buildings) {
         if (!visible(b.obb.x, b.obb.z, b.obb.hx + b.obb.hz)) continue;

@@ -78,7 +78,7 @@ const resultSchema = z.object({
   analysis: z.object({ area: n, buildableShare: n, waterShare: n, steepShare: n, meanHeight: n, center: vec, angle: n, radius: n }).strict(),
   roads: z.array(z.object({ id: z.string(), kind: z.enum(['main', 'secondary', 'alley', 'connector']), width: n, points: z.array(vec).min(2).max(4096) }).strict()).max(2000),
   blocks: z.array(z.object({ id: z.string(), polygon: z.array(vec).max(512), cls: z.union([cls, z.literal('green')]) }).strict()).max(5000),
-  lots: z.array(z.object({ id: z.string(), block: z.string(), polygon: z.array(vec).max(64), front: z.tuple([vec, vec]), dir: z.tuple([n, n]), obb, cls: z.union([cls, z.enum(['green', 'empty'])]) }).strict()).max(20000),
+  lots: z.array(z.object({ id: z.string(), block: z.string(), polygon: z.array(vec).max(96), front: z.tuple([vec, vec]), dir: z.tuple([n, n]), obb, cls: z.union([cls, z.enum(['green', 'empty'])]), shape: z.enum(['rect', 'skew', 'L', 'U', 'wide']).optional(), style: z.enum(['yard', 'full', 'garden', 'orchard', 'farm', 'walled', 'overgrown', 'vacant', 'work']).optional(), fence: z.enum(['none', 'wood', 'iron', 'wall', 'hedge', 'wire']).optional(), flora: n.int().optional() }).strict()).max(20000),
   buildings: z.array(z.object({ id: z.string(), asset: n.int(), x: n, z: n, y: n, yaw: n, obb, door: z.tuple([n, n]), lot: z.string().optional(), cls, manual: z.boolean().optional() }).strict()).max(4000),
   props: z.array(z.object({ id: z.string(), asset: n.int(), kind: z.string().max(32), x: n, z: n, y: n, yaw: n, scale: n, obb, manual: z.boolean().optional() }).strict()).max(20000),
   issues: z.array(z.object({ severity: z.enum(['error', 'warning', 'info']), code: z.string(), message: z.string(), x: n.optional(), z: n.optional() }).strict()).max(5000),
