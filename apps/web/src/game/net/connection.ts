@@ -15,7 +15,7 @@ import {
   type GameMode,
   type BuildMessage,
 } from '@zion/shared';
-import { getGameTicket } from '@/lib/api';
+import { getGameTicket, playedBattleMap } from '@/lib/api';
 
 export interface ConnectionHandlers {
   onWelcome(msg: WelcomeMessage): void;
@@ -61,6 +61,9 @@ export class GameConnection {
       url.searchParams.set('mode', this.mode);
       // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.
       if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('squad') === '1') url.searchParams.set('squad', '1');
+      // The map chosen in the menu (the built-in island when absent).
+      const map = playedBattleMap();
+      if (map) url.searchParams.set('map', map);
     }
     const ws = new WebSocket(url.toString());
     ws.binaryType = 'arraybuffer';

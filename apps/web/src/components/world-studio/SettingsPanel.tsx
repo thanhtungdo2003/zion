@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
+import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, toBattleMap, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
-import { storageEstimate } from '@/studio/world/map-store';
+import { renderThumbnail, storageEstimate } from '@/studio/world/map-store';
+import { hasStudioSession, studioLogin, studioPublishBattleMap } from '@/lib/api';
+import { ConfirmDialog } from '../ConfirmDialog';
 import type { EditorApi } from './editor-api';
 import { Btn, Check, NumberField, Section, Seg, Slider, TextField, fmtTime } from './ui';
 import s from './world-studio.module.css';
@@ -45,10 +47,32 @@ export function SettingsPanel({ api }: { api: EditorApi }) {
       <Btn icon="wand-sparkles" kind="primary" disabled={!!problems.length || api.busy} onClick={() => api.confirm('Sinh lại địa hình?', `Thay toàn bộ độ cao và bề mặt bằng preset "${TERRAIN_PRESETS.find((p) => p.id === t.preset)?.name}" seed "${t.seed}". Sông hồ, khu vực và cấu hình trận được giữ.${resized ? '' : ' Có thể hoàn tác.'}`, api.regenerateTerrain, 'Sinh địa hình')} testId="regen-terrain">Sinh địa hình</Btn>
       <p className={s.lead}>Cùng seed và thông số luôn cho cùng địa hình. Địa hình đã chỉnh được lưu trực tiếp, mở map không cần sinh lại.</p>
     </Section>
+    <PublishSection api={api} />
     <Section title="Lưu trữ" icon="hard-drive" collapsible initiallyOpen={false}>
       <p className={s.lead}>Bản đồ lưu trong IndexedDB của trình duyệt này (tự lưu sau mỗi thay đổi). Dùng <b>Xuất</b> để có file sao lưu hoặc chuyển sang máy khác; nhập lại ở trang danh sách.</p>
       {storage && <p className={s.note}>Đã dùng {(storage.used / 1024 / 1024).toFixed(1)} MB / {(storage.quota / 1024 / 1024 / 1024).toFixed(1)} GB</p>}
       <Btn icon="hard-drive-download" onClick={() => void navigator.storage?.persist?.().then((ok) => api.flash(ok ? 'Trình duyệt sẽ giữ dữ liệu bản đồ lâu dài.' : 'Trình duyệt chưa cho phép lưu lâu dài.', !ok))}>Yêu cầu lưu lâu dài</Btn>
     </Section>
   </>;
+}
+
+/** Puts the map on the game server as a battle royale map players can pick in the mode menu. */
+function PublishSection({ api }: { api: EditorApi }) {
+  const [asking, setAsking] = useState(false), [busy, setBusy] = useState(false);
+  const publish = async (password?: string) => {
+    setBusy(true);
+    try {
+      if (password) await studioLogin(password);
+      const d = api.doc, map = toBattleMap(d, api.terrain);
+      const r = await studioPublishBattleMap({ id: d.meta.id.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320), seaLevel: d.terrain.seaLevel, map });
+      api.flash(`Đã xuất bản "${r.name}" — người chơi chọn được trong mục Bản đồ của Battle Royale.`);
+    } catch (err) { api.flash(`Xuất bản thất bại: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
+    finally { setBusy(false); }
+  };
+  return <Section title="Xuất bản Battle Royale" icon="rocket" collapsible initiallyOpen={false}>
+    <p className="lead" style={{ margin: 0, fontSize: 12, opacity: .75 }}>Gửi địa hình, đường, công trình, vật thể và cây của bản đồ này lên máy chủ. Mỗi lần xuất bản thay bản cũ; trận đang chạy giữ bản cũ tới khi kết thúc.</p>
+    <Btn icon="rocket" kind="primary" disabled={busy} onClick={() => { if (hasStudioSession()) void publish().catch(() => {}); else setAsking(true); }} testId="publish-br">{busy ? 'Đang xuất bản…' : 'Xuất bản lên máy chủ'}</Btn>
+    {asking && <ConfirmDialog title="Đăng nhập Studio" message="Nhập mật khẩu Studio để xuất bản bản đồ lên máy chủ." password danger={false} confirmLabel="Xuất bản"
+      onCancel={() => setAsking(false)} onConfirm={async (pw) => { await publish(pw); setAsking(false); }} />}
+  </Section>;
 }

@@ -261,6 +261,15 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   app.delete<{ Params: { id: string } }>('/api/studio/infection-maps/:id', { preHandler: guard }, async (req, reply) => {
     try { return await studio.deleteInfectionMap(req.params.id); } catch (err) { return fail(reply, err); }
   });
+  // Battle royale maps published from the World Studio (heightfield + buildings + flora: large bodies).
+  if (deps.battleMaps) {
+    app.post('/api/studio/battle-maps', { preHandler: guard, bodyLimit: 96 * 1024 * 1024, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+      try { return await deps.battleMaps!.publish(req.body); } catch (err) { return fail(reply, err); }
+    });
+    app.delete<{ Params: { id: string } }>('/api/studio/battle-maps/:id', { preHandler: guard }, async (req, reply) => {
+      try { await deps.battleMaps!.remove(req.params.id); return { ok: true }; } catch (err) { return fail(reply, err); }
+    });
+  }
   app.get('/api/studio/vehicle-physics', { preHandler: guard }, async () => studio.vehiclePhysics());
   app.post('/api/studio/vehicle-physics', { preHandler: guard }, async (req) => studio.setVehiclePhysics(z.object({ jolt: z.boolean() }).strict().parse(req.body).jolt));
 

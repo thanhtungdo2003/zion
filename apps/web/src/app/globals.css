@@ -3248,3 +3248,20 @@ kbd {
 .world-chat-panel input { flex: 1; min-width: 0; padding: 8px 10px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #fff; }
 .world-chat-login, .world-chat-error { margin: 0; padding: 8px 12px; color: #9aa3a8; font-size: 12px; }
 .world-chat-error { color: #ff8a7a; }
+
+/* Battle royale map picker: 3 × 3 tiles, each the map itself, with live player counts. */
+.menu-map { margin-bottom: 8px; }
+.map-picker { width: min(1100px, calc(100vw - 32px)); }
+.map-picker-note { color: var(--muted); margin: 0 0 10px; }
+.map-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: minmax(150px, 22vh); gap: 10px; }
+.map-tile { position: relative; overflow: hidden; border: 1px solid var(--line); background: #15191b center / cover no-repeat; color: var(--text); text-align: left; cursor: pointer; padding: 0; }
+.map-tile:hover { border-color: var(--accent); }
+.map-tile.on { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.map-tile.empty { cursor: default; background: repeating-linear-gradient(45deg, #121415, #121415 8px, #15181a 8px, #15181a 16px); opacity: .5; }
+.map-tile-text { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 12px 10px; background: linear-gradient(transparent, rgba(5,6,7,.92)); display: grid; gap: 2px; }
+.map-tile-text b { font-size: 16px; letter-spacing: .03em; }
+.map-tile-text small { color: var(--muted); font-size: 11px; }
+.map-tile-players { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 12px; font-weight: 700; background: rgba(5,6,7,.8); color: var(--ok); }
+.map-tile-players svg { width: 14px; height: 14px; }
+.map-pages { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 10px; }
+@media (max-width: 700px) { .map-grid { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 130px; } }

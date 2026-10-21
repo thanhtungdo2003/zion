@@ -42,6 +42,12 @@ export interface AuthoredMap {
   extraBuildings?: Array<{ id: string; zone: string; asset: number; x: number; z: number; yaw: number; lot?: { polygon: Point[]; frontage: [Point, Point] } }>;
   /** Dress supplemental homes with the existing fence and shrub assets. */
   dressExtraBuildings?: boolean;
+  /** World Studio maps: the edited height grid (float32 little-endian, base64), replacing coast and hills. */
+  terrainGrid?: { size: number; cell: number; data: string };
+  /** World Studio maps: every building and prop as a site (replaces the island's districts). */
+  placed?: Array<{ x: number; z: number; y: number; yaw: number; radius: number; halfX?: number; halfZ?: number; decal?: boolean; parts: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number }> }>;
+  /** World Studio maps: painted vegetation [asset, x, z, yaw, scale] (replaces the forest scatter). */
+  flora?: Array<[number, number, number, number, number]>;
 }
 
 export const ISLAND: AuthoredMap = {

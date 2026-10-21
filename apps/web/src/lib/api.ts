@@ -16,14 +16,36 @@ export function getLeaderboard(signal?: AbortSignal): Promise<LeaderboardView> {
   return request('/api/leaderboard', { signal });
 }
 
+/** The battle royale map of the match being played (from the play URL), if not the built-in island. */
+export function playedBattleMap(): string | null {
+  if (typeof window === 'undefined') return null;
+  const id = new URLSearchParams(window.location.search).get('map');
+  return id && /^[a-z0-9][a-z0-9-]{0,63}$/.test(id) && id !== 'hac-son' ? id : null;
+}
+const atlasQuery = (mode?: GameMode) => {
+  if (!mode || mode === 'survival') return '';
+  const map = mode === 'battle-royale' ? playedBattleMap() : null;
+  return `?mode=${mode}${map ? `&map=${map}` : ''}`;
+};
+
 export async function getWorldAtlas(mode?: GameMode): Promise<WorldAtlas> {
   await ensureAccess();
-  return request<WorldAtlas>(`/api/game/atlas${mode && mode !== 'survival' ? `?mode=${mode}` : ''}`, { auth: true });
+  return request<WorldAtlas>(`/api/game/atlas${atlasQuery(mode)}`, { auth: true });
 }
 
 export async function getAtlasTile(x: number, z: number, mode?: GameMode): Promise<AtlasTile> {
   await ensureAccess();
-  return request<AtlasTile>(`/api/game/atlas/${x}/${z}${mode && mode !== 'survival' ? `?mode=${mode}` : ''}`, { auth: true });
+  return request<AtlasTile>(`/api/game/atlas/${x}/${z}${atlasQuery(mode)}`, { auth: true });
+}
+
+export interface BattleMapInfo { id: string; name: string; thumbnail: string | null; players: number; matches: number; builtin?: boolean }
+/** Battle royale maps (the island first) with their live player counts. */
+export async function listBattleMaps(): Promise<BattleMapInfo[]> {
+  return (await request<{ maps: BattleMapInfo[] }>('/api/battle/maps')).maps;
+}
+/** Publishes a World Studio map to the server as a playable battle royale map. */
+export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown }): Promise<{ id: string; name: string }> {
+  return studioRequest('/api/studio/battle-maps', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export interface AccountInfo {

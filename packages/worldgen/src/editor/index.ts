@@ -13,3 +13,4 @@ export * from './settlement/catalog';
 export * from './settlement/generate';
 export * from './settlement/composite';
 export { Simplex2 } from '../noise';
+export * from './battle-export';

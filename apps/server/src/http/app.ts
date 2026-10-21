@@ -35,8 +35,10 @@ export interface HttpDeps {
   teams?: TeamService;
   /** Battle royale squads (separate lobby, max 3). */
   battleTeams?: TeamService;
-  atlas?: (mode?: GameMode) => Promise<WorldAtlas>;
-  atlasTile?: (x: number, z: number, mode?: GameMode) => Promise<AtlasTile>;
+  atlas?: (mode?: GameMode, map?: string) => Promise<WorldAtlas>;
+  atlasTile?: (x: number, z: number, mode?: GameMode, map?: string) => Promise<AtlasTile>;
+  /** Battle royale maps from the World Studio (map picker, publishing). */
+  battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void> };
   tokens: TokenService;
   kv: KeyValueStore;
   health: HealthProvider;

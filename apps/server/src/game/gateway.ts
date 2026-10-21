@@ -21,6 +21,8 @@ const HEARTBEAT_MS = 10_000;
  * and schema validation — before anything reaches the simulation.
  */
 export class GameGateway {
+  /** Pools of the published battle royale maps, by map id. */
+  battleMaps: ((id: string) => MatchPool | undefined) | null = null;
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
   private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
@@ -96,7 +98,13 @@ export class GameGateway {
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
     const query = new URL(url, 'http://localhost').searchParams, mode = query.get('mode'), squad = mode === 'battle-royale' && query.get('squad') === '1';
     if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection') return this.reject(socket, 400, 'mode');
-    const pool = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
+    let pool = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
+    // A battle royale map chosen in the mode menu (the built-in island when absent).
+    const mapId = mode === 'battle-royale' ? query.get('map') : null;
+    if (mapId && mapId !== 'hac-son') {
+      pool = this.battleMaps?.(mapId);
+      if (!pool) return this.reject(socket, 404, 'map');
+    }
     if ((mode === 'battle-royale' || mode === 'infection') && !pool) return this.reject(socket, 503, 'mode_unavailable');
     this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, pool ? undefined : this.game, squad, pool));
   }

@@ -9,6 +9,7 @@ import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { MatchPool } from './game/match-pool';
 import { InfectionMapService } from './world/infection-maps';
+import { BattleMapService, DEFAULT_BATTLE_MAP_ID } from './world/battle-maps';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
 import { CustomWeaponStore } from './repositories/custom-weapons';
@@ -117,6 +118,13 @@ async function main(): Promise<void> {
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   }, logger.child({ module: 'battle-matches' }));
+  // Battle royale maps published from the World Studio: one world and match pool each.
+  const battleMaps = new BattleMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId) => {
+    const match = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
+    if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
+    return match;
+  });
+  await battleMaps.load();
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
   // Infection maps come from the Studio; new matches are built on the active one.
   const infectionMaps = new InfectionMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'infection-maps' }));
@@ -170,8 +178,13 @@ async function main(): Promise<void> {
     news: new NewsRepository(db),
     customWeapons,
     progression,
-    atlas: mode => mode === 'battle-royale' ? battleAtlas() : mode === 'infection' ? infectionMaps.atlas() : survivalAtlas(),
-    atlasTile: (x, z, mode) => mode === 'battle-royale' ? battleTiles(x, z) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas() : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),
+    battleMaps: {
+      list: () => [{ id: DEFAULT_BATTLE_MAP_ID, name: 'Đảo Hắc Sơn', thumbnail: null, builtin: true, players: battlePool.matches.reduce((n, m) => n + m.playerCount, 0), matches: battlePool.matches.length }, ...battleMaps.list()],
+      publish: (input) => battleMaps.publish(input),
+      remove: (id) => battleMaps.remove(id),
+    },
     teams,
     battleTeams,
     config,
@@ -289,6 +302,7 @@ async function main(): Promise<void> {
   });
 
   gateway = new GameGateway(config, logger, metrics, auth, game, audit, { 'battle-royale': battlePool, infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
+  gateway.battleMaps = (id) => battleMaps.pool(id);
   gateway.attach(app.server);
   game.start();
   battlePool.start();
@@ -315,6 +329,7 @@ async function main(): Promise<void> {
       gateway?.stopAccepting();
       await game.stop();
       await battlePool.stop();
+      await battleMaps.close();
       await infectionPool.stop();
       await gateway?.close();
       await app.close();

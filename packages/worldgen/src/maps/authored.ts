@@ -53,7 +53,16 @@ export class AuthoredWorld {
   private pylonList: Pylon[] | null = null;
   private readonly pylonChunks = new Map<string, PropInstance[]>();
 
+  /** Studio maps: the edited height grid (decoded once), and their flora bucketed per chunk. */
+  private readonly heightGrid: { size: number; cell: number; cols: number; heights: Float32Array } | null;
+  private floraChunks: Map<string, Array<[number, number, number, number, number]>> | null = null;
+
   constructor(readonly map: AuthoredMap, readonly host: Host) {
+    const g = map.terrainGrid;
+    if (g) {
+      const bytes = Buffer.from(g.data, 'base64');
+      this.heightGrid = { size: g.size, cell: g.cell, cols: Math.round(g.size / g.cell) + 1, heights: new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) };
+    } else this.heightGrid = null;
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
     // Routed roads find their own way between their waypoints (switchbacks round the slopes).
@@ -63,7 +72,16 @@ export class AuthoredWorld {
   /* ------------------------------------------------------------------------------ terrain */
 
   /** Signed distance to the coastline: positive inland, negative at sea (m). */
+  /** Bilinear height from a studio map's grid. */
+  private gridHeight(x: number, z: number): number {
+    const g = this.heightGrid!, n = g.cols - 1.0001;
+    const fx = Math.max(0, Math.min(n, x / g.cell)), fz = Math.max(0, Math.min(n, z / g.cell)), i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j, k = j * g.cols + i, h = g.heights;
+    return (h[k]! * (1 - tx) + h[k + 1]! * tx) * (1 - tz) + (h[k + g.cols]! * (1 - tx) + h[k + g.cols + 1]! * tx) * tz;
+  }
+
   coastDistance(x: number, z: number): number {
+    // Studio maps have no coastline polygon: distance inland grows with height above the sea.
+    if (this.heightGrid) return (this.gridHeight(x, z) - this.host.seaLevel - .6) * 14;
     const poly = this.map.coast;
     let inside = false, best = Infinity;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -143,6 +161,7 @@ export class AuthoredWorld {
 
   /** Natural ground height before districts and roads level it. */
   terrain(x: number, z: number): number {
+    if (this.heightGrid) return this.gridHeight(x, z);
     const sea = this.host.seaLevel, d = this.coastDistance(x, z);
     // The shore: a gentle beach running down under the water (wade out and back), then the
     // sea bed falls away further out.
@@ -165,7 +184,7 @@ export class AuthoredWorld {
 
   structures(): Structure[] {
     if (this.sites) return this.sites;
-    const sites = this.sites = buildDistricts(this.map, this);
+    const sites = this.sites = this.map.placed ? studioSites(this.map) : buildDistricts(this.map, this);
     for (const s of sites) {
       const r = s.radius + 20;
       for (let gx = Math.floor((s.x - r) / 64); gx <= Math.floor((s.x + r) / 64); gx++)
@@ -329,6 +348,8 @@ export class AuthoredWorld {
 
   /** 0..1: how wooded a spot is. */
   forestDensity(x: number, z: number): number {
+    // Studio maps carry their own painted / generated vegetation.
+    if (this.map.flora) return 0;
     let woods = 0;
     // Woods edges are torn up by noise, so stands are irregular rather than round.
     const edge = this.forestNoise.noise(x * .008, z * .008) * .35;
@@ -344,6 +365,17 @@ export class AuthoredWorld {
     this.pylons();
     const out: PropInstance[] = [...(this.pylonChunks.get(`${cx}:${cz}`) ?? [])];
     const sea = this.host.seaLevel, ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
+    if (this.map.flora) {
+      if (!this.floraChunks) {
+        this.floraChunks = new Map();
+        for (const f of this.map.flora) { const key = `${Math.floor(f[1] / CHUNK_SIZE)}:${Math.floor(f[2] / CHUNK_SIZE)}`; let l = this.floraChunks.get(key); if (!l) this.floraChunks.set(key, l = []); l.push(f); }
+      }
+      for (const [asset, x, z, yaw, scale] of this.floraChunks.get(`${cx}:${cz}`) ?? []) {
+        if (this.near(x, z, 1, false).length) continue;
+        out.push({ asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(ground(x, z).height - .2), rot: quantizeRotation(yaw), scale: quantizeScale(scale) });
+      }
+      return out;
+    }
     const rng = new Rng(hash3(this.host.seed, cx, cz, 0x15a));
     const put = (asset: number, x: number, y: number, z: number, yaw: number, scale: number) =>
       out.push({ asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(y), rot: quantizeRotation(yaw), scale: quantizeScale(scale) });
@@ -994,6 +1026,15 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
     site('house_small', building.x, building.z, 8.5, kit);
   }
   return sites;
+}
+
+/** Sites of a map made in the World Studio: buildings on levelled pads, props laid on the ground. */
+function studioSites(map: AuthoredMap): GroundStructure[] {
+  return (map.placed ?? []).map((p, i) => ({
+    kind: 'town' as const, x: p.x, z: p.z, y: p.y, yaw: p.yaw, radius: p.radius, gid: i + 1,
+    ...(p.halfX ? { halfX: p.halfX, halfZ: p.halfZ } : {}),
+    parts: p.parts.map((q) => ({ ...q })), ...(p.decal ? { decal: true } : {}),
+  }));
 }
 
 const worlds = new WeakMap<object, AuthoredWorld>();

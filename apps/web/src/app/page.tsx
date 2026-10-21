@@ -10,6 +10,7 @@ import { LoadingScreen } from '@/components/LoadingScreen';
 import { preloadState } from '@/lib/preload';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ModeModal } from '@/components/ModeModal';
+import { MapPicker } from '@/components/MapPicker';
 import { activeMatch } from '@/lib/rejoin';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, IS_DESKTOP, startDesktopSignIn, pollDesktopSignIn, approveDesktopSignIn, type DesktopSignIn, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
@@ -33,7 +34,9 @@ const GAME_MODES = [
   { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale-2.webp', icon: 'game-icons:parachute' },
 ] as const;
 /** Where "Play" goes for a mode (squads only exist in battle royale). */
-const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}`;
+const BR_MAP_KEY = 'zion.br.map';
+const chosenMap = () => { try { return localStorage.getItem(BR_MAP_KEY) ?? 'hac-son'; } catch { return 'hac-son'; } };
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -50,6 +53,10 @@ export default function MainMenu() {
   const doneLoading = useCallback(() => setLoading(false), []);
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [brMap, setBrMap] = useState<{ id: string; name: string }>({ id: 'hac-son', name: 'Đảo Hắc Sơn' });
+  useEffect(() => { try { const id = localStorage.getItem(BR_MAP_KEY); const name = localStorage.getItem(`${BR_MAP_KEY}.name`); if (id) setBrMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
+  const closeMaps = useCallback(() => setMapOpen(false), []);
   const closeModes = useCallback(() => setModeOpen(false), []);
   // A match was left by accident (tab closed, crash) a moment ago: go straight back into it.
   useEffect(() => {
@@ -125,7 +132,7 @@ export default function MainMenu() {
     if (seenLaunch.current === undefined) { seenLaunch.current = launch; return; }
     if (launch && launch !== seenLaunch.current) {
       seenLaunch.current = launch;
-      if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) { setBusy(true); router.push('/play?mode=battle-royale&squad=1'); }
+      if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) { setBusy(true); router.push(playUrl('battle-royale', true)); }
     } else seenLaunch.current = launch;
   }, [lobby, battleMode, router]);
 
@@ -425,6 +432,13 @@ export default function MainMenu() {
           />
         </a>
         {modeOpen && <ModeModal modes={GAME_MODES} current={gameMode} onPick={(m) => setGameMode(m as (typeof GAME_MODES)[number]['id'])} onClose={closeModes} />}
+        {mapOpen && <MapPicker current={brMap.id} fallbackImage={GAME_MODES.find((m) => m.id === 'battle-royale')!.image} onPick={(id, name) => { setBrMap({ id, name }); try { localStorage.setItem(BR_MAP_KEY, id); localStorage.setItem(`${BR_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeMaps} />}
+        {battleMode && <button className="menu-mode menu-map" onClick={() => setMapOpen(true)} aria-haspopup="dialog" aria-expanded={mapOpen}>
+          <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === 'battle-royale')!.image})` }} />
+          <small>Bản đồ</small>
+          <b>{brMap.name}</b>
+          <span className="menu-mode-caret"><Icon name="lucide:map" /></span>
+        </button>}
         <button className="menu-mode" onClick={() => setModeOpen(true)} aria-haspopup="dialog" aria-expanded={modeOpen}>
           <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === gameMode)!.image})` }} />
           <small>{t('menu.mode')}</small>

@@ -1141,7 +1141,7 @@ export class GameEngine {
     if (m.mode === 'infection') this.conn.sendLoadout(loadInfectionLoadout());
     if (m.mode === 'battle-royale' || m.mode === 'infection') { markActiveMatch(m.mode); rejoinSucceeded(); }
     if (m.mode === 'battle-royale') {
-      this.battleZone = new BattleZone(this.scene);
+      this.battleZone = new BattleZone(this.scene, (x, z) => this.store?.collision.terrainHeight(x, z) ?? Number.NaN);
       this.battleFlight = new BattleFlightRenderer(this.scene);
       void this.battleFlight.load().catch(err => console.error('Battle models unavailable', err));
     }
