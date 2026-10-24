@@ -658,6 +658,26 @@ export class Avatar {
     }
   }
 
+  /**
+   * An anchor's turn in the character's frame as at rest: its carry hook's rest frame, then the
+   * fixed chain from that hook down to it (backpack mounts). Never the animated pose, so a place
+   * set in the Studio stays put whatever the body is doing (running, aiming) when guns are hung.
+   */
+  private restFrame(anchor: Object3D): Quaternion {
+    const hooks = new Set<Object3D>(this.carryHooks.values());
+    let hook: Object3D | null = anchor;
+    while (hook && !hooks.has(hook)) hook = hook.parent;
+    const name = hook ? [...this.carryHooks].find(([, h]) => h === hook)?.[0] : undefined;
+    const rest = name ? this.hookRest.get(name) : undefined;
+    if (!hook || !rest) {
+      this.root.updateMatrixWorld(true);
+      return this.root.getWorldQuaternion(new Quaternion()).invert().multiply(anchor.getWorldQuaternion(new Quaternion()));
+    }
+    hook.updateWorldMatrix(true, true);
+    const below = hook.getWorldQuaternion(new Quaternion()).invert().multiply(anchor.getWorldQuaternion(new Quaternion()));
+    return rest.frame.clone().multiply(hook.quaternion).multiply(below);
+  }
+
   /** The Studio's adjustments of the carry hooks (and so everything hung on them). */
   private applyHookFit(): void {
     for (const [name, hook] of this.carryHooks) {
@@ -2191,8 +2211,7 @@ export class Avatar {
       // The Studio's adjustment of this place, in the character's axes, about the weapon itself.
       const a = key ? adjustFor(key) : undefined;
       if (a) {
-        this.root.updateMatrixWorld(true);
-        const frame = this.root.getWorldQuaternion(new Quaternion()).invert().multiply(anchor.getWorldQuaternion(new Quaternion()));
+        const frame = this.restFrame(anchor);
         g.updateMatrix();
         adjustMatrix(a, g.position.clone(), frame).multiply(g.matrix).decompose(g.position, g.quaternion, g.scale);
       }

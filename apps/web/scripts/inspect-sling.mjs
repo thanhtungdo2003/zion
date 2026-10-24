@@ -1,0 +1,23 @@
+import { readFile } from 'node:fs/promises';
+import { EntityFlags } from '@zion/shared';
+import { untexturedGlb } from '../src/game/render/test-glb';
+globalThis.fetch = async (url) => { const path = String(url).split('?')[0]; if (path.endsWith('manifest.json') || path.includes('/api/')) return new Response('', { status: 404 }); const buf = await readFile(`apps/web/public${path}`); return new Response(path.endsWith('.glb') ? untexturedGlb(buf) : buf); };
+const { Avatar } = await import('../src/game/render/avatars');
+const { buildBBModel, mirrorCharacter, survivorTemplate } = await import('../src/game/render/character-model');
+const { parseHumanAssets } = await import('../src/game/render/human-rig');
+const { builtinWeaponVisual, fittedSpec, standaloneVisual, loadWeaponModel } = await import('../src/game/render/weapons');
+const { setGearFit } = await import('../src/game/gear-fit');
+const raw = async (u) => { const d = JSON.parse(await readFile(u, 'utf8')); d.textures = []; return buildBBModel(d); };
+const glb = await readFile('models/characters/zion-survivor.glb');
+const template = survivorTemplate(mirrorCharacter(await raw('models/characters/teen-wasteland-survivor.bbmodel')), await parseHumanAssets(untexturedGlb(glb)));
+const t = await raw('models/weapons/ak47-rifle.bbmodel'), s = fittedSpec(builtinWeaponVisual('ak47'), t);
+const weapons = new Map([['ak47', standaloneVisual('ak47', s, t.root, template)]]);
+setGearFit({ adjust: { 'sling:back_1': { offset: [.05, .1, 0], rotate: [0, 30, 0], scale: 1 } }, soft: {}, drag: {} });
+const av = new Avatar(template, true);
+const gear = (n) => ({ back: n ? ['ak47'] : [], holster: null, belt: null, pack: null });
+const where = () => { const g = []; av.root.traverse((o) => { if (o.name === 'stowed-weapon') g.push(o); }); return g.map((o) => [...o.position.toArray(), ...o.quaternion.toArray()].map((v) => v.toFixed(3)).join(' ')); };
+av.setGear(gear(1), weapons); for (let i = 0; i < 5; i++) av.update(0, 0, 0, 0, EntityFlags.Grounded, 1 / 60, i / 60);
+console.log('rest ', where());
+let z = 0; for (let i = 0; i < 40; i++) { z -= 6 / 60; av.update(0, 0, z, 0, EntityFlags.Grounded | EntityFlags.Sprinting, 1 / 60, i / 60); av.root.updateMatrixWorld(true); }
+av.setGear(gear(0), weapons); av.setGear(gear(1), weapons);
+console.log('run  ', where());
