@@ -1,15 +1,16 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AmbientLight, ArrowHelper, Box3, Color, DirectionalLight, GridHelper, Group, Matrix4, Mesh, PlaneGeometry, MeshBasicMaterial, PerspectiveCamera, Raycaster, Scene, SphereGeometry, SRGBColorSpace, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { ATTACHMENTS, CUSTOM_GUN_SOUNDS, ITEMS, WEAPON_BY_ITEM, builtinWeaponDraft, builtinWeaponIds, customWeaponSchema, type CustomWeapon } from '@zion/shared';
+import { ATTACHMENTS, CUSTOM_GUN_SOUNDS, EntityFlags, ITEMS, WEAPON_BY_ITEM, builtinWeaponDraft, builtinWeaponIds, customWeaponSchema, type CustomWeapon } from '@zion/shared';
 import Link from 'next/link';
 import { ConfirmDialog } from './ConfirmDialog';
 import { API_URL, studioDeleteWeapon, studioResetWeapons, studioLogin, studioSaveWeapon, studioWeapons, type StudioWeapon } from '@/lib/api';
 import { builtinRecoilDegrees } from '@/game/first-person-recoil';
 import { BB_UNITS_PER_METER, loadPlayerCharacter, type CharacterTemplate } from '@/game/render/character-model';
-import { builtinWeaponVisual, loadWeaponModel, previewAttachment, standaloneVisual, type WeaponSpec } from '@/game/render/weapons';
+import { builtinWeaponVisual, fittedSpec, heldWeaponVisual, loadWeaponModel, previewAttachment, standaloneVisual, type WeaponSpec } from '@/game/render/weapons';
+import { Avatar } from '@/game/render/avatars';
 import { ViewModel } from '@/game/render/viewmodel';
 import { scopeFov } from '@/game/scope';
 import { Icon } from './Icon';
@@ -230,6 +231,7 @@ function visualSpec(d: Draft, url: string): WeaponSpec {
     url, format: d.format, length: m.length, barrel: m.barrel, up: m.up, grip: m.grip,
     ...(m.support ? { support: m.support } : {}), ...(m.muzzle ? { muzzle: m.muzzle } : {}), ...(m.eject ? { eject: m.eject } : {}),
     ...(m.sight ? { sight: m.sight } : {}), ...(m.rail ? { rail: m.rail } : {}), ...(m.edge ? { edge: m.edge } : {}), ...(m.strikePoint ? { strikePoint: m.strikePoint } : {}),
+    ...(m.size ? { size: m.size } : {}),
     ...(m.fpHip ? { fpHip: m.fpHip } : {}), ...(m.fpSupport ? { fpSupport: m.fpSupport } : {}), ...(m.fpRot ? { fpRot: m.fpRot } : {}), ...(m.opticScale ? { opticScale: m.opticScale } : {}), ...(m.muzzleScale ? { muzzleScale: m.muzzleScale } : {}), ...(m.attachmentScale ? { attachmentScale: m.attachmentScale } : {}), ...(m.attachmentOffset ? { attachmentOffset: m.attachmentOffset } : {}),
     // The preview has no item entry: give handguns their usual longer eye relief explicitly.
     fpEyeRelief: m.fpEyeRelief ?? (d.item.category === 'pistol' ? .4 : .3),
@@ -245,6 +247,8 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'model' | 'stats' | 'view'>('model');
+  /** Model tab: the character holding the weapon (its size in hand) instead of the point editor. */
+  const [held, setHeld] = useState(false);
   const [savedAt, setSavedAt] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   /** Attachments shown on the model while editing (preview only). */
@@ -282,6 +286,9 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
     catch (e) { setError(e instanceof Error ? e.message : 'Không lưu được.'); }
     setBusy(false);
   };
+  const heldToggle = <button type="button" className="ws-viewer-bg ws-viewer-held" aria-pressed={held} onClick={() => setHeld((v) => !v)} title="Xem nhân vật cầm vũ khí này (kích thước như trong game)">
+    <Icon name={held ? 'lucide:crosshair' : 'lucide:person-standing'} /> {held ? 'Đặt điểm gắn' : 'Nhân vật cầm'}
+  </button>;
   const num = (label: string, value: number, on: (v: number) => void, step = 1, min?: number, max?: number) =>
     <label className="studio-field-inline"><span>{label}</span><input type="number" step={step} min={min} max={max} value={value} onChange={(e) => on(Number(e.target.value))} /></label>;
   return (
@@ -317,13 +324,17 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
         {notice && !error && <p className="studio-muted ws-error">{notice}</p>}
         <div className="ws-body">
           {tab === 'model' && <>
-            {url ? <PointEditor key={url} url={url} format={d.format} draft={d} previews={d.gun ? [shown.optic, shown.muzzle].filter((a) => a && (a === shown.optic ? d.gun!.optics : d.gun!.muzzleDevices).includes(a)) : []} picking={picking} onPick={(p) => { if (picking) setPoint(picking, p); }} /> : <div className="ws-viewer"><div className="ws-viewer-state"><Spinner /> Đang đọc file…</div></div>}
+            {url ? held
+              ? <HeldPreview key={url} url={url} draft={d} shipped={builtin && !file && modelUrl === builtinWeaponVisual(d.id)?.url}>{heldToggle}</HeldPreview>
+              : <PointEditor key={url} url={url} format={d.format} draft={d} previews={d.gun ? [shown.optic, shown.muzzle].filter((a) => a && (a === shown.optic ? d.gun!.optics : d.gun!.muzzleDevices).includes(a)) : []} picking={picking} onPick={(p) => { if (picking) setPoint(picking, p); }}>{heldToggle}</PointEditor>
+              : <div className="ws-viewer"><div className="ws-viewer-state"><Spinner /> Đang đọc file…</div></div>}
             <aside className="ws-side studio-form">
               <p className="studio-muted">Chọn một điểm bên dưới rồi nhấp lên model để đặt. Trục: hướng nòng (về phía mục tiêu) và hướng lên trên của model.</p>
               <div className="ws-axes">
                 <label className="studio-field-inline"><span>Hướng nòng</span><select value={axisName(d.model.barrel)} onChange={(e) => setModel({ barrel: AXES[e.target.value]! })}>{Object.keys(AXES).map((a) => <option key={a}>{a}</option>)}</select></label>
                 <label className="studio-field-inline"><span>Hướng lên</span><select value={axisName(d.model.up)} onChange={(e) => setModel({ up: AXES[e.target.value]! })}>{Object.keys(AXES).map((a) => <option key={a}>{a}</option>)}</select></label>
                 {num('Chiều dài thật (m)', d.model.length, (v) => setModel({ length: v }), .01, .1, 3)}
+                {num('Kích thước khi cầm (×)', d.model.size ?? 1, (v) => { if (v > 0) setModel({ size: v === 1 ? undefined : v }); }, .05, .2, 5)}
               </div>
               <ul className="ws-points">
                 {keys.map((k) => {
@@ -446,7 +457,7 @@ const BACKDROP = {
   light: { clear: 0xd9dde2, gridMajor: 0x8e969e, grid: 0xb4bbc2 },
 } as const;
 
-function PointEditor({ url, format, draft, previews, picking, onPick }: { url: string; format: 'glb' | 'bbmodel'; draft: Draft; previews: string[]; picking: PointKey | null; onPick: (p: Vec3) => void }) {
+function PointEditor({ url, format, draft, previews, picking, onPick, children }: { url: string; format: 'glb' | 'bbmodel'; draft: Draft; previews: string[]; picking: PointKey | null; onPick: (p: Vec3) => void; children?: ReactNode }) {
   const host = useRef<HTMLDivElement>(null);
   const api = useRef<{ markers: (d: Draft) => void; attachments: (d: Draft, ids: string[]) => void } | null>(null);
   const pick = useRef(onPick); pick.current = onPick;
@@ -582,6 +593,78 @@ function PointEditor({ url, format, draft, previews, picking, onPick }: { url: s
       <Icon name={light ? 'lucide:moon' : 'lucide:sun'} /> {light ? 'Nền tối' : 'Nền sáng'}
     </button>
     {picking && state === 'ready' && <div className="ws-viewer-hint">Nhấp lên model để đặt: <b>{POINTS[picking].label}</b> · kéo mũi tên để dời điểm · kéo nền để xoay</div>}
+    {children}
+  </div>;
+}
+
+/** Stand-in item for a new weapon (not in the item table yet): one of the same kind, for the stance. */
+const HOLD_AS: Record<Draft['item']['category'], string> = { pistol: 'deagle', smg: 'mp5', rifle: 'm4a1', shotgun: 'shotgun', heavy: 'pkm', melee: 'machete', grenade: 'grenade' };
+
+/**
+ * The survivor holding the weapon as in game (same fitting and size), to judge its size in hand.
+ * `shipped`: a built-in's own model, whose Studio points win over the file's fitting (as in game).
+ */
+function HeldPreview({ url, draft, shipped, children }: { url: string; draft: Draft; shipped: boolean; children?: ReactNode }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const stage = useRef<{ avatar: Avatar; character: CharacterTemplate; built: CharacterTemplate } | null>(null);
+  const [loaded, setLoaded] = useState(0);
+  const [length, setLength] = useState(0);
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    let disposed = false, frame = 0;
+    const renderer = new WebGLRenderer({ antialias: true });
+    renderer.outputColorSpace = SRGBColorSpace; renderer.setClearColor(new Color(0x56606a));
+    el.appendChild(renderer.domElement);
+    const scene = new Scene();
+    scene.add(new AmbientLight(0xffffff, 1.6));
+    const sun = new DirectionalLight(0xffffff, 2.4); sun.position.set(2, 4, 3); scene.add(sun);
+    // 1 m grid: the weapon's size reads against it and the survivor.
+    scene.add(new GridHelper(8, 8, 0x8a949c, 0x6a747c));
+    const camera = new PerspectiveCamera(35, 1, .05, 60);
+    camera.position.set(2.4, 1.5, -2.4);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.1, 0); controls.update();
+    const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); };
+    const observer = new ResizeObserver(resize); observer.observe(el); resize();
+    let last = performance.now(), t = 0;
+    const loop = () => {
+      const now = performance.now(), dt = Math.min(.05, (now - last) / 1000); last = now; t += dt;
+      stage.current?.avatar.update(0, 0, 0, 0, EntityFlags.Grounded, dt, t);
+      renderer.render(scene, camera);
+      if (!disposed) frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    void Promise.all([loadPlayerCharacter(), loadWeaponModel(url, undefined, draft.format)]).then(([character, built]) => {
+      if (disposed) return;
+      const avatar = new Avatar(character, true);
+      avatar.addTo(scene);
+      stage.current = { avatar, character, built };
+      setState('ready'); setLoaded((n) => n + 1);
+    }).catch(() => { if (!disposed) setState('failed'); });
+    return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); stage.current?.avatar.dispose(scene); stage.current = null; controls.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the model reloads only with the file.
+  }, [url]);
+  const spec = useMemo(() => ({ ...visualSpec(draft, url), ...(shipped ? { studio: true } : {}) }), [draft, url, shipped]);
+  useEffect(() => {
+    const st = stage.current;
+    if (!st) return;
+    const key = ITEMS[draft.id] ? draft.id : HOLD_AS[draft.item.category];
+    const fitted = fittedSpec(spec, st.built);
+    try {
+      const visual = heldWeaponVisual(key, fitted, st.built, st.character);
+      st.avatar.setWeapon(null, null);
+      st.avatar.setStance(ITEMS[key]?.stance ?? 'rifle');
+      st.avatar.setWeapon(key, new Map([[key, visual]]));
+      setLength(fitted.length);
+    } catch { /* points not usable yet: keep the last fit */ }
+  }, [spec, loaded, draft.id, draft.item.category]);
+  return <div className="ws-viewer" ref={host}>
+    {state === 'loading' && <div className="ws-viewer-state"><Spinner /> Đang tải nhân vật…</div>}
+    {state === 'failed' && <div className="ws-viewer-state">Không tải được nhân vật hoặc model.</div>}
+    {state === 'ready' && <div className="ws-viewer-hint">Dài {length.toFixed(2)} m trong tay · ô lưới 1 m · kéo để xoay</div>}
+    {children}
   </div>;
 }
 

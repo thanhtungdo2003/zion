@@ -59,6 +59,8 @@ export interface WeaponSpec {
   format?: 'glb' | 'bbmodel';
   /** A shipped model's points edited in the Studio: they win over the fitting embedded in the file. */
   studio?: boolean;
+  /** Studio size multiplier on top of the length (and of any fitting embedded in the file). */
+  size?: number;
   /** A GLB pack holding several items: the node of this one (and its turn to face +Z). */
   node?: string;
   nodeYaw?: number;
@@ -320,6 +322,7 @@ export function fittedSpec(spec: WeaponSpec, template: CharacterTemplate): Weapo
       ...(gun.gripRadius ? { gripRadius: gun.gripRadius } : {}), ...(gun.supportRadius ? { supportRadius: gun.supportRadius } : {}),
     };
   }
+  if (spec.size && spec.size !== 1) spec = { ...spec, length: spec.length * spec.size, size: 1 };
   const fit = template.attachment;
   if (!fit) return spec;
   return {
@@ -648,42 +651,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         built.root.add(lens, direction);
       }
       ownedRoots.push(built.root);
-      const stance = ITEMS[itemId]?.stance ?? 'rifle';
-      const local = (p?: Vec3) => (p ? new Vector3(...p).multiplyScalar(1 / BB_UNITS_PER_METER) : null);
-      const display = displayModel(spec, built.root);
-      const heldAxes = spec.edge ? {
-        axis: new Vector3(...spec.barrel).normalize(), edge: new Vector3(...spec.edge),
-        grip: local(spec.grip)!, tip: local(spec.strikePoint ?? spec.grip)!,
-        ...(itemId === 'fire_axe' || itemId === 'pickaxe' ? { swingOffset: Math.PI } : {}),
-        idleDown: itemId === 'fire_axe' || itemId === 'pickaxe' || itemId === 'long_sledgehammer',
-      } : null;
-      const displayTransform = display.children[0]!.matrix;
-      lib.set(itemId, {
-        itemId,
-        object: built.root,
-        attach: fitToHand(character, spec, stance, built.root),
-        ...(spec.muzzle ? { heldScale: heldGunScale(character) } : {}),
-        ...(ITEMS[itemId]?.category === 'tool' ? { offhandAttach: fitToHand(character, spec, stance, built.root, 'left') } : {}),
-        ...(ITEMS[itemId]?.category === 'tool' && character.root.getObjectByName('arm_left') ? { offhandArm: character.root.getObjectByName('arm_left')! } : {}),
-        ...(spec.muzzle ? { aim: { barrel: new Vector3(...spec.barrel), up: new Vector3(...spec.up), grip: local(spec.grip)! } } : {}),
-        ...(spec.support ? { twoHandGrip: { grip: local(spec.grip)!, support: local(spec.support)!, up: new Vector3(...spec.up), triggerHand: spec.patrolTriggerHand ?? 'right' } } : {}),
-        ...(heldAxes ? { melee: { held: heldAxes, display: {
-          axis: heldAxes.axis.clone().transformDirection(displayTransform),
-          edge: heldAxes.edge.clone().transformDirection(displayTransform),
-          grip: heldAxes.grip.clone().applyMatrix4(displayTransform),
-          tip: heldAxes.tip.clone().applyMatrix4(displayTransform),
-          swingOffset: heldAxes.swingOffset,
-          idleDown: heldAxes.idleDown,
-        } } } : {}),
-        display,
-        ...firstPersonArms(character, itemId, spec, displayTransform),
-        clips: built.clips,
-        reloadClip: spec.reloadClip && built.clips.has(spec.reloadClip) ? spec.reloadClip : null,
-        muzzle: local(spec.muzzle),
-        eject: local(spec.eject),
-        spec,
-        sight: spec.sight ? { rear: local(spec.sight.rear)!.applyMatrix4(displayTransform), front: local(spec.sight.front)!.applyMatrix4(displayTransform) } : null,
-      });
+      lib.set(itemId, heldWeaponVisual(itemId, spec, built, character));
     }),
   );
   const failure = results.find((r) => r.status === 'rejected');
@@ -700,4 +668,44 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
     c4.clips = remote.clips;
   }
   return lib;
+}
+
+/** A loaded weapon model fitted to the character's hand (and its display / first-person data). */
+export function heldWeaponVisual(itemId: string, spec: WeaponSpec, built: CharacterTemplate, character: CharacterTemplate): WeaponVisual {
+  const stance = ITEMS[itemId]?.stance ?? 'rifle';
+  const local = (p?: Vec3) => (p ? new Vector3(...p).multiplyScalar(1 / BB_UNITS_PER_METER) : null);
+  const display = displayModel(spec, built.root);
+  const heldAxes = spec.edge ? {
+    axis: new Vector3(...spec.barrel).normalize(), edge: new Vector3(...spec.edge),
+    grip: local(spec.grip)!, tip: local(spec.strikePoint ?? spec.grip)!,
+    ...(itemId === 'fire_axe' || itemId === 'pickaxe' ? { swingOffset: Math.PI } : {}),
+    idleDown: itemId === 'fire_axe' || itemId === 'pickaxe' || itemId === 'long_sledgehammer',
+  } : null;
+  const displayTransform = display.children[0]!.matrix;
+  return {
+    itemId,
+    object: built.root,
+    attach: fitToHand(character, spec, stance, built.root),
+    ...(spec.muzzle ? { heldScale: heldGunScale(character) } : {}),
+    ...(ITEMS[itemId]?.category === 'tool' ? { offhandAttach: fitToHand(character, spec, stance, built.root, 'left') } : {}),
+    ...(ITEMS[itemId]?.category === 'tool' && character.root.getObjectByName('arm_left') ? { offhandArm: character.root.getObjectByName('arm_left')! } : {}),
+    ...(spec.muzzle ? { aim: { barrel: new Vector3(...spec.barrel), up: new Vector3(...spec.up), grip: local(spec.grip)! } } : {}),
+    ...(spec.support ? { twoHandGrip: { grip: local(spec.grip)!, support: local(spec.support)!, up: new Vector3(...spec.up), triggerHand: spec.patrolTriggerHand ?? 'right' } } : {}),
+    ...(heldAxes ? { melee: { held: heldAxes, display: {
+      axis: heldAxes.axis.clone().transformDirection(displayTransform),
+      edge: heldAxes.edge.clone().transformDirection(displayTransform),
+      grip: heldAxes.grip.clone().applyMatrix4(displayTransform),
+      tip: heldAxes.tip.clone().applyMatrix4(displayTransform),
+      swingOffset: heldAxes.swingOffset,
+      idleDown: heldAxes.idleDown,
+    } } } : {}),
+    display,
+    ...firstPersonArms(character, itemId, spec, displayTransform),
+    clips: built.clips,
+    reloadClip: spec.reloadClip && built.clips.has(spec.reloadClip) ? spec.reloadClip : null,
+    muzzle: local(spec.muzzle),
+    eject: local(spec.eject),
+    spec,
+    sight: spec.sight ? { rear: local(spec.sight.rear)!.applyMatrix4(displayTransform), front: local(spec.sight.front)!.applyMatrix4(displayTransform) } : null,
+  };
 }

@@ -113,6 +113,8 @@ export const customWeaponSchema = z.object({
     /** Shift of the attachment point for one particular attachment on this gun (model units). */
     attachmentOffset: z.record(z.string().max(40), vec3).optional(),
     fpRot: z.tuple([z.number().min(-1.2).max(1.2), z.number().min(-1.2).max(1.2)]).optional(),
+    /** Size multiplier set in the Studio, on top of the length and any fitting in the file (1 = as is). */
+    size: z.number().min(.2).max(5).optional(),
   }),
   gun: z.object({
     damage: z.number().min(0).max(300),
