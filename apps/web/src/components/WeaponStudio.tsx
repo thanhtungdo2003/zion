@@ -328,6 +328,8 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
     setBusy(true); setError(null);
     // Listing fields (where the model is served) are not part of the definition.
     const { modelUrl: _url, ...def } = d as Draft & { modelUrl?: unknown };
+    // The Studio's points are the fitting from now on (see registerWeaponVisual).
+    def.model = { ...def.model, own: true };
     const check = customWeaponSchema.safeParse({ ...def, weaponId: def.weaponId ?? 100 });
     if (!check.success) { setError(check.error.issues.map((i) => `${i.path.join('.') || 'Vũ khí'}: ${i.message}`).join(' · ')); setBusy(false); return; }
     try { await studioSaveWeapon(def, file ? await readBase64(file) : undefined); setSavedAt(Date.now()); onClose(true); }
@@ -373,7 +375,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
         <div className="ws-body">
           {tab === 'model' && <>
             {url ? held
-              ? <HeldPreview key={url} url={url} draft={d} shipped={builtin && !file && modelUrl === builtinWeaponVisual(d.id)?.url}>{heldToggle}</HeldPreview>
+              ? <HeldPreview key={url} url={url} draft={d}>{heldToggle}</HeldPreview>
               : <PointEditor key={url} url={url} format={d.format} draft={d} previews={d.gun ? [shown.optic, shown.muzzle].filter((a) => a && (a === shown.optic ? d.gun!.optics : d.gun!.muzzleDevices).includes(a)) : []} picking={picking} onPick={(p) => { if (picking) setPoint(picking, p); }}>{heldToggle}</PointEditor>
               : <div className="ws-viewer"><div className="ws-viewer-state"><Spinner /> Đang đọc file…</div></div>}
             <aside className="ws-side studio-form">
@@ -651,9 +653,8 @@ const HOLD_AS: Record<Draft['item']['category'], string> = { pistol: 'deagle', s
 
 /**
  * The survivor holding the weapon as in game (same fitting and size), to judge its size in hand.
- * `shipped`: a built-in's own model, whose Studio points win over the file's fitting (as in game).
  */
-function HeldPreview({ url, draft, shipped, children }: { url: string; draft: Draft; shipped: boolean; children?: ReactNode }) {
+function HeldPreview({ url, draft, children }: { url: string; draft: Draft; children?: ReactNode }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const stage = useRef<{ avatar: Avatar; character: CharacterTemplate; built: CharacterTemplate } | null>(null);
@@ -695,7 +696,8 @@ function HeldPreview({ url, draft, shipped, children }: { url: string; draft: Dr
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); stage.current?.avatar.dispose(scene); stage.current = null; controls.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the model reloads only with the file.
   }, [url]);
-  const spec = useMemo(() => ({ ...visualSpec(draft, url), ...(shipped ? { studio: true } : {}) }), [draft, url, shipped]);
+  // The draft's points are what the game uses once saved (`own`), over any fitting in the file.
+  const spec = useMemo(() => ({ ...visualSpec(draft, url), studio: true }), [draft, url]);
   useEffect(() => {
     const st = stage.current;
     if (!st) return;
@@ -774,6 +776,8 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
     if (!st?.root) return;
     st.view?.dispose();
     const view = new ViewModel(st.camera);
+    // The survivor's own first-person hands, as in game (they also decide the hip placement).
+    if (st.character?.human) view.setBody(st.character.human);
     view.set('studio-preview', new Map([['studio-preview', standaloneVisual('studio-preview', spec, st.root, st.character)]]));
     st.view = view;
   }, [spec, loaded]);

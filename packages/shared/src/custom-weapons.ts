@@ -113,6 +113,11 @@ export const customWeaponSchema = z.object({
     /** Shift of the attachment point for one particular attachment on this gun (model units). */
     attachmentOffset: z.record(z.string().max(40), vec3).optional(),
     fpRot: z.tuple([z.number().min(-1.2).max(1.2), z.number().min(-1.2).max(1.2)]).optional(),
+    /**
+     * Saved from the Studio editor: these points are the weapon's fitting, over any fitting
+     * embedded in an uploaded model file (older entries keep the file's own).
+     */
+    own: z.boolean().optional(),
     /** First-person view only: the gun's size in view (1 = real size), about its grip. */
     fpScale: z.number().min(.3).max(3).optional(),
     /** Size multiplier set in the Studio, on top of the length and any fitting in the file (1 = as is). */

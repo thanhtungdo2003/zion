@@ -108,7 +108,10 @@ export function registerWeaponVisual(itemId: string, url: string | null, format:
   // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
   // Points edited on the shipped model win over that file's own fitting; an uploaded model keeps
   // the fitting it was made with (the Studio's points for it start from that fitting).
-  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model, studio: true } : { ...model, url: url ?? base?.url ?? '', format };
+  // Points saved from the Studio editor (`own`) win over an uploaded file's fitting as well, so the
+  // game shows what the Studio showed.
+  const own = (model as { own?: boolean }).own === true;
+  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model, studio: true } : { ...model, url: url ?? base?.url ?? '', format, ...(own ? { studio: true } : {}) };
 }
 
 /** A built-in weapon's authoring data as shipped (Studio: defaults to edit from / reset to). */

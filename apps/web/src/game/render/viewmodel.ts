@@ -180,7 +180,8 @@ export class ViewModel {
     this.hip.set(...(spec?.fpHip ?? [0.2, -0.27, -0.25]));
     // With the survivor's own hands, the held item sits a little higher and further in, so the
     // hands closed round it stay in view.
-    if (this.hands) { this.hip.x = Math.min(this.hip.x, .17); this.hip.y = Math.max(this.hip.y, -.21); this.hip.z = Math.min(this.hip.z, -.3); }
+    // (A hip position set in the Studio is kept as set: the Studio previews with the same hands.)
+    if (this.hands && !spec?.fpHip) { this.hip.x = Math.min(this.hip.x, .17); this.hip.y = Math.max(this.hip.y, -.21); this.hip.z = Math.min(this.hip.z, -.3); }
     this.hipTilt = spec?.fpRot ?? [0, 0];
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
