@@ -57,7 +57,7 @@ export interface WeaponSpec {
   /** Real length of an attachment along `barrel` (metres). */
   /** Model file format when the URL does not say (Studio uploads). */
   format?: 'glb' | 'bbmodel';
-  /** Edited in the Studio: its points win over the fitting embedded in the model file. */
+  /** A shipped model's points edited in the Studio: they win over the fitting embedded in the file. */
   studio?: boolean;
   /** A GLB pack holding several items: the node of this one (and its turn to face +Z). */
   node?: string;
@@ -99,7 +99,9 @@ export function registerWeaponVisual(itemId: string, url: string | null, format:
   // before the Studio recorded that model (no `madeFor`) were made for the current one.
   if (base && madeFor !== undefined && madeFor !== base.url) { WEAPON_SPECS[itemId] = base; return; }
   // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
-  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model, studio: true } : { ...model, url: url ?? base?.url ?? '', format, studio: true };
+  // Points edited on the shipped model win over that file's own fitting; an uploaded model keeps
+  // the fitting it was made with (the Studio's points for it start from that fitting).
+  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model, studio: true } : { ...model, url: url ?? base?.url ?? '', format };
 }
 
 /** A built-in weapon's authoring data as shipped (Studio: defaults to edit from / reset to). */
