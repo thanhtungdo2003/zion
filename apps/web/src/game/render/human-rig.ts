@@ -613,13 +613,22 @@ export class HumanBody {
     if (hair) hair.visible = this.hairShown && !on;
   }
 
+  private readonly outfitCovered = new Set<string>();
+  /** Trousers / boots worn over the default ones hide them. */
+  setOutfitCovered(slot: 'legs' | 'feet', on: boolean): void {
+    if (on === this.outfitCovered.has(slot)) return;
+    if (on) this.outfitCovered.add(slot); else this.outfitCovered.delete(slot);
+    const mesh = this.meshes.get(slot);
+    if (mesh) mesh.visible = !on;
+  }
+
   setAppearance(a: Appearance): void {
     this.appearance = a;
     const A = this.assets;
     const set = (slot: string, color: string | null, visible = true, key = slot) => {
       const mesh = this.meshes.get(slot), part = A.parts.get(slot);
       if (!mesh || !part) return;
-      mesh.visible = visible;
+      mesh.visible = visible && !this.outfitCovered.has(slot);
       mesh.material = partMaterial(part, color, key);
       if (this.tinted) this.tint(mesh, true);
       const inf = mesh.morphTargetInfluences;

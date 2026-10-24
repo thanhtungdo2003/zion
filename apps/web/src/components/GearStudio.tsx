@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ARMOR_SLOTS, ARMOR_SPECS, CARRY_HOOKS, DEFAULT_APPEARANCE, EntityFlags, ITEMS, NO_ARMOR, type ArmorLoadout, type ArmorSlot, type CarriedGear, type GearAdjust, type GearFit } from '@zion/shared';
 import { hasStudioSession, studioLogin, studioSaveGearFit } from '@/lib/api';
 import { gearFit, loadGearFit, setGearFit } from '@/game/gear-fit';
-import { Avatar } from '@/game/render/avatars';
+import { Avatar, OUTFIT_KEYS } from '@/game/render/avatars';
 import { loadArmorPiece } from '@/game/render/armor-models';
 import { loadPlayerCharacter } from '@/game/render/character-model';
 import { loadWeapons, type WeaponLibrary } from '@/game/render/weapons';
@@ -132,6 +132,9 @@ export function GearStudioPage() {
     ...(gear.holster ? [{ key: 'sling:holster', name: `Bao súng hông: ${ITEMS[gear.holster]?.name ?? gear.holster}`, paintable: false }] : []),
     ...(gear.belt ? [{ key: 'sling:belt', name: `Móc thắt lưng: ${ITEMS[gear.belt]?.name ?? gear.belt}`, paintable: false }] : []),
     ...CARRY_HOOKS.map((h) => ({ key: `hook:${h}`, name: HOOK_NAME[h]!, paintable: false })),
+    // The default trousers and boots every survivor wears (not inventory items).
+    { key: OUTFIT_KEYS.legs, name: 'Quần mặc định', paintable: false },
+    { key: OUTFIT_KEYS.feet, name: 'Giày mặc định', paintable: false },
   ], [armor, gear]);
   const paintable = targets.find((t) => t.key === target)?.paintable ?? false;
   const regions = fit.soft[target] ?? [];

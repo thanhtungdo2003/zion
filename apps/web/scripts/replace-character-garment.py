@@ -10,7 +10,8 @@ which the game tints with the chosen trouser colour.
 
 Afterwards rebuild the hidden skin under the clothes and copy the model to public/:
   tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/prepare-character-skin.mjs
-Usage (repo root): python apps/web/scripts/replace-character-pants.py <trousers.glb> [label]
+Usage (repo root): python apps/web/scripts/replace-character-garment.py <garment.glb> [label] [--feet]
+(--feet: one boot model, fitted onto both boots instead of the trousers)
 """
 import io
 import json
@@ -102,7 +103,7 @@ def garment(path):
             mat = j['materials'][prim.get('material', 0)] if j.get('materials') else {}
             pbr = mat.get('pbrMetallicRoughness', {})
             c = np.ones((len(p), 3)) * np.array(pbr.get('baseColorFactor', [1, 1, 1, 1])[:3])
-            base = image(pbr.get('baseColorTexture'))
+            base = image(pbr.get('baseColorTexture') or mat.get('extensions', {}).get('KHR_materials_pbrSpecularGlossiness', {}).get('diffuseTexture'))
             if base is not None:
                 c = c * sample(base, uv) ** 1.0
             ao = image(mat.get('occlusionTexture'))
@@ -144,10 +145,36 @@ def crotch(points):
     return ys[int(len(ys) * .7)]
 
 
+def boots(new, index, old):
+    """One boot model onto both old boots: toe forward (+Z), its length and width over each old
+    boot, height in proportion, sole on the old sole; mirrored for the other foot."""
+    top = new[new[:, 1] > new[:, 1].min() + (new[:, 1].max() - new[:, 1].min()) * .7]
+    if top[:, 2].mean() > (new[:, 2].min() + new[:, 2].max()) / 2:
+        new = new * np.array([-1, 1, -1])  # the shaft sits over the heel: turn the toe to +Z
+    lo, hi = new.min(0), new.max(0)
+    parts, faces, sides = [], [], []
+    for s, sel in enumerate([old[:, 0] < 0, old[:, 0] >= 0]):
+        o_lo, o_hi = old[sel].min(0), old[sel].max(0)
+        k = (o_hi[2] - o_lo[2]) / (hi[2] - lo[2])
+        src = new * np.array([-1, 1, 1]) if s == 0 else new  # the left boot mirrored
+        a, b = src[:, 0].min(), src[:, 0].max()
+        q = np.empty_like(src)
+        q[:, 0] = o_lo[0] + (src[:, 0] - a) / (b - a) * (o_hi[0] - o_lo[0])
+        q[:, 1] = o_lo[1] + (src[:, 1] - lo[1]) * k
+        q[:, 2] = o_lo[2] + (src[:, 2] - lo[2]) * k
+        tri = index.reshape(-1, 3)
+        faces.append((tri[:, ::-1] if s == 0 else tri) + len(new) * s)
+        parts.append(q); sides.append(np.full(len(q), s))
+    return np.concatenate(parts), np.concatenate(faces).reshape(-1), np.concatenate(sides)
+
+
 def main():
-    src, label = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'Grey Joggers'
+    feet = '--feet' in sys.argv
+    args = [a for a in sys.argv[1:] if a != '--feet']
+    src, label = args[0], args[1] if len(args) > 1 else ('Military Boots' if feet else 'Grey Joggers')
+    slot = 'feet' if feet else 'legs'
     j, binary = load(SURVIVOR)
-    legs_mesh = next(i for i, m in enumerate(j['meshes']) if m.get('extras', {}).get('slot') == 'legs')
+    legs_mesh = next(i for i, m in enumerate(j['meshes']) if m.get('extras', {}).get('slot') == slot)
     body_mesh = next(i for i, m in enumerate(j['meshes']) if m.get('extras', {}).get('slot') == 'body')
     old_prim = j['meshes'][legs_mesh]['primitives'][0]
     old = read(j, binary, old_prim['attributes']['POSITION'])
@@ -158,6 +185,15 @@ def main():
     skin_n = read(j, binary, body_prim['attributes']['NORMAL']).astype(np.float64) / 127
 
     new, colour, index = garment(src)
+    if feet:
+        fitted, index, side = boots(new, index, old)
+        colour = np.concatenate([colour, colour])
+    else:
+        fitted, side = trousers(new, old)
+    finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, 'military_boots' if feet else 'joggers')
+
+
+def trousers(new, old):
     # Height: ankle → crotch → waist of the new trousers onto the old ones (piecewise linear).
     knots_new = [new[:, 1].min(), crotch(new), new[:, 1].max()]
     knots_old = [old[:, 1].min(), crotch(old), old[:, 1].max()]
@@ -178,7 +214,10 @@ def main():
         tz = (new[sel, 2] - lo_z_n) / np.maximum(1e-4, hi_z_n - lo_z_n)
         fitted[sel, 0] = lo_x_o + tx * (hi_x_o - lo_x_o)
         fitted[sel, 2] = lo_z_o + tz * (hi_z_o - lo_z_o)
+    return fitted, side
 
+
+def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, name):
     # Over the skin: no vertex closer than 10 mm under / over the nearest body surface.
     from scipy.spatial import cKDTree
     body_tree = cKDTree(skin)
@@ -242,8 +281,8 @@ def main():
     old_prim['attributes'] = attrs
     old_prim['indices'] = indices
     mesh = j['meshes'][legs_mesh]
-    mesh['name'] = 'joggers'
-    mesh['extras'] = {**mesh.get('extras', {}), 'part': 'joggers', 'label': label}
+    mesh['name'] = name
+    mesh['extras'] = {**mesh.get('extras', {}), 'part': name, 'label': label}
     j['materials'][old_prim['material']]['pbrMetallicRoughness']['roughnessFactor'] = .9
     j['buffers'][0]['byteLength'] = len(binary)
 

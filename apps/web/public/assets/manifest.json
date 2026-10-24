@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-24T14:32:38.325Z",
+  "generatedAt": "2026-10-24T14:39:07.712Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -321,9 +321,9 @@
       "kind": "bbmodel"
     },
     "characters/zion-survivor.glb": {
-      "url": "/assets/models/characters_zion-survivor.2b1dd60b3bc4.glb",
-      "sha256": "2b1dd60b3bc49f5bc0b5cc613f3d43412eb5fdbb263dff0035d52d8c6a8b412e",
-      "bytes": 7740444,
+      "url": "/assets/models/characters_zion-survivor.635b9b6dce4c.glb",
+      "sha256": "635b9b6dce4caa26b6ef3be19184d0755b55fb9defdaeecdc6ac2e2431ac90a2",
+      "bytes": 7769712,
       "kind": "glb"
     },
     "dists/arrow-quiver.bbmodel": {

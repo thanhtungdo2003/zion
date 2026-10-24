@@ -1,6 +1,6 @@
 import { Ragdoll } from './ragdoll';
 import { SkinnedRagdoll } from './skinned-ragdoll';
-import { type Bone as Bone3, Box3, BoxGeometry, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, Matrix4, Euler, type Camera, type Object3D, type Scene } from 'three';
+import { type Bone as Bone3, Box3, BoxGeometry, BufferAttribute, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, Matrix4, Euler, type Camera, type Object3D, type Scene } from 'three';
 import { BLADE_COMBO, BLADE_COMBO_WEAPONS, LONG_LUNGE_CLIP, meleeSwing, EntityFlags, type CarriedGear, ITEMS, RANKS, TICK_DT, WEAPON_BY_ITEM, appearanceHeight, bladeStepTiming, nextBladeStep, weaponSpec, type Appearance, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -228,6 +228,30 @@ function armorMeshes(holder: Object3D): Object3D[] {
 }
 const MODEL_FRAME = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
 
+/** Gear Studio keys of the default trousers and boots (always worn, not inventory items). */
+export const OUTFIT_KEYS = { legs: 'outfit:legs', feet: 'outfit:feet' } as const;
+
+/**
+ * The Studio's position / turn / size for the default trousers and boots, applied to their shared
+ * bind-pose geometry (every survivor wears the same), from the shipped shape each time.
+ */
+function fitOutfit(assets: HumanAssets): void {
+  for (const [slot, key] of Object.entries(OUTFIT_KEYS)) {
+    const geometry = assets.parts.get(slot)?.geometry;
+    if (!geometry) continue;
+    const a = adjustFor(key), sig = JSON.stringify(a ?? null);
+    if (geometry.userData.outfitFit === sig) continue;
+    geometry.userData.outfitFit = sig;
+    const pos = geometry.getAttribute('position');
+    const base = (geometry.userData.shippedPositions ??= Float32Array.from(pos.array as Float32Array)) as Float32Array;
+    const centre = new Box3().setFromBufferAttribute(new BufferAttribute(base, 3)).getCenter(new Vector3());
+    const m = adjustMatrix(a, centre, MODEL_FRAME), v = new Vector3();
+    for (let i = 0; i < pos.count; i++) { v.fromArray(base, i * 3).applyMatrix4(m); pos.setXYZ(i, v.x, v.y, v.z); }
+    pos.needsUpdate = true;
+    geometry.computeBoundingSphere();
+  }
+}
+
 /** Player character built from the preloaded Blockbench model, driven by its own animation clips. */
 const INFECTED_TINT = new Color(1, .42, .4);
 const INFECTED_MATERIALS = new WeakMap<Material, Material>();
@@ -449,6 +473,7 @@ export class Avatar {
     for (const [name, b] of this.bones) this.restWorld.set(name, b.node.getWorldPosition(new Vector3()));
     if (!this.hookRest.size) this.recordHooks();
     this.applyHookFit();
+    if (this.template.human) fitOutfit(this.template.human);
     // The Studio's fitting changes live: re-dress with it.
     this.stopFit = onGearFit(() => this.refit());
     const head=this.bones.get('head')?.node;
@@ -558,6 +583,9 @@ export class Avatar {
     this.armorTails.delete(slot);
     if (piece) this.armorPieces.set(slot, piece); else this.armorPieces.delete(slot);
     const human = this.human, assets = this.template.human;
+    // Worn trousers / boots replace the default ones.
+    human?.setOutfitCovered('legs', this.armorPieces.has('legs'));
+    human?.setOutfitCovered('feet', this.armorPieces.has('feet'));
     human?.setHairCovered([...this.armor.values()].some((objs) => objs.some((o) => o.userData.coversHair)));
     if (!piece || !human || !assets) return;
     // The automatic fit, then the Studio's hand adjustment (offset, turn, size about the piece's centre).
@@ -642,6 +670,7 @@ export class Avatar {
   /** Re-dresses with the current fitting: hooks, armour, backpack and what hangs on them. */
   refit(): void {
     this.applyHookFit();
+    if (this.template.human) fitOutfit(this.template.human);
     for (const [slot, piece] of [...this.armorPieces]) this.setArmor(slot, piece);
     if (this.backpack) { this.backpack.dispose(); this.backpack = null; }
     this.gearKey = '';
