@@ -2539,7 +2539,8 @@ export class GameServer {
     // Staggered by a hit: no steering until it lands.
     if (now < p.stunUntil) { input = { ...input, mx: 0, mz: 0 }; buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump); }
     // Swinging a melee weapon: no sprinting until the swing is over.
-    if (now < p.attackingUntil && weaponSpec(p.weapon)?.kind === 'melee') buttons &= ~Buttons.Sprint;
+    // A melee swing roots the feet until it ends (a lunge still carries the body).
+    if (now < p.attackingUntil && weaponSpec(p.weapon)?.kind === 'melee') { input = { ...input, mx: 0, mz: 0 }; buttons &= ~Buttons.Sprint; }
     // The finisher's lunge only with the combo's last swing, starting this tick.
     // …or the long-hafted slash's step in (the quắm's second swing).
     if (buttons & Buttons.Lunge) {

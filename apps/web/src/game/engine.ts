@@ -2382,6 +2382,8 @@ export class GameEngine {
     let moveX = mx;
     let moveZ = mz;
     if (this.aiming) { buttons |= Buttons.Aim; buttons &= ~Buttons.Sprint; }
+    // A melee swing roots the feet until it ends (the server does the same); a lunge still carries.
+    if (weaponSpec(weapon)?.kind === 'melee' && performance.now() < this.weaponCtl.swingUntil) { moveX = 0; moveZ = 0; buttons &= ~Buttons.Sprint; }
     // Down on the ground: no moving, no shooting (the server ignores it too).
     if (this.hud.get().downed !== null || this.local?.knocked) {
       moveX = 0;
