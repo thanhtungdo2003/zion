@@ -34,7 +34,7 @@ def load(path):
 def read(j, binary, i):
     a = j['accessors'][i]
     bv = j['bufferViews'][a['bufferView']]
-    n = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4}[a['type']]
+    n = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}[a['type']]
     dt = {5126: np.float32, 5125: np.uint32, 5123: np.uint16, 5121: np.uint8, 5120: np.int8}[a['componentType']]
     off = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
     size = np.dtype(dt).itemsize
@@ -429,4 +429,5 @@ def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, s
     print(f'{label}: {len(fitted)} vertices, {len(tri)} triangles, {int(sink.sum())} pushed out over the skin')
 
 
-main()
+if __name__ == '__main__':
+    main()

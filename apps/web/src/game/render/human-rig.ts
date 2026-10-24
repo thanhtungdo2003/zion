@@ -644,6 +644,7 @@ export class HumanBody {
     this.hairCovered = on;
     const hair = this.meshes.get('hair');
     if (hair) hair.visible = this.hairShown && !on;
+    this.applyInfectedSkin();
   }
 
   private readonly outfitCovered = new Set<string>();
@@ -653,6 +654,7 @@ export class HumanBody {
     if (on) this.outfitCovered.add(slot); else this.outfitCovered.delete(slot);
     const mesh = this.meshes.get(slot);
     if (mesh) mesh.visible = !on;
+    this.applyInfectedSkin();
   }
 
   setAppearance(a: Appearance): void {
@@ -684,7 +686,18 @@ export class HumanBody {
       // Cropped hair shows the scalp through it: a little lighter.
       if (a.hair === 'buzz' || a.hair === 'undercut') hair.material = this.lighter(hair.material as MeshStandardMaterial);
     }
+    set('infected', null, this.infectedSkin);
+    this.applyInfectedSkin();
     this.proportions(a);
+  }
+
+  private infectedSkin = false;
+  /** Infection mode: the zombie model (same skeleton and animations) in place of the survivor. */
+  private applyInfectedSkin(): void {
+    const zombie = this.meshes.get('infected');
+    if (!zombie) return;
+    zombie.visible = this.infectedSkin;
+    if (this.infectedSkin) for (const [slot, mesh] of this.meshes) if (slot !== 'infected') mesh.visible = false;
   }
 
   private lighter(m: MeshStandardMaterial): MeshStandardMaterial {
@@ -737,6 +750,13 @@ export class HumanBody {
 
   /** Infection: the skin and clothes under a red veil. */
   setTint(on: boolean): void {
+    // With the zombie model, being infected swaps the whole body for it instead of a red veil.
+    if (this.meshes.has('infected')) {
+      if (on === this.infectedSkin) return;
+      this.infectedSkin = on;
+      this.setAppearance(this.appearance);
+      return;
+    }
     if (on === this.tinted) return;
     this.tinted = on;
     for (const mesh of this.meshes.values()) this.tint(mesh, on);

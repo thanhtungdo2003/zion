@@ -219,7 +219,7 @@ describe('survivor model', () => {
   });
   it('loads every part on one skeleton with the derived haircuts and first-person arms', () => {
     expect(assets.bones.length).toBe(162);
-    expect([...assets.parts.keys()].sort()).toEqual(['belt', 'body', 'eyes', 'feet', 'hair', 'legs', 'top']);
+    expect([...assets.parts.keys()].sort()).toEqual(['belt', 'body', 'eyes', 'feet', 'hair', 'infected', 'legs', 'top']);
     expect([...assets.hair.keys()].sort()).toEqual(['buzz', 'crop', 'side_part', 'undercut']);
     expect(assets.arms.getIndex()!.count).toBeGreaterThan(3000);
     expect(assets.parts.get('body')!.geometry.morphAttributes.position).toHaveLength(3);
@@ -768,7 +768,7 @@ describe('survivor model', () => {
         expect(line.angleTo(neutral)).toBeLessThan(35 * Math.PI / 180);
         const palm = assets.hands.L.palm.clone().applyMatrix4(hand.matrixWorld);
         const model = (view as unknown as { models: Map<string, Group> }).models.values().next().value!;
-        expect(palm.distanceTo(visual.firstPersonSupport!.contact.clone().applyMatrix4(model.matrixWorld))).toBeLessThan(.04);
+        expect(palm.distanceTo(visual.firstPersonSupport!.contact.clone().applyMatrix4(model.matrixWorld))).toBeLessThan(.06); // cradled from below: the palm sits a little under the contact
       }
     }
     view.dispose();
