@@ -2227,26 +2227,29 @@ export class Avatar {
     const hipRight = (g: Group) => { g.rotation.set(0, 0, -Math.PI / 2); const b = new Box3().setFromObject(g); g.position.set(.06 + b.max.x, -b.max.y, 0); };
     const mounts = this.backpack?.rifleMounts;
     if (gear.pack && mounts) {
-      // On the pack's sides, muzzle down, flat against it; the third across the top.
-      sling(gear.back[0] ?? null, mounts.right, (g) => { g.quaternion.setFromEuler(new Euler(0, Math.PI / 2, -Math.PI / 2)); }, 'sling:back_1');
-      sling(gear.back[1] ?? null, mounts.left, (g) => { g.quaternion.setFromEuler(new Euler(0, -Math.PI / 2, -Math.PI / 2)); }, 'sling:back_2');
-      sling(gear.back[2] ?? null, mounts.top, (g, _b, depth) => { g.position.z = depth / 2; }, 'sling:back_3');
+      // On the pack's sides, muzzle down, flat against it; the third across the top. (Their own
+      // Studio places: separate from the ones without a pack.)
+      sling(gear.back[0] ?? null, mounts.right, (g) => { g.quaternion.setFromEuler(new Euler(0, Math.PI / 2, -Math.PI / 2)); }, 'sling:pack_1');
+      sling(gear.back[1] ?? null, mounts.left, (g) => { g.quaternion.setFromEuler(new Euler(0, -Math.PI / 2, -Math.PI / 2)); }, 'sling:pack_2');
+      sling(gear.back[2] ?? null, mounts.top, (g, _b, depth) => { g.position.z = depth / 2; }, 'sling:pack_3');
     } else if (!gear.pack) {
       // Slung diagonally across the back, the second the other way.
       if (atHip(gear.back[0])) sling(gear.back[0]!, this.carryHooks.get('hip_right'), hipRight, 'sling:back_1');
       else sling(gear.back[0] ?? null, this.carryHooks.get('back_right'), (g, _b, depth) => { g.rotation.set(0, 0, -Math.PI / 2 + .75); g.position.set(0, 0, depth / 2 + .03); }, 'sling:back_1');
       sling(gear.back[1] ?? null, this.carryHooks.get('back_left'), (g, _b, depth) => { g.rotation.set(0, 0, Math.PI / 2 - .75); g.position.set(0, 0, depth / 2 + .06); }, 'sling:back_2');
     }
-    // Left belt: the pistol / SMG, muzzle down, outside the hip.
+    // Right hip: the pistol / SMG, muzzle down, outside the hip (the left when a crossbow or a
+    // pistol carried as the back item already hangs on the right).
     // (The hip hooks sit wide for the block body: the holster is pulled in onto the survivor's hip.)
     const inset = this.template.human ? .07 : 0;
-    sling(gear.holster, this.carryHooks.get('hip_left'), (g) => {
+    const rightTaken = atHip(gear.back[0]) && !gear.pack;
+    sling(gear.holster, this.carryHooks.get(rightTaken ? 'hip_left' : 'hip_right'), (g) => {
       g.rotation.set(0, 0, -Math.PI / 2);
       const b = new Box3().setFromObject(g);
-      g.position.set(inset, -b.max.y * .6, .02);
+      g.position.set(rightTaken ? inset : -inset, -b.max.y * .6, .02);
     }, 'sling:holster');
-    // Right belt: a grenade or C4 clipped on.
-    if (!atHip(gear.back[0]) || gear.pack) sling(gear.belt, this.carryHooks.get('hip_right'), (g) => { g.position.set(-inset, -.03, .03); }, 'sling:belt');
+    // Left hip: a grenade or C4 clipped on.
+    if (!(rightTaken && gear.holster)) sling(gear.belt, this.carryHooks.get('hip_left'), (g) => { g.position.set(inset, -.03, .03); }, 'sling:belt');
   }
 
   /** Put the held weapon on a separate hook while both hands are occupied. */

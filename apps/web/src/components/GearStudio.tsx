@@ -128,9 +128,10 @@ export function GearStudioPage() {
     ...ARMOR_SLOTS.flatMap((s) => { const spec = ARMOR_SPECS.find((a) => a.id === armor[s]); return spec ? [{ key: spec.item, name: `${SLOT_NAME[s]}: ${spec.name}`, paintable: true }] : []; }),
     ...(gear.pack ? [{ key: 'military_backpack', name: 'Ba lô quân đội', paintable: true }] : []),
     // Each stowed weapon's own place (on the pack's sides / top, the back, the hip, the belt).
-    ...gear.back.map((id, i) => ({ key: `sling:back_${i + 1}`, name: `Súng trên lưng ${i + 1}: ${ITEMS[id]?.name ?? id}`, paintable: false })),
-    ...(gear.holster ? [{ key: 'sling:holster', name: `Bao súng hông: ${ITEMS[gear.holster]?.name ?? gear.holster}`, paintable: false }] : []),
-    ...(gear.belt ? [{ key: 'sling:belt', name: `Móc thắt lưng: ${ITEMS[gear.belt]?.name ?? gear.belt}`, paintable: false }] : []),
+    // With a pack the guns hang on it (places of their own), without one across the back.
+    ...gear.back.map((id, i) => ({ key: gear.pack ? `sling:pack_${i + 1}` : `sling:back_${i + 1}`, name: `${gear.pack ? 'Trên ba lô' : 'Trên lưng (không ba lô)'} ${i + 1}: ${ITEMS[id]?.name ?? id}`, paintable: false })),
+    ...(gear.holster ? [{ key: 'sling:holster', name: `Bao súng hông phải: ${ITEMS[gear.holster]?.name ?? gear.holster}`, paintable: false }] : []),
+    ...(gear.belt ? [{ key: 'sling:belt', name: `Móc hông trái: ${ITEMS[gear.belt]?.name ?? gear.belt}`, paintable: false }] : []),
     ...CARRY_HOOKS.map((h) => ({ key: `hook:${h}`, name: HOOK_NAME[h]!, paintable: false })),
     // The default trousers and boots every survivor wears (not inventory items).
     { key: OUTFIT_KEYS.top, name: 'Áo mặc định', paintable: false },
@@ -245,7 +246,7 @@ export function GearStudioPage() {
     }
   };
 
-  const rifles = Object.values(ITEMS).filter((d) => ['rifle', 'shotgun', 'heavy'].includes(d.category)).map((d) => d.id);
+  const rifles = Object.values(ITEMS).filter((d) => ['rifle', 'shotgun', 'heavy', 'melee'].includes(d.category)).map((d) => d.id);
   const sidearms = Object.values(ITEMS).filter((d) => d.category === 'pistol' || d.category === 'smg').map((d) => d.id);
   const belts = Object.values(ITEMS).filter((d) => d.category === 'grenade').map((d) => d.id);
   const pick = (value: string | null, list: string[], set: (v: string | null) => void, none = '— không —') => (
@@ -272,9 +273,9 @@ export function GearStudioPage() {
           </label>
         ))}
         <label className="gs-row"><input type="checkbox" checked={!!gear.pack} onChange={(e) => setGear({ ...gear, pack: e.target.checked ? 'military_backpack' : null })} /> <span>Ba lô quân đội</span></label>
-        {[0, 1, 2].map((i) => <label key={i} className="gs-row"><span>Súng trên lưng {i + 1}</span>{pick(gear.back[i] ?? null, rifles, (v) => { const back = [...gear.back]; if (v) back[i] = v; else back.splice(i, 1); setGear({ ...gear, back: back.filter(Boolean) }); })}</label>)}
-        <label className="gs-row"><span>Bao súng hông</span>{pick(gear.holster, sidearms, (v) => setGear({ ...gear, holster: v }))}</label>
-        <label className="gs-row"><span>Móc thắt lưng</span>{pick(gear.belt, belts, (v) => setGear({ ...gear, belt: v }))}</label>
+        {[0, 1, 2].map((i) => <label key={i} className="gs-row"><span>Móc trên lưng {i + 1}</span>{pick(gear.back[i] ?? null, rifles, (v) => { const back = [...gear.back]; if (v) back[i] = v; else back.splice(i, 1); setGear({ ...gear, back: back.filter(Boolean) }); })}</label>)}
+        <label className="gs-row"><span>Bao súng hông phải</span>{pick(gear.holster, sidearms, (v) => setGear({ ...gear, holster: v }))}</label>
+        <label className="gs-row"><span>Móc hông trái</span>{pick(gear.belt, belts, (v) => setGear({ ...gear, belt: v }))}</label>
         <label className="gs-row"><span>Cầm trên tay</span>{pick(hand || null, [...rifles, ...sidearms], (v) => setHand(v ?? ''), '— tay không —')}</label>
       </aside>
       <div className={`gs-view${paint || pull ? ' painting' : ''}`} ref={host} onPointerDown={(e) => { stroke(e); pullDown(e); }} onPointerMove={(e) => { stroke(e); pullMove(e); }} onPointerUp={pullUp} onPointerLeave={pullUp} />
