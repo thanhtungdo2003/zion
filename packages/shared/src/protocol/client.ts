@@ -23,9 +23,11 @@ export const Buttons = {
   Plan: 1 << 11,
   /** The blade finisher's forward lunge (accepted by the server only for the combo's last hit). */
   Lunge: 1 << 12,
+  /** With Lunge: the long-hafted slash's step in (the quắm's second swing) instead of the blade finisher. */
+  LungeLong: 1 << 13,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan | Buttons.Lunge;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan | Buttons.Lunge | Buttons.LungeLong;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();

@@ -76,6 +76,7 @@ export class LocalPlayer {
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
       lunge: (buttons & Buttons.Lunge) !== 0,
+      lungeKind: buttons & Buttons.LungeLong ? 1 : 0,
       prone: (buttons & Buttons.Prone) !== 0,
       crouch: (buttons & Buttons.Crouch) !== 0,
       speedMul: this.speedMul * (buttons & Buttons.Aim ? .65 : 1) * (performance.now() < this.slowUntil ? this.slowFactor : 1),

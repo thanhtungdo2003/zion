@@ -130,7 +130,7 @@ import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
 import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
-import { BLADE_COMBO_WEAPONS, EDGED_MELEE_WEAPONS, bladeStepTiming, meleeSwing } from '@zion/shared';
+import { BLADE_COMBO_WEAPONS, EDGED_MELEE_WEAPONS, LONG_LUNGE_CLIP, bladeStepTiming, meleeSwing, type MeleeSpec } from '@zion/shared';
 import { DEFAULT_APPEARANCE, randomAppearance, sameAppearance, type Appearance } from '@zion/shared';
 import { cachedLook, loadLook } from '@/lib/appearance';
 import { prepareGuardModel } from './render/guard-model';
@@ -2413,6 +2413,8 @@ export class GameEngine {
     else if (action !== 'none') buttons |= Buttons.Attack;
     // The blade combo's finisher lunges forward on the tick it starts (validated by the server).
     if (action === 'melee' && this.weaponCtl.bladeStep >= 0 && BLADE_COMBO[this.weaponCtl.bladeStep]?.lunge) buttons |= Buttons.Lunge;
+    // The quắm's second swing steps in with it (its recording travels about 2 m).
+    else if (action === 'melee' && weaponSpec(weapon)?.kind === 'melee' && meleeSwing(weapon, weaponSpec(weapon) as MeleeSpec, this.weaponCtl.meleeSwings - 1)?.clip === LONG_LUNGE_CLIP) buttons |= Buttons.Lunge | Buttons.LungeLong;
     if (this.healing) buttons |= Buttons.Heal;
     const spec = weaponSpec(weapon);
     if (action === 'shot') {

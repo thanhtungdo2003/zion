@@ -35,6 +35,8 @@ export interface CharacterParams {
   rollCooldown: number;
   /** Blade finisher lunge: distance covered (m) at 30 fps samples; its length sets the duration. */
   lungeProfile: readonly number[];
+  /** The long-hafted slash's step in (quắm), same sampling. */
+  longLungeProfile: readonly number[];
   /** Climbing speed on ladders (m/s). */
   climbSpeed: number;
   /** Collider tags (asset ids) that can be climbed. */
@@ -69,6 +71,7 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
   // The recorded finisher's (comboslash.fbx) forward travel at the survivor's size, so the
   // body moves exactly as the animation steps: 2.85 m over 1.3 s, fastest mid-swing.
   lungeProfile: [0, 0.101, 0.212, 0.31, 0.316, 0.316, 0.316, 0.376, 0.531, 0.669, 0.815, 0.956, 1.068, 1.156, 1.264, 1.406, 1.425, 1.488, 1.582, 1.736, 1.877, 1.982, 2.069, 2.145, 2.224, 2.307, 2.375, 2.411, 2.445, 2.473, 2.49, 2.507, 2.519, 2.529, 2.537, 2.544, 2.548, 2.55, 2.554, 2.554],
+  longLungeProfile: [0, 0.131, 0.306, 0.441, 0.514, 0.615, 0.738, 0.87, 0.961, 1.025, 1.081, 1.183, 1.282, 1.384, 1.497, 1.627, 1.758, 1.845, 1.945, 2.035, 2.113, 2.171, 2.214, 2.249, 2.273, 2.29],
   climbSpeed: 2.4,
   // Camp asset 2022 (rusty iron wall ladder).
   ladderTags: [2022],
@@ -101,6 +104,8 @@ export interface CharacterState {
   rollYaw: number;
   /** Remaining ticks of a blade finisher's forward lunge (0 = none). */
   lungeTicks?: number;
+  /** Which lunge is running: 0 the blade finisher, 1 the long-hafted slash. */
+  lungeKind?: number;
   /** On a ladder this tick (derived each step from contacts; drives the climb animation). */
   climbing: boolean;
   /** Outside shove (m/s, e.g. a zombie hit by bullets): added to the move, fades by itself, never blocks steering. */
@@ -134,6 +139,8 @@ export interface CharacterInput {
   jumpMul?: number;
   /** Starts a blade finisher's lunge along `yaw` (the server only lets it through for the finisher). */
   lunge?: boolean;
+  /** 0 the blade finisher's lunge, 1 the long-hafted slash's step in. */
+  lungeKind?: number;
 }
 
 export interface StepInfo {
@@ -177,6 +184,7 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.rollCooldown = src.rollCooldown;
   dst.rollYaw = src.rollYaw;
   dst.lungeTicks = src.lungeTicks ?? 0;
+  dst.lungeKind = src.lungeKind ?? 0;
   dst.climbing = src.climbing;
   dst.prone = src.prone;
   dst.crouched = src.crouched;
@@ -278,7 +286,9 @@ export class CharacterController {
       s.rollYaw = wishX * wishX + wishZ * wishZ > 0.01 ? Math.atan2(-wishX, -wishZ) : input.yaw;
     }
     // --- Blade finisher lunge: a short committed dash along the facing direction --------------
-    const lungeTotal = Math.max(1, Math.round((p.lungeProfile.length - 1) / LUNGE_FPS / dt));
+    if (input.lunge && !s.lungeTicks) s.lungeKind = input.lungeKind ?? 0;
+    const profile = s.lungeKind === 1 ? p.longLungeProfile : p.lungeProfile;
+    const lungeTotal = Math.max(1, Math.round((profile.length - 1) / LUNGE_FPS / dt));
     if (s.lungeTicks) s.lungeTicks--;
     if (input.lunge && !s.lungeTicks && s.rollTicks === 0 && s.grounded && !s.swimming && !s.prone && !s.climbing) {
       s.lungeTicks = lungeTotal;
@@ -292,7 +302,7 @@ export class CharacterController {
     }
 
     if (rolling) {
-      const dash = s.lungeTicks ? lungeSpeed(p.lungeProfile, (lungeTotal - s.lungeTicks) * dt, dt) : p.rollSpeed;
+      const dash = s.lungeTicks ? lungeSpeed(profile, (lungeTotal - s.lungeTicks) * dt, dt) : p.rollSpeed;
       s.vx = -Math.sin(s.rollYaw) * dash;
       s.vz = -Math.cos(s.rollYaw) * dash;
     } else {

@@ -2,7 +2,7 @@ import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
 import { packGear } from '@zion/shared';
-import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, type BuildMessage } from '@zion/shared';
+import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, LONG_LUNGE_CLIP, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
@@ -2541,10 +2541,16 @@ export class GameServer {
     // Swinging a melee weapon: no sprinting until the swing is over.
     if (now < p.attackingUntil && weaponSpec(p.weapon)?.kind === 'melee') buttons &= ~Buttons.Sprint;
     // The finisher's lunge only with the combo's last swing, starting this tick.
+    // …or the long-hafted slash's step in (the quắm's second swing).
     if (buttons & Buttons.Lunge) {
-      const blade = BLADE_COMBO_WEAPONS.has(p.weapon) && (buttons & Buttons.Attack) !== 0 && now >= p.attackReadyAt - BLADE_COMBO_TOLERANCE_MS;
-      if (!blade || !BLADE_COMBO[nextBladeStep(p.bladeStep, p.bladeReadyAt, now)]!.lunge || !s.grounded || s.rollTicks > 0 || s.prone || s.swimming) buttons &= ~Buttons.Lunge;
-    }
+      const attacking = (buttons & Buttons.Attack) !== 0 && s.grounded && s.rollTicks === 0 && !s.prone && !s.swimming;
+      const spec = weaponSpec(p.weapon);
+      const long = (buttons & Buttons.LungeLong) !== 0;
+      const ok = !attacking ? false : long
+        ? spec?.kind === 'melee' && now >= p.attackReadyAt - FIRE_TOLERANCE_MS && meleeSwing(p.weapon, spec, p.meleeSwings)?.clip === LONG_LUNGE_CLIP
+        : BLADE_COMBO_WEAPONS.has(p.weapon) && now >= p.attackReadyAt - BLADE_COMBO_TOLERANCE_MS && !!BLADE_COMBO[nextBladeStep(p.bladeStep, p.bladeReadyAt, now)]!.lunge;
+      if (!ok) buttons &= ~(Buttons.Lunge | Buttons.LungeLong);
+    } else buttons &= ~Buttons.LungeLong;
     if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT * this.effort(p))) buttons &= ~Buttons.Sprint;
     if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll * this.effort(p))) buttons &= ~Buttons.Roll;
     input = { ...input, b: buttons };
@@ -2553,7 +2559,7 @@ export class GameServer {
     const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, lunge: (input.b & Buttons.Lunge) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) * (now < p.slowUntil ? p.slowFactor : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, lunge: (input.b & Buttons.Lunge) !== 0, lungeKind: input.b & Buttons.LungeLong ? 1 : 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) * (now < p.slowUntil ? p.slowFactor : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
       TICK_DT,
       this.stepInfo,
     );

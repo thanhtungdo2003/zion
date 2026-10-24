@@ -1,7 +1,7 @@
 import { Ragdoll } from './ragdoll';
 import { SkinnedRagdoll } from './skinned-ragdoll';
 import { type Bone as Bone3, Box3, BoxGeometry, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, Matrix4, Euler, type Camera, type Object3D, type Scene } from 'three';
-import { BLADE_COMBO, BLADE_COMBO_WEAPONS, meleeSwing, EntityFlags, type CarriedGear, ITEMS, RANKS, TICK_DT, WEAPON_BY_ITEM, appearanceHeight, bladeStepTiming, nextBladeStep, weaponSpec, type Appearance, type Attachments, type RankTitle } from '@zion/shared';
+import { BLADE_COMBO, BLADE_COMBO_WEAPONS, LONG_LUNGE_CLIP, meleeSwing, EntityFlags, type CarriedGear, ITEMS, RANKS, TICK_DT, WEAPON_BY_ITEM, appearanceHeight, bladeStepTiming, nextBladeStep, weaponSpec, type Appearance, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
 import { dressWeapon, type WeaponLibrary, type WeaponVisual } from './weapons';
@@ -708,7 +708,7 @@ export class Avatar {
     const swing = spec?.kind === 'melee' ? meleeSwing(weapon, spec, count ?? this.meleeSwings) : null;
     if (swing && this.template.human?.clips.has(swing.clip)) {
       this.meleeSwings = (count ?? this.meleeSwings) + 1;
-      this.recAction = { clip: swing.clip, from: swing.from, to: swing.to, rate: (swing.to - swing.from) / (swing.durationMs / 1000), t: 0, lunge: false };
+      this.recAction = { clip: swing.clip, from: swing.from, to: swing.to, rate: (swing.to - swing.from) / (swing.durationMs / 1000), t: 0, lunge: swing.clip === LONG_LUNGE_CLIP };
       return v;
     }
     const duration = spec?.kind === 'melee' ? spec.animationMs : undefined;

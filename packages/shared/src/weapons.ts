@@ -226,6 +226,8 @@ export const LONG_MELEE_SWINGS: readonly MeleeSwingClip[] = [
   { clip: 'long_melee_slash', from: .15, to: 1.7, hit: .72 },
   { clip: 'long_melee_slash_2', from: .2, to: 1.5, hit: .75 },
 ];
+/** The long-hafted swing that steps in (its recording travels ~2 m). */
+export const LONG_LUNGE_CLIP = 'long_melee_slash_2';
 export const HEAVY_MELEE_SWINGS: readonly MeleeSwingClip[] = [{ clip: 'hammer', from: .05, to: 1.27, hit: .57 }];
 
 /** The recorded swing a long or heavy weapon plays for its `count`-th blow, and its timing (ms); null for the rest. */

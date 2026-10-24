@@ -108,7 +108,6 @@ export class MeleeFeel {
       this.shake = Math.max(this.shake, .16);
       this.yaw.v += this.dir * 3.2; this.roll.v += -this.dir * 4.5; this.pitch.v += -1.6;
       this.fov.v += -70; this.push.v += 12;
-      this.play('arrowHitHard', .8, .55);
     }
     const frozen = now < this.stopUntil;
     // The sweep of the swing itself (follow-through), eased in and out over its duration.
