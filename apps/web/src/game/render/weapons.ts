@@ -57,6 +57,8 @@ export interface WeaponSpec {
   /** Real length of an attachment along `barrel` (metres). */
   /** Model file format when the URL does not say (Studio uploads). */
   format?: 'glb' | 'bbmodel';
+  /** Edited in the Studio: its points win over the fitting embedded in the model file. */
+  studio?: boolean;
   /** A GLB pack holding several items: the node of this one (and its turn to face +Z). */
   node?: string;
   nodeYaw?: number;
@@ -97,7 +99,7 @@ export function registerWeaponVisual(itemId: string, url: string | null, format:
   // before the Studio recorded that model (no `madeFor`) were made for the current one.
   if (base && madeFor !== undefined && madeFor !== base.url) { WEAPON_SPECS[itemId] = base; return; }
   // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
-  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model } : { ...model, url: url ?? base?.url ?? '', format };
+  WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model, studio: true } : { ...model, url: url ?? base?.url ?? '', format, studio: true };
 }
 
 /** A built-in weapon's authoring data as shipped (Studio: defaults to edit from / reset to). */
@@ -302,7 +304,9 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
  * and lines up its optical axis without hand tuning.
  */
 export function fittedSpec(spec: WeaponSpec, template: CharacterTemplate): WeaponSpec {
-  if (template.weapon) {
+  // Points set in the Studio are what the game uses (the file's own fitting only fills in for
+  // a weapon nobody has edited), so the game matches the Studio's preview.
+  if (template.weapon && !spec.studio) {
     const gun = template.weapon;
     spec = { ...spec,
       ...(gun.barrel ? { barrel: gun.barrel } : {}), ...(gun.up ? { up: gun.up } : {}),
