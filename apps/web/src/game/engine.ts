@@ -2178,7 +2178,7 @@ export class GameEngine {
     if (lens && optic) {
       (this.scopeLens ??= new ScopeLens()).render(this.renderer, this.scene, this.camera, lens.mesh, this.viewModel!.scopeHidden, {
         magnification: optic.magnification ?? 1, reticle: optic.reticle ?? null, nightVision: !!optic.nightVision && this.nightVision,
-      });
+      }, !(settingsStore.get().shaders && this.sky));
     } else {
       this.scopeLens?.release();
       if (this.lensScopeReady() && (optic?.magnification ?? 1) > 1) (this.scopeLens ??= new ScopeLens()).warm(this.renderer, this.viewModel!.lens!.mesh, this.camera);

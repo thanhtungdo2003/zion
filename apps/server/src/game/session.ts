@@ -7,8 +7,13 @@ import type { Player } from './player';
 
 /** Above this many queued bytes, droppable traffic (snapshots) is skipped. */
 export const SNAPSHOT_DROP_BYTES = 256 * 1024;
-/** Above this, chunk streaming pauses for the connection. */
-export const STREAM_PAUSE_BYTES = 384 * 1024;
+/**
+ * Above this, chunk streaming pauses for the connection. Well under the snapshot drop: streaming
+ * only fills a link that has room, so snapshots are never dropped to make way for terrain (they
+ * were, while running into new ground: the stream kept the queue between the two limits and the
+ * game ran at a fraction of its tick rate).
+ */
+export const STREAM_PAUSE_BYTES = 64 * 1024;
 /** A consumer this far behind is disconnected (slow-loris / stalled client protection). */
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 const MAX_STRIKES = 12;

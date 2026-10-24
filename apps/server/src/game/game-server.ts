@@ -2474,8 +2474,9 @@ export class GameServer {
         this.hitZombie(null, z, WIRE_DAMAGE, 'barbed_wire', z.state.x, z.state.y + 0.8, z.state.z, 0, 0, 0, now);
       }
     }
-    for (const p of this.players.values()) p.streamer.update();
+    // Snapshots first, then terrain into whatever room the connection has left.
     if (this.tick % SNAPSHOT_INTERVAL_TICKS === 0) this.sendSnapshots(now);
+    for (const p of this.players.values()) p.streamer.update();
 
     if (Date.now() - this.lastPersist > PERSIST_INTERVAL_MS && !this.persisting) {
       this.lastPersist = Date.now();

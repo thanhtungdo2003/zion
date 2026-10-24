@@ -1,4 +1,4 @@
-import {
+import { LinearSRGBColorSpace,
   Box3, DoubleSide, HalfFloatType, PerspectiveCamera, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget,
   type Material, type Mesh, type Object3D, type Scene, type WebGLRenderer,
 } from 'three';
@@ -28,12 +28,15 @@ const fragment = /* glsl */ `
   uniform float uSee;
   uniform float uHasRim;
   uniform vec2 uCenterPx;
+  uniform float uFinal;
   varying float vRim;
   // Coverage of a line of half-width w at distance d, antialiased over one pixel.
   float line(float d, float w) { return 1.0 - smoothstep(w - 0.5, w + 0.5, d); }
   void main() {
     vec2 uv = gl_FragCoord.xy / uResolution;
     vec3 col = texture2D(tScope, uv).rgb;
+    // A finished picture (tone mapped, sRGB): back to linear, as the output step re-encodes it.
+    if (uFinal > 0.5) col = sRGBTransferEOTF(vec4(col, 1.0)).rgb;
     if (uNight > 0.5) {
       float l = dot(col, vec3(0.299, 0.587, 0.114)) * 3.2;
       col = vec3(0.3, 1.0, 0.4) * l;
@@ -127,7 +130,10 @@ export class ScopeLens {
       uSee: { value: 0 },
       uHasRim: { value: 0 },
       uCenterPx: { value: new Vector2() },
+      uFinal: { value: 0 },
     },
+    // The picture is tone mapped where it is drawn (see `final` in render).
+    toneMapped: false,
     transparent: true,
     side: DoubleSide,
     depthWrite: false,
@@ -159,7 +165,19 @@ export class ScopeLens {
    * Renders the magnified view for this frame and puts it on `lens`. Call once per frame, before
    * the main render, while scoped. `hide` (the first-person gun and arms) is left out of the scope image.
    */
-  render(renderer: WebGLRenderer, scene: Scene, main: PerspectiveCamera, lens: Mesh, hide: Object3D | readonly Object3D[], view: ScopeView): void {
+  /**
+   * `final`: the main view goes straight to the screen (no shader pack). The scope picture is then
+   * drawn exactly like it (tone mapped, sRGB), so every material reuses the main view's compiled
+   * shaders: a picture in linear light needs its own variant of every material in sight, compiled
+   * the first time the scope comes up (and again once unused ones were released), a long stall.
+   */
+  render(renderer: WebGLRenderer, scene: Scene, main: PerspectiveCamera, lens: Mesh, hide: Object3D | readonly Object3D[], view: ScopeView, final = false): void {
+    const t = this.target as WebGLRenderTarget & { isXRRenderTarget?: boolean };
+    if (!!t.isXRRenderTarget !== final) {
+      t.isXRRenderTarget = final;
+      t.texture.colorSpace = final ? renderer.outputColorSpace : LinearSRGBColorSpace;
+    }
+    this.material.uniforms.uFinal!.value = final ? 1 : 0;
     if (this.active && this.active.mesh !== lens) this.release();
     renderer.getDrawingBufferSize(this.size);
     const w = Math.max(1, Math.floor(this.size.x)), h = Math.max(1, Math.floor(this.size.y));
