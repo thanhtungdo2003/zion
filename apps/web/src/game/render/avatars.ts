@@ -1,5 +1,6 @@
 import { Ragdoll } from './ragdoll';
-import { Box3, BoxGeometry, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, Matrix4, Euler, type Camera, type Object3D, type Scene } from 'three';
+import { SkinnedRagdoll } from './skinned-ragdoll';
+import { type Bone as Bone3, Box3, BoxGeometry, MeshLambertMaterial, CanvasTexture, Color, type Material, Group, LinearFilter, Mesh, Sprite, SpriteMaterial, Vector3, Quaternion, Matrix4, Euler, type Camera, type Object3D, type Scene } from 'three';
 import { BLADE_COMBO, BLADE_COMBO_WEAPONS, meleeSwing, EntityFlags, type CarriedGear, ITEMS, RANKS, TICK_DT, WEAPON_BY_ITEM, appearanceHeight, bladeStepTiming, nextBladeStep, weaponSpec, type Appearance, type Attachments, type RankTitle } from '@zion/shared';
 import { DEFAULT_CHARACTER } from '@zion/physics';
 import type { Stance } from '../inventory/items';
@@ -130,6 +131,8 @@ const GUN_YAW_RANGE = .6;
 const UPPER_FADE = .32;
 /** Either recorded roll (empty-handed, or the dive roll with a weapon). */
 const ARMED_ROLL = [.55, 1.75] as const;
+/** Survivor bones simulated when it falls limp (the rest follow their parents). */
+const RAGDOLL_BONE = /^(spine(_00[1-6])?|pelvis_[LR]|(thigh|shin|upper_arm|forearm)_[LR](_001)?|(foot|toe|shoulder|hand)_[LR])$/;
 const isRoll = (clip: string | null | undefined) => clip === 'roll' || clip === 'roll_armed';
 /**
  * Pistol (recorded "Drawing Gun" and "Shooting"): the draw plays when one is taken in hand; it ends
@@ -432,7 +435,7 @@ export class Avatar {
       const update = this.root.updateMatrixWorld.bind(this.root);
       this.root.updateMatrixWorld = (force?: boolean) => {
         update(force);
-        if (this.poseDirty && this.root.visible) {
+        if (this.poseDirty && this.root.visible && !this.humanRagdoll) {
           this.poseDirty = false; this.finishPose();
           // The pack swings from the posed shoulders (and its strap ends from the pack).
           const hook = this.carryHooks.get('back_center');
@@ -854,8 +857,21 @@ export class Avatar {
     this.root.visible = !(flags & EntityFlags.InPlane);
   }
 
+  /** The survivor's own skeleton falling limp (its bones are not posed while it lasts). */
+  private humanRagdoll: { ragdoll: SkinnedRagdoll; bones: Bone3[] } | null = null;
+
   startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): void {
     if (this.ragdoll) return;
+    if (this.human) {
+      // From the pose it has now: the real skeleton collapses onto the ground (the block driver's
+      // ragdoll would bend the skin round its few chunky bones).
+      this.root.updateMatrixWorld(true);
+      const bones: Bone3[] = [];
+      // The body's chains only: face and finger bones ride along with their parents (simulated
+      // loose they would scatter the face and hands).
+      this.human.group.traverse((o) => { if ((o as Bone3).isBone && RAGDOLL_BONE.test(o.name)) bones.push(o as Bone3); });
+      this.humanRagdoll = { ragdoll: new SkinnedRagdoll(this.human.group, bones, ground, kx, kz, force), bones };
+    }
     this.model.rotation.set(0, 0, 0);
     this.model.position.set(0, 0, 0);
     this.ragdoll = Ragdoll.start(this.model, (n) => this.bones.get(n)?.node, PX, ground, kx, kz, force);
@@ -895,12 +911,14 @@ export class Avatar {
       if (dead) this.ragdollTemp = false;
       if (dead || knocked || (this.ragdollTemp && this.ragdoll.time < 0.85)) {
         this.ragdoll.step(dt);
+        this.humanRagdoll?.ragdoll.step(dt);
         return;
       }
       this.ragdollTemp = false;
       // Respawned: back to the animated skeleton.
       this.ragdoll.release();
       this.ragdoll = null;
+      if (this.humanRagdoll) { for (const b of this.humanRagdoll.bones) b.matrixAutoUpdate = true; this.humanRagdoll = null; }
     }
     this.root.position.set(x, y, z);
     const inv = 1 / Math.max(dt, 1e-3);

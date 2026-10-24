@@ -42,7 +42,7 @@ const states = {
   'turn-mid': (av) => { arm(av, 'rifle'); run(av, 30, () => av.update(0, 0, 0, 0, G, 1 / 60, 0)); run(av, 14, () => av.update(0, 0, 0, 1.2, G, 1 / 60, 0)); },
   'creator': (av) => { av.rigid = true; let y = 0; run(av, 90, () => av.update(0, 0, 0, y += .01, G, 1 / 60, 0)); },
   'menu-lobby': (av) => { arm(av, 'rifle'); av.setMocapIdle('rifle_idle'); run(av, 90, () => av.update(0, 0, 0, 0, G, 1 / 60, 0)); },
-  'punch': (av) => { run(av, 30, () => av.update(0, 0, 0, 0, G, 1 / 60, 0)); run(av, 18, (i) => av.update(0, 0, 0, 0, G | EntityFlags.Attacking, 1 / 60, 0)); },
+  'punch': (av) => { run(av, 30, () => av.update(0, 0, 0, 0, G, 1 / 60, 0)); run(av, 18, () => av.update(0, 0, 0, 0, G | EntityFlags.Attacking, 1 / 60, 0)); },
   'unarmed-run': (av) => { let z = 0; run(av, 90, () => av.update(0, 0, z -= 5.5 / 60, 0, G | EntityFlags.Sprinting, 1 / 60, 0)); },
   'gun-sprint': (av) => { arm(av, 'rifle'); let z = 0; run(av, 90, () => av.update(0, 0, z -= 5.9 / 60, 0, G | EntityFlags.Sprinting, 1 / 60, 0)); },
   'gun-walk-back': (av) => { arm(av, 'rifle'); let z = 0; run(av, 90, () => av.update(0, 0, z += 2.5 / 60, 0, G, 1 / 60, 0)); },

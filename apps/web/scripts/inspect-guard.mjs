@@ -1,6 +1,6 @@
 /** Renders the camp guard dressed as the modelled soldier, standing and walking → .tmp-rig/guard.json for render-raw.py. */
 import { readFile, writeFile } from 'node:fs/promises';
-import { Color, Mesh, Vector3 } from 'three';
+import { Mesh, Vector3 } from 'three';
 import { EntityFlags } from '@zion/shared';
 /** A GLB without any textures (Node cannot decode images): every texture reference removed. */
 function untextured(buf) {

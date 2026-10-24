@@ -1,3 +1,4 @@
+import type { ZombieModel } from './zombie-model';
 import {
   BufferAttribute,
   BufferGeometry,
@@ -83,7 +84,7 @@ export interface CharacterClip {
 }
 
 export interface CharacterTemplate {
-  zombie?: import('./zombie-model').ZombieModel;
+  zombie?: ZombieModel;
   /** Bone hierarchy with merged per-bone meshes; clone(true) per avatar (geometry is shared). */
   root: Group;
   boneNames: string[];
