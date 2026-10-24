@@ -554,7 +554,10 @@ export class HumanBody {
   /** Rest position of the hips under the group; legs longer than the base model raise them. */
   private hipLift = 0;
 
+  /** First-person arms only (no torso to keep the elbows out of). */
+  private readonly armsOnly: boolean;
   constructor(readonly assets: HumanAssets, options: { shadows?: boolean; receiveShadows?: boolean; armsOnly?: boolean } = {}) {
+    this.armsOnly = !!options.armsOnly;
     this.group.name = 'survivor';
     this.group.rotation.y = Math.PI;
     this.group.scale.setScalar(HUMAN_SCALE);
@@ -1663,6 +1666,20 @@ export class HumanBody {
       if (bend <= maxBend || pass === 2) break;
       rotation.premultiply(new Quaternion().slerp(new Quaternion().setFromUnitVectors(axis, line), (bend - maxBend) / bend + .05)).normalize();
       wrist.copy(palm).sub(palmLocal.clone().applyQuaternion(rotation));
+    }
+    // An elbow that would end up inside the torso (a short gun held close, the support arm reaching
+    // across) swings out to the side and down instead, the hand staying where it is.
+    if (!this.armsOnly) {
+      const low = this.pos(this.spine[0]!, new Vector3()), high = this.pos(this.neck[0]!, new Vector3()), axisV = high.clone().sub(low);
+      const elbow = this.pos(S.forearm, new Vector3()), t = Math.max(0, Math.min(1, elbow.clone().sub(low).dot(axisV) / axisV.lengthSq()));
+      const centre = low.clone().addScaledVector(axisV, t), away = elbow.clone().sub(centre).setY(0);
+      const span = this.pos(this.side.L.upperArm, new Vector3()).distanceTo(this.pos(this.side.R.upperArm, tmpV[5]!));
+      if (away.length() < span * .5) {
+        const outward = this.pos(s === 'L' ? this.side.L.upperArm : this.side.R.upperArm, new Vector3()).sub(this.pos(s === 'L' ? this.side.R.upperArm : this.side.L.upperArm, tmpV[5]!)).setY(0).normalize();
+        const pole2 = outward.multiplyScalar(1).add(new Vector3(0, -.7, 0)).normalize();
+        chain.forEach((i, k) => this.setLocal(i, before[k]!));
+        this.solveArm(s, wrist, pole2, rotation, true, true);
+      }
     }
     if (weight >= .999) { this.group.updateMatrixWorld(true); for (const i of this.order) this.bones[i]!.getWorldQuaternion(this.worldQ[i]!); return; }
     chain.forEach((i, k) => this.bones[i]!.quaternion.slerpQuaternions(before[k]!, this.bones[i]!.quaternion.clone(), weight));

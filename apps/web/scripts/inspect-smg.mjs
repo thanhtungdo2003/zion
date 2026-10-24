@@ -1,6 +1,6 @@
 /** Renders compact guns held in the lobby (relaxed idle) and in a match → .tmp-rig/smg.json. */
 import { readFile, writeFile } from 'node:fs/promises';
-import { Color, Mesh, Vector3 } from 'three';
+import { Color, Mesh, Quaternion, Vector3 } from 'three';
 import { EntityFlags } from '@zion/shared';
 import { untexturedGlb } from '../src/game/render/test-glb';
 globalThis.fetch = async (url) => {
@@ -25,6 +25,12 @@ for (const [label, item, idle, extra] of [['p90 lobby', 'p90', 'rifle_idle', 0],
   const av = new Avatar(template, true);
   av.setStance('rifle'); av.setWeapon(item, weapons); av.setMocapIdle(idle);
   for (let i = 0; i < 60; i++) { av.update(0, 0, 0, Math.PI, EntityFlags.Grounded | (extra ?? 0), 1 / 60, i / 60); av.root.updateMatrixWorld(true); }
+  if (process.env.PROBE) {
+    // Forward distance of the left arm's joints in front of the chest (negative: inside the body).
+    const human = av.human, q = av.root.getWorldQuaternion(new Quaternion()), front = new Vector3(0, 0, -1).applyQuaternion(q);
+    const chest = human.bonePosition('spine_002'), at = (n) => human.bonePosition(n).sub(chest);
+    console.log(label, ['forearm_L', 'hand_L', 'hand_R'].map((n) => `${n} fwd ${at(n).dot(front).toFixed(3)} side ${at(n).dot(new Vector3(-front.z, 0, front.x)).toFixed(3)} y ${at(n).y.toFixed(3)}`).join(' | '));
+  }
   const meshes = [];
   av.root.traverse((o) => {
     if (!(o instanceof Mesh) || !o.visible) return;
