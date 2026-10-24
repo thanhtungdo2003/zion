@@ -2098,7 +2098,7 @@ kbd {
 .hud-debug em.bad { color: var(--danger); }
 
 /* Shared startup and match loading artwork. */
-.loader-screen { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: flex-start; background: #101820 url('/images/loading-background.webp') center / cover no-repeat; transition: opacity 0.45s; font-family: var(--sans); padding: clamp(20px, 4vw, 56px); padding-left: max(clamp(20px, 4vw, 56px), env(safe-area-inset-left)); padding-bottom: max(clamp(20px, 4vw, 56px), env(safe-area-inset-bottom)); }
+.loader-screen { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: flex-start; background: #101820 url('/images/loading-background-2.webp') center / cover no-repeat; transition: opacity 0.45s; font-family: var(--sans); padding: clamp(20px, 4vw, 56px); padding-left: max(clamp(20px, 4vw, 56px), env(safe-area-inset-left)); padding-bottom: max(clamp(20px, 4vw, 56px), env(safe-area-inset-bottom)); }
 .loader-screen.leaving { opacity: 0; pointer-events: none; }
 .loader-card { width: min(380px, 100%); min-width: 0; padding: 14px 16px; background: rgba(8, 12, 16, 0.62); border: 1px solid rgba(220, 232, 240, 0.14); border-left: 3px solid var(--accent); backdrop-filter: blur(6px); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); text-shadow: 0 1px 4px #000; }
 .loader-brand { font: 800 26px/1 var(--cond); letter-spacing: 0.3em; color: #f1f3ef; margin-bottom: 10px; }

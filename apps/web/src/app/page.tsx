@@ -31,9 +31,9 @@ const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false }
 
 const MODE_KEY = 'zion.gameMode';
 const GAME_MODES = [
-  { id: 'infection', name: 'mode.infection', sub: 'mode.infection_sub', image: '/images/modes/infection-2.webp', icon: 'game-icons:biohazard', isNew: true },
-  { id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub', image: '/images/modes/survival-2.webp', icon: 'game-icons:campfire' },
-  { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale-2.webp', icon: 'game-icons:parachute' },
+  { id: 'infection', name: 'mode.infection', sub: 'mode.infection_sub', image: '/images/modes/infection-3.webp', icon: 'game-icons:biohazard', isNew: true },
+  { id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub', image: '/images/modes/survival-3.webp', icon: 'game-icons:campfire' },
+  { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale-3.webp', icon: 'game-icons:parachute' },
 ] as const;
 /** Where "Play" goes for a mode (squads only exist in battle royale). */
 const BR_MAP_KEY = 'zion.br.map';
