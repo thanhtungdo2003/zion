@@ -93,8 +93,9 @@ export interface WeaponSpec {
 export function registerWeaponVisual(itemId: string, url: string | null, format: 'glb' | 'bbmodel', model: Omit<WeaponSpec, 'url' | 'format'>, madeFor?: string): void {
   const base = BUILTIN_VISUALS.get(itemId);
   // A built-in's Studio points / uploaded model only hold for the shipped model they were made
-  // for: once the game ships a new model for it, that model is used as shipped.
-  if (base && madeFor !== base.url) { WEAPON_SPECS[itemId] = base; return; }
+  // for: once the game ships a new model for it, that model is used as shipped. Edits saved
+  // before the Studio recorded that model (no `madeFor`) were made for the current one.
+  if (base && madeFor !== undefined && madeFor !== base.url) { WEAPON_SPECS[itemId] = base; return; }
   // Built-ins edited in the Studio keep their bundled model (and its clips / extra points).
   WEAPON_SPECS[itemId] = base && !url ? { ...base, ...model } : { ...model, url: url ?? base?.url ?? '', format };
 }

@@ -1308,6 +1308,8 @@ export class Avatar {
   private stockPoint(held: { obj: Object3D; visual: WeaponVisual }, trig: Side, scale: number): Vector3 | null {
     const v = held.visual, aim = v.aim!;
     if (this.stance !== 'rifle' || !v.spec) return null;
+    // Compact guns (P90, MP5, UZI…) are held out in front by both hands, not tucked under the arm.
+    if (v.spec.length < .6) return null;
     return rifleStockContact(held.obj, aim.grip.clone().multiplyScalar(scale), aim.barrel.clone().normalize(), aim.up.clone().normalize(), trig === 'R' ? 1 : -1)?.multiplyScalar(1 / scale) ?? null;
   }
 
@@ -1385,7 +1387,12 @@ export class Avatar {
       const k = SURVIVOR_SIZE * this.model.scale.y, side = trig === 'R' ? 1 : -1;
       const fwd = want.clone().setY(0).normalize(), right = new Vector3(-fwd.z, 0, fwd.x).multiplyScalar(side);
       // The armpit: just below and inside the firing shoulder joint.
-      const ribs = human.bonePosition(trig === 'R' ? 'upper_arm_R' : 'upper_arm_L').addScaledVector(UP, -.1 * k).addScaledVector(right, -.025 * k).addScaledVector(fwd, .03 * k);
+      const compact = (v.spec?.length ?? 1) < .6;
+      // A compact gun is held in front of the chest's middle, both arms reaching it alike; a long
+      // one sits on the firing side with its stock under the arm.
+      const ribs = compact
+        ? human.bonePosition('upper_arm_R').add(human.bonePosition('upper_arm_L')).multiplyScalar(.5).addScaledVector(UP, -.16 * k).addScaledVector(right, .04 * k).addScaledVector(fwd, .05 * k)
+        : human.bonePosition(trig === 'R' ? 'upper_arm_R' : 'upper_arm_L').addScaledVector(UP, -.1 * k).addScaledVector(right, -.025 * k).addScaledVector(fwd, .03 * k);
       const b = aim.barrel.clone().normalize(), u = aim.up.clone().addScaledVector(b, -aim.up.dot(b)).normalize();
       const up = UP.clone().addScaledVector(want, -want.y).normalize();
       const rotation = new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(want, up, new Vector3().crossVectors(want, up))
@@ -1624,7 +1631,8 @@ export class Avatar {
     this.sinceShot = flags & EntityFlags.Attacking ? 0 : this.sinceShot + dt;
     const distance = Math.hypot(dx, dz);
     const climbingNow = (flags & EntityFlags.Climbing) !== 0, mantlingNow = !!this.mantleGrip;
-    const moving = !busy && !airborne && !climbingNow && !mantlingNow && speed > .025 && distance > 1e-6;
+    // A lunge's travel is the recording's own steps: no running lean, bob or forward alignment on top.
+    const moving = !busy && !airborne && !climbingNow && !mantlingNow && !this.recAction?.lunge && speed > .025 && distance > 1e-6;
     // Snaps on with the first step, releases gently so stopping does not swing the trunk.
     const aligning = this.viewAligned && moving && posture === 0 && roll === null;
     this.forwardBlend += ((aligning ? 1 : 0) - this.forwardBlend) * (1 - Math.exp(-dt * (aligning ? 24 : 5)));

@@ -2428,6 +2428,9 @@ export class GameEngine {
       // First person keeps the same swing length as the body (long / heavy weapons' recorded swing).
       this.viewModel?.swing(variant, meleeSwing(this.equippedWeapon(), spec, this.weaponCtl.meleeSwings - 1)?.durationMs ?? spec.animationMs);
       this.meleeFeel.swing(variant, spec.animationMs ?? spec.swingMs, spec.weight, performance.now(), EDGED_MELEE_WEAPONS.has(this.equippedWeapon()));
+      // The finisher lunges in and cuts through: the screen shakes as its blow lands.
+      const step = this.weaponCtl.bladeStep;
+      if (BLADE_COMBO_WEAPONS.has(this.equippedWeapon()) && step >= 0 && BLADE_COMBO[step]?.lunge) this.meleeFeel.finisher(performance.now() + bladeStepTiming(spec, step).hitMs);
       const avatar = this.localAvatar;
       if (avatar) this.slashAt(
         () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
@@ -2568,10 +2571,10 @@ export class GameEngine {
    */
   private towardsAim(muzzle: Vector3, direction: Vector3): void {
     if (!this.aimTargetValid) return;
-    // Through an optic the reticle is the aim: the gun model's bore can tilt away from the
-    // optic's axis (mount height, eyepiece fit), so the shot goes from the muzzle to the point
-    // under the reticle. Iron sights in first person already line up with the bore.
-    const optic = this.scoped && this.eyeView;
+    // Aiming down the sights or through an optic, the sight picture is the aim: the gun model's
+    // bore can tilt away from its sight line (sight heights set in the Studio, mount height,
+    // eyepiece fit), so the shot goes from the muzzle to the point under the sights / reticle.
+    const optic = (this.scoped || this.aiming) && this.eyeView;
     if (this.eyeView && !optic) return;
     const to = this.tmpD.copy(this.aimTarget).sub(muzzle);
     if (to.lengthSq() < (optic ? .04 : 1)) return;

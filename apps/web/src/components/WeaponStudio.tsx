@@ -97,7 +97,8 @@ function builtinEntries(saved: Map<string, StudioWeapon>): Entry[] {
     if (!shipped) return [];
     const edit = saved.get(id);
     // An edit made for an older shipped model keeps its stats; the points start from the new model.
-    if (edit && edit.model.base !== v.url) return [{ draft: { ...edit, model, format }, builtin: true, edited: true, modelUrl: v.url }];
+    // (Edits saved before the Studio recorded the model they were made for are for the current one.)
+    if (edit && edit.model.base !== undefined && edit.model.base !== v.url) return [{ draft: { ...edit, model, format }, builtin: true, edited: true, modelUrl: v.url }];
     return [{ draft: edit ?? shipped, builtin: true, edited: !!edit, modelUrl: edit?.modelUrl ? `${API_URL}${edit.modelUrl}` : v.url }];
   });
 }

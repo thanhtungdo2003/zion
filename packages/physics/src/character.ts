@@ -68,7 +68,7 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
   rollCooldown: 3,
   // The recorded finisher's (comboslash.fbx) forward travel at the survivor's size, so the
   // body moves exactly as the animation steps: 2.85 m over 1.3 s, fastest mid-swing.
-  lungeProfile: [0, 0.06, 0.129, 0.207, 0.291, 0.403, 0.53, 0.657, 0.786, 0.906, 1.026, 1.139, 1.232, 1.317, 1.404, 1.483, 1.574, 1.702, 1.839, 1.982, 2.114, 2.214, 2.301, 2.378, 2.458, 2.542, 2.622, 2.685, 2.731, 2.756, 2.775, 2.795, 2.81, 2.821, 2.83, 2.837, 2.841, 2.843, 2.846, 2.848],
+  lungeProfile: [0, 0.101, 0.212, 0.31, 0.316, 0.316, 0.316, 0.376, 0.531, 0.669, 0.815, 0.956, 1.068, 1.156, 1.264, 1.406, 1.425, 1.488, 1.582, 1.736, 1.877, 1.982, 2.069, 2.145, 2.224, 2.307, 2.375, 2.411, 2.445, 2.473, 2.49, 2.507, 2.519, 2.529, 2.537, 2.544, 2.548, 2.55, 2.554, 2.554],
   climbSpeed: 2.4,
   // Camp asset 2022 (rusty iron wall ladder).
   ladderTags: [2022],

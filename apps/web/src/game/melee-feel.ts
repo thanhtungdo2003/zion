@@ -45,6 +45,8 @@ export class MeleeFeel {
   private readonly fov: Spring = { x: 0, v: 0 };
   private readonly push: Spring = { x: 0, v: 0 };
   private shake = 0;
+  /** The blade finisher's blow lands at this time (ms): a heavy shake and punch then. */
+  private finisherAt = Infinity;
   combo = 0;
   private comboAt = -Infinity;
   /** Last swing time (ms): hits arriving within a moment of it are this swing's. */
@@ -88,6 +90,9 @@ export class MeleeFeel {
     if (opts.head) this.play('headshot', .5, .9 + rise);
   }
 
+  /** The combo's finisher (a lunge and a full cut): the screen shakes hard as the blow lands at `at` (ms). */
+  finisher(at: number): void { this.finisherAt = at; }
+
   /** Our blow killed: a longer freeze, a heavier thud. */
   kill(now: number): void {
     this.stopUntil = Math.max(this.stopUntil, now + 140);
@@ -98,6 +103,13 @@ export class MeleeFeel {
   }
 
   update(dtSec: number, now: number): MeleeFeelFrame {
+    if (now >= this.finisherAt) {
+      this.finisherAt = Infinity;
+      this.shake = Math.max(this.shake, .16);
+      this.yaw.v += this.dir * 3.2; this.roll.v += -this.dir * 4.5; this.pitch.v += -1.6;
+      this.fov.v += -70; this.push.v += 12;
+      this.play('arrowHitHard', .8, .55);
+    }
     const frozen = now < this.stopUntil;
     // The sweep of the swing itself (follow-through), eased in and out over its duration.
     const t = (now - this.swingStart) / this.swingMs;
