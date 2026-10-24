@@ -1361,6 +1361,14 @@ export class HumanBody {
     node.updateWorldMatrix(false, false);
   }
 
+  /**
+   * The support hand under a handguard: fingers only lightly bent, so the guard rests across the
+   * palm and finger roots instead of the whole hand closing round it.
+   */
+  cradle(s: Side): void {
+    this.shapeFingers(s, 'relaxed');
+  }
+
   private shapeFingers(s: Side, preset: HandPreset, trigger = false): void {
     const S = this.side[s], P = PRESETS[preset];
     S.fingers.forEach((chain, f) => {

@@ -1,4 +1,4 @@
-import { Group, Vector3, type Camera, type Matrix4, type Object3D } from 'three';
+import { Group, Matrix4, Vector3, type Camera, type Object3D } from 'three';
 import type { Appearance } from '@zion/shared';
 import { HumanBody, MODEL_EYE_Y, type Grasp, type HandPreset, type HumanAssets, type MocapLayer, type Side } from './human-rig';
 import { rifleReloadLayer } from './recorded-reload';
@@ -95,6 +95,12 @@ export class FirstPersonHands {
       R: r.model.matrixWorld.clone().multiply(fit.inHand.clone().invert()),
       L: r.support ? body.supportTarget('L', r.model.matrixWorld, fit, r.support, r.supportRadius ?? .021) : null,
     };
+    // Cradled from below: the support hand sits lower, the guard resting on the palm and the
+    // lightly bent fingers only reaching up its side (see cradle below).
+    if (targets.L) {
+      const down = new Vector3(0, -1, 0).transformDirection(r.model.matrixWorld).multiplyScalar(.022 * scale);
+      targets.L.premultiply(new Matrix4().makeTranslation(down.x, down.y, down.z));
+    }
     for (const s of SIDES) {
       const target = targets[s];
       if (!target) continue;
@@ -105,6 +111,8 @@ export class FirstPersonHands {
       if (far > 0) shoulder.add(new Vector3(s === 'L' ? .25 : -.25, -.35, -1).normalize().multiplyScalar(Math.min(.32, far * 1.1)));
       body.placeShoulder(s, this.holder.localToWorld(shoulder));
       body.placeHand(s, target, 1, s === 'R' ? Math.PI : undefined);
+      // The support hand holds the handguard from below, not wrapped round it.
+      if (s === 'L') body.cradle('L');
     }
   }
 
