@@ -1,0 +1,14 @@
+{
+  "name": "@zion/launcher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ZION desktop launcher: a window that opens the online game (always the latest build).",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build --no-bundle",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

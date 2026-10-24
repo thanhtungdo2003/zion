@@ -122,7 +122,7 @@ export interface HudState {
   /** Roll cooldown left, 0…1 (0 = ready). */
   rollCd: number;
   /** F3 debug overlay numbers. */
-  debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number } | null;
+  debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number; frame: { update: number; render: number; gpu: number | null } | null } | null;
   /** Melee combo: blows chained in quick succession (shown near the crosshair). */
   meleeCombo: { n: number; at: number } | null;
   /** Supply drops on the way (map icons with heading) and where each comes down. */

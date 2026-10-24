@@ -21,6 +21,10 @@ import { Avatar } from '@/game/render/avatars';
 import { loadPlayerCharacter } from '@/game/render/character-model';
 import { SURVIVOR_SIZE } from '@/game/render/human-rig';
 import { loadWeapons } from '@/game/render/weapons';
+import { loadArmorPiece } from '@/game/render/armor-models';
+
+/** What the lobby survivors wear (armour wire ids by slot). */
+const LOBBY_ARMOR: ReadonlyArray<[string, number]> = [['head', 33], ['chest', 64]];
 import { ResourceDisposer } from '@/game/render/resources';
 import { renderItemIcons } from '@/game/inventory/icons';
 
@@ -119,7 +123,9 @@ export default function MenuStage({ onReady, members, look, self }: { onReady?: 
         for (let i = 0; i < count; i++) {
           const avatar = new Avatar(character, true);
           avatar.setStance('rifle');
-          avatar.setWeapon('ak47', weapons);
+          avatar.setWeapon('m4a1', weapons);
+          // Combat kit: tactical helmet with headset and the C75 plate carrier.
+          for (const [slot, id] of LOBBY_ARMOR) void loadArmorPiece(id).then((piece) => { if (!disposed) avatar.setArmor(slot, piece); });
           // The survivor's recorded rifle idle; the block character keeps its patrol clip.
           if (!avatar.setMocapIdle('rifle_idle')) {
             const clipLength = character.clips.get('rifle_patrol_idle')?.length ?? 8;

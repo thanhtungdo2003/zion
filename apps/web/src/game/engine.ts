@@ -167,6 +167,7 @@ import { planCooking } from '@zion/shared';
 import { createOceanGeometry, createWaterMaterial, getWaterUniforms, snapOcean } from './render/water';
 import { ChunkStore } from './world/chunk-store';
 import { VISION_HALF_ANGLE, VisionCone } from './vision-cone';
+import { FrameProfiler } from './frame-profiler';
 
 interface ChunkMeshes {
   chunk: ChunkData;
@@ -269,6 +270,8 @@ export class GameEngine {
   private nearArchitect = false;
   /** Graphics option: the post-processing shader pack (null while off). */
   private shaderPack: ShaderPack | null = null;
+  /** Frame time split (F3): update, render submit, GPU. */
+  private profiler: FrameProfiler | null = null;
   /** Melee juice: hit-stop, camera punch, layered sounds, combos (cosmetic). */
   private readonly meleeFeel = new MeleeFeel((name, volume, rate) => this.sounds?.play(name, { volume, rate }));
   private feel: MeleeFeelFrame = { timeScale: 1, yaw: 0, pitch: 0, roll: 0, fov: 0, shake: 0, push: 0 };
@@ -560,6 +563,7 @@ export class GameEngine {
     this.renderer.domElement.addEventListener('webglcontextlost', this.onContextLost);
     this.renderer.domElement.addEventListener('webglcontextrestored', this.onContextRestored);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.profiler = new FrameProfiler(this.renderer.getContext() as WebGL2RenderingContext);
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = settingsStore.get().brightness;
@@ -1846,7 +1850,9 @@ export class GameEngine {
     // One bad frame (a stray exception mid-update) must never freeze the view on a white/black
     // screen: log it, skip to rendering, and keep going.
     try {
+      this.profiler?.begin();
       this.frameBody(now);
+      this.profiler?.end();
     } catch (err) {
       if (this.frameErrors++ < 5) console.error('frame failed', err);
       try { this.renderer.render(this.scene, this.camera); } catch { /* lost context */ }
@@ -2165,6 +2171,7 @@ export class GameEngine {
     }
     this.updateAmmoHud(now);
 
+    this.profiler?.startRender();
     const lens = this.lensSight ? this.viewModel!.lens : null;
     if (lens && optic) {
       (this.scopeLens ??= new ScopeLens()).render(this.renderer, this.scene, this.camera, lens.mesh, this.viewModel!.object, {
@@ -2560,11 +2567,16 @@ export class GameEngine {
    * Kept to within a few degrees of the gun's own bore; first person already shoots down the sights.
    */
   private towardsAim(muzzle: Vector3, direction: Vector3): void {
-    if (this.eyeView || !this.aimTargetValid) return;
+    if (!this.aimTargetValid) return;
+    // Through an optic the reticle is the aim: the gun model's bore can tilt away from the
+    // optic's axis (mount height, eyepiece fit), so the shot goes from the muzzle to the point
+    // under the reticle. Iron sights in first person already line up with the bore.
+    const optic = this.scoped && this.eyeView;
+    if (this.eyeView && !optic) return;
     const to = this.tmpD.copy(this.aimTarget).sub(muzzle);
-    if (to.lengthSq() < 1) return;
+    if (to.lengthSq() < (optic ? .04 : 1)) return;
     to.normalize();
-    if (to.dot(direction) > Math.cos(AIM_CORRECTION_MAX)) direction.copy(to);
+    if (optic || to.dot(direction) > Math.cos(AIM_CORRECTION_MAX)) direction.copy(to);
   }
 
   private localWeaponBore(origin: Vector3, direction: Vector3): boolean {
@@ -3803,6 +3815,7 @@ export class GameEngine {
         zombies: this.zombies.size,
         heapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
         snapshotKB: Math.round(this.conn.bytesIn / 1024),
+        frame: this.profiler?.take() ?? null,
       },
       playersNearby: [...this.remotes.values()].filter(r => r.entity.kind === EntityKind.Player).length,
       health: local.health,

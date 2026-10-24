@@ -2542,6 +2542,15 @@ kbd {
 .pwa-dialog .set-head { padding: 0 0 16px; }
 .pwa-dialog .set-head h2 { display: flex; gap: 10px; align-items: center; }
 .pwa-dialog p { font-size: 14px; line-height: 1.7; }
+/* Download: two large choices, one above the other (web app, ZIP). */
+.download-choices { display: grid; grid-template-rows: 1fr 1fr; gap: 12px; }
+.download-choice { display: flex; align-items: center; gap: 16px; min-height: 110px; padding: 18px 20px; border: 1px solid #685536; background: rgba(255, 176, 0, .06); color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s; }
+.download-choice:hover:not(:disabled) { background: rgba(255, 176, 0, .16); border-color: var(--accent); }
+.download-choice:disabled { opacity: .5; cursor: default; }
+.download-choice svg { width: 40px; height: 40px; flex: none; color: var(--accent); }
+.download-choice span { display: flex; flex-direction: column; gap: 4px; }
+.download-choice b { font-size: 18px; letter-spacing: .04em; text-transform: uppercase; }
+.download-choice small { font-size: 13px; color: rgba(232, 228, 218, .7); }
 .pwa-dialog .pwa-note { color: #a6aba8; font-size: 12px; }
 .pwa-dialog footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 @media (max-width: 1100px) {
