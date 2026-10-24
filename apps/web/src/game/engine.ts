@@ -3587,7 +3587,7 @@ export class GameEngine {
       const spec = weaponSpec(this.equippedWeapon());
       // The optic's own power; iron sights and red dots get a slight focus zoom.
       const opticPower = this.currentOptic()?.magnification ?? 1;
-      const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.firstPerson ? 1.25 : 1.35 : 1;
+      const magnification = spec?.kind === 'gun' ? opticPower > 1 ? opticPower : this.eyeView ? 1.25 : 1.35 : 1;
       const zoom = 1 + (magnification - 1) * this.scopeZoom;
       // Through a lens optic the world outside the lens stays at the normal field of view; only the
       // lens is magnified (ScopeLens), but aim sensitivity still follows the optic's power.

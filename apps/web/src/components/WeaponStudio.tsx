@@ -9,7 +9,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { API_URL, studioDeleteWeapon, studioResetWeapons, studioLogin, studioSaveWeapon, studioWeapons, type StudioWeapon } from '@/lib/api';
 import { builtinRecoilDegrees } from '@/game/first-person-recoil';
 import { BB_UNITS_PER_METER, loadPlayerCharacter, type CharacterTemplate } from '@/game/render/character-model';
-import { builtinWeaponVisual, fittedSpec, heldWeaponVisual, loadWeaponModel, previewAttachment, standaloneVisual, type WeaponSpec } from '@/game/render/weapons';
+import { builtinWeaponVisual, fittedSpec, heldWeaponVisual, loadWeaponModel, loadWeapons, previewAttachment, standaloneVisual, type WeaponLibrary, type WeaponSpec } from '@/game/render/weapons';
 import { Avatar } from '@/game/render/avatars';
 import { ViewModel } from '@/game/render/viewmodel';
 import { scopeFov } from '@/game/scope';
@@ -462,7 +462,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
               {num('Tỉ lệ chặt đầu zombie', d.melee.decapitationChance ?? 0, (v) => setMelee({ decapitationChance: v || undefined }), .01, 0, 1)}
             </fieldset>}
           </div>}
-          {tab === 'view' && url && <FirstPersonEditor key={url} url={url} draft={d} onChange={setModel} />}
+          {tab === 'view' && url && <FirstPersonEditor key={url} url={url} draft={d} onChange={setModel} attachments={d.gun ? { ...(shown.optic && d.gun.optics.includes(shown.optic) ? { optic: shown.optic } : {}), ...(shown.muzzle && d.gun.muzzleDevices.includes(shown.muzzle) ? { muzzle: shown.muzzle } : {}) } : {}} />}
         </div>
     </div>
   );
@@ -720,7 +720,7 @@ function HeldPreview({ url, draft, children }: { url: string; draft: Draft; chil
 }
 
 /** The gun as the player sees it: hip and aiming, with sliders for its placement. */
-function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft; onChange: (p: Partial<Draft['model']>) => void }) {
+function FirstPersonEditor({ url, draft, onChange, attachments }: { url: string; draft: Draft; onChange: (p: Partial<Draft['model']>) => void; attachments: { optic?: string; muzzle?: string } }) {
   const host = useRef<HTMLDivElement>(null);
   const [aiming, setAiming] = useState(false);
   const aim = useRef(aiming); aim.current = aiming;
@@ -730,7 +730,8 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
   const support = draft.model.fpSupport ?? [0, 0, 0];
   const rot = draft.model.fpRot ?? [0, 0];
   // Scene and model load once per file; the view model is rebuilt whenever the settings change.
-  const stage = useRef<{ camera: PerspectiveCamera; root: Group | null; character?: CharacterTemplate; view: ViewModel | null } | null>(null);
+  const attachKey = `${attachments.optic ?? ''}|${attachments.muzzle ?? ''}`;
+  const stage = useRef<{ camera: PerspectiveCamera; root: Group | null; built?: CharacterTemplate; character?: CharacterTemplate; lib?: WeaponLibrary; view: ViewModel | null } | null>(null);
   const [loaded, setLoaded] = useState(0);
   useEffect(() => {
     const el = host.current;
@@ -746,7 +747,7 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
     const field = new Mesh(new PlaneGeometry(400, 400), new MeshBasicMaterial({ color: 0x5d6b4c })); field.rotation.x = -Math.PI / 2; field.position.y = -1.62; scene.add(field);
     // A target 25 m ahead, on the aiming line.
     const target = new Mesh(new SphereGeometry(.35, 16, 12), new MeshBasicMaterial({ color: 0xd8462c })); target.position.set(0, 0, -25); scene.add(target);
-    const camera = new PerspectiveCamera(75, 1, .03, 400); scene.add(camera);
+    const camera = new PerspectiveCamera(75, 1, .015, 400); scene.add(camera);
     stage.current = { camera, root: null, view: null };
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
@@ -764,9 +765,12 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
     };
     frame = requestAnimationFrame(loop);
     // The player's own arms, as in game (loaded with the model).
-    void Promise.all([loadWeaponModel(url, undefined, draft.format), loadPlayerCharacter()]).then(([{ root }, character]) => {
+    // The whole arsenal as the game loads it (attachments included), then this weapon built from the
+    // draft exactly as the game builds it: what shows here is what shows in game.
+    void loadPlayerCharacter().then(async (character) => {
+      const [built, lib] = await Promise.all([loadWeaponModel(url, undefined, draft.format), loadWeapons(character).catch(() => new Map() as WeaponLibrary)]);
       if (disposed || !stage.current) return;
-      stage.current.root = root; stage.current.character = character; setLoaded((n) => n + 1);
+      stage.current.root = built.root; stage.current.built = built; stage.current.character = character; stage.current.lib = lib; setLoaded((n) => n + 1);
     }).catch(() => undefined);
     return () => { disposed = true; cancelAnimationFrame(frame); observer.disconnect(); stage.current?.view?.dispose(); stage.current = null; renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the model reloads only with the file.
@@ -778,9 +782,14 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
     const view = new ViewModel(st.camera);
     // The survivor's own first-person hands, as in game (they also decide the hip placement).
     if (st.character?.human) view.setBody(st.character.human);
-    view.set('studio-preview', new Map([['studio-preview', standaloneVisual('studio-preview', spec, st.root, st.character)]]));
+    const id = draft.id;
+    const lib: WeaponLibrary = new Map(st.lib ?? []);
+    // The draft's points win over the file's fitting, as once saved (`own`).
+    lib.set(id, st.built && st.character ? heldWeaponVisual(id, fittedSpec({ ...spec, studio: true }, st.built), st.built, st.character) : standaloneVisual(id, spec, st.root, st.character));
+    view.set(id, lib, attachments);
     st.view = view;
-  }, [spec, loaded]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `attachKey` stands for the attachments.
+  }, [spec, loaded, draft.id, attachKey]);
   const slider = (label: string, value: number, min: number, max: number, on: (v: number) => void) =>
     <label className="set-slider"><span>{label} <b>{value.toFixed(2)}</b></span><input type="range" min={min} max={max} step={(max - min) / 400} value={value} onChange={(e) => on(Number(e.target.value))} /></label>;
   return <>

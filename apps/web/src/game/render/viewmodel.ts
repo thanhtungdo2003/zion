@@ -176,7 +176,8 @@ export class ViewModel {
     this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') || ITEMS[itemId ?? '']?.category === 'pistol' ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
     // Studio weapons may set their own hip position and eye relief.
     const spec = itemId ? weapons?.get(itemId)?.spec : undefined;
-    if (!optic && spec?.fpEyeRelief) this.eyeRelief = spec.fpEyeRelief;
+    // The Studio's eye relief holds with iron sights and red dots alike (magnified lenses set their own below).
+    if (spec?.fpEyeRelief && (optic?.magnification ?? 1) <= 1) this.eyeRelief = spec.fpEyeRelief;
     this.hip.set(...(spec?.fpHip ?? [0.2, -0.27, -0.25]));
     // With the survivor's own hands, the held item sits a little higher and further in, so the
     // hands closed round it stay in view.
