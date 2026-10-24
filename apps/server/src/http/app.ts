@@ -10,6 +10,7 @@ import type { Logger } from '../logger';
 import { AuthError, type AuthService } from '../security/auth-service';
 import type { AccessClaims, TokenService } from '../security/tokens';
 import { registerAuthRoutes } from './routes/auth';
+import { registerAppearanceRoutes } from './routes/appearance';
 import { registerTeamRoutes } from './routes/teams';
 import { registerWorldChatRoutes } from './routes/world-chat';
 import { registerCareerRoutes } from './routes/career';
@@ -23,10 +24,17 @@ import type { NewsBackend } from '../repositories/news';
 import { registerLibraryRoutes } from './routes/library';
 import { registerWeaponRoutes } from './routes/weapons';
 import type { CustomWeaponStore } from '../repositories/custom-weapons';
+import type { GearFitStore } from '../repositories/gear-fit';
+import { registerGearFitRoutes } from './routes/gear-fit';
+import type { AppearanceStore } from '../repositories/accounts';
 
 export interface HttpDeps {
+  /** Character looks (the creator's save/load). */
+  appearances?: AppearanceStore;
   /** Weapons made in the Studio (definitions + model files). */
   customWeapons?: CustomWeaponStore;
+  /** Gear fitting from the Studio (adjustments, soft regions). */
+  gearFit?: GearFitStore;
   news?: NewsBackend;
   progression?: ProgressionService;
   config: AppConfig;
@@ -130,12 +138,14 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
 
   registerHealthRoutes(app, deps.health, config.METRICS_TOKEN);
   registerAuthRoutes(app, deps);
+  registerAppearanceRoutes(app, deps);
   registerTeamRoutes(app, deps);
   registerWorldChatRoutes(app, deps);
   registerCareerRoutes(app, deps);
   registerGameRoutes(app, deps);
   registerLibraryRoutes(app, deps);
   registerWeaponRoutes(app, deps);
+  registerGearFitRoutes(app, deps);
   registerStudioRoutes(app, deps);
   return app;
 }

@@ -4,6 +4,8 @@ import { Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 const DEG = Math.PI / 180;
 /** Rays cast across the cone each frame for the line-of-sight shadow. */
 const VIS_RAYS = 128;
+/** Half the field of view with nothing over the eyes (visors and masks narrow it). */
+export const VISION_HALF_ANGLE = 76 * DEG;
 
 /**
  * Full-screen pass that darkens everything outside the cone. Each pixel's view ray is intersected
@@ -56,7 +58,7 @@ void main() {
  */
 export class VisionCone {
   range = 40;
-  halfAngle = 76 * DEG;
+  halfAngle = VISION_HALF_ANGLE;
   readonly origin = new Vector3();
   readonly direction = new Vector3(0, 0, -1);
   private readonly overlay: Mesh;

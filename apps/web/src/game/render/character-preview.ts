@@ -1,26 +1,31 @@
 import { AmbientLight, DirectionalLight, PerspectiveCamera, Scene, SRGBColorSpace, WebGLRenderer } from 'three';
-import { ARMOR_SLOTS, EntityFlags, type ArmorLoadout } from '@zion/shared';
+import { ARMOR_SLOTS, EntityFlags, NO_ARMOR, type Appearance, type ArmorLoadout, type Attachments, type CarriedGear } from '@zion/shared';
+import type { Stance } from '../inventory/items';
+import type { WeaponLibrary } from './weapons';
 import { Avatar } from './avatars';
 import type { CharacterTemplate } from './character-model';
 import { requestArmor } from './armor-models';
 
 /**
- * The inventory's character viewer: the player's own model, slowly turning, wearing the armour
- * equipped in the four armour slots. Renders only while mounted in the panel.
+ * The inventory's character viewer: the player's own model standing still, facing the viewer at a
+ * slight angle, dressed as equipped: armour, the backpack, the weapon in hand (relaxed hold) and
+ * the guns, pistol and grenade it carries. Renders only while mounted in the panel.
  */
 export class CharacterPreview {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(30, 1, 0.1, 20);
   private readonly avatar: Avatar;
   private raf = 0;
-  private yaw = Math.PI - 0.5;
-  private dragX: number | null = null;
-  private loadout: ArmorLoadout = { head: 0, chest: 0, legs: 0, feet: 0 };
+  /** Yaw 0 faces −Z; the camera is on +Z. Turned a little for a three-quarter view. */
+  private readonly yaw = Math.PI - 0.32;
+  private loadout: ArmorLoadout = { ...NO_ARMOR };
   private disposed = false;
   private unmount: (() => void) | null = null;
 
   constructor(template: CharacterTemplate) {
     this.avatar = new Avatar(template, true);
+    // A still display: the body faces its yaw at once (no turning on the spot, no stepping).
+    this.avatar.rigid = true;
     this.avatar.addTo(this.scene);
     this.scene.add(new AmbientLight(0xffffff, 1.3));
     const key = new DirectionalLight(0xffffff, 2.2);
@@ -29,8 +34,23 @@ export class CharacterPreview {
     const rim = new DirectionalLight(0xbfd4ff, 1.2);
     rim.position.set(-2, 2, -3);
     this.scene.add(rim);
-    this.camera.position.set(0, 1.05, 4.6);
-    this.camera.lookAt(0, 0.95, 0);
+    this.camera.position.set(0, 1.18, 5.4);
+    this.camera.lookAt(0, 1.08, 0);
+  }
+
+  /** The player's own look. */
+  setAppearance(look: Appearance): void {
+    if (!this.disposed) this.avatar.setAppearance(look);
+  }
+
+  /** What is in hand and what is carried (the model holds and wears it). */
+  setEquipment(itemId: string | null, stance: Stance, gear: CarriedGear, weapons: WeaponLibrary | null, attachments?: Attachments): void {
+    if (this.disposed) return;
+    this.avatar.setStance(stance);
+    this.avatar.setWeapon(itemId, weapons, attachments);
+    // A held gun in the relaxed lobby hold; empty hands stand plainly.
+    this.avatar.setMocapIdle(itemId && (stance === 'rifle' || stance === 'pistol') ? 'rifle_idle' : null);
+    this.avatar.setGear(gear, weapons);
   }
 
   /** Shows these armour pieces (wire ids per slot). */
@@ -70,27 +90,11 @@ export class CharacterPreview {
     ro.observe(host);
     fit();
     const el = renderer.domElement;
-    const down = (e: PointerEvent) => {
-      this.dragX = e.clientX;
-      el.setPointerCapture(e.pointerId);
-    };
-    const move = (e: PointerEvent) => {
-      if (this.dragX === null) return;
-      this.yaw += (e.clientX - this.dragX) * 0.012;
-      this.dragX = e.clientX;
-    };
-    const up = () => {
-      this.dragX = null;
-    };
-    el.addEventListener('pointerdown', down);
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
     let last = performance.now();
     const frame = (now: number) => {
       this.raf = requestAnimationFrame(frame);
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      if (this.dragX === null) this.yaw += dt * 0.35;
       this.avatar.update(0, 0, 0, this.yaw, EntityFlags.Grounded, dt, now / 1000);
       renderer.render(this.scene, this.camera);
     };
@@ -101,10 +105,6 @@ export class CharacterPreview {
       mounted = false;
       cancelAnimationFrame(this.raf);
       ro.disconnect();
-      el.removeEventListener('pointerdown', down);
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', up);
-      this.dragX = null;
       renderer.dispose();
       renderer.forceContextLoss();
       el.remove();

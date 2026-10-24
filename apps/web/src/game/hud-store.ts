@@ -79,6 +79,8 @@ export interface HudState {
   toast: Msg | null;
   /** Last time the local player took damage (ms) and how hard (0…1): drives the red vignette. */
   hurtAt: number;
+  /** Field of view lost to worn visors and masks (0…0.4): darkens the screen edges. */
+  visorVision: number;
   /** Last time one of our hits landed on an enemy (hit marker), and whether it was a head shot. */
   hitMarkAt: number;
   hitMarkHead: boolean;
@@ -183,6 +185,7 @@ export function initialHud(): HudState {
     chat: [],
     toast: null,
     hurtAt: 0,
+    visorVision: 0,
     hitMarkAt: 0,
     hitMarkHead: false,
     killAt: 0,

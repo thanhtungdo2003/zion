@@ -1,3 +1,4 @@
+import { parseAppearance, type Appearance } from '@zion/shared';
 import { withTransaction, type Db } from '../db/pool';
 
 export type SocialProvider = 'google' | 'facebook';
@@ -42,8 +43,14 @@ function map(r: AccountRow): Account {
   };
 }
 
+/** Where each account's character look is kept. */
+export interface AppearanceStore {
+  loadAppearance(accountId: string): Promise<Appearance | null>;
+  saveAppearance(accountId: string, appearance: Appearance): Promise<void>;
+}
+
 /** All queries are parameterised; no SQL is ever built from user input. */
-export class AccountRepository {
+export class AccountRepository implements AppearanceStore {
   constructor(private readonly db: Db) {}
 
   async identities(id: string): Promise<SocialProvider[]> {
@@ -86,6 +93,16 @@ export class AccountRepository {
   async findById(id: string): Promise<Account | null> {
     const { rows } = await this.db.query<AccountRow>(`SELECT ${COLUMNS} FROM accounts WHERE id = $1`, [id]);
     return rows[0] ? map(rows[0]) : null;
+  }
+
+  /** The saved character look; null before the player has made their character. */
+  async loadAppearance(id: string): Promise<Appearance | null> {
+    const { rows } = await this.db.query<{ appearance: unknown }>('SELECT appearance FROM accounts WHERE id = $1', [id]);
+    return parseAppearance(rows[0]?.appearance ?? null);
+  }
+
+  async saveAppearance(id: string, appearance: Appearance): Promise<void> {
+    await this.db.query('UPDATE accounts SET appearance = $2 WHERE id = $1', [id, JSON.stringify(appearance)]);
   }
 
   /** Returns null if the username is already taken. */

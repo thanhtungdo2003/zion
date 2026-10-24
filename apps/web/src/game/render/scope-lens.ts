@@ -29,6 +29,8 @@ const fragment = /* glsl */ `
   uniform float uHasRim;
   uniform vec2 uCenterPx;
   varying float vRim;
+  // Coverage of a line of half-width w at distance d, antialiased over one pixel.
+  float line(float d, float w) { return 1.0 - smoothstep(w - 0.5, w + 0.5, d); }
   void main() {
     vec2 uv = gl_FragCoord.xy / uResolution;
     vec3 col = texture2D(tScope, uv).rgb;
@@ -39,38 +41,53 @@ const fragment = /* glsl */ `
     vec2 p = gl_FragCoord.xy - uResolution * 0.5;
     float ink = 0.0;
     if (uReticle > 0.5 && uReticle < 3.5) {
-      float thin = (abs(p.x) < 0.8 || abs(p.y) < 0.8) ? 1.0 : 0.0;
-      float post = uRadiusPx * 0.32;
-      float thick = ((abs(p.x) < 2.2 && abs(p.y) > post) || (abs(p.y) < 2.2 && abs(p.x) > post)) ? 1.0 : 0.0;
-      ink = max(thin, thick);
+      // Etched reticle: hair-thin antialiased wires (about one pixel), heavier outer posts.
+      float post = uRadiusPx * 0.42;
+      float wire = max(line(abs(p.x), 0.45), line(abs(p.y), 0.45));
+      float posts = max(line(abs(p.x), 1.25) * step(post, abs(p.y)), line(abs(p.y), 1.25) * step(post, abs(p.x)));
+      ink = max(wire, posts);
+      vec2 m = p / uPxPerMil;
+      vec2 nearest = floor(m + 0.5);
+      if (uReticle < 1.5) {
+        // Duplex: short hash marks every mil on the fine wire, longer every fifth.
+        float len = 2.5;
+        float hx = line(abs(p.x - nearest.x * uPxPerMil), 0.4) * line(abs(p.y), len) * step(0.5, abs(nearest.x));
+        float hy = line(abs(p.y - nearest.y * uPxPerMil), 0.4) * line(abs(p.x), len) * step(0.5, abs(nearest.y));
+        ink = max(ink, max(hx, hy) * step(abs(p.x) + abs(p.y), post));
+      }
       if (uReticle > 1.5 && uReticle < 2.5) {
-        // Mil-dots on both lines, one per mil, out to 5 mils.
-        vec2 m = p / uPxPerMil;
-        vec2 nearest = floor(m + 0.5);
+        // Mil-dots on both wires, one per mil, out to 5 mils.
         float within = max(abs(nearest.x), abs(nearest.y)) <= 5.0 ? 1.0 : 0.0;
         float d = min(length(p - vec2(nearest.x * uPxPerMil, 0.0)), length(p - vec2(0.0, nearest.y * uPxPerMil)));
-        ink = max(ink, step(d, 2.2) * within);
+        ink = max(ink, line(d, 1.3) * within);
       }
       if (uReticle > 2.5) {
-        // Rocket sight: a chevron and range ticks under it.
-        float chevron = abs(abs(p.x) + p.y) < 1.2 && p.y < 0.0 && p.y > -uRadiusPx * 0.12 ? 1.0 : 0.0;
-        float ticks = abs(p.x) < uRadiusPx * 0.06 && mod(-p.y, uRadiusPx * 0.12) < 1.2 && p.y < -uRadiusPx * 0.12 ? 1.0 : 0.0;
+        // Rocket sight: a fine chevron and range ticks under it.
+        float chevron = line(abs(abs(p.x) + p.y), 0.6) * step(p.y, 0.0) * step(-uRadiusPx * 0.12, p.y);
+        float ticks = step(abs(p.x), uRadiusPx * 0.06) * line(abs(mod(-p.y + 0.5 * uRadiusPx * 0.12, uRadiusPx * 0.12) - 0.5 * uRadiusPx * 0.12), 0.5) * step(uRadiusPx * 0.12, -p.y);
         ink = max(chevron, ticks);
       }
     }
-    col = mix(col, vec3(0.015), clamp(ink, 0.0, 1.0));
+    col = mix(col, vec3(0.02), clamp(ink, 0.0, 1.0) * 0.92);
     if (uSee < 0.5) {
       // Looking down a tube: the picture darkens from the middle of the lens out to its rim.
       float edge = uHasRim > 0.5 ? vRim : length(gl_FragCoord.xy - uCenterPx) / max(uRadiusPx, 1.0);
       float shade = smoothstep(0.5, 1.0, edge);
       col *= 1.0 - 0.6 * shade * shade;
     }
-    // Red dot / holographic: an illuminated dot (and the holo's 65 MOA ring) on the lens.
+    // Red dot (about 2 MOA) / holographic (1 MOA dot in a thin 65 MOA ring with four ticks),
+    // pure red: an over-bright red is pushed towards orange by tone mapping.
     float glow = 0.0;
     float r = length(p);
-    if (uReticle > 3.5) glow = 1.0 - smoothstep(max(1.5, uRadiusPx * 0.02), max(2.5, uRadiusPx * 0.02) + 1.0, r);
-    if (uReticle > 4.5) glow = max(glow, 1.0 - smoothstep(1.0, 2.0, abs(r - uRadiusPx * 0.45)));
-    col = mix(col, vec3(1.0, 0.08, 0.05) * 2.0, glow);
+    float dotR = clamp(uRadiusPx * 0.012, 1.1, 2.4);
+    if (uReticle > 3.5 && uReticle < 4.5) glow = line(r, dotR);
+    if (uReticle > 4.5) {
+      float ring = uRadiusPx * 0.45;
+      glow = max(line(r, dotR * 0.75), line(abs(r - ring), 0.55));
+      float tick = max(line(abs(p.x), 0.55) * step(abs(abs(p.y) - ring), ring * 0.12), line(abs(p.y), 0.55) * step(abs(abs(p.x) - ring), ring * 0.12));
+      glow = max(glow, tick * step(ring * 0.88, r));
+    }
+    col = mix(col, vec3(1.0, 0.03, 0.03), glow);
     // Unmagnified sights: the lens is clear glass, only the reticle shows on the world behind it.
     gl_FragColor = vec4(col, uSee > 0.5 ? max(glow, ink) : 1.0);
     #include <tonemapping_fragment>

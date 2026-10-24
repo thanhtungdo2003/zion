@@ -30,7 +30,7 @@ const step = (s: Spring, k: number, damping: number, dt: number) => {
   s.x += s.v * dt;
 };
 
-export type MeleeSound = 'swordSlash' | 'hitFlesh' | 'arrowHitHard' | 'headshot' | 'killConfirm' | 'knockdown';
+export type MeleeSound = 'swordSlash' | 'airSwing' | 'hitFlesh' | 'arrowHitHard' | 'headshot' | 'killConfirm' | 'knockdown';
 
 export class MeleeFeel {
   private swingStart = -Infinity;
@@ -53,7 +53,7 @@ export class MeleeFeel {
   constructor(private readonly play: (name: MeleeSound, volume: number, rate: number) => void) {}
 
   /** A swing starts: `variant` alternates the side (1 right-to-left, 2 left-to-right, 3 overhead). */
-  swing(variant: number, swingMs: number, weightKg: number, now: number): void {
+  swing(variant: number, swingMs: number, weightKg: number, now: number, edged = true): void {
     this.swingStart = now;
     this.swingMs = Math.max(220, swingMs);
     this.dir = variant % 2 === 0 ? -1 : 1;
@@ -62,7 +62,9 @@ export class MeleeFeel {
     // Wind-up: a small counter-move first (anticipation), the sweep follows in update().
     this.yaw.v += -this.dir * .5 * this.weight;
     if (this.overhead) this.pitch.v += .6;
-    this.play('swordSlash', .65, 1.18 - this.weight * .12 + Math.random() * .08);
+    // A blade rings as it cuts the air; anything else whooshes (lower the heavier it is).
+    if (edged) this.play('swordSlash', .65, 1.18 - this.weight * .12 + Math.random() * .08);
+    else this.play('airSwing', .8, 1.15 - this.weight * .15 + Math.random() * .08);
   }
 
   /** The server confirmed one of our blows: freeze, punch, sound. */

@@ -15,8 +15,8 @@ describe('catalog localization', () => {
   });
 
   it('translates generated armour descriptions', () => {
-    expect(itemDescription('vi', 'combat_helmet')).toContain('giảm');
-    expect(itemDescription('vi', 'combat_helmet')).not.toMatch(/damage|common|rare/);
+    expect(itemDescription('vi', 'helmet_military')).toContain('giảm');
+    expect(itemDescription('vi', 'helmet_military')).not.toMatch(/damage|common|rare/);
   });
 });
 

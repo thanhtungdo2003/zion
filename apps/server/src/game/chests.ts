@@ -38,6 +38,9 @@ export class SharedChests {
     return taken;
   }
 
+  /** The chest a player has open (if any). */
+  viewing(player: Player): string | undefined { return this.viewers.get(player); }
+
   reset(): void { this.chests.clear(); this.loading.clear(); this.viewers.clear(); }
 
   /** Field crates are emptied and become searchable again at the start of every world day. */
@@ -109,6 +112,8 @@ export class SharedChests {
         if (item.quest) added.quest = item.quest;
         if (item.chargeId !== undefined) added.chargeId = item.chargeId;
         if (item.attachments) added.attachments = { ...item.attachments };
+        // A backpack keeps what was packed inside it.
+        inv.restoreContents(added.uid, item.contents);
         next.items = next.items.filter((i) => i.uid !== msg.uid);
       }
       next.revision++;

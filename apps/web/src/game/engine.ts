@@ -1,4 +1,4 @@
-import { acceptsAttachments, attachmentModifier, opticOf, unpackAttachments, weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
+import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentModifier, opticOf, unpackAttachments, weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
 import { VEHICLES, vehicleSeatOf } from '@zion/shared';
@@ -65,10 +65,10 @@ import {
   type ChunkData,
   type ServerJsonMessage,
   type Snapshot,
+  type InputMessage,
   type WelcomeMessage,
   type HitEvent,
   EntityKind,
-  GUARD_MODEL_URL,
   MERCHANT_MODEL_URL,
   MERCHANT_NAME,
   NURSE_MODEL_URL,
@@ -78,6 +78,8 @@ import {
   ARMOR_BY_ID,
   ARMOR_SLOTS,
   armorSpeedFactor,
+  armorVision,
+  armorHearing,
   weaponSpeedFactor,
   weaponStaminaFactor,
   armorStaminaFactor,
@@ -128,7 +130,11 @@ import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
 import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
+import { BLADE_COMBO_WEAPONS, EDGED_MELEE_WEAPONS, bladeStepTiming, meleeSwing } from '@zion/shared';
+import { DEFAULT_APPEARANCE, randomAppearance, sameAppearance, type Appearance } from '@zion/shared';
+import { cachedLook, loadLook } from '@/lib/appearance';
 import { prepareGuardModel } from './render/guard-model';
+import { loadZombieClips } from './render/zombie-clips';
 import { occlusionUniforms } from './render/occlusion-fade';
 import { loadWeapons, type WeaponLibrary } from './render/weapons';
 import { CombatEffects } from './render/effects';
@@ -141,6 +147,7 @@ import type { PlacedItem } from './inventory/inventory';
 import { SoundBank, type SoundName } from './audio';
 import { zombieVariant } from '@zion/shared';
 import { ZOMBIE_MODEL_URLS, ZombieAvatar, type LastHit } from './render/zombie-avatar';
+import { loadZombieModel, zombieTemplateIndex } from './render/zombie-model';
 import { DebrisSystem } from './render/debris';
 import { ParticleFX } from './render/particles';
 import { Minimap } from './render/minimap';
@@ -159,7 +166,7 @@ import { VegetationRenderer } from './render/vegetation';
 import { planCooking } from '@zion/shared';
 import { createOceanGeometry, createWaterMaterial, getWaterUniforms, snapOcean } from './render/water';
 import { ChunkStore } from './world/chunk-store';
-import { VisionCone } from './vision-cone';
+import { VISION_HALF_ANGLE, VisionCone } from './vision-cone';
 
 interface ChunkMeshes {
   chunk: ChunkData;
@@ -182,6 +189,8 @@ const FP_FOV = 75;
 
 /** Sniper scope: how far the view pans towards the cursor, how fast, and the extra zoom-out. */
 const SCOPE_PAN_GAIN = 0.55;
+/** Most the shot may turn from the gun's own bore towards the aimed point (rad). */
+const AIM_CORRECTION_MAX = .17;
 const SCOPE_PAN_MAX = 26;
 const SCOPE_PAN_RATE = 2.2;
 const SCOPE_EXTRA_DIST = 6;
@@ -245,7 +254,7 @@ export class GameEngine {
   private readonly terrainGroup = new Group();
   private readonly meshes = new Map<number, ChunkMeshes>();
   private readonly buildQueue = new Map<number, ChunkData>();
-  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; att?: number; attacking?: boolean; armor?: number; burnUntil?: number }>();
+  private readonly remotes = new Map<number, { entity: RemoteEntity; avatar: Avatar; weapon: number; back?: number; gear?: number; pack?: number; att?: number; attacking?: boolean; armor?: number; burnUntil?: number; outfit?: ArmorLoadout }>();
   /** Shop trades waiting for the server's wallet answer: request id → what to do on success. */
   private readonly trades = new Map<number, { buy?: string; sellUid?: number; heal?: boolean }>();
   private nextTrade = 1;
@@ -253,6 +262,9 @@ export class GameEngine {
   /** Armour worn last time we told the server / dressed the model ('' = never). */
   private armorKey = '';
   private preview: CharacterPreview | null = null;
+  /** This player's character look, and every other player's (from the player list). */
+  private look: Appearance = DEFAULT_APPEARANCE;
+  private readonly looks = new Map<number, Appearance>();
   private nearNurse = false;
   private nearArchitect = false;
   /** Graphics option: the post-processing shader pack (null while off). */
@@ -374,14 +386,18 @@ export class GameEngine {
   private readonly raycaster = new Raycaster();
   private readonly aimPlane = new Plane(new Vector3(0, 1, 0), 0);
   private readonly aimPoint = new Vector3();
+  /** The point the crosshair/cursor aims at (third person and top view); shots fly from the
+   * real muzzle to it, so the gun's offset from the body's centre does not shift the hit. */
+  private readonly aimTarget = new Vector3();
+  private aimTargetValid = false;
   private readonly ndc = new Vector2();
   private sounds: SoundBank | null = null;
   private readonly tmpA = new Vector3();
   private readonly listenerPos = new Vector3();
   private readonly tmpB = new Vector3();
   private readonly tmpC = new Vector3();
+  private readonly tmpD = new Vector3();
   private character: CharacterTemplate | null = null;
-  private guardTemplate: CharacterTemplate | null = null;
   private privateQuestRenderer: BaseLifeRenderer | null = null;
   private lifeRenderer: BaseLifeRenderer | null = null;
   private questNpcDefinitions: QuestNpcMessage['npcs'] = [];
@@ -514,6 +530,8 @@ export class GameEngine {
   private get shotPitch(): number { return this.mouseLook ? this.shoulderAim.pitch : this.input.pitch; }
   private viewModel: ViewModel | null = null;
   private readonly pendingLocalShots: Array<() => void> = [];
+  /** Sample the bore after this frame's arms, weapon and camera have all been posed. */
+  private readonly pendingWeaponInputs: InputMessage[] = [];
   private readonly recoil = new GunRecoil();
   private battleZone: BattleZone | null = null;
   private battleFlight: BattleFlightRenderer | null = null;
@@ -604,7 +622,7 @@ export class GameEngine {
     this.subscriptions.push(this.inventory.subscribe(() => {
       const st = this.inventory.get();
       const now = new Map(st.items.map((i) => [i.uid, i.container as string]));
-      const slot = (c: string | undefined) => !!c && (c.startsWith('armor_') || c === 'heavy' || c === 'primary' || c === 'secondary' || c === 'grenades');
+      const slot = (c: string | undefined) => !!c && (c.startsWith('armor_') || c === 'heavy' || c === 'primary' || c === 'pack_rifle' || c === 'pack' || c === 'secondary' || c === 'grenades');
       if (prev.size) {
         const moved = st.items.some((i) => slot(i.container) && prev.has(i.uid) && !slot(prev.get(i.uid)));
         if (moved || (st.equipped !== prevEquipped && st.equipped !== null && prev.has(st.equipped))) this.sounds?.play('equip', { volume: 0.55 });
@@ -678,8 +696,16 @@ export class GameEngine {
 
   /* ------------------------------------- lifecycle --------------------------------------- */
 
+  /** This player's look on every model of them: the body, the first-person hands, the inventory. */
+  private applyOwnLook(look: Appearance): void {
+    this.look = look;
+    this.localAvatar?.setAppearance(look);
+    this.viewModel?.setLook(look);
+    this.preview?.setAppearance(look);
+  }
+
   private async loadOwnedCharacter(url?: string, progress?: (p: number) => void): Promise<CharacterTemplate> {
-    const template = await loadPlayerCharacter(url, progress);
+    const template = url && ZOMBIE_MODEL_URLS.includes(url) ? await loadZombieModel(url) : await loadPlayerCharacter(url, progress);
     if (this.disposed) { this.resources.object(template.root); throw new Error('engine disposed'); }
     this.ownedModels.add(template.root);
     return template;
@@ -694,7 +720,8 @@ export class GameEngine {
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.loading_character' }, loadProgress: 0 });
     try {
       this.character = await this.loadOwnedCharacter(undefined, (p) => { if (!this.disposed) this.hud.set({ loadProgress: p * 0.6 }); });
-      this.guardTemplate = prepareGuardModel(await this.loadOwnedCharacter(GUARD_MODEL_URL), this.character);
+      this.look = cachedLook() ?? DEFAULT_APPEARANCE;
+      void loadLook().then((look) => { if (look && !this.disposed) this.applyOwnLook(look); }).catch(() => { /* keep the cached look */ });
       for (const url of ['/models/mobs/suffolk-sheep.bbmodel', '/models/mobs/tamed-wild-boar.bbmodel']) {
         const template = await this.loadOwnedCharacter(url);
         const attack = template.clips.get('snout_nudge');
@@ -721,7 +748,8 @@ export class GameEngine {
       }
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_zombies' } });
-      this.zombieTemplates = await Promise.all(ZOMBIE_MODEL_URLS.map(url => this.loadOwnedCharacter(url)));
+      // Ordinary zombies' walk / run / scream clips, retargeted onto each skin as it spawns.
+      [this.zombieTemplates] = await Promise.all([Promise.all(ZOMBIE_MODEL_URLS.map(url => this.loadOwnedCharacter(url))), loadZombieClips()]);
       this.zombieTemplate = this.zombieTemplates[0]!;
       if (this.disposed) return;
       this.hud.set({ statusDetail: { key: 'status.loading_sounds' } });
@@ -745,8 +773,10 @@ export class GameEngine {
       for (const id of this.weapons.keys()) preview.setWeapon(id, this.weapons);
       if (itemIcons.size === 0) renderItemIcons(this.weapons);
       this.preview = new CharacterPreview(this.character);
+      this.preview.setAppearance(this.look);
       this.inventory.preview = this.preview;
-      this.subscriptions.push(this.inventory.subscribe(() => this.syncArmor()));
+      this.subscriptions.push(this.inventory.subscribe(() => { this.syncArmor(); this.syncPreview(); }));
+      this.syncPreview();
       const zombiePreview = new ZombieAvatar(this.zombieTemplate, () => undefined);
       zombiePreview.root.visible = true;
       zombiePreview.addTo(this.scene);
@@ -845,6 +875,7 @@ export class GameEngine {
     for (const torch of this.torches) torch.dispose();
     this.coinDrops.clear();
     this.pendingLocalShots.length = 0;
+    this.pendingWeaponInputs.length = 0;
     this.scene.clear();
     window.clearTimeout(this.contextTimer);
     this.renderer.domElement.removeEventListener('webglcontextlost', this.onContextLost);
@@ -1188,12 +1219,13 @@ export class GameEngine {
     });
     if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry, this.library);
     this.localAvatar = new Avatar(this.character!, true);
+    this.localAvatar.setAppearance(this.look);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);
     this.localAvatar.addTo(this.scene);
     // (Re)send and re-apply the worn armour for this session.
+    this.vision ??= new VisionCone(this.scene);
     this.armorKey = '';
     this.syncArmor();
-    this.vision ??= new VisionCone(this.scene);
     this.debris ??= new DebrisSystem(this.scene);
     if (!this.effects) {
       this.effects = new CombatEffects(this.scene, this.weapons?.get('grenade')?.display ?? null, this.sounds, () => this.camera.position);
@@ -1261,7 +1293,7 @@ export class GameEngine {
       if (e.kind === EntityKind.Zombie) {
         let zb = this.zombies.get(e.id);
         if (!zb) {
-          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieVariant(e.weapon)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon)), zombieVariant(e.weapon)), variant: zombieVariant(e.weapon), limbs: e.weapon & (15 | Limb.Head), voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
+          zb = { entity: new RemoteEntity(e.id, e.kind), avatar: new ZombieAvatar(this.zombieTemplates[zombieTemplateIndex(zombieVariant(e.weapon), e.id)]!, (x, y, z, n) => this.gore(x, y, z, 0, 0, n), zombieScale(zombieVariant(e.weapon)), zombieVariant(e.weapon), e.id), variant: zombieVariant(e.weapon), limbs: e.weapon & (15 | Limb.Head), voiceAt: performance.now() + Math.random() * 4000, lastGroan: 0, enraged: false, hurtAt: 0, lastHit: null };
           zb.avatar.ground = (x, z) => this.groundY(x, z);
           zb.avatar.root.position.set(e.x, e.y, e.z);
           zb.avatar.root.rotation.y = e.yaw;
@@ -1275,8 +1307,13 @@ export class GameEngine {
       }
       let r = this.remotes.get(e.id);
       if (!r) {
-        const template = e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Guard ? this.guardTemplate! : e.kind === EntityKind.Architect ? (this.architectTemplate ?? this.merchantTemplate!) : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
-        r = { entity: new RemoteEntity(e.id, e.kind), avatar: new Avatar(template, false), weapon: 0 };
+        // Soldiers (camp guards, Colonel Lâm) are survivors like the players: the same realistic
+        // body and the same animations, each with its own look, in helmet and plate carrier.
+        const outfit = this.soldierOutfit(e.kind, e.id);
+        const template = outfit ? this.character! : e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Architect ? (this.architectTemplate ?? this.merchantTemplate!) : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
+        r = { entity: new RemoteEntity(e.id, e.kind), avatar: new Avatar(template, false), weapon: 0, ...(outfit ? { outfit } : {}) };
+        // Every player and bot has its own body, skin and hair (bots: a look from their id).
+        if (e.kind === EntityKind.Player || outfit) r.avatar.setAppearance(this.looks.get(e.id) ?? randomAppearance(e.id));
         r.avatar.ground = (x, z) => this.groundY(x, z);
         // Four-legged: the whole body faces where it goes (no separate head turn).
         if (e.kind === EntityKind.Animal) r.avatar.rigid = true;
@@ -1287,10 +1324,12 @@ export class GameEngine {
       r.entity.push(s.serverTime, e);
       r.weapon = e.weapon;
       r.back = e.back ?? 0;
+      r.gear = e.gear ?? 0;
+      r.pack = e.pack ?? 0;
       r.att = e.att ?? 0;
       if ((e.armor ?? 0) !== r.armor) {
         r.armor = e.armor ?? 0;
-        this.dressAvatar(r.avatar, unpackArmor(r.armor));
+        this.dressAvatar(r.avatar, r.armor || !r.outfit ? unpackArmor(r.armor) : r.outfit);
       }
     }
     for (const [id, r] of this.remotes) {
@@ -1387,7 +1426,7 @@ export class GameEngine {
       }
       return;
     }
-    const enraged = pose.health > 0 && pose.health < (zb.variant === ZombieVariant.Brute ? 50 : 30);
+    const enraged = pose.health > 0 && pose.health < (zb.variant === ZombieVariant.Crimson ? 30 : 50);
     let length = 0;
     if (enraged && !zb.enraged) {
       length = sounds.play('zombieGrowl', { at, volume: 1.1, maxDistance: 45, channel: zb });
@@ -1518,6 +1557,13 @@ export class GameEngine {
         this.names.clear();
         this.ranks.clear();
         for (const p of m.players) { this.names.set(p.id, p.name); if (p.rank) this.ranks.set(p.id, p.rank); }
+        for (const p of m.players) {
+          const look = p.look ?? randomAppearance(p.id);
+          if (sameAppearance(this.looks.get(p.id), look)) continue;
+          this.looks.set(p.id, look);
+          if (p.id === this.welcome?.playerId) { if (p.look) this.applyOwnLook(p.look); }
+          else { const r = this.remotes.get(p.id); if (r?.entity.kind === EntityKind.Player) r.avatar.setAppearance(look); }
+        }
         for (const [id, r] of this.remotes) r.avatar.setName(this.remoteName(id, r.entity.kind), this.ranks.get(id), this.pvpNames.has(id));
         this.hud.set({ playersOnline: m.players.length, selfId: this.welcome?.playerId ?? 0, scorePlayers: m.players.map((p) => ({ id: p.id, name: p.name, rank: p.rank?.title, kills: p.kills ?? 0, deaths: p.deaths ?? 0, dead: !!p.dead, zombie: !!p.zombie, bot: !!p.bot })) });
         break;
@@ -1654,11 +1700,12 @@ export class GameEngine {
         if (m.shooterId === this.welcome?.playerId) break; // already shown when we pulled the trigger
         const shooter = this.remotes.get(m.shooterId)?.avatar;
         const muzzle = shooter?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(m.ox, m.oy, m.oz);
-        // Flame / launcher shots carry no pellet ends: aim along the shooter's facing instead.
+        // Effects use the same animated bore as the held model.
         const yaw = this.remotes.get(m.shooterId)?.entity.pose.yaw ?? 0;
         const dir = m.ends.length >= 3
           ? this.tmpB.set(m.ends[0]! - m.ox, m.ends[1]! - m.oy, m.ends[2]! - m.oz).normalize()
           : this.tmpB.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+        shooter?.weaponBore(muzzle, dir);
         this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject: null, right: null, ends: m.ends, suppressed: m.sup === 1 });
         if (weaponSpec(m.w)?.kind === 'gun' && (weaponSpec(m.w) as { fire?: string }).fire !== 'flame') shooter?.kick(heavyKick(m.w) ? 0.35 : 0.12);
         break;
@@ -1902,7 +1949,7 @@ export class GameEngine {
       const itemId = ITEM_BY_WEAPON[r.weapon] ?? null;
       r.avatar.setWeapon(this.vehicles?.seatIndex(r.entity.id) === 0 ? null : itemId, this.weapons, r.att ? unpackAttachments(r.att) : undefined);
       r.avatar.setOffhand((pose.flags & EntityFlags.Flashlight) ? 'flashlight' : null, this.weapons);
-      r.avatar.setBackWeapon(r.back ? (ITEM_BY_WEAPON[r.back] ?? null) : null, this.weapons);
+      r.avatar.setGear(unpackGear(r.back ?? 0, r.gear ?? 0, r.pack ?? 0, (w) => ITEM_BY_WEAPON[w]), this.weapons);
       r.avatar.setStance(itemId ? (ITEMS[itemId]?.stance ?? 'unarmed') : 'unarmed');
       r.avatar.setAimPitch(pose.pitch);
       r.avatar.setInfected(this.infectedIds.has(r.entity.id));
@@ -1988,9 +2035,14 @@ export class GameEngine {
     this.localAvatar?.setStance(this.inventory.stance());
     this.localAvatar?.setWeapon(driving ? null : this.inventory.equippedItemId(), this.weapons, this.inventory.equippedAttachments());
     this.localAvatar?.setOffhand(offhand, this.weapons);
-    this.localAvatar?.setBackWeapon(this.backItemId(), this.weapons);
+    { const st = this.inventory.get(); this.localAvatar?.setGear(carriedGear(st.items, st.equipped), this.weapons); }
     this.localAvatar?.setAimPitch(this.shotPitch);
     this.localAvatar?.setInfected(this.selfInfected);
+    if (this.localAvatar) {
+      this.localAvatar.viewAligned = this.mouseLook;
+      // Pressing attack (shoot, swing, throw) turns the body to the mouse before the server echoes it.
+      this.localAvatar.attackIntent = (this.input.buttons() & (Buttons.Attack | Buttons.ThrowC4)) !== 0 && !local.state.swimming && !this.building?.planning;
+    }
     this.feel = this.meleeFeel.update(dt, performance.now());
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state);
     { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
@@ -2032,6 +2084,7 @@ export class GameEngine {
         firing: !local.state.swimming && weaponSpec(this.equippedWeapon())?.kind === 'gun' && (this.input.buttons() & Buttons.Attack) !== 0,
         aiming: this.aiming,
         swimming: local.state.swimming,
+        rolling: local.state.rollTicks > 0,
         mantle: this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle)?.grip ?? null,
         yaw: this.input.yaw,
         pitch: this.input.pitch,
@@ -2056,6 +2109,16 @@ export class GameEngine {
       this.viewModel.aimAt(this.tmpC.copy(ray.direction).multiplyScalar(Math.max(1, distance)).add(ray.origin));
     }
     this.updateFlashlights();
+    for (const msg of this.pendingWeaponInputs.splice(0)) {
+      if (weaponSpec(msg.w ?? 0)?.kind === 'gun' && this.localWeaponBore(this.tmpA, this.tmpB)) {
+        this.towardsAim(this.tmpA, this.tmpB);
+        const x = this.tmpA.x - px, y = this.tmpA.y - py, z = this.tmpA.z - pz;
+        if (Math.hypot(x, z) <= 2.4 && y >= -.5 && y <= 3) {
+          msg.bore = { x, y, z, dx: this.tmpB.x, dy: this.tmpB.y, dz: this.tmpB.z };
+        }
+      }
+      this.conn.sendInput(msg);
+    }
     for (const shot of this.pendingLocalShots.splice(0)) shot();
     this.updateLaser(px, py, pz);
     const optic = this.currentOptic();
@@ -2333,11 +2396,16 @@ export class GameEngine {
     const airborne = !local.state.grounded && !local.state.swimming && !local.state.climbing;
     const isGun = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'gun';
     const actionTime = performance.now();
-    const action = this.weaponCtl.tick(actionTime, weapon, trigger, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
+    // Third person: a held trigger brings the gun up (sprint stops below), but the shot leaves
+    // only once the bore is on the aim.
+    const gunUp = !isGun || this.eyeView || this.firstPerson || (this.localAvatar?.gunReady() ?? true);
+    const action = this.weaponCtl.tick(actionTime, weapon, trigger && gunUp, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
       weapon === WeaponId.C4 && this.inventory.equippedItemId() === 'c4' && c4Throw);
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
     else if (action !== 'none') buttons |= Buttons.Attack;
+    // The blade combo's finisher lunges forward on the tick it starts (validated by the server).
+    if (action === 'melee' && this.weaponCtl.bladeStep >= 0 && BLADE_COMBO[this.weaponCtl.bladeStep]?.lunge) buttons |= Buttons.Lunge;
     if (this.healing) buttons |= Buttons.Heal;
     const spec = weaponSpec(weapon);
     if (action === 'shot') {
@@ -2349,14 +2417,18 @@ export class GameEngine {
         throwDist = Math.hypot(dx, dz);
       }
     } else if (action === 'melee' && spec?.kind === 'melee') {
-      const variant = this.localAvatar?.slash() ?? 1;
-      this.viewModel?.swing(variant, spec.animationMs);
-      this.meleeFeel.swing(variant, spec.animationMs ?? spec.swingMs, spec.weight, performance.now());
+      const variant = this.localAvatar?.slash(this.weaponCtl.bladeStep, this.weaponCtl.meleeSwings - 1) ?? 1;
+      // First person keeps the same swing length as the body (long / heavy weapons' recorded swing).
+      this.viewModel?.swing(variant, meleeSwing(this.equippedWeapon(), spec, this.weaponCtl.meleeSwings - 1)?.durationMs ?? spec.animationMs);
+      this.meleeFeel.swing(variant, spec.animationMs ?? spec.swingMs, spec.weight, performance.now(), EDGED_MELEE_WEAPONS.has(this.equippedWeapon()));
       const avatar = this.localAvatar;
       if (avatar) this.slashAt(
         () => avatar.root.parent && !local.dead ? { x: avatar.root.position.x, y: avatar.root.position.y, z: avatar.root.position.z, yaw: this.input.yaw } : null,
         weapon, variant, true,
       );
+    } else if (action === 'melee' && !spec) {
+      // Empty hands: a jab.
+      this.viewModel?.punch();
     } else if (action === 'detonate') {
       this.viewModel?.kick(.15);
     } else if (action === 'throw') {
@@ -2380,7 +2452,7 @@ export class GameEngine {
     const back = this.backItemId();
     const bw = back ? WEAPON_BY_ITEM[back] : undefined;
     if (bw) msg.bw = bw;
-    this.conn.sendInput(msg);
+    this.pendingWeaponInputs.push(msg);
   }
 
   /** The last battle snapshot with its safe circle advanced to now (snapshots arrive at 1 Hz). */
@@ -2444,7 +2516,9 @@ export class GameEngine {
     const dir = new Vector3(fx * Math.cos(this.shotPitch), Math.sin(this.shotPitch), fz * Math.cos(this.shotPitch));
     // Render after this frame's camera and weapon pose, so the flash shares the visible bore.
     this.pendingLocalShots.push(() => {
-      const muzzle = this.localWeaponPoint('muzzle', this.tmpA) ? this.tmpA : this.firstPerson
+      const bore = this.localWeaponBore(this.tmpA, dir);
+      if (bore) this.towardsAim(this.tmpA, dir);
+      const muzzle = bore || this.localWeaponPoint('muzzle', this.tmpA) ? this.tmpA : this.firstPerson
         ? this.tmpA.copy(this.camera.position).addScaledVector(dir, 0.6)
         : this.tmpA.set(ox + fx * 0.6, oy, oz + fz * 0.6);
       const eject = this.localWeaponPoint('eject', this.tmpB) ? this.tmpB : null;
@@ -2478,6 +2552,25 @@ export class GameEngine {
     if (this.eyeView && (!this.scoped || this.lensScoped)) return this.viewModel?.weaponPoint(point, out) ?? false;
     if (this.firstPerson) return false;
     return this.localAvatar?.weaponPoint(point, out) ?? false;
+  }
+
+  /**
+   * Third person and top view: from the muzzle straight to the aimed point (the muzzle sits off
+   * the body's centre line, so the bore's parallel line would miss the cursor by that offset).
+   * Kept to within a few degrees of the gun's own bore; first person already shoots down the sights.
+   */
+  private towardsAim(muzzle: Vector3, direction: Vector3): void {
+    if (this.eyeView || !this.aimTargetValid) return;
+    const to = this.tmpD.copy(this.aimTarget).sub(muzzle);
+    if (to.lengthSq() < 1) return;
+    to.normalize();
+    if (to.dot(direction) > Math.cos(AIM_CORRECTION_MAX)) direction.copy(to);
+  }
+
+  private localWeaponBore(origin: Vector3, direction: Vector3): boolean {
+    if (this.eyeView && (!this.scoped || this.lensScoped)) return this.viewModel?.weaponBore(origin, direction) ?? false;
+    if (this.firstPerson) return false;
+    return this.localAvatar?.weaponBore(origin, direction) ?? false;
   }
 
   /** Distance along a ray to the first creature hitbox before `maxT` (else `maxT`). */
@@ -2587,7 +2680,7 @@ export class GameEngine {
 
   /** Dresses an avatar in a loadout (models load on demand; re-dressed when they arrive). */
   private bucketModel: Promise<Group | null> | null = null;
-  /** A zombie's gear: a bucket over the head, or a survivor's armour pieces. */
+  /** A zombie's gear: a bucket over the head (zombies wear no armour pieces). */
   private dressZombie(avatar: ZombieAvatar, packed: number): void {
     if (this.disposed) return;
     const loadout = unpackArmor(packed), bucket = loadout.head === ZOMBIE_BUCKET;
@@ -2600,12 +2693,14 @@ export class GameEngine {
       }).catch(() => null);
       void this.bucketModel.then((g) => { if (g && this.zombies.size) avatar.setBucket(g.clone(true)); });
     } else avatar.setBucket(null);
-    for (const slot of ARMOR_SLOTS) {
-      const id = slot === 'head' && bucket ? 0 : loadout[slot];
-      if (!id) { avatar.setArmor(slot, null); continue; }
-      const t = requestArmor(id, () => this.dressZombie(avatar, packed));
-      if (t !== undefined) avatar.setArmor(slot, t);
-    }
+  }
+
+  /** Soldier NPCs' gear (null for everyone else): guards in gas masks, the colonel with a headset. */
+  private soldierOutfit(kind: EntityKind, id: number): ArmorLoadout | null {
+    const model = kind === EntityKind.QuestNpc ? this.questNpcDefinitions.find((n) => n.id === id)?.model ?? '' : '';
+    if (kind === EntityKind.Guard) return { head: id % 2 ? 32 : 31, face: 45, ears: 0, chest: id % 3 ? 63 : 64 };
+    if (/soldier/.test(model)) return { head: 33, face: 0, ears: 0, chest: 64 };
+    return null;
   }
 
   private dressAvatar(avatar: Avatar, loadout: ArmorLoadout): void {
@@ -2622,6 +2717,12 @@ export class GameEngine {
   }
 
   /** Worn armour changed: tell the server, slow down by its weight, dress our model and the viewer. */
+  /** The inventory's model holds what is in hand and wears what is carried. */
+  private syncPreview(): void {
+    const st = this.inventory.get();
+    this.preview?.setEquipment(this.inventory.equippedItemId(), this.inventory.stance(), carriedGear(st.items, st.equipped), this.weapons, this.inventory.equippedAttachments());
+  }
+
   private syncArmor(): void {
     const loadout = this.inventory.wornArmor();
     const key = ARMOR_SLOTS.map((s) => loadout[s]).join(',');
@@ -2631,6 +2732,11 @@ export class GameEngine {
     this.armorKey = key;
     if (this.localAvatar) this.dressAvatar(this.localAvatar, loadout);
     this.preview?.setArmor(loadout);
+    // What is worn narrows the view (visors, masks) and changes hearing (masks, headsets).
+    const vision = armorVision(loadout);
+    if (this.vision) this.vision.halfAngle = VISION_HALF_ANGLE * (1 - vision);
+    this.hud.set({ visorVision: vision });
+    this.sounds?.setHearing(armorHearing(loadout));
     if (!first) this.sounds?.playEquip(ARMOR_SLOTS.some((s) => (ARMOR_BY_ID.get(loadout[s])?.weight ?? 0) >= 3));
   }
 
@@ -2655,9 +2761,15 @@ export class GameEngine {
     const pose = follow();
     if (!pose) return;
     const reach = spec.animationMs ? spec.range : Math.min(spec.range, 2.8);
-    this.slashes?.spawn(follow, reach * 0.85, variant, spec.hitDelayMs === undefined ? undefined : spec.hitDelayMs / 1000);
+    // The cut appears with the blow (blades only): the combo step's or the recorded swing's moment.
+    if (EDGED_MELEE_WEAPONS.has(weapon)) {
+      const step = own ? this.weaponCtl.bladeStep : -1;
+      const swing = meleeSwing(weapon, spec, own ? this.weaponCtl.meleeSwings - 1 : 0);
+      const hitMs = BLADE_COMBO_WEAPONS.has(weapon) ? bladeStepTiming(spec, Math.max(0, step)).hitMs : swing ? swing.hitMs : spec.hitDelayMs;
+      this.slashes?.spawn(follow, reach * 0.85, variant, hitMs === undefined ? undefined : hitMs / 1000);
+    }
     // Our own whoosh comes from the melee feel (pitched by weapon weight).
-    if (!own) this.sounds?.play('swordSlash', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25 });
+    if (!own) this.sounds?.play(EDGED_MELEE_WEAPONS.has(weapon) ? 'swordSlash' : 'airSwing', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25, rate: EDGED_MELEE_WEAPONS.has(weapon) ? 1 : 1.15 - Math.min(3, spec.weight / 2) * .15 });
   }
 
   /* --------------------------------------- shop ------------------------------------------ */
@@ -3047,10 +3159,9 @@ export class GameEngine {
     const range = spec?.kind === 'gun' ? spec.range : 120;
     const yaw = this.input.yaw;
     const p = this.input.pitch;
-    const dx = -Math.sin(yaw) * Math.cos(p);
-    const dy = Math.sin(p);
-    const dz = -Math.cos(yaw) * Math.cos(p);
-    const o = this.localAvatar?.weaponPoint('muzzle', this.tmpA) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
+    const direction = this.tmpB.set(-Math.sin(yaw) * Math.cos(p), Math.sin(p), -Math.cos(yaw) * Math.cos(p));
+    const o = this.localWeaponBore(this.tmpA, direction) ? this.tmpA : this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
+    const { x: dx, y: dy, z: dz } = direction;
     let t = range;
     if (this.store?.collision.raycast(o.x, o.y, o.z, dx, dy, dz, range, Mask.Weapon, this.shotRay)) t = this.shotRay.t;
     const pos = this.laser.geometry.getAttribute('position') as Float32BufferAttribute;
@@ -3069,6 +3180,7 @@ export class GameEngine {
     this.sounds?.play(sound, { at, rate });
     const visual = this.weapons?.get(ITEM_BY_WEAPON[weapon] ?? '');
     if (visual?.reloadClip) this.localAvatar?.playWeaponAnim(visual.reloadClip, ms / 1000);
+    this.localAvatar?.startReload(ms / 1000);
     this.viewModel?.reload(ms / 1000);
   }
 
@@ -3154,6 +3266,16 @@ export class GameEngine {
       const oy = py + muzzleHeight(prone, crouched);
       launch = { origin: this.tmpB.set(px + fx * 0.7, oy, pz + fz * 0.7), dirX: fx, dirZ: fz, elevation: lob.elevation, gravity, groundY,
         speed: lobSpeed(lob.elevation, lob.maxRange, Math.max(0.5, dist - 0.7), groundY - oy, gravity) };
+      if (this.localWeaponBore(this.tmpA, this.tmpC)) {
+        launch.origin.copy(this.tmpA);
+        const horizontal = Math.hypot(this.tmpC.x, this.tmpC.z);
+        launch.dirX = horizontal > 1e-6 ? this.tmpC.x / horizontal : fx;
+        launch.dirZ = horizontal > 1e-6 ? this.tmpC.z / horizontal : fz;
+        launch.elevation = Math.atan2(this.tmpC.y, horizontal);
+        launch.speed = lobSpeed(lob.elevation, lob.maxRange, Math.max(.5, dist - .7), groundY - launch.origin.y, gravity);
+        ThrowArc.landing(launch, this.tmpA);
+        this.throwMarker.position.copy(this.tmpA).addScaledVector(new Vector3(0, 1, 0), .06);
+      }
     }
     if (!this.throwArc) { this.throwArc = new ThrowArc(); this.scene.add(this.throwArc.mesh); }
     this.throwArc.update(launch, this.camera, this.elapsed);
@@ -3176,6 +3298,8 @@ export class GameEngine {
     distance = this.bodyHit(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance);
     this.tmpA.set(px, py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched), pz);
     this.shoulderAim = reticleAim(this.tmpA, ray, distance);
+    this.aimTarget.copy(ray.direction).multiplyScalar(distance).add(ray.origin);
+    this.aimTargetValid = true;
   }
 
   private updateAimInner(px: number, py: number, pz: number): void {
@@ -3244,6 +3368,7 @@ export class GameEngine {
       if (h > 0.5) {
         this.input.yaw = Math.atan2(-tx, -tz);
         this.input.pitch = Math.atan2(target.y - (py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched)), h);
+        this.aimTarget.set(target.x, target.y, target.z); this.aimTargetValid = true;
         return;
       }
     }
@@ -3255,6 +3380,10 @@ export class GameEngine {
     const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
     if (this.scoped && proj && !proj.lob && proj.gravity > 0) pitch += Math.atan((proj.gravity * Math.sqrt(d2)) / (2 * proj.speed * proj.speed));
     this.input.pitch = pitch;
+    // The aimed point: along that line from the body's centre, as far as the cursor.
+    const reach = Math.sqrt(d2) / Math.max(.2, Math.cos(pitch)), oy = py + muzzleHeight(this.local?.state.prone, !!this.local?.state.crouched);
+    this.aimTarget.set(px - Math.sin(this.input.yaw) * Math.cos(pitch) * reach, oy + Math.sin(pitch) * reach, pz - Math.cos(this.input.yaw) * Math.cos(pitch) * reach);
+    this.aimTargetValid = !proj?.lob;
   }
 
   private readonly hitBox = new Box3();
@@ -3354,7 +3483,9 @@ export class GameEngine {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
       this.viewModel = new ViewModel(this.camera);
-      this.viewModel.setSwimArms(this.character?.root.getObjectByName('arm_left') ?? null, this.character?.root.getObjectByName('arm_right') ?? null);
+      // The survivor's own skinned hands; the block character lends its arms instead.
+      if (this.character?.human) this.viewModel.setBody(this.character.human, this.look);
+      else this.viewModel.setSwimArms(this.character?.root.getObjectByName('arm_left') ?? null, this.character?.root.getObjectByName('arm_right') ?? null);
     }
     if (this.localAvatar) this.localAvatar.root.visible = true;
     this.camera.fov = mouseLook ? FP_FOV : 40;
@@ -3493,6 +3624,11 @@ export class GameEngine {
         const shake = (this.effects?.shake ?? 0) * 0.25;
         if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
         cam.rotation.set(this.input.pitch + this.feel.pitch, this.input.yaw + this.feel.yaw, -this.leanBlend * .2 + this.feel.roll, 'YXZ');
+        // First person: the head bobs in step with the run (steadied while aiming).
+        if (this.firstPerson && this.viewModel) {
+          const b = this.viewModel.headBob;
+          cam.position.y += b.y; cam.translateX(b.x); cam.rotateZ(b.roll);
+        }
         if (this.feel.shake) cam.position.add(this.focus.set((Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6));
         if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
           const rolling=this.local.state.rollTicks>0;

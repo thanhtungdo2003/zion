@@ -10,10 +10,13 @@ export function untexturedGlb(buf: Uint8Array): ArrayBuffer {
     materials?: Array<Record<string, unknown> & { pbrMetallicRoughness?: Record<string, unknown> }>;
   };
   delete json.images; delete json.textures; delete json.samplers;
-  for (const m of json.materials ?? []) {
-    for (const k of ['normalTexture', 'occlusionTexture', 'emissiveTexture']) delete m[k];
-    if (m.pbrMetallicRoughness) { delete m.pbrMetallicRoughness.baseColorTexture; delete m.pbrMetallicRoughness.metallicRoughnessTexture; }
-  }
+  // Every texture reference, wherever an extension keeps it (sheen, clearcoat, specular…).
+  const strip = (o: unknown): void => {
+    if (!o || typeof o !== 'object') return;
+    const r = o as Record<string, unknown>;
+    for (const k of Object.keys(r)) { if (/Texture$/.test(k) || k === 'KHR_texture_transform') delete r[k]; else strip(r[k]); }
+  };
+  for (const m of json.materials ?? []) strip(m);
   let text = new TextEncoder().encode(JSON.stringify(json));
   const pad = (4 - (text.length % 4)) % 4;
   if (pad) { const padded = new Uint8Array(text.length + pad).fill(0x20); padded.set(text); text = padded; }

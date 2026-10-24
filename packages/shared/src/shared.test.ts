@@ -37,6 +37,18 @@ describe('random', () => {
   });
 });
 
+describe('animated weapon input', () => {
+  const input = { t: 'in', s: 1, mx: 0, mz: 0, yaw: 0, pitch: 0, b: 4 };
+  const bore = { x: .2, y: 1.4, z: -.8, dx: 0, dy: 0, dz: -1 };
+  it('accepts a reachable animated muzzle and remains compatible with older input', () => {
+    expect(parseClientMessage(JSON.stringify({ ...input, bore })).ok).toBe(true);
+    expect(parseClientMessage(JSON.stringify(input)).ok).toBe(true);
+  });
+  it.each([{ x: 2.4, z: 2.4 }, { y: 4 }, { dz: 0 }, { dx: 1 }, { dy: null }])('rejects an unreachable or invalid bore %j', (invalid) => {
+    expect(parseClientMessage(JSON.stringify({ ...input, bore: { ...bore, ...invalid } })).ok).toBe(false);
+  });
+});
+
 describe('world keys and quantization', () => {
   it('round-trips negative chunk coordinates', () => {
     for (const [x, z] of [[0, 0], [-1, 5], [127, -128], [-32768, 32767]] as const) {
@@ -108,7 +120,7 @@ describe('snapshot codec', () => {
       serverTime: 123456.5,
       timeOfDay: 0.25,
       ackSeq: 42,
-      self: { x: 1.5, y: 20.25, z: -3, vx: 0.5, vy: -1, vz: 2, flags: 3, health: 80, stuckTicks: 0, rollTicks: 5, rollCooldown: 10, rollYaw: 1.5 },
+      self: { x: 1.5, y: 20.25, z: -3, vx: 0.5, vy: -1, vz: 2, flags: 3, health: 80, stuckTicks: 0, rollTicks: 5, rollCooldown: 10, rollYaw: 1.5, lungeTicks: 3 },
       entities: [{ id: 7, kind: 1, x: 10, y: 21, z: 30, yaw: 1.2, pitch: -0.3, flags: 1, health: 100, weapon: 2 }],
     };
     const out = decodeSnapshot(encodeSnapshot(snap));
@@ -173,14 +185,20 @@ describe('weapons & shop', () => {
 describe('armour', () => {
   it('packs loadouts, caps protection and slows heavy sets a little', async () => {
     const { packArmor, unpackArmor, armorProtection, armorSpeedFactor, ARMOR_SPECS, ARMOR_BY_ITEM } = await import('./index');
-    const riot = { head: 19, chest: 20, legs: 21, feet: 22 };
+    const riot = { head: 35, face: 44, ears: 50, chest: 65 };
     expect(unpackArmor(packArmor(riot))).toEqual(riot);
     expect(new Set(ARMOR_SPECS.map((a) => a.id)).size).toBe(ARMOR_SPECS.length);
-    expect(armorProtection(riot)).toBeCloseTo(0.56, 2);
-    expect(armorProtection({ head: 0, chest: 0, legs: 0, feet: 0 })).toBe(0);
+    expect(armorProtection(riot)).toBeCloseTo(0.6, 2);
+    expect(armorProtection({ head: 0, face: 0, ears: 0, chest: 0 })).toBe(0);
     expect(armorSpeedFactor(riot)).toBeGreaterThanOrEqual(0.9);
     expect(armorSpeedFactor(riot)).toBeLessThan(1);
-    expect(ARMOR_BY_ITEM.get('combat_helmet')?.slot).toBe('head');
+    expect(ARMOR_BY_ITEM.get('helmet_military')?.slot).toBe('head');
+    // Pieces, not sets: masks narrow the view and muffle hearing, headsets sharpen it.
+    const { armorVision, armorHearing } = await import('./index');
+    expect(armorVision({ head: 0, face: 45, ears: 0, chest: 0 })).toBeGreaterThan(.1);
+    expect(armorHearing({ head: 0, face: 45, ears: 0, chest: 0 })).toBeLessThan(1);
+    expect(armorHearing({ head: 0, face: 0, ears: 50, chest: 0 })).toBeGreaterThan(1);
+    expect(ARMOR_SPECS.filter((a) => a.slot === 'face').every((a) => a.survivalOnly)).toBe(true);
   });
 });
 
@@ -211,10 +229,10 @@ describe('server inventory model', () => {
     inv.useCharge(kit.uid);
     expect(inv.get(kit.uid)).toBeUndefined();
     // Armour wears down and breaks.
-    const vest = inv.add('riot_protection_jacket')!;
+    const vest = inv.add('vest_premium')!;
     expect(inv.move(vest.uid, 'armor_chest', 0, 0, false)).toBe(true);
-    expect(inv.worn().chest).toBe(20);
-    inv.wearArmor(10_000);
+    expect(inv.worn().chest).toBe(65);
+    inv.wearArmor(100_000);
     expect(inv.worn().chest).toBe(0);
     // Forged / overlapping data is dropped on load.
     const bad = new InventoryModel({ items: [{ uid: 1, itemId: 'nope', container: 'backpack', x: 0, y: 0, rotated: false }, { uid: 2, itemId: 'ak47', container: 'backpack', x: 7, y: 4, rotated: false }], equipped: 2 });
@@ -252,5 +270,82 @@ describe('shock wave', () => {
   it('hurts less with distance and nothing past its reach', () => {
     expect(shockwaveDamage(7, 200, 8)).toBeGreaterThan(shockwaveDamage(7, 200, 12));
     expect(shockwaveDamage(7, 200, 7 * SHOCKWAVE.reach)).toBe(0);
+  });
+});
+
+describe('blade combo', () => {
+  it('cycles the four steps while swings follow each other, and starts over after a pause', async () => {
+    const { BLADE_COMBO, nextBladeStep, bladeStepTiming, WEAPON_SPECS, WeaponId } = await import('./index');
+    const katana = WEAPON_SPECS[WeaponId.Katana];
+    if (katana.kind !== 'melee') throw new Error('katana is a melee weapon');
+    let step = -1, readyAt = 0, now = 1000;
+    const seen: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      step = nextBladeStep(step, readyAt, now);
+      seen.push(step);
+      const t = bladeStepTiming(katana, step);
+      readyAt = now + t.cooldownMs;
+      now = readyAt + 50;
+    }
+    expect(seen).toEqual([0, 1, 2, 3, 0, 1]);
+    expect(BLADE_COMBO[3]!.lunge).toBe(true);
+    expect(nextBladeStep(1, readyAt, readyAt + 5000)).toBe(0);
+    for (let s = 0; s < 4; s++) {
+      const t = bladeStepTiming(katana, s);
+      expect(t.hitMs).toBeGreaterThan(0);
+      expect(t.hitMs).toBeLessThan(t.durationMs);
+      expect(t.cooldownMs).toBeLessThanOrEqual(t.durationMs + 1e-6);
+    }
+  });
+});
+
+describe('backpack', () => {
+  it('opens its grids only while worn, and its items leave and return with it', async () => {
+    const { InventoryModel, canPlace, carriedGear } = await import('./index');
+    const inv = new InventoryModel({ items: [], equipped: null });
+    expect(canPlace(inv.items, 'pack_storage', 'medkit', 0, 0, false)).toBe(false);
+    const pack = inv.add('military_backpack')!;
+    expect(pack.container).toBe('pack');
+    const rifle = inv.add('ak47')!, rifle2 = inv.add('m4a1')!, third = inv.add('ak47')!;
+    expect(third.container).toBe('pack_rifle');
+    const med = inv.add('medkit')!;
+    expect(inv.move(med.uid, 'pack_storage', 2, 1, false)).toBe(true);
+    expect(carriedGear(inv.items, rifle.uid).back).toHaveLength(2);
+    expect(carriedGear(inv.items, null)).toMatchObject({ pack: 'military_backpack' });
+    // Dropped: the pack carries the rifle slot and its storage away.
+    const dropped = inv.remove(pack.uid)!;
+    expect(dropped.contents?.map((c) => c.itemId).sort()).toEqual(['ak47', 'medkit']);
+    expect(inv.items.some((i) => i.container === 'pack_storage' || i.container === 'pack_rifle')).toBe(false);
+    expect(inv.items.some((i) => i.uid === rifle2.uid)).toBe(true);
+    // Picked up again: back on the back, contents unpacked into its grids.
+    const again = inv.add('military_backpack')!;
+    inv.restoreContents(again.uid, dropped.contents);
+    expect(inv.items.find((i) => i.itemId === 'medkit')).toMatchObject({ container: 'pack_storage', x: 2, y: 1 });
+    expect(inv.items.some((i) => i.container === 'pack_rifle')).toBe(true);
+  });
+
+  it('keeps packed contents through a save, and rescues old items left in pack grids', async () => {
+    const { InventoryModel } = await import('./index');
+    const inv = new InventoryModel({ items: [], equipped: null });
+    const pack = inv.add('military_backpack')!;
+    const med = inv.add('medkit')!;
+    inv.move(med.uid, 'pack_storage', 0, 0, false);
+    expect(inv.move(pack.uid, 'backpack', 0, 0, false)).toBe(true);
+    const saved = JSON.parse(JSON.stringify(inv.toJSON()));
+    const loaded = new InventoryModel(saved);
+    expect(loaded.items.find((i) => i.itemId === 'military_backpack')?.contents?.[0]).toMatchObject({ itemId: 'medkit', container: 'pack_storage' });
+    // A pack never goes inside a pack, and junk inside is dropped.
+    const nested = new InventoryModel({ items: [{ uid: 1, itemId: 'military_backpack', container: 'backpack', x: 0, y: 0, rotated: false, contents: [{ uid: 2, itemId: 'military_backpack', container: 'pack_storage', x: 0, y: 0, rotated: false }, { uid: 3, itemId: 'nope', container: 'pack_storage', x: 4, y: 0, rotated: false }] }], equipped: null });
+    expect(nested.items[0]!.contents).toBeUndefined();
+    // Items saved in a pack grid with no pack worn move to the carried storage instead of vanishing.
+    const orphan = new InventoryModel({ items: [{ uid: 5, itemId: 'medkit', container: 'pack_storage', x: 0, y: 0, rotated: false }], equipped: null });
+    expect(orphan.items[0]?.container).toBe('backpack');
+  });
+});
+
+describe('shipped gear fitting', () => {
+  it('is a valid fitting', async () => {
+    const { DEFAULT_GEAR_FIT, gearFitSchema } = await import('./index');
+    expect(gearFitSchema.parse(DEFAULT_GEAR_FIT)).toEqual(DEFAULT_GEAR_FIT);
   });
 });

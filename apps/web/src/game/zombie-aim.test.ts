@@ -12,7 +12,8 @@ describe('top-down zombie aim', () => {
     const rig = zombieHitRig(ZombieVariant.Crimson, 0, true);
     for (const zone of ['head', 'torso'] as const) {
       const point = zombieAimPoint(weapon, flags, position, yaw, zone, new Vector3());
-      expect(point.y).toBeLessThan(.4);
+      expect(point.y).toBeGreaterThan(.5);
+      expect(point.y).toBeLessThan(.85);
       // The TOP camera can select the low capsule from above.
       const camera = new Vector3(0, 14, 8);
       const cursor = point.clone().sub(camera).normalize();
@@ -28,9 +29,9 @@ describe('top-down zombie aim', () => {
     const weapon = ZombieVariant.Crimson << 4;
     const out = new Vector3();
     zombieAimPoint(weapon, 0, new Vector3(0, 2, -12), 0, 'torso', out);
-    expect(out.y).toBeGreaterThan(3);
+    expect(out.y).toBeCloseTo(2.62);
     zombieAimPoint(weapon, EntityFlags.Grounded, new Vector3(0, 0, -12), 0, 'torso', out);
-    expect(out.y).toBeLessThan(.4);
+    expect(out.y).toBeCloseTo(.62);
   });
 
   it('also uses the low target for ordinary zombies with a broken leg', () => {

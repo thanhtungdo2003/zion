@@ -21,7 +21,7 @@ import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
 import { AttachmentPanel } from './AttachmentPanel';
 import { AttachGuide } from './WeaponGuides';
-import { ATTACHMENTS, acceptsAttachments, compatibleSlot, gunsFor, WEAPON_ATTACHMENTS, ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, buyPrice, sellPrice, isStash, type Attachments, type ShopCategory, type WeaponId, ARMOR_BY_ID } from '@zion/shared';
+import { ATTACHMENTS, acceptsAttachments, compatibleSlot, gunsFor, WEAPON_ATTACHMENTS, ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, armorVision, armorHearing, buyPrice, sellPrice, isStash, type Attachments, type ShopCategory, type WeaponId, type ArmorSlot, ARMOR_BY_ID } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { itemDescription } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
@@ -36,17 +36,30 @@ function itemInfo(tr: Tr, def: ItemDef): string {
 /** Grid cell size (px): scaled so the inventory fills ~90% of the screen (set by the panel). */
 let CELL = 44;
 
-/** Cell size that fits the bento layout (16 cells wide + side panel, ~11 rows tall) in 90% of the window. */
-function fitCell(withSide: boolean): number {
-  if (typeof window === 'undefined') return 44;
-  // Two 8-cell columns side by side; the right one stacks equipment (4 rows) over the backpack (5).
-  const w = window.innerWidth * 0.9 - 90 - (withSide ? 400 : 0);
-  const h = window.innerHeight * 0.9 - 190;
-  return Math.max(30, Math.min(80, Math.floor(Math.min(w / 16, h / 9))));
+/**
+ * The full-screen inventory is a bento of four trays of equal height, laid out in cells:
+ *   1 · storage: pockets (8×5), backpack storage (8×4), grenades and the off hand (1 row);
+ *   2 · weapons: heavy, primary, the backpack's rifle slot and the sidearm, each filling its share;
+ *   3 · the character (9 cells wide), or the worn gear beside a station;
+ *   4 · worn gear (2 × 4 slots, the backpack two tall), or the station.
+ * Column 1 sets the height (10 rows under 3 headers); every other tray stretches to it.
+ */
+export const BENTO = { gap: 8, boxY: 38, boxX: 18 };
+function fitCell(): number {
+  if (typeof window === 'undefined') return 48;
+  const { gap, boxY, boxX } = BENTO;
+  const w = (window.innerWidth - 64 - 3 * boxX - 1.5 * boxY - 3.5 * gap) / 30;
+  const h = (window.innerHeight - 110 - 3 * boxY - 2 * gap) / 10;
+  return Math.max(24, Math.min(80, Math.floor(Math.min(w, h))));
+}
+/** Height of the bento (column 1) and the worn-gear tray's width (square slots in 2 columns). */
+function bentoSize(cell: number) {
+  const { gap, boxY } = BENTO, height = 10 * cell + 3 * boxY + 2 * gap, row = (height - 3 * gap) / 4;
+  return { height, wornWidth: 2 * row + gap };
 }
 
 /** Hover info: the item definition plus its per-item metadata. */
-export type Tip = { def: ItemDef; count?: number; equipped?: boolean; issued?: boolean };
+export type Tip = { def: ItemDef; count?: number; equipped?: boolean; issued?: boolean; /** The hovered item (Q throws it out); `chest`: it is in the open chest. */ uid?: number; chest?: boolean };
 
 /** Stat rows for the tooltip, from the shared weapon table and the item's metadata. */
 function tipRows(t: Tip, tr: Tr): Array<[string, string]> {
@@ -237,9 +250,12 @@ interface GridProps {
   onGrab: (g: Grab) => void;
   lastDown: { current: { uid: number; t: number } | null };
   onTip: (t: Tip | null) => void;
+  /** A one-piece slot that fills its tray: the cells sit centred in it. */
+  fill?: boolean;
 }
 
-function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip }: GridProps) {
+function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip, fill = false }: GridProps) {
+  const cells = useRef<HTMLDivElement>(null);
   const { t } = useSettings();
   const c = CONTAINERS[id];
   const held = state.held;
@@ -249,10 +265,12 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
 
   // Anchor the held item on the cell it was grabbed by (clamped after a rotation).
   const anchorOf = (e: ReactMouseEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
+    const r = (cells.current ?? e.currentTarget).getBoundingClientRect();
     const cell = r.width / c.cols;
-    const cx = Math.floor((e.clientX - r.left) / cell);
-    const cy = Math.floor((e.clientY - r.top) / cell);
+    // A filling slot takes a press anywhere in its tray as the nearest cell.
+    const clampX = (v: number) => (fill ? Math.max(0, Math.min(c.cols - 1, v)) : v), clampY = (v: number) => (fill ? Math.max(0, Math.min(c.rows - 1, v)) : v);
+    const cx = clampX(Math.floor((e.clientX - r.left) / cell));
+    const cy = clampY(Math.floor((e.clientY - r.top) / cell));
     return { cx, cy, x: cx - Math.min(grab.dx, fp.w - 1), y: cy - Math.min(grab.dy, fp.h - 1) };
   };
 
@@ -292,7 +310,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
   const dim = heldDef && c.accepts !== 'all' && !c.accepts.includes(heldDef.category);
 
   return (
-    <section className={`inv-box inv-${id} ${dim ? 'inv-dim' : ''}`}>
+    <section className={`inv-box inv-${id} ${dim ? 'inv-dim' : ''}${fill ? ' inv-fill' : ''}`}>
       <header>
         <span>{t(`cont.${id}`)}</span>
         <small>{accepted}</small>
@@ -304,21 +322,19 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
         )}
       </header>
       <div
-        className="inv-grid"
-        style={{ width: c.cols * CELL, height: c.rows * CELL, backgroundSize: `${CELL}px ${CELL}px` }}
+        className={fill ? 'inv-fill-area' : 'inv-grid'}
+        ref={fill ? undefined : cells}
+        style={fill ? undefined : { width: c.cols * CELL, height: c.rows * CELL, backgroundSize: `${CELL}px ${CELL}px` }}
         onMouseMove={(e) => {
           const { x, y } = anchorOf(e);
           if (hover?.container !== id || hover.x !== x || hover.y !== y) onHover({ container: id, x, y });
           if (held) return onTip(null);
-          const r = e.currentTarget.getBoundingClientRect();
-          const cell = r.width / c.cols;
-          const cx = Math.floor((e.clientX - r.left) / cell);
-          const cy = Math.floor((e.clientY - r.top) / cell);
+          const { cx, cy } = anchorOf(e);
           const under = items.find((i) => {
             const f = footprint(ITEMS[i.itemId]!, i.rotated);
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
           });
-          onTip(under ? { def: ITEMS[under.itemId]!, count: under.count, equipped: state.equipped === under.uid, issued: under.issued } : null);
+          onTip(under ? { def: ITEMS[under.itemId]!, count: under.count, equipped: state.equipped === under.uid, issued: under.issued, uid: under.uid } : null);
         }}
         onMouseLeave={() => {
           onHover(null);
@@ -341,10 +357,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             if (ITEMS[held.itemId]?.category === 'melee') store.rotateHeld();
             return;
           }
-          const r = e.currentTarget.getBoundingClientRect();
-          const cell = r.width / c.cols;
-          const cx = Math.floor((e.clientX - r.left) / cell);
-          const cy = Math.floor((e.clientY - r.top) / cell);
+          const { cx, cy } = anchorOf(e);
           const under = items.find((i) => {
             const f = footprint(ITEMS[i.itemId]!, i.rotated);
             return cx >= i.x && cx < i.x + f.w && cy >= i.y && cy < i.y + f.h;
@@ -359,6 +372,7 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
           else if (under) store.onEat?.(under.uid);
         }}
       >
+        <GridCells fill={fill} cellsRef={cells} cols={c.cols} rows={c.rows}>
         {items.map((i: PlacedItem) => (
           <ItemTile
             key={i.uid}
@@ -376,9 +390,27 @@ function Grid({ id, state, store, hover, onHover, grab, onGrab, lastDown, onTip 
             style={{ left: preview.x * CELL, top: preview.y * CELL, width: fp.w * CELL, height: fp.h * CELL }}
           />
         )}
+        </GridCells>
       </div>
     </section>
   );
+}
+
+/** The cells of a filling slot, centred in its tray (a plain grid renders its children as they are). */
+function GridCells({ fill, cellsRef, cols, rows, children }: { fill: boolean; cellsRef: React.RefObject<HTMLDivElement | null>; cols: number; rows: number; children: React.ReactNode }) {
+  // Shrunk to fit when the tray is smaller than the slot's cells (the backpack's 3×3 in a 2-wide column).
+  const [k, setK] = useState(1);
+  useEffect(() => {
+    const area = cellsRef.current?.parentElement;
+    if (!fill || !area) return;
+    const fit = () => setK(Math.min(1, (area.clientWidth - 6) / (cols * CELL), (area.clientHeight - 6) / (rows * CELL)));
+    const ro = new ResizeObserver(fit);
+    ro.observe(area);
+    fit();
+    return () => ro.disconnect();
+  }, [fill, cellsRef, cols, rows]);
+  if (!fill) return <>{children}</>;
+  return <div ref={cellsRef} className="inv-grid" style={{ width: cols * CELL, height: rows * CELL, backgroundSize: `${CELL}px ${CELL}px`, transform: k < 1 ? `scale(${k})` : undefined }}>{children}</div>;
 }
 
 /** Bento inventory panel (E). Drag & drop to move, R rotates while dragging, double-click quick-moves. */
@@ -394,7 +426,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
     if (!el) return;
     const resize = () => {
       const viewport = el.closest('.inv-overlay')!;
-      setPanelScale(Math.min(1, viewport.clientWidth * .96 / Math.max(1, el.scrollWidth), viewport.clientHeight * .94 / Math.max(1, el.scrollHeight)));
+      setPanelScale(el.classList.contains('inv-full') ? 1 : Math.min(1, viewport.clientWidth * .96 / Math.max(1, el.scrollWidth), viewport.clientHeight * .94 / Math.max(1, el.scrollHeight)));
     };
     const observer = new ResizeObserver(resize);
     observer.observe(el);
@@ -412,18 +444,29 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
   const lastDown = useRef<{ uid: number; t: number } | null>(null);
   const [full, setFull] = useState<string | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
+  const hoveredRef = useRef<Tip | null>(null);
+  hoveredRef.current = tip;
   const [, setViewport] = useState(0);
   useEffect(() => {
     const onResize = () => setViewport((n) => n + 1);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  CELL = fitCell(!!state.station && state.station !== 'shop');
+  CELL = fitCell();
+  const bento = bentoSize(CELL);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => setMouse({ x: e.clientX, y: e.clientY });
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'KeyR') store.rotateHeld();
+      // Q: throw the hovered item out onto the ground (from the bag, the backpack or the open chest).
+      else if (e.code === 'KeyQ' && !state.held && hoveredRef.current?.uid !== undefined) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const h = hoveredRef.current;
+        if (h.chest) store.chestDrop(h.uid!); else store.throwItem(h.uid!);
+        setTip(null);
+      }
       else if (e.code === 'KeyE' || e.code === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -434,8 +477,10 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
     // Released outside the panel: thrown out onto the ground. Elsewhere in the panel: put back.
     const onUp = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      const inPanel = e.target instanceof Element && e.target.closest('.inv-panel');
-      if (inPanel) store.returnHeld();
+      // Released over a grid, slot or panel control: put back (the grid itself places it).
+      // Anywhere else — the empty space around the trays included — it is thrown out.
+      const onTray = e.target instanceof Element && e.target.closest('.inv-box, .inv-title, .chest-panel, .merchant-panel, button, input, .inv-model-view');
+      if (onTray) store.returnHeld();
       else store.throwHeld();
     };
     window.addEventListener('mousemove', onMove);
@@ -454,6 +499,10 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
 
   const heldDef = state.held ? ITEMS[state.held.itemId]! : null;
   const fp = heldDef ? footprint(heldDef, state.held!.rotated) : null;
+  const grid = (id: ContainerId, fill = false) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} fill={fill} />;
+  const packWorn = state.items.some((i) => i.container === 'pack');
+  // A chest or a station takes the fourth column; the armour then moves into the third.
+  const sideStation = !!state.station && state.station !== 'shop';
 
   // The attachment screen replaces the inventory: the gun alone on screen, its slots around it.
   if (state.attachGun != null) return <AttachmentPanel state={state} store={store} />;
@@ -463,7 +512,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
       e.preventDefault();
       if (state.held && ITEMS[state.held.itemId]?.category === 'melee') store.rotateHeld();
     }}>
-      <div ref={wrap} className={`inv-wrap${state.station === 'shop' && merchantTab === 'shop' ? ' merchant-wrap' : ''}`} style={{ transform: `translate(-50%, -50%) scale(${panelScale})` }}>
+      <div ref={wrap} className={`inv-wrap${state.station === 'shop' && merchantTab === 'shop' ? ' merchant-wrap' : ' inv-full'}`} style={state.station === 'shop' && merchantTab === 'shop' ? { transform: `translate(-50%, -50%) scale(${panelScale})` } : undefined}>
       {state.station !== 'shop' && state.items.some((i) => ITEMS[i.itemId]?.category === 'attachment') && state.items.some((i) => acceptsAttachments(i.itemId)) && <div className="inv-attach-hint"><AttachGuide /></div>}
       {state.station !== 'shop' && side}
       <div className={`inv-panel${state.station === 'shop' ? ' merchant-panel' : ''}`}>
@@ -493,23 +542,30 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
           <button className={merchantTab === 'bag' ? 'on' : ''} aria-pressed={merchantTab === 'bag'} onClick={() => { setTip(null); setMerchantTab('bag'); }}><Icon name="lucide:backpack" />{t('inv.title')}</button>
         </nav>}
         {state.station === 'shop' && merchantTab === 'shop' ? <ShopPanel state={state} store={store} coins={coins} /> :
-        <div className="inv-bento">
-          <div className="inv-col">
-            <Grid id="heavy" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
-            <Grid id="primary" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
+        <div className="inv-quad" style={{ height: bento.height, gap: BENTO.gap }}>
+          {/* 1 · What is carried: the pockets, the backpack's storage while one is worn, grenades and the off hand. */}
+          <div className="inv-col inv-q1" style={{ width: 8 * CELL + BENTO.boxX }}>
+            {grid('backpack')}
+            {packWorn ? grid('pack_storage') : <PackHint cols={8} rows={4} />}
             <div className="inv-row">
-              <Grid id="secondary" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
-              <div className="inv-col">
-                <Grid id="grenades" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
-                <Grid id="offhand" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
-              </div>
+              {grid('grenades')}
+              {grid('offhand', true)}
             </div>
           </div>
-          <div className="inv-col">
-            <EquipmentPanel state={state} store={store} grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} />
-            <Grid id="backpack" state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />
+          {/* 2 · Weapon slots (the backpack adds a rifle slot), each filling its share of the tray. */}
+          <div className="inv-col inv-q2" style={{ width: 8 * CELL + BENTO.boxX }}>
+            {grid('heavy', true)}
+            {grid('primary', true)}
+            {packWorn ? grid('pack_rifle', true) : <PackHint cols={6} rows={2} rifle />}
+            {grid('secondary', true)}
           </div>
-          {state.station === 'stash' && <StashPanel grid={(id) => <Grid id={id} state={state} store={store} hover={hover} onHover={setHover} grab={grab} onGrab={setGrab} lastDown={lastDown} onTip={setTip} />} items={state.items} />}
+          {/* 3 · The character as equipped, or (beside a chest/station) the worn gear. */}
+          {sideStation ? <div className="inv-col inv-q3" style={{ width: bento.wornWidth }}><WornGear grid={grid} /></div>
+            : <div className="inv-col inv-q3" style={{ width: 9 * CELL + BENTO.boxX }}><ModelView state={state} store={store} /></div>}
+          {/* 4 · Worn gear, or the open chest / station. */}
+          {!sideStation && <div className="inv-col inv-q4" style={{ width: bento.wornWidth }}><WornGear grid={grid} /></div>}
+          {sideStation && <div className="inv-col inv-q4">
+          {state.station === 'stash' && <StashPanel grid={grid} items={state.items} />}
           {state.station === 'nurse' && <NursePanel store={store} coins={coins} onTip={setTip} />}
           {state.station === 'architect' && <BlueprintPanel state={state} store={store} />}
           {state.station === 'supply' && <SupplyPanel coins={coins} store={store} />}
@@ -547,6 +603,7 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
               {full && <div className="inv-cache-full">{t('inv.cache_full', { item: item(full) })}</div>}
             </section>
           )}
+          </div>}
         </div>}
       </div>
       </div>
@@ -569,38 +626,65 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
   );
 }
 
-/** Character viewer wearing the equipped armour, the four armour slots and the set's totals. */
-function EquipmentPanel({ state, store, grid }: { state: InventoryState; store: InventoryStore; grid: (id: ContainerId) => React.ReactNode }) {
+/** Where the backpack's grids appear once one is worn: an empty frame of their size. */
+function PackHint({ cols, rows, rifle = false }: { cols: number; rows: number; rifle?: boolean }) {
+  const { t } = useSettings();
+  return (
+    <section className="inv-box inv-pack-hint" style={{ width: cols * CELL + 2 }}>
+      <header><span>{t(rifle ? 'cont.pack_rifle' : 'cont.pack_storage')}</span></header>
+      <div className="inv-pack-hint-body" style={{ height: rows * CELL }}><Icon name="lucide:backpack" /><span>{t('inv.pack_hint')}</span></div>
+    </section>
+  );
+}
+
+/** The armour set's totals: protection, weight and walking speed. */
+function GearStats({ store }: { store: InventoryStore }) {
+  const { t } = useSettings();
+  const worn = store.wornArmor();
+  let kg = 0;
+  for (const s of ARMOR_SLOTS) kg += ARMOR_BY_ID.get(worn[s])?.weight ?? 0;
+  const vision = armorVision(worn), hearing = armorHearing(worn);
+  return (
+    <small className="inv-equip-stats">
+      <Icon name="game-icons:shield" /> <b>−{Math.round(armorProtection(worn) * 100)}%</b> · <Icon name="lucide:weight" /> <b>{kg.toFixed(1)} kg</b> · {t('inv.speed')} <b>{Math.round(armorSpeedFactor(worn) * 100)}%</b>
+      {vision > 0 && <> · <Icon name="lucide:eye" /> <b>−{Math.round(vision * 100)}%</b></>}
+      {Math.abs(hearing - 1) > .01 && <> · <Icon name="lucide:ear" /> <b>{Math.round(hearing * 100)}%</b></>}
+    </small>
+  );
+}
+
+/** The character as equipped (armour, backpack, the weapon in hand and those it carries), large. */
+function ModelView({ state, store }: { state: InventoryState; store: InventoryStore }) {
   const { t } = useSettings();
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!host.current || !store.preview) return;
     return store.preview.mount(host.current);
   }, [store]);
-  const worn = store.wornArmor();
   void state;
-  let kg = 0;
-  for (const s of ARMOR_SLOTS) kg += ARMOR_BY_ID.get(worn[s])?.weight ?? 0;
   return (
-    <section className="inv-box inv-equip" style={{ width: 8 * CELL + 2 }}>
-      <header>
-        <span>{t('inv.equipment')}</span>
-        <small className="inv-equip-stats">
-          <Icon name="game-icons:shield" /> <b>−{Math.round(armorProtection(worn) * 100)}%</b> · <Icon name="lucide:weight" /> <b>{kg.toFixed(1)} kg</b> · {t('inv.speed')} <b>{Math.round(armorSpeedFactor(worn) * 100)}%</b>
-        </small>
-      </header>
-      <div className="inv-equip-body">
-        <div className="inv-equip-col">
-          {grid('armor_head')}
-          {grid('armor_chest')}
-        </div>
-        <div className="inv-equip-view" ref={host} style={{ width: 4 * CELL - 16, height: 4 * CELL }} />
-        <div className="inv-equip-col">
-          {grid('armor_legs')}
-          {grid('armor_feet')}
-        </div>
-      </div>
+    <section className="inv-box inv-model">
+      <header><span>{t('inv.equipment')}</span><GearStats store={store} /></header>
+      <div className="inv-model-view" ref={host} />
     </section>
+  );
+}
+
+/**
+ * Worn gear as a bento of square slots, two columns by four rows filling the tray:
+ *   helmet | ears · body armour | face · trousers | backpack (two rows) · boots.
+ */
+function WornGear({ grid }: { grid: (id: ContainerId, fill?: boolean) => React.ReactNode }) {
+  return (
+    <div className="inv-worn-bento">
+      <div style={{ gridArea: 'head' }}>{grid('armor_head', true)}</div>
+      <div style={{ gridArea: 'ears' }}>{grid('armor_ears', true)}</div>
+      <div style={{ gridArea: 'chest' }}>{grid('armor_chest', true)}</div>
+      <div style={{ gridArea: 'face' }}>{grid('armor_face', true)}</div>
+      <div style={{ gridArea: 'legs' }}>{grid('armor_legs', true)}</div>
+      <div style={{ gridArea: 'pack' }}>{grid('pack', true)}</div>
+      <div style={{ gridArea: 'feet' }}>{grid('armor_feet', true)}</div>
+    </div>
   );
 }
 
@@ -758,11 +842,11 @@ export function durabilityColor(f: number): string {
   return `hsl(${Math.round(Math.max(0, Math.min(1, f)) * 120)}, 80%, 48%)`;
 }
 
-const ARMOR_HUD: Array<{ slot: 'head' | 'chest' | 'legs' | 'feet'; container: ContainerId }> = [
-  { slot: 'head', container: 'armor_head' },
-  { slot: 'chest', container: 'armor_chest' },
-  { slot: 'legs', container: 'armor_legs' },
-  { slot: 'feet', container: 'armor_feet' },
+const ARMOR_HUD: Array<{ slot: ArmorSlot; container: ContainerId; icon: string }> = [
+  { slot: 'head', container: 'armor_head', icon: 'game-icons:helmet' },
+  { slot: 'face', container: 'armor_face', icon: 'game-icons:gas-mask' },
+  { slot: 'ears', container: 'armor_ears', icon: 'game-icons:headphones' },
+  { slot: 'chest', container: 'armor_chest', icon: 'game-icons:armor-vest' },
 ];
 
 /** Worn armour beside the health bar: four small slots with each piece's durability. */
@@ -770,14 +854,16 @@ export function ArmorHud({ state }: { state: InventoryState }) {
   const { item, t } = useSettings();
   return (
     <div className="armor-hud">
-      {ARMOR_HUD.map(({ slot, container }) => {
+      {ARMOR_HUD.map(({ slot, container, icon }) => {
         const it = state.items.find((i) => i.container === container);
+        // Empty face / ear slots stay off the HUD (most players never wear them).
+        if (!it && (slot === 'face' || slot === 'ears')) return null;
         const def = it ? ITEMS[it.itemId] : undefined;
         const max = def?.armor?.durability ?? 1;
         const f = it ? (it.count ?? max) / max : 0;
         return (
           <div key={slot} className={`armor-hud-slot ${def ? '' : 'empty'} ${def && f <= 0 ? 'broken' : ''}`} title={def ? `${item(def.id)} · ${Math.ceil(it!.count ?? max)}/${max}` : t(`cont.armor_${slot}`)}>
-            {def ? <ItemArt def={def} /> : <span className="armor-hud-ph"><Icon name={slot === 'head' ? 'game-icons:helmet' : slot === 'chest' ? 'game-icons:armor-vest' : slot === 'legs' ? 'game-icons:trousers' : 'game-icons:boots'} /></span>}
+            {def ? <ItemArt def={def} /> : <span className="armor-hud-ph"><Icon name={icon} /></span>}
             {def && (
               <div className="inv-dur">
                 <div style={{ width: `${Math.max(0, f) * 100}%`, background: durabilityColor(f) }} />
@@ -857,6 +943,7 @@ export function Hotbar({ state, ammo, onSelect, touchVisible }: { state: Invento
     <div className="hotbar">
       {renderBox('heavy')}
       {renderBox('primary')}
+      {state.items.some((i) => i.container === 'pack') && renderBox('pack_rifle')}
       <div className="hb-row">
         {renderBox('secondary')}
         {renderBox('grenades')}

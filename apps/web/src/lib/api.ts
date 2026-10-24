@@ -3,6 +3,7 @@ import type { AtlasTile, CustomWeapon, GameContent, GameMode, InfectionMapDef, I
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
 import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
+import { parseAppearance, type Appearance } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
  * token is an httpOnly SameSite=Strict cookie the browser manages (never readable by JS).
@@ -242,6 +243,19 @@ export async function renameAccount(username: string): Promise<AccountInfo> {
   return s.account;
 }
 
+/** The account's character look (null until the player has made their character). */
+export async function getAppearance(): Promise<Appearance | null> {
+  await ensureAccess();
+  const r = await request<{ appearance: unknown }>('/api/appearance', { auth: true });
+  return parseAppearance(r.appearance);
+}
+
+export async function saveAppearance(appearance: Appearance): Promise<Appearance> {
+  await ensureAccess();
+  const r = await request<{ appearance: unknown }>('/api/appearance', { method: 'PUT', auth: true, body: JSON.stringify({ appearance }) });
+  return parseAppearance(r.appearance) ?? appearance;
+}
+
 export function currentAccount(): AccountInfo | null {
   return account;
 }
@@ -332,6 +346,11 @@ async function studioRequest<T>(path: string, init: RequestInit = {}): Promise<T
 
 export function studioLoad(): Promise<StudioLayout> {
   return studioRequest<StudioLayout>('/api/studio/layout');
+}
+
+/** Saves the gear fitting (adjustments, soft regions) for every client. */
+export function studioSaveGearFit(fit: unknown): Promise<{ fit: unknown; version: number }> {
+  return studioRequest('/api/studio/gear-fit', { method: 'POST', body: JSON.stringify(fit) });
 }
 
 export function studioSave(parts: StudioPart[], npcs: StudioNpcs): Promise<StudioLayout> {

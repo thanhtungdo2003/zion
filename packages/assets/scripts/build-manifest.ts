@@ -63,6 +63,7 @@ async function main(): Promise<void> {
   for (const file of files.sort()) {
     const isGameModel = file.startsWith(gameModelsDir + path.sep);
     const rel = path.relative(isGameModel ? gameModelsDir : sourceDir, file).split(path.sep).join('/');
+    if (isGameModel && rel.startsWith('mobs/source/')) continue;
     // Keep authored packs in /models. Deploy only the prepared, individually placeable GLBs.
     if (isGameModel && /^(buildings|vehicles)\//.test(rel) && !BUILTIN_ASSETS.some(a => (a.model.kind === 'glb' || a.model.kind === 'bbmodel') && a.model.path === rel)) continue;
     if (manifest.files[rel]) throw new Error(`duplicate model path: ${rel}`);

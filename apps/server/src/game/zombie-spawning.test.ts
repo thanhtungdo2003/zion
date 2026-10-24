@@ -6,6 +6,7 @@ import type { Player } from './player';
 import type { SpawnService } from './spawn';
 
 interface DirectorHarness {
+  addZombie(pos: { x: number; y: number; z: number }): Zombie;
   spawnMap(players: readonly Player[], now: number, night: boolean): void;
   reinforce(z: Zombie, players: readonly Player[], now: number): void;
   spawnIndoors(players: readonly Player[], now: number, night: boolean): void;
@@ -29,6 +30,17 @@ function setup(darkness = 1) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('shared map zombie population', () => {
+  it('never equips a dog with armour or a bucket', () => {
+    const { harness } = setup();
+    vi.spyOn(Math, 'random').mockReturnValue(.1);
+    for (let i = 0; i < 20; i++) {
+      const z = harness.addZombie({ x: 10, y: 0, z: 10 });
+      expect(z.variant).toBe(ZombieVariant.Crimson);
+      expect(z.bucket).toBe(0);
+      expect(Object.values(z.armor).every(id => id === 0)).toBe(true);
+      expect(z.armorDurability).toBe(0);
+    }
+  });
   it('spawns one scout and overlapping players do not multiply the population', () => {
     vi.spyOn(Math, 'random').mockReturnValue(.2);
     const a = setup(), b = setup();

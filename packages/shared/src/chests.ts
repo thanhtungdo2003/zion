@@ -21,10 +21,12 @@ export interface ChestStateMessage extends ChestData {
 }
 const ammo = ['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_357', 'ammo_762x51', 'ammo_57x28', 'bolts'];
 const supplies = ['medkit', 'potato_cooked', 'cooked_mutton', 'cooked_porkchop', 'potato', 'grenade', 'flashbang', 'smoke_grenade'];
-const tools = ['flashlight', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol', 'compensator'];
+const tools = ['flashlight', 'military_backpack', 'shovel', 'quam', 'coal_carton', 'fuel_tank', 'red_dot', 'scope_2x', 'suppressor_pistol', 'compensator'];
 const guns = ['gl18', 'revolver', 'deagle', 'uzi', 'vector', 'p90', 'mp5', 'ak47', 'shotgun', 'double_barrel', 'crossbow', 'katana', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar'];
 /** Building materials: raw wood, stone and ore, and now and then a power cell. */
 const resources = ['plank', 'plank', 'stone', 'stone', 'iron_ore', 'copper_ore', 'lead_ore', 'wood_log', 'nuclear_cell'];
+/** Battle royale: everything but the survival-only pieces (masks). */
+const battleArmor = ARMOR_SPECS.filter((a) => !a.survivalOnly).map((a) => a.item);
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
 const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'suppressor_sniper', 'compensator_rifle', 'remington700', 'm79', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 
@@ -70,7 +72,7 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
   const gun = pick([...lootableCustomWeapons().filter((id) => ITEMS[id] && WEAPON_BY_ITEM[id] && ITEMS[id]!.category !== 'melee'), 'gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
   add(gun);
   add(Object.values(ITEMS).find(item => item.ammo?.guns.includes(gun))!.id);
-  add(pick(ARMOR_SPECS.map(a => a.item)));
+  add(pick(battleArmor));
   // Guns are bare: a compatible attachment turns up in about half of the crates.
   const fits = Object.values(WEAPON_ATTACHMENTS[gun] ?? {}).flat();
   if (fits.length && random() < .5) add(pick(fits));
@@ -78,7 +80,7 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
   if (random() < .7) add(pick(['katana', 'quam', 'shovel', 'fire_axe', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar']));
   for (let i = 0, n = 2 + Math.floor(random() * 3); i < n; i++) {
     const roll = random();
-    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .86 ? 'grenade' : roll < .91 ? 'flashbang' : roll < .95 ? 'smoke_grenade' : pick(ARMOR_SPECS.map(a => a.item)));
+    add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .86 ? 'grenade' : roll < .91 ? 'flashbang' : roll < .95 ? 'smoke_grenade' : pick(battleArmor));
   }
   return items;
 }

@@ -21,9 +21,11 @@ export const Buttons = {
   Crouch: 1 << 10,
   /** Holding a blueprint up to place a structure (others see it in both hands). */
   Plan: 1 << 11,
+  /** The blade finisher's forward lunge (accepted by the server only for the combo's last hit). */
+  Lunge: 1 << 12,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan | Buttons.Lunge;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();
@@ -52,6 +54,12 @@ export const inputMessageSchema = z
     yaw: finite.min(-Math.PI).max(Math.PI),
     /** Optional camera-to-muzzle aim correction; movement remains relative to `yaw`. */
     aimYaw: finite.min(-Math.PI).max(Math.PI).optional(),
+    /** Animated muzzle relative to the player's feet, and the visible bore's unit vector.
+     * The server bounds reach and sweeps from the body to prevent firing through cover. */
+    bore: z.object({
+      x: finite.min(-2.4).max(2.4), y: finite.min(-.5).max(3), z: finite.min(-2.4).max(2.4),
+      dx: finite.min(-1).max(1), dy: finite.min(-1).max(1), dz: finite.min(-1).max(1),
+    }).strict().refine((v) => Math.hypot(v.x, v.z) <= 2.4 && Math.abs(Math.hypot(v.dx, v.dy, v.dz) - 1) < .01, 'invalid weapon bore').optional(),
     pitch: finite.min(-MAX_PITCH).max(MAX_PITCH),
     b: z
       .number()
@@ -110,7 +118,7 @@ export const healMessageSchema = z.object({ t: z.literal('heal'), uid: u32 }).st
 /** Pay the field medic to restore full health. */
 export const nurseHealMessageSchema = z.object({ t: z.literal('nurseheal'), req: u32 }).strict();
 
-const containerId = z.enum(['heavy', 'primary', 'secondary', 'grenades', 'backpack', 'armor_head', 'armor_chest', 'armor_legs', 'armor_feet', 'offhand', 'stash_1', 'stash_2', 'stash_3']);
+const containerId = z.enum(['heavy', 'primary', 'secondary', 'grenades', 'backpack', 'armor_head', 'armor_chest', 'armor_face', 'armor_ears', 'armor_legs', 'armor_feet', 'offhand', 'pack', 'pack_storage', 'pack_rifle', 'stash_1', 'stash_2', 'stash_3']);
 const cell = z.number().int().min(0).max(16);
 
 /**
@@ -130,6 +138,8 @@ export const invMessageSchema = z.discriminatedUnion('op', [
   // Auto-sort a container (the backpack, a storage page) as tightly as it packs.
   z.object({ t: z.literal('inv'), op: z.literal('sort'), c: containerId }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('drop'), uid: u32 }).strict(),
+  /** Throws an item out of the open chest onto the ground. */
+  z.object({ t: z.literal('inv'), op: z.literal('chestDrop'), id: chestId, uid: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('pickup'), id: u32 }).strict(),
   z.object({ t: z.literal('inv'), op: z.literal('cache'), item: itemId }).strict(),
   // Attachments: install item `uid` on gun `gun`, or take the attachment in `slot` off it.

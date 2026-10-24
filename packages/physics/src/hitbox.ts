@@ -94,9 +94,20 @@ function bruteRig(rig: readonly RigPart[]): readonly RigPart[] {
 const BRUTE_RIG = bruteRig(ZOMBIE_RIG);
 const BRUTE_CRAWL_RIG = bruteRig(ZOMBIE_CRAWL_RIG);
 
+/** The leaper now uses a quadrupedal dog model, including while airborne. */
+export const ZOMBIE_DOG_RIG: readonly RigPart[] = [
+  { zone: 'head', a: [0, .65, -.48], b: [0, .65, -.65], r: .18 },
+  { zone: 'torso', a: [0, .62, -.24], b: [0, .62, .38], r: .23 },
+  { zone: 'arm_l', a: [-.15, .57, -.23], b: [-.15, .08, -.27], r: .085 },
+  { zone: 'arm_r', a: [.15, .57, -.23], b: [.15, .08, -.27], r: .085 },
+  { zone: 'leg_l', a: [-.15, .56, .42], b: [-.15, .08, .5], r: .1 },
+  { zone: 'leg_r', a: [.15, .56, .42], b: [.15, .08, .5], r: .1 },
+];
+
 /** Shared by server hit detection and client aiming, including the low Crimson stance. */
-export function zombieHitRig(variant: ZombieVariant, limbs: number, grounded: boolean): readonly RigPart[] {
-  const crawl = isCrawling(limbs) || (variant === ZombieVariant.Crimson && grounded);
+export function zombieHitRig(variant: ZombieVariant, limbs: number, _grounded: boolean): readonly RigPart[] {
+  if (variant === ZombieVariant.Crimson) return ZOMBIE_DOG_RIG;
+  const crawl = isCrawling(limbs);
   return variant === ZombieVariant.Brute ? (crawl ? BRUTE_CRAWL_RIG : BRUTE_RIG) : (crawl ? ZOMBIE_CRAWL_RIG : ZOMBIE_RIG);
 }
 

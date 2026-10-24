@@ -325,3 +325,27 @@ describe('ladders', () => {
     expect(s2.y).toBeLessThan(0.1);
   });
 });
+
+describe('blade finisher lunge', () => {
+  it('dashes about three metres along the facing direction, then hands steering back', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0));
+    const s = createCharacterState(16, 0, 40);
+    run(ctrl, s, input({}), 10);
+    const z0 = s.z;
+    ctrl.step(s, input({ lunge: true }), DT);
+    expect(s.lungeTicks).toBeGreaterThan(0);
+    // Steering is ignored for the lunge's length.
+    while (s.lungeTicks) ctrl.step(s, input({ mx: 1 }), DT);
+    expect(z0 - s.z).toBeGreaterThan(2.4);
+    expect(z0 - s.z).toBeLessThan(3.4);
+    expect(Math.abs(s.x - 16)).toBeLessThan(.3);
+  });
+
+  it('never starts prone or mid-roll', () => {
+    const ctrl = new CharacterController(makeWorld(() => 0));
+    const s = createCharacterState(16, 0, 40);
+    run(ctrl, s, input({ prone: true }), 10);
+    ctrl.step(s, input({ prone: true, lunge: true }), DT);
+    expect(s.lungeTicks ?? 0).toBe(0);
+  });
+});

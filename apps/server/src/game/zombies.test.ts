@@ -19,7 +19,7 @@ describe('zombie damage', () => {
     expect(z.bucket).toBe(0);
     expect(director.hit(z, 'head', 10, 0, 1, 0, 300, attacker).killed).toBe(true);
     const armored = new Zombie(1_000_032, 10, 0, 10, ZombieVariant.Gaunt);
-    armored.armor = { head: 11, chest: 12, legs: 13, feet: 14 }; armored.armorDurability = 300; armored.helmetDurability = 160;
+    armored.armor = { head: 32, face: 0, ears: 0, chest: 63 }; armored.armorDurability = 300; armored.helmetDurability = 160;
     director.hit(armored, 'torso', 40, 0, 1, 0, 100, attacker);
     expect(armored.health).toBeGreaterThan(70 - 40);
     expect(director.hit(armored, 'head', 20, 0, 1, 0, 200, attacker).killed).toBe(false);

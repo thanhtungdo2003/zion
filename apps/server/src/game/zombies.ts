@@ -54,6 +54,11 @@ const BITE_DELAY_MS = 700;
 /** Climbable ladder asset (rusty iron wall ladder). */
 const LADDER_TAG = 2022;
 
+/** Ordinary zombies' walking pace (m/s) chasing and wandering: their recorded walk, played a little quicker. */
+const ORDINARY_WALK = 1.0, ORDINARY_WANDER = .6;
+/** Length of the recorded scream (ms). */
+const SCREAM_MS = 2800;
+
 const ZOMBIE_PARAMS: CharacterParams = {
   ...DEFAULT_CHARACTER,
   walkSpeed: 2.2,
@@ -111,6 +116,9 @@ export class Zombie {
   jumpingUntil = 0;
   jumpWindupUntil = 0;
   leapYaw = 0;
+  /** Badly hurt (below half health): stands and screams until `screamUntil`, then charges. */
+  screamed = false;
+  screamUntil = 0;
   /** An iron bucket over the head (no headshots while it holds): what it can still take. */
   bucket = 0;
   /** Armour off a dead survivor: worn pieces (wire ids) and what the set and the helmet can still take. */
@@ -302,18 +310,9 @@ export class ZombieDirector {
     const roll = Math.random();
     const variant = roll < .03 ? ZombieVariant.Brute : roll < .23 ? ZombieVariant.Crimson : roll < .58 ? ZombieVariant.Gaunt : ZombieVariant.Rotting;
     const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, variant);
-    // Some wear a bucket over the head, some the armour of a survivor they caught.
-    if (variant !== ZombieVariant.Brute) {
-      const kit = Math.random();
-      if (kit < .14) z.bucket = ZOMBIE_BUCKET_DURABILITY;
-      else if (kit < .26) {
-        const sets = [[1, 2, 3, 4], [8, 5, 6, 7], [8, 9, 10, 7], [11, 12, 13, 14]] as const;
-        const [head, chest, legs, feet] = sets[Math.floor(Math.random() * sets.length)]!;
-        z.armor = { head: Math.random() < .6 ? head : 0, chest, legs, feet };
-        z.armorDurability = [chest, legs, feet].reduce((n, id) => n + (ARMOR_BY_ID.get(id)?.durability ?? 0), 0);
-        z.helmetDurability = z.armor.head ? ARMOR_BY_ID.get(z.armor.head)?.durability ?? 0 : 0;
-      }
-    }
+    // Some wear a bucket over the head. (Worn survivor armour is not fitted to the zombie bodies
+    // yet: armour they cannot be seen wearing would only confuse, so none for now.)
+    if (variant !== ZombieVariant.Brute && variant !== ZombieVariant.Crimson && Math.random() < .14) z.bucket = ZOMBIE_BUCKET_DURABILITY;
     this.zombies.set(z.id, z);
     return z;
   }
@@ -351,7 +350,8 @@ export class ZombieDirector {
     }
   }
 
-  private speedFor(z: Zombie, night: boolean, chasing: boolean): number {
+  private speedFor(z: Zombie, night: boolean, chasing: boolean, now = 0): number {
+    if (now < z.screamUntil) return 0;
     if (isCrawling(z.limbs)) {
       const left = limbsLeft(z.limbs);
       const base = left >= 3 ? 1.1 : left === 2 ? 0.8 : left === 1 ? 0.45 : 0;
@@ -359,9 +359,10 @@ export class ZombieDirector {
     }
     if (z.variant === ZombieVariant.Brute) return chasing ? (enraged(z) ? 2.8 : 1.25) : 0.75;
     if (z.variant === ZombieVariant.Crimson) return chasing ? (night || enraged(z) ? 5.6 : 2.55) : 1.4;
-    if (!chasing) return 1.2;
-    // Badly hurt zombies roar and charge, day or night.
-    return night || enraged(z) ? ZOMBIE_PARAMS.sprintSpeed : ZOMBIE_PARAMS.walkSpeed;
+    // Ordinary zombies shamble at the pace of their recorded walk (wandering slower), and run at
+    // night or once they have screamed (badly hurt), day or night.
+    if (night || enraged(z)) return chasing ? ZOMBIE_PARAMS.sprintSpeed : 1.2;
+    return chasing ? ORDINARY_WALK : ORDINARY_WANDER;
   }
 
   /**
@@ -511,7 +512,7 @@ export class ZombieDirector {
       this.stepPhysics(z, staggered ? 0 : 1, 8, z.leapYaw);
       return;
     }
-    const speed = this.speedFor(z, night, chasing);
+    const speed = this.speedFor(z, night, chasing, now);
     const move = !!waypoint && !staggered && speed > 0 &&
       !(inReach && dist <= ATTACK_RANGE * zombieScale(z.variant) * 0.7) && waypointDist > (chasing ? 0.1 : 0.5);
     const idleRandom = !chasing && Math.random() < 0.3; // wanderers shuffle in fits and starts
@@ -606,7 +607,7 @@ export class ZombieDirector {
       // Body armour soaks a share of every body / limb hit while it lasts.
       const p = armorProtection({ ...z.armor, head: 0 }), absorbed = damage * p;
       z.armorDurability -= absorbed; damage -= absorbed; shield = 'armor';
-      if (z.armorDurability <= 0) z.armor = { ...z.armor, chest: 0, legs: 0, feet: 0 };
+      if (z.armorDurability <= 0) z.armor = { ...z.armor, chest: 0, face: 0, ears: 0 };
     }
     // Knockback: shove along the shot direction and briefly stagger.
     if (z.variant !== ZombieVariant.Brute) {
@@ -628,6 +629,11 @@ export class ZombieDirector {
       z.health -= damage * 0.8;
     } else {
       z.health -= damage;
+    }
+    // An ordinary zombie dropping below half health stops and screams, then runs.
+    if (z.health > 0 && !z.screamed && z.variant !== ZombieVariant.Brute && z.variant !== ZombieVariant.Crimson && !isCrawling(z.limbs) && z.health < z.maxHealth * .5) {
+      z.screamed = true;
+      z.screamUntil = now + SCREAM_MS;
     }
     if (z.health <= 0) {
       this.navigation.clear(z.navigation);
@@ -675,6 +681,7 @@ export class ZombieDirector {
       if (z.dead) flags |= EntityFlags.Dead;
       if (z.target && !z.dead) flags |= EntityFlags.Sprinting;
       if (now < z.attackingUntil) flags |= EntityFlags.Attacking;
+      if (!z.dead && now < z.screamUntil) flags |= EntityFlags.Screaming;
       if (!z.dead && (z.jumpWindupUntil > now || !z.state.grounded) && now < z.jumpingUntil) flags |= EntityFlags.Leaping;
       // Head pitch: looking up at prey on a roof or down at someone below.
       const t = z.target && !z.dead ? z.target.state : null;
@@ -688,8 +695,9 @@ function wrapAngle(a: number): number {
   return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
-/** Brutes enrage below half health; other zombies below 30%. */
+/** Brutes enrage below half health; ordinary zombies once they have screamed (below half); the rest below 30%. */
 function enraged(z: Zombie): boolean {
+  if (z.variant !== ZombieVariant.Brute && z.variant !== ZombieVariant.Crimson) return z.screamed;
   return z.health < z.maxHealth * (z.variant === ZombieVariant.Brute ? 0.5 : 0.3);
 }
 

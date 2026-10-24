@@ -1,4 +1,4 @@
-import { WEAPON_SPECS, WeaponId, gunBlocksSprint, type GunSpec } from '@zion/shared';
+import { BLADE_COMBO_WEAPONS, WEAPON_SPECS, WeaponId, bladeStepTiming, gunBlocksSprint, meleeSwing, nextBladeStep, type GunSpec } from '@zion/shared';
 
 export type WeaponAction = 'none' | 'shot' | 'throw' | 'melee' | 'detonate';
 
@@ -99,7 +99,24 @@ export class WeaponController {
     if (spec.kind === 'melee') {
       // Blades: one swing per click, paced by the weapon's cooldown.
       if (!pressed || now < this.nextThrow) return 'none';
+      if (BLADE_COMBO_WEAPONS.has(weapon)) {
+        // One-handed blades: the same combo count and step timing as the server.
+        this.bladeStep = nextBladeStep(this.bladeStep, this.nextThrow, now);
+        const timing = bladeStepTiming(spec, this.bladeStep);
+        this.nextThrow = now + timing.cooldownMs;
+        this.swingUntil = now + timing.durationMs;
+        return 'melee';
+      }
+      this.bladeStep = -1;
+      // Long or heavy weapons: the recorded swing's length, counted like the server.
+      const swing = meleeSwing(weapon, spec, this.meleeSwings++);
+      if (swing) {
+        this.nextThrow = now + Math.max(spec.cooldownMs, swing.durationMs * .85);
+        this.swingUntil = now + swing.durationMs;
+        return 'melee';
+      }
       this.nextThrow = now + spec.cooldownMs;
+      this.swingUntil = now + (spec.animationMs ?? spec.swingMs);
       return 'melee';
     }
     if (spec.kind === 'throw') {
@@ -118,12 +135,19 @@ export class WeaponController {
     return 'shot';
   }
 
+  /** Combo step of the last blade swing (−1: not a combo blade). */
+  bladeStep = -1;
+  /** Long or heavy swings so far (they alternate recorded swings, as on the server). */
+  meleeSwings = 0;
+  /** A melee swing is in progress until then (no sprinting through it). */
+  swingUntil = 0;
+
   get reloading(): boolean {
     return this.reloadWeapon !== 0;
   }
 
   blocksSprint(now: number, weapon: number, trigger: boolean): boolean {
-    return this.reloading || gunBlocksSprint(weapon, trigger, now, this.nextFire);
+    return this.reloading || now < this.swingUntil || gunBlocksSprint(weapon, trigger, now, this.nextFire);
   }
 
   reload(now: number, weapon: number): void {

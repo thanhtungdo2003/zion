@@ -77,7 +77,8 @@ export const SOUND_FILES = {
   footsteps: '/sounds/footsteps-in-soft-material.mp3',
 } as const;
 
-export type SoundName = keyof typeof SOUND_FILES;
+/** Sounds from files, plus those synthesised here (a blunt weapon's whoosh). */
+export type SoundName = keyof typeof SOUND_FILES | 'airSwing';
 
 export interface PlayOptions {
   volume?: number;
@@ -156,10 +157,11 @@ export class SoundBank {
     this.releaseVolume = bindVolume(this.master.gain);
     this.deafen = this.ctx.createGain();
     this.master.connect(this.deafen).connect(this.ctx.destination);
+    this.buffers.set('airSwing', airSwing(this.ctx));
   }
 
   async load(onProgress?: (p: number) => void): Promise<void> {
-    const names = Object.keys(SOUND_FILES) as SoundName[];
+    const names = Object.keys(SOUND_FILES) as Array<keyof typeof SOUND_FILES>;
     let done = 0;
     await Promise.all(
       names.map(async (name) => {
@@ -238,6 +240,15 @@ export class SoundBank {
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  /**
+   * The wearer's hearing (armour: 1 normal, below for masks and closed helmets, above for
+   * headsets). Scales how far world sounds carry and how loud they are; muffled hearing also
+   * takes the highs off.
+   */
+  private hearing = 1;
+  setHearing(h: number): void { this.hearing = Math.max(.3, Math.min(2, h)); }
+  private muffled(distance: number): number { return Math.min(.95, distance + Math.max(0, 1 - this.hearing) * .9); }
+
   /** Plays a sound; returns its playing length in seconds (even when too far away to hear). */
   play(name: SoundName, opts: PlayOptions = {}): number {
     const buffer = this.buffers.get(name);
@@ -253,12 +264,12 @@ export class SoundBank {
       const dz = opts.at.z - l.z;
       const d = Math.hypot(dx, opts.at.y - l.y, dz);
       const ref = opts.refDistance ?? 3;
-      const max = opts.maxDistance ?? 70;
+      const max = (opts.maxDistance ?? 70) * this.hearing;
       if (d >= max) return length;
       // Smooth falloff that reaches exactly zero at max distance.
-      const k = Math.max(0, Math.min(1, (d - ref) / (max - ref)));
-      volume *= (1 - k) * (1 - k);
-      muffle = k;
+      const k = Math.max(0, Math.min(1, (d - ref) / Math.max(1, max - ref)));
+      volume *= (1 - k) * (1 - k) * Math.min(1.25, this.hearing);
+      muffle = this.muffled(k);
       pan = this.panFor(dx, dz);
     }
     if (volume < 0.005) return length;
@@ -306,10 +317,10 @@ export class SoundBank {
       const dz = opts.at.z - l.z;
       const d = Math.hypot(dx, opts.at.y - l.y, dz);
       const ref = opts.refDistance ?? 3;
-      const max = opts.maxDistance ?? 70;
-      const k = Math.max(0, Math.min(1, (d - ref) / (max - ref)));
-      volume *= d >= max ? 0 : (1 - k) * (1 - k);
-      muffle = k;
+      const max = (opts.maxDistance ?? 70) * this.hearing;
+      const k = Math.max(0, Math.min(1, (d - ref) / Math.max(1, max - ref)));
+      volume *= d >= max ? 0 : (1 - k) * (1 - k) * Math.min(1.25, this.hearing);
+      muffle = this.muffled(k);
       pan = this.panFor(dx, dz);
     }
     let loop = this.loops.get(key);
@@ -377,4 +388,27 @@ export class SoundBank {
     this.synth.clear();
     void this.ctx.close();
   }
+}
+
+/**
+ * A swing through the air (bats, hammers, crowbars): wind noise through a band-pass filter that
+ * sweeps up as the swing speeds through and back down, swelling and fading — a whoosh, not a
+ * blade's ring. Synthesised once.
+ */
+function airSwing(ctx: BaseAudioContext): AudioBuffer {
+  const rate = ctx.sampleRate, len = Math.floor(rate * .5), buf = ctx.createBuffer(1, len, rate), d = buf.getChannelData(0);
+  let low = 0, band = 0, seed = 11, peak = 0;
+  const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 1073741823.5 - 1; };
+  for (let i = 0; i < len; i++) {
+    const t = i / len;
+    // The fastest point of the swing a little past the middle.
+    const speed = Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.15)), 1.6);
+    const f = 260 + 1500 * speed, f1 = 2 * Math.sin(Math.PI * f / rate), q = .9;
+    const x = noise();
+    low += f1 * band; const high = x - low - q * band; band += f1 * high;
+    const v = band * speed * speed;
+    d[i] = v; peak = Math.max(peak, Math.abs(v));
+  }
+  for (let i = 0; i < len; i++) d[i]! /= peak || 1;
+  return buf;
 }

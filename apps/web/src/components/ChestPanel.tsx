@@ -23,7 +23,8 @@ const REVEAL_MS: Record<Tier, number> = { common: 550, rare: 1100, epic: 1500, l
 /** `grid`: battle royale crates — an open slot grid, no search, no prices. */
 export function ChestPanel({ state, store, grid = false, onTip }: { state: InventoryState; store: InventoryStore; grid?: boolean; onTip?: (tip: Tip | null) => void }) {
   // Hovering any item shows the same detailed tooltip as the bag grid.
-  const tip = (i: PlacedItem) => ({ onMouseEnter: () => { const def = ITEMS[i.itemId]; if (def) onTip?.({ def, count: i.count, issued: i.issued }); }, onMouseLeave: () => onTip?.(null) });
+  // Hover carries the item (Q throws it out: from the chest, or from the bag).
+  const tip = (i: PlacedItem, inChest = true) => ({ onMouseEnter: () => { const def = ITEMS[i.itemId]; if (def) onTip?.({ def, count: i.count, issued: i.issued, uid: i.uid, chest: inChest }); }, onMouseLeave: () => onTip?.(null) });
   const c = state.chest;
   const { item } = useSettings();
   const [remaining, setRemaining] = useState(0);
@@ -101,7 +102,7 @@ export function ChestPanel({ state, store, grid = false, onTip }: { state: Inven
     </div>}
     <h4>Cất vào</h4>
     <div className="chest-deposit">
-      {state.items.filter((i) => !isStash(i.container)).map((i) => <button className="chest-put" key={i.uid} {...tip(i)} disabled={locked || !!state.held || c.items.length >= c.capacity} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestPut', i.uid)}>
+      {state.items.filter((i) => !isStash(i.container)).map((i) => <button className="chest-put" key={i.uid} {...tip(i, false)} disabled={locked || !!state.held || c.items.length >= c.capacity} onMouseDown={(e) => e.stopPropagation()} onClick={() => store.chestAction('chestPut', i.uid)}>
         {art(i)}<span>{item(i.itemId)}</span>{price(i) > 0 && <em className="chest-price">{price(i)} ZC</em>}<Icon name="lucide:arrow-right" />
       </button>)}
     </div>

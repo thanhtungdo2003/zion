@@ -20,7 +20,7 @@ export interface HandbookEntry {
   itemId?: string;
 }
 const RARITY: Record<string, string> = { common: 'Thường', uncommon: 'Khá', rare: 'Hiếm', epic: 'Sử thi', legendary: 'Huyền thoại' };
-const ITEM_CATEGORY: Record<string, string> = { rifle: 'Súng trường', shotgun: 'Súng săn', pistol: 'Súng lục', smg: 'Tiểu liên', heavy: 'Hạng nặng', grenade: 'Lựu đạn', melee: 'Cận chiến', ammo: 'Đạn dược', medical: 'Y tế', food: 'Thức ăn', resource: 'Tài nguyên', tool: 'Công cụ', armor_head: 'Mũ giáp', armor_chest: 'Áo giáp', armor_legs: 'Quần giáp', armor_feet: 'Giày' };
+const ITEM_CATEGORY: Record<string, string> = { rifle: 'Súng trường', shotgun: 'Súng săn', pistol: 'Súng lục', smg: 'Tiểu liên', heavy: 'Hạng nặng', grenade: 'Lựu đạn', melee: 'Cận chiến', ammo: 'Đạn dược', medical: 'Y tế', food: 'Thức ăn', resource: 'Tài nguyên', tool: 'Công cụ', armor_head: 'Mũ giáp', armor_chest: 'Áo giáp', armor_face: 'Mặt nạ', armor_ears: 'Tai nghe', armor_legs: 'Quần', armor_feet: 'Ủng', backpack: 'Ba lô' };
 
 /** Public reference data uses actual balance tables and the active Studio NPC configuration. */
 export function buildHandbook(content: GameContent = DEFAULT_CONTENT): HandbookEntry[] {
@@ -67,6 +67,7 @@ export function buildHandbook(content: GameContent = DEFAULT_CONTENT): HandbookE
       tips.push('Nhấn chuột phải vào thức ăn trong túi đồ để ăn.', 'Nấu đồ sống ở lửa trại để bổ sung nhiều năng lượng hơn.');
     } else if (item.id === 'medkit') tips.push('Nhấn H để băng bó. Di chuyển hoặc nhận sát thương sẽ ngắt quá trình.');
     else if (item.id === 'flashlight') tips.push('Trang bị ở ô Tay phụ. Đèn tự bật trong bóng tối.');
+    else if (item.id === 'military_backpack') tips.push('Đeo vào ô Ba lô: mở thêm ngăn chứa 8×4 và một chỗ súng trường. Vứt ba lô thì đồ bên trong đi theo.');
     else tips.push('Kiểm tra nhiệm vụ trước khi bán tài nguyên cho thương nhân.');
     const customModel = content.baseLife?.itemModels?.[item.id];
     entries.push({ id: `item.${item.id}`, itemId: item.id, category: spec ? 'weapons' : 'equipment', title: item.name, subtitle: ITEM_CATEGORY[item.category] ?? 'Trang bị', description: '', tips, stats, model: customModel ? { url: customModel } : { item: item.id } });

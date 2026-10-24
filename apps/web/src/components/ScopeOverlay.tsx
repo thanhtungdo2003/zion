@@ -49,7 +49,7 @@ export function ScopeOverlay({ magnification, reticle = 'duplex', nightVision = 
             {reticle === 'rocket' ? <RocketReticle px={px} /> : reticle === 'mildot' ? <>
               <path d="M-100 0H-1.2 M1.2 0H100 M0-100V-1.2 M0 1.2V100" />
               {marks.map((m) => <g key={m}>
-                {[[m, 0], [-m, 0], [0, m], [0, -m]].map(([x, y], i) => <circle key={i} className="fp-scope-mil" cx={x! * mil} cy={y! * mil} r={Math.max(px * 1.5, .9)} />)}
+                {[[m, 0], [-m, 0], [0, m], [0, -m]].map(([x, y], i) => <circle key={i} className="fp-scope-mil" cx={x! * mil} cy={y! * mil} r={px * 1.6} />)}
               </g>)}
               {/* Holdover ladder below the centre, every half mil, labelled each whole mil. */}
               {marks.slice(0, 5).map((m) => <g key={`h${m}`}>
@@ -63,7 +63,8 @@ export function ScopeOverlay({ magnification, reticle = 'duplex', nightVision = 
               {[1, 2, 3].map((m) => <path key={m} d={`M${-mil * .3} ${m * mil}h${mil * .6}`} />)}
             </>}
           </g>
-          {reticle !== 'rocket' && <circle className="fp-scope-dot" r={Math.max(px * 2, reticle === 'mildot' ? .7 : .9)} />}
+          {/* A fine aiming point where the wires meet (about two pixels). */}
+          {reticle !== 'rocket' && <circle className="fp-scope-dot" r={px * 1.1} />}
           <text className="fp-scope-power" x="0" y="-73" textAnchor="middle">{magnification}×{nvScope ? (nightVision ? ' · NV' : ' · NGÀY') : ''}</text>
           {nvScope && hint && <NightVisionHint on={nightVision} />}
         </svg>

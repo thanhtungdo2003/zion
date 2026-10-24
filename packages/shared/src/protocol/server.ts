@@ -10,6 +10,7 @@ import type { Attachments } from '../attachments';
 import type { BlueprintProgress, OreKind, StructureState, SupplyMessage } from '../building';
 import type { VehiclesMessage } from '../vehicles';
 import type { RankTitle, RankUpdate } from '../ranks';
+import type { Appearance } from '../appearance';
 
 /* ------------------------------------------------------------------------------------------ */
 /* JSON (text frame) messages — infrequent control/event traffic.                              */
@@ -253,7 +254,8 @@ export interface RespawnEvent {
 export interface PlayerInfoEvent {
   t: 'players';
   /** Scoreboard: kills and deaths this match/session, out of the fight, infected, a bot. */
-  players: Array<{ id: number; name: string; rank?: RankTitle; pvp?: boolean; kills?: number; deaths?: number; dead?: boolean; zombie?: boolean; bot?: boolean }>;
+  /** `look`: the survivor's chosen appearance (absent: never chosen, or a bot). */
+  players: Array<{ id: number; name: string; rank?: RankTitle; pvp?: boolean; kills?: number; deaths?: number; dead?: boolean; zombie?: boolean; bot?: boolean; look?: Appearance }>;
 }
 
 export interface QuestStateMessage {
@@ -404,6 +406,8 @@ export const EntityFlags = {
   Mantling: 1 << 21,
   /** Holding a blueprint up (placing a structure). */
   Planning: 1 << 22,
+  /** A badly hurt zombie standing still and screaming before it charges. */
+  Screaming: 1 << 23,
 } as const;
 
 export interface SelfState {
@@ -419,6 +423,8 @@ export interface SelfState {
   rollTicks: number;
   rollCooldown: number;
   rollYaw: number;
+  /** Remaining ticks of a blade finisher's lunge. */
+  lungeTicks?: number;
 }
 
 export interface EntityState {
@@ -439,6 +445,10 @@ export interface EntityState {
   armor?: number;
   /** Attachments on the gun in hand, packed (see `packAttachments`; 0 = none). */
   att?: number;
+  /** More carried gear, packed (see `packGear`): second/third back gun, holster, belt. */
+  gear?: number;
+  /** Backpack worn (1) or not (0). */
+  pack?: number;
 }
 
 export interface Snapshot {
@@ -467,14 +477,14 @@ export function encodeSnapshot(s: Snapshot, w = new BinaryWriter(64 + s.entities
   // Self state is sent at full float precision: client-side reconciliation replays inputs from it.
   w.f32(me.x).f32(me.y).f32(me.z).f32(me.vx).f32(me.vy).f32(me.vz);
   w.u32(me.flags).u8(me.health).u8(Math.min(255, me.stuckTicks));
-  w.u8(Math.min(255, me.rollTicks)).u8(Math.min(255, me.rollCooldown)).f32(me.rollYaw);
+  w.u8(Math.min(255, me.rollTicks)).u8(Math.min(255, me.rollCooldown)).f32(me.rollYaw).u8(Math.min(255, me.lungeTicks ?? 0));
   const count = Math.min(s.entities.length, MAX_SNAPSHOT_ENTITIES);
   w.u16(count);
   for (let i = 0; i < count; i++) {
     const e = s.entities[i]!;
     w.u32(e.id).u8(e.kind).f32(e.x).f32(e.y).f32(e.z);
     w.i16(quantAngle(e.yaw)).i16(quantAngle(e.pitch));
-    w.u32(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0).u8(e.att ?? 0);
+    w.u32(e.flags).u8(e.health).u8(e.weapon).u8(e.back ?? 0).u32(e.armor ?? 0).u8(e.att ?? 0).u32(e.gear ?? 0).u8(e.pack ?? 0);
   }
   return w.finish();
 }
@@ -499,6 +509,7 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
     rollTicks: r.u8(),
     rollCooldown: r.u8(),
     rollYaw: r.f32(),
+    lungeTicks: r.u8(),
   };
   const count = r.u16();
   if (count > MAX_SNAPSHOT_ENTITIES) throw new BinaryReadError('too many entities');
@@ -518,6 +529,8 @@ export function decodeSnapshot(data: Uint8Array): Snapshot {
       back: r.u8(),
       armor: r.u32(),
       att: r.u8(),
+      gear: r.u32(),
+      pack: r.u8(),
     };
   }
   return { tick, serverTime, timeOfDay, ackSeq, self, entities };

@@ -20,7 +20,7 @@ export interface ContainerDef {
   rotatable: boolean;
 }
 
-export type ContainerId = 'heavy' | 'primary' | 'secondary' | 'grenades' | 'backpack' | 'armor_head' | 'armor_chest' | 'armor_legs' | 'armor_feet' | 'offhand' | 'stash_1' | 'stash_2' | 'stash_3';
+export type ContainerId = 'heavy' | 'primary' | 'secondary' | 'grenades' | 'backpack' | 'armor_head' | 'armor_chest' | 'armor_face' | 'armor_ears' | 'armor_legs' | 'armor_feet' | 'offhand' | 'pack' | 'pack_storage' | 'pack_rifle' | 'stash_1' | 'stash_2' | 'stash_3';
 
 export const CONTAINERS: Record<ContainerId, ContainerDef> = {
   heavy: { id: 'heavy', label: 'Heavy', cols: 8, rows: 2, accepts: ['heavy', 'rifle', 'shotgun', 'melee'], equip: true, rotatable: false },
@@ -30,10 +30,18 @@ export const CONTAINERS: Record<ContainerId, ContainerDef> = {
   backpack: { id: 'backpack', label: 'Backpack', cols: 8, rows: 5, accepts: 'all', equip: false, rotatable: true },
   armor_head: { id: 'armor_head', label: 'Helmet', cols: 2, rows: 2, accepts: ['armor_head'], equip: false, rotatable: false },
   armor_chest: { id: 'armor_chest', label: 'Body', cols: 2, rows: 2, accepts: ['armor_chest'], equip: false, rotatable: false },
-  armor_legs: { id: 'armor_legs', label: 'Legs', cols: 2, rows: 2, accepts: ['armor_legs'], equip: false, rotatable: false },
+  armor_face: { id: 'armor_face', label: 'Face', cols: 2, rows: 2, accepts: ['armor_face'], equip: false, rotatable: false },
+  armor_ears: { id: 'armor_ears', label: 'Ears', cols: 2, rows: 2, accepts: ['armor_ears'], equip: false, rotatable: false },
+  // Trousers and boots: the slots are ready; their pieces come later.
+  armor_legs: { id: 'armor_legs', label: 'Trousers', cols: 2, rows: 2, accepts: ['armor_legs'], equip: false, rotatable: false },
   armor_feet: { id: 'armor_feet', label: 'Boots', cols: 2, rows: 2, accepts: ['armor_feet'], equip: false, rotatable: false },
   // Off hand: a tool held in the left hand (flashlight).
   offhand: { id: 'offhand', label: 'Off hand', cols: 2, rows: 1, accepts: ['tool'], equip: false, rotatable: false },
+  // The worn backpack, and what it adds while worn: a storage grid and a rifle slot. Their items
+  // belong to the backpack and leave with it (see InventoryModel.remove / place).
+  pack: { id: 'pack', label: 'Backpack', cols: 3, rows: 3, accepts: ['backpack'], equip: false, rotatable: false },
+  pack_storage: { id: 'pack_storage', label: 'Backpack storage', cols: 8, rows: 4, accepts: 'all', equip: false, rotatable: true },
+  pack_rifle: { id: 'pack_rifle', label: 'Backpack · Rifle', cols: 6, rows: 2, accepts: ['rifle', 'shotgun'], equip: true, rotatable: false },
   // Personal storage at the camp warehouse: three pages, reachable only there.
   stash_1: { id: 'stash_1', label: 'Storage 1', cols: 10, rows: 7, accepts: 'all', equip: false, rotatable: true },
   stash_2: { id: 'stash_2', label: 'Storage 2', cols: 10, rows: 7, accepts: 'all', equip: false, rotatable: true },
@@ -44,8 +52,13 @@ export const STASH_CONTAINERS: ContainerId[] = ['stash_1', 'stash_2', 'stash_3']
 export const isStash = (c: ContainerId): boolean => c === 'stash_1' || c === 'stash_2' || c === 'stash_3';
 
 /** Worn-armour containers, one per slot. */
-export const ARMOR_CONTAINERS: Record<ArmorSlot, ContainerId> = { head: 'armor_head', chest: 'armor_chest', legs: 'armor_legs', feet: 'armor_feet' };
-export const EQUIP_ORDER: ContainerId[] = ['heavy', 'primary', 'secondary', 'grenades'];
+export const ARMOR_CONTAINERS: Record<ArmorSlot, ContainerId> = { head: 'armor_head', face: 'armor_face', ears: 'armor_ears', chest: 'armor_chest' };
+export const EQUIP_ORDER: ContainerId[] = ['heavy', 'primary', 'pack_rifle', 'secondary', 'grenades'];
+/** Containers that exist only while a backpack is worn; their items travel inside it. */
+export const PACK_CONTAINERS: readonly ContainerId[] = ['pack_storage', 'pack_rifle'];
+export const isPackContainer = (c: ContainerId): boolean => c === 'pack_storage' || c === 'pack_rifle';
+/** The worn backpack, if any. */
+export const wornPack = (items: readonly PlacedItem[]): PlacedItem | undefined => items.find((i) => i.container === 'pack');
 
 export interface PlacedItem {
   uid: number;
@@ -66,6 +79,8 @@ export interface PlacedItem {
   chargeId?: number;
   /** Guns: installed attachments (item ids) by slot. */
   attachments?: Attachments;
+  /** A backpack that is not worn: the items packed inside it, as placed in its containers. */
+  contents?: PlacedItem[];
 }
 
 /** What the server persists and sends to its player. */
@@ -92,6 +107,8 @@ export function canPlace(items: readonly PlacedItem[], container: ContainerId, i
   if (!Number.isInteger(x) || !Number.isInteger(y)) return false;
   const { w, h } = footprint(def, rotated);
   if (x < 0 || y < 0 || x + w > c.cols || y + h > c.rows) return false;
+  // The backpack's own grids exist only while it is worn; a pack never goes inside a pack.
+  if (isPackContainer(container) && (!wornPack(items) || def.category === 'backpack')) return false;
   for (const o of items) {
     if (o.uid === ignoreUid || o.container !== container) continue;
     const od = ITEMS[o.itemId]!;
@@ -139,7 +156,8 @@ export function packContainer(items: readonly PlacedItem[], container: Container
 
 /** Where a newly received item goes: weapons/grenades to a free weapon slot, the rest in the backpack. */
 export function addOrder(def: ItemDef): ContainerId[] {
-  return def.category === 'ammo' || def.category === 'medical' || def.category.startsWith('armor') || !WEAPON_BY_ITEM[def.id] ? ['backpack'] : [...EQUIP_ORDER, 'backpack'];
+  if (def.category === 'backpack') return ['pack', 'backpack'];
+  return def.category === 'ammo' || def.category === 'medical' || def.category.startsWith('armor') || !WEAPON_BY_ITEM[def.id] ? ['backpack', 'pack_storage'] : [...EQUIP_ORDER, 'backpack', 'pack_storage'];
 }
 
 /** Hotbar entries: every item in a weapon slot, in slot order (left→right, top→bottom). */
@@ -151,6 +169,43 @@ export function hotbar(items: readonly PlacedItem[]): PlacedItem[] {
 export function magazineOf(itemId: string): number | undefined {
   const spec = weaponSpec(WEAPON_BY_ITEM[itemId] ?? 0);
   return spec?.kind === 'gun' ? spec.magazine : undefined;
+}
+
+/**
+ * One untrusted item, cleaned: unknown ids are rejected, counts/magazines clamped, spent boxes
+ * dropped, attachments checked, and a backpack's packed contents cleaned the same way (they must
+ * fit its grids, and a pack never holds another pack). Null when the item is not kept.
+ */
+export function sanitizeItem(raw: PlacedItem, nested = false): PlacedItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const i: PlacedItem = { ...raw };
+  const def = ITEMS[i.itemId];
+  if (!def || !Number.isInteger(i.uid) || !CONTAINERS[i.container] || !Number.isInteger(i.x) || !Number.isInteger(i.y)) return null;
+  if (nested && def.category === 'backpack') return null;
+  i.rotated = !!i.rotated;
+  if (i.itemId !== 'c4_detonator' || !Number.isSafeInteger(i.chargeId) || i.chargeId! < 1) delete i.chargeId;
+  const max = maxCount(def);
+  if (max) i.count = Math.max(0, Math.min(max, Number.isFinite(i.count) ? (i.count as number) : max));
+  else delete i.count;
+  const mag = magazineOf(i.itemId);
+  if (mag !== undefined) i.mag = Math.max(0, Math.min(mag, Math.floor(Number.isFinite(i.mag) ? (i.mag as number) : mag)));
+  else delete i.mag;
+  // Spent boxes / kits are gone; broken armour stays (0 durability).
+  if (max && i.count === 0 && !def.armor) return null;
+  const attachments = sanitizeAttachments(i.itemId, i.attachments);
+  if (attachments) i.attachments = attachments; else delete i.attachments;
+  if (def.category === 'backpack' && Array.isArray(raw.contents) && raw.contents.length) {
+    // Checked against the pack's own grids, as if it were worn.
+    const placed: PlacedItem[] = [{ ...i, container: 'pack', x: 0, y: 0, rotated: false }];
+    for (const r of raw.contents) {
+      const c = sanitizeItem(r, true);
+      // Unique among themselves (they get fresh uids when unpacked; the pack's own may clash).
+      if (c && isPackContainer(c.container) && !placed.slice(1).some((p) => p.uid === c.uid) && canPlace(placed, c.container, c.itemId, c.x, c.y, c.rotated)) placed.push(c);
+    }
+    const contents = placed.slice(1);
+    if (contents.length) i.contents = contents; else delete i.contents;
+  } else delete i.contents;
+  return i;
 }
 
 /**
@@ -168,23 +223,23 @@ export class InventoryModel {
   /** Accepts persisted/untrusted data, dropping anything invalid or overlapping. */
   load(data: InventoryData): void {
     const valid: PlacedItem[] = [];
-    for (const raw of Array.isArray(data.items) ? data.items : []) {
-      const i = { ...raw };
-      const def = ITEMS[i.itemId];
-      if (!def || !Number.isInteger(i.uid) || valid.some((v) => v.uid === i.uid) || !canPlace(valid, i.container, i.itemId, i.x, i.y, !!i.rotated)) continue;
-      i.rotated = !!i.rotated;
-      if (i.itemId !== 'c4_detonator' || !Number.isSafeInteger(i.chargeId) || i.chargeId! < 1) delete i.chargeId;
-      const max = maxCount(def);
-      if (max) i.count = Math.max(0, Math.min(max, Number.isFinite(i.count) ? (i.count as number) : max));
-      else delete i.count;
-      const mag = magazineOf(i.itemId);
-      if (mag !== undefined) i.mag = Math.max(0, Math.min(mag, Math.floor(Number.isFinite(i.mag) ? (i.mag as number) : mag)));
-      else delete i.mag;
-      // Spent boxes / kits are gone; broken armour stays (0 durability).
-      if (max && i.count === 0 && !def.armor) continue;
-      const attachments = sanitizeAttachments(i.itemId, i.attachments);
-      if (attachments) i.attachments = attachments; else delete i.attachments;
+    // The worn pack first: its grids must exist before their items are checked.
+    const raws = (Array.isArray(data.items) ? data.items : []).slice().sort((a, b) => (a?.container === 'pack' ? 0 : 1) - (b?.container === 'pack' ? 0 : 1));
+    const orphans: PlacedItem[] = [];
+    for (const raw of raws) {
+      const i = sanitizeItem(raw);
+      if (!i) continue;
+      if (valid.some((v) => v.uid === i.uid)) continue;
+      if (!canPlace(valid, i.container, i.itemId, i.x, i.y, i.rotated)) {
+        // Items of a pack grid with no pack worn (old saves): kept, moved to the storage below.
+        if (isPackContainer(i.container)) orphans.push(i);
+        continue;
+      }
       valid.push(i);
+    }
+    for (const i of orphans) {
+      const spot = findSpot(valid, i.itemId, ['backpack']);
+      if (spot) valid.push({ ...i, ...spot });
     }
     this.items = valid;
     this.equipped = data.equipped ?? null;
@@ -192,12 +247,13 @@ export class InventoryModel {
   }
 
   toJSON(): InventoryData {
-    return { items: this.items.map((i) => ({ ...i, ...(i.attachments ? { attachments: { ...i.attachments } } : {}) })), equipped: this.equipped };
+    const copy = (i: PlacedItem): PlacedItem => ({ ...i, ...(i.attachments ? { attachments: { ...i.attachments } } : {}), ...(i.contents ? { contents: i.contents.map(copy) } : {}) });
+    return { items: this.items.map(copy), equipped: this.equipped };
   }
 
   private nextUid(): number {
     let max = 0;
-    for (const i of this.items) max = Math.max(max, i.uid);
+    for (const i of this.items) { max = Math.max(max, i.uid); for (const c of i.contents ?? []) max = Math.max(max, c.uid); }
     return max + 1;
   }
 
@@ -227,9 +283,47 @@ export class InventoryModel {
   move(uid: number, container: ContainerId, x: number, y: number, rotated: boolean): boolean {
     const it = this.get(uid);
     if (!it || !canPlace(this.items, container, it.itemId, x, y, rotated, uid)) return false;
+    const wasWorn = it.container === 'pack';
+    // Taking the pack off packs its grids into it first (they cease to exist without it).
+    if (wasWorn && container !== 'pack') this.packInto(it);
     Object.assign(it, { container, x, y, rotated });
+    if (!wasWorn && container === 'pack') this.unpack(it);
     this.fixEquipped();
     return true;
+  }
+
+  /** Moves everything in the backpack's grids into the pack item (it is being taken off). */
+  private packInto(pack: PlacedItem): void {
+    const inside = this.items.filter((i) => isPackContainer(i.container));
+    if (!inside.length) return;
+    pack.contents = [...(pack.contents ?? []), ...inside];
+    this.items = this.items.filter((i) => !isPackContainer(i.container));
+  }
+
+  /** A worn pack's packed items back into its grids, with fresh uids (others may have taken theirs). */
+  private unpack(pack: PlacedItem): void {
+    const contents = pack.contents ?? [];
+    delete pack.contents;
+    for (const c of contents) {
+      const item: PlacedItem = { ...c, uid: this.nextUid() };
+      if (canPlace(this.items, c.container, c.itemId, c.x, c.y, c.rotated)) this.items.push(item);
+      else {
+        const spot = findSpot(this.items, c.itemId, ['pack_storage', 'backpack']);
+        if (spot) this.items.push({ ...item, ...spot });
+        else (pack.contents ??= []).push(c);
+      }
+    }
+  }
+
+  /** Puts packed contents into a backpack just received (picked up, taken from a chest). */
+  restoreContents(uid: number, contents: PlacedItem[] | undefined): void {
+    const pack = this.get(uid);
+    if (!pack || !contents?.length || ITEMS[pack.itemId]?.category !== 'backpack') return;
+    const clean = sanitizeItem({ ...pack, contents })?.contents;
+    if (!clean?.length) return;
+    pack.contents = clean;
+    if (pack.container === 'pack') this.unpack(pack);
+    this.fixEquipped();
   }
 
   equip(uid: number | null): boolean {
@@ -299,12 +393,14 @@ export class InventoryModel {
     return true;
   }
 
+  /** Takes an item out; a worn pack leaves with everything in its grids packed inside. */
   remove(uid: number): PlacedItem | null {
-    const i = this.items.findIndex((it) => it.uid === uid);
-    if (i < 0) return null;
-    const [it] = this.items.splice(i, 1);
+    const it = this.get(uid);
+    if (!it) return null;
+    if (it.container === 'pack') this.packInto(it);
+    this.items = this.items.filter((i) => i !== it);
     this.fixEquipped();
-    return it!;
+    return it;
   }
 
   /** An item on the player (null for unknown uids and items left in the camp storage). */
@@ -482,6 +578,9 @@ export class InventoryModel {
   }
 
   /** The main-slot weapon (heavy, then primary) not in hand: carried on the back. */
+  /** Everything carried on the body but not in hand, for the character model (see CarriedGear). */
+  gear(): CarriedGear { return carriedGear(this.items, this.equipped); }
+
   backItem(): PlacedItem | undefined {
     for (const c of ['heavy', 'primary'] as const) {
       const it = this.items.filter((i) => i.container === c && i.uid !== this.equipped).sort((a, b) => a.y - b.y || a.x - b.x)[0];
@@ -489,6 +588,30 @@ export class InventoryModel {
     }
     return undefined;
   }
+}
+
+/**
+ * What hangs on the body (not in hand): long guns slung on the back (on the backpack's sides and
+ * across its top when one is worn), the pistol/SMG on the left belt hook, a grenade or C4 on the
+ * right belt hook, and the worn backpack.
+ */
+export interface CarriedGear { back: string[]; holster: string | null; belt: string | null; pack: string | null }
+
+export function carriedGear(items: readonly PlacedItem[], equipped: number | null): CarriedGear {
+  const free = (c: ContainerId) => items.filter((i) => i.container === c && i.uid !== equipped).sort((a, b) => a.y - b.y || a.x - b.x);
+  const back = (['heavy', 'primary', 'pack_rifle'] as const).flatMap(free).slice(0, 3).map((i) => i.itemId);
+  return { back, holster: free('secondary')[0]?.itemId ?? null, belt: free('grenades')[0]?.itemId ?? null, pack: wornPack(items)?.itemId ?? null };
+}
+
+/** Gear on the wire: second/third back gun, holster and belt as weapon ids in one u32. */
+export function packGear(g: CarriedGear, weaponOf: (itemId: string) => number): { back: number; gear: number; pack: number } {
+  const id = (itemId: string | null | undefined) => (itemId ? weaponOf(itemId) & 0xff : 0);
+  return { back: id(g.back[0]), gear: (id(g.back[1]) | id(g.back[2]) << 8 | id(g.holster) << 16 | id(g.belt) << 24) >>> 0, pack: g.pack ? 1 : 0 };
+}
+
+export function unpackGear(back: number, gear: number, pack: number, itemOf: (weapon: number) => string | undefined): CarriedGear {
+  const item = (w: number) => (w ? itemOf(w) ?? null : null);
+  return { back: [back, gear & 0xff, gear >>> 8 & 0xff].map(item).filter((i): i is string => !!i), holster: item(gear >>> 16 & 0xff), belt: item(gear >>> 24 & 0xff), pack: pack ? 'military_backpack' : null };
 }
 
 /** The kit a brand-new survivor starts with. */

@@ -2,9 +2,15 @@ import { Box3, BufferGeometry, CircleGeometry, DoubleSide, Euler, Float32BufferA
 import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
 import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
+import { fitGripProfile } from './grip-profile';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
 import { aimOffhandLight, offhandLightPose } from './offhand-light';
+import type { Appearance } from '@zion/shared';
+import { FirstPersonHands, type FpHand } from './fp-hands';
+import type { Grasp, HumanAssets } from './human-rig';
+import { usesRifleReload } from './recorded-reload';
+import { ReloadMagazine } from './reload-magazine';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -68,14 +74,39 @@ export class ViewModel {
   private swimPhase = 0;
   private readonly swimRoot = new Group();
   private swimArms: Array<{ arm: Group; toShoulder: Vector3; fist: Vector3; side: -1 | 1 }> = [];
+  /** The survivor's own skinned hands (always shown, holding whatever is in hand). */
+  private hands: FirstPersonHands | null = null;
+  /** Per dressed model: where the support hand holds it (display space), and whether it is a pistol. */
+  private readonly holds = new Map<string, { support: Vector3 | null; pistol: boolean }>();
+  /** Reload in progress (seconds since it started, −1 idle) and its length. */
+  private reloadT = -1;
+  private readonly heldMagazine = new ReloadMagazine();
+  private reloadDur = 1;
+  /** Unarmed jab: seconds since it started, or −1. */
+  private punchT = -1;
+  /** The reload dip: smaller when the hands themselves show the magazine change. */
+  private get dipScale(): number { return this.hands ? .45 : 1; }
 
-  constructor(camera: Camera) {
+  constructor(private readonly camera: Camera) {
     this.root.add(this.pivot);
     this.root.visible = false;
     camera.add(this.root);
     this.swimRoot.visible = false;
     camera.add(this.swimRoot);
   }
+
+  /** Uses the survivor's skinned hands for every first-person pose (replacing the block arms). */
+  setBody(assets: HumanAssets | null, look?: Appearance): void {
+    this.hands?.dispose();
+    this.hands = assets ? new FirstPersonHands(assets, this.camera) : null;
+    if (look) this.hands?.setLook(look);
+    for (const holder of this.supportArms.values()) holder.removeFromParent();
+    this.supportArms.clear();
+    for (const model of this.models.values()) model.getObjectByName('first-person-arm-right')?.removeFromParent();
+  }
+
+  /** The player's look on the first-person hands (skin tone, build). */
+  setLook(look: Appearance): void { this.hands?.setLook(look); }
 
   /** Bare arms used for swimming strokes (the character's own arms, first-person scale). */
   setSwimArms(left: Object3D | null, right: Object3D | null): void {
@@ -134,6 +165,8 @@ export class ViewModel {
     // Each attachment combination is its own dressed model (cached).
     const key = itemId ? `${itemId}|${attachments?.optic ?? ''}|${attachments?.muzzle ?? ''}` : null;
     if (key === this.current) return;
+    this.heldMagazine.clear();
+    this.reloadT = -1;
     this.rig()?.mechanics.cancel();
     this.adsSpeed = attachmentModifier(attachments, 'adsSpeed');
     const optic = weaponOptic(itemId, given);
@@ -142,6 +175,9 @@ export class ViewModel {
     const spec = itemId ? weapons?.get(itemId)?.spec : undefined;
     if (!optic && spec?.fpEyeRelief) this.eyeRelief = spec.fpEyeRelief;
     this.hip.set(...(spec?.fpHip ?? [0.2, -0.27, -0.25]));
+    // With the survivor's own hands, the held item sits a little higher and further in, so the
+    // hands closed round it stay in view.
+    if (this.hands) { this.hip.x = Math.min(this.hip.x, .17); this.hip.y = Math.max(this.hip.y, -.21); this.hip.z = Math.min(this.hip.z, -.3); }
     this.hipTilt = spec?.fpRot ?? [0, 0];
     if (this.current) this.models.get(this.current)!.visible = false;
     this.current = null;
@@ -171,16 +207,17 @@ export class ViewModel {
       const support = weapons?.get(itemId)?.firstPersonSupport;
       const trigger = weapons?.get(itemId)?.firstPersonTrigger;
       const pistol = ITEM_PISTOLS.has(itemId);
-      if (support) {
+      this.holds.set(key, { support: support?.contact.clone() ?? null, pistol: pistol || ITEMS[itemId]?.stance === 'pistol' });
+      if (support && !this.hands) {
         // Support hand: under the handguard (rifles) or wrapped round the firing hand (pistols).
-        const arm = firstPersonArm(support.arm, 'hand_left', support.contact, pistol ? new Vector3(-.3, -.22, -.12) : new Vector3(-.35, -.13, -.16));
+        const arm = firstPersonArm(support.arm, 'hand_left', support.contact.clone().add(new Vector3(0, -.02, 0)), pistol ? new Vector3(-.3, -.22, -.12) : new Vector3(-.35, -.13, -.16));
         if (arm) {
           const holder = new Group();
           holder.name = 'first-person-support'; holder.add(arm); model.add(holder);
           this.supportArms.set(key, holder);
         }
       }
-      if (trigger) {
+      if (trigger && !this.hands) {
         // Firing hand on the grip, its forearm going back and down to the right.
         const arm = firstPersonArm(trigger.arm, 'hand_right', new Vector3(-.005, -.02, 0), new Vector3(-.34, -.24, .16));
         if (arm) { arm.name = 'first-person-arm-right'; model.add(arm); }
@@ -247,7 +284,12 @@ export class ViewModel {
   /** A reload began: magazine / clip animation over its whole length. */
   reload(seconds: number): void {
     this.rig()?.mechanics.reload(seconds);
+    this.reloadT = 0;
+    this.reloadDur = Math.max(.3, seconds);
   }
+
+  /** Empty hands: a quick jab with the right fist. */
+  punch(): void { this.punchT = 0; }
 
   /** Aimed through sights that line up with the screen centre (red dot / iron sights). */
   /** The current optic's lens (magnified optics only). */
@@ -264,6 +306,15 @@ export class ViewModel {
     const marker = this.current ? this.models.get(this.current)?.getObjectByName(`weapon-${point}`) : null;
     if (!marker || !this.root.visible) return false;
     marker.getWorldPosition(out);
+    return true;
+  }
+
+  weaponBore(origin: Vector3, direction: Vector3): boolean {
+    if (!this.weaponPoint('muzzle', origin) || !this.current || !this.rig()?.visual.aim) return false;
+    // Display models are fitted with their bore along +X, including muzzle attachments.
+    const model = this.models.get(this.current)!;
+    model.updateWorldMatrix(true, false);
+    direction.set(1, 0, 0).transformDirection(model.matrixWorld);
     return true;
   }
 
@@ -310,8 +361,19 @@ export class ViewModel {
     this.throwT = 0;
   }
 
-  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean; swimming?: boolean; mantle?: { left: Vector3; right: Vector3 } | null }): void {
+  update(dt: number, s: { visible: boolean; moving: boolean; sprint: boolean; reloading: boolean; yaw: number; pitch: number; firing?: boolean; aiming?: boolean; swimming?: boolean; rolling?: boolean; mantle?: { left: Vector3; right: Vector3 } | null }): void {
+    this.rollBlend += ((s.rolling ? 1 : 0) - this.rollBlend) * (1 - Math.exp(-dt * 12));
     // Mantling: both hands come up onto the ledge and stay planted on it while the view rises.
+    if (this.hands) this.hands.visible = s.visible;
+    if (this.reloadT >= 0 && (this.reloadT += dt) > this.reloadDur) this.reloadT = -1;
+    if (this.punchT >= 0 && (this.punchT += dt) > .36) this.punchT = -1;
+    if (s.mantle && s.visible && this.hands) {
+      this.root.visible = false;
+      this.swimRoot.visible = false;
+      const m = s.mantle;
+      this.hands.request(() => this.ledgeHands(m.left, m.right));
+      return;
+    }
     if (s.mantle && s.visible && this.swimArms.length) {
       this.root.visible = false;
       this.swimRoot.visible = true;
@@ -325,9 +387,9 @@ export class ViewModel {
     this.swimRoot.visible = s.visible && swim > .02 && this.swimArms.length > 0;
     if (this.swimRoot.visible) this.poseSwimArms(this.swimPhase, s.moving ? 1 : 0, (1 - ease(swim)) * .45);
     this.root.visible = s.visible && (this.current !== null || this.offhandId !== null) && swim < .98;
-    this.sprintBlend += ((s.sprint && s.moving && !s.swimming ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-dt * 7));
+    this.sprintBlend += ((s.sprint && s.moving && !s.swimming && !s.aiming && !s.firing && !s.reloading ? 1 : 0) - this.sprintBlend) * (1 - Math.exp(-dt * 7));
     const sprinting = this.sprintBlend;
-    const aiming = !s.reloading && sprinting < .5 && !s.swimming && s.aiming ? 1 : 0;
+    const aiming = !s.reloading && !s.swimming && s.aiming ? 1 : 0;
     this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 14 * this.adsSpeed : 12)));
     const rig = this.rig();
     rig?.mechanics.update(dt);
@@ -344,7 +406,8 @@ export class ViewModel {
     // Bob grows and quickens continuously with the sprint blend: no jump between gaits.
     const targetBob = s.moving && !s.swimming ? 1 + .6 * sprinting : 0;
     this.bobAmount += (targetBob - this.bobAmount) * (1 - Math.exp(-dt * 6));
-    this.bobSpeed += ((s.moving ? 9 + 4 * sprinting : 2.7) - this.bobSpeed) * (1 - Math.exp(-dt * 5));
+    // About 2.5 steps/s walking, 3.5 sprinting (two dips per bob cycle).
+    this.bobSpeed += ((s.moving ? 8 + 3 * sprinting : 2.7) - this.bobSpeed) * (1 - Math.exp(-dt * 5));
     this.bobPhase += dt * this.bobSpeed;
     const bx = Math.sin(this.bobPhase) * 0.012 * this.bobAmount;
     const by = -Math.abs(Math.cos(this.bobPhase)) * 0.012 * this.bobAmount;
@@ -353,6 +416,8 @@ export class ViewModel {
     this.recoil.update(dt);
     this.dip += ((s.reloading ? 1 : 0) - this.dip) * (1 - Math.exp(-dt * 9));
     const sprintTilt = ease(sprinting);
+    ay -= sprintTilt * .1;
+    rx -= sprintTilt * .35;
 
     // Action offsets: position (x, y, z) and rotation (pitch, yaw, roll).
     if (this.swingT >= 0) {
@@ -405,8 +470,8 @@ export class ViewModel {
       // Hip pose, then the sight picture: rotate so the rear→front sight line runs straight down
       // the view axis and move the rear sight (or the optic's eyepiece) onto the eye.
       model.updateMatrix();
-      this.root.position.set(this.hip.x + this.swayX + bx + ax, this.hip.y + this.swayY + by - this.dip * 0.12 + ay + lift, this.hip.z + this.recoil.offset * .6 + az);
-      this.hipQuat.setFromEuler(this.euler.set(this.hipTilt[0] + this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.hipTilt[1] + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant));
+      this.root.position.set(this.hip.x + this.swayX + bx + ax, this.hip.y + this.swayY + by - this.dip * 0.12 * this.dipScale + ay + lift, this.hip.z + this.recoil.offset * .6 + az);
+      this.hipQuat.setFromEuler(this.euler.set(this.hipTilt[0] + this.recoil.offset - this.dip * 0.5 * this.dipScale - sprintTilt * 0.25 + rx, this.hipTilt[1] + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 * this.dipScale + rz + cant));
       this.rear.copy(sight.rear).applyMatrix4(model.matrix);
       this.front.copy(sight.front).applyMatrix4(model.matrix);
       this.adsQuat.setFromUnitVectors(this.direction.subVectors(this.front, this.rear).normalize(), this.forward);
@@ -419,19 +484,167 @@ export class ViewModel {
       this.root.position.lerp(this.adsPos, this.aimBlend);
       this.pivot.quaternion.copy(this.hipQuat).slerp(this.adsQuat, this.aimBlend);
     } else {
-      this.root.position.set((this.hip.x + this.swayX + bx) * relaxed + ax, this.hip.y + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 + ay + lift, this.hip.z - this.aimBlend * .18 + this.recoil.offset * .6 + az);
-      this.pivot.rotation.set(this.hipTilt[0] * relaxed + this.recoil.offset - this.dip * 0.5 - sprintTilt * 0.25 + rx, this.hipTilt[1] * relaxed + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 + rz + cant);
+      this.root.position.set((this.hip.x + this.swayX + bx) * relaxed + ax, this.hip.y + this.aimBlend * 0.02 + (this.swayY + by) * relaxed - this.dip * 0.12 * this.dipScale + ay + lift, this.hip.z - this.aimBlend * .18 + this.recoil.offset * .6 + az);
+      this.pivot.rotation.set(this.hipTilt[0] * relaxed + this.recoil.offset - this.dip * 0.5 * this.dipScale - sprintTilt * 0.25 + rx, this.hipTilt[1] * relaxed + this.swayX * 1.5 + sprintTilt * 0.5 + ry, -this.swayX * 0.8 + this.dip * 0.3 * this.dipScale + rz + cant);
     }
     if (model && this.strikeAxes) {
       model.rotation.set(0, Math.PI / 2, 0);
+      // Carried blades and clubs sway with the running steps (not during a swing).
+      if (this.swingT < 0 && this.bobAmount > .01) {
+        const b = this.bobAmount, ph = this.bobPhase;
+        this.root.position.x += Math.sin(ph) * .022 * b; this.root.position.y -= Math.abs(Math.cos(ph)) * .02 * b;
+        this.pivot.rotation.z += Math.sin(ph) * .07 * b; this.pivot.rotation.x += Math.abs(Math.cos(ph)) * .05 * b;
+      }
       if (this.swingT >= 0) this.meleeEdge.pose(model, this.strikeAxes, this.root.parent!);
       else this.meleeEdge.rest(model, this.strikeAxes);
     }
+    if (this.hands && s.visible) {
+      const swimming = swim > .5, moving = s.moving, phase = this.bobPhase, bob = this.bobAmount;
+      const thrown = hidden;
+      const rifleReload = !!model && !swimming && !thrown && usesRifleReload(this.rig()?.visual.itemId);
+      this.hands.setReload(rifleReload ? this.reloadT : -1, this.reloadDur);
+      this.hands.request(() => (swimming ? this.swimHands() : this.heldHands(model ?? null, thrown, moving, phase, bob)), () => {
+        this.heldMagazine.update(model ?? null, rifleReload && this.reloadT >= 0 ? this.reloadT / this.reloadDur : -1, this.hands!.palmMatrix('L'));
+      });
+    }
+  }
+
+  private rollBlend = 0;
+
+  /**
+   * First-person head bob in step with the run (metres / radians, camera space): a dip on each
+   * footfall, a slight sideways sway and roll; mostly steadied while aiming down the sights.
+   */
+  get headBob(): { x: number; y: number; roll: number } {
+    const b = this.bobAmount * (1 - .8 * this.aimBlend), ph = this.bobPhase;
+    return { x: Math.sin(ph) * .012 * b, y: -Math.abs(Math.cos(ph)) * .03 * b, roll: Math.sin(ph) * .006 * b };
+  }
+
+  /** Both palms over a ledge (mantling), fingers curled round its edge. */
+  private ledgeHands(left: Vector3, right: Vector3): { L: FpHand; R: FpHand } {
+    const fwd = new Vector3(0, 0, -1).transformDirection(this.camera.matrixWorld).setY(0).normalize();
+    const side = new Vector3(-fwd.z, 0, fwd.x);
+    const approach = fwd.clone().multiplyScalar(.35).add(new Vector3(0, -1, 0)).normalize();
+    return {
+      L: { grasp: { center: left.clone().add(new Vector3(0, -.015, 0)), axis: side.clone(), approach, radius: .02 } },
+      R: { grasp: { center: right.clone().add(new Vector3(0, -.015, 0)), axis: side.clone().negate(), approach: approach.clone(), radius: .02 } },
+    };
+  }
+
+  /** Breaststroke: open hands sweeping round in front (the swim stroke's hand path). */
+  private swimHands(): { L: FpHand; R: FpHand } {
+    const t = this.swimPhase;
+    const keys: Array<[number, number, number, number]> = [[0, .05, -.13, -.52], [.3, .3, -.15, -.42], [.55, .17, -.27, -.24], [.8, .05, -.22, -.3], [1, .05, -.13, -.52]];
+    let i = 0;
+    while (i < keys.length - 2 && t > keys[i + 1]![0]) i++;
+    const [t0, x0, y0, z0] = keys[i]!, [t1, x1, y1, z1] = keys[i + 1]!;
+    const k = ease((t - t0) / (t1 - t0));
+    const at = (side: number) => this.camera.localToWorld(new Vector3((x0 + (x1 - x0) * k) * side, y0 + (y1 - y0) * k, z0 + (z1 - z0) * k));
+    return { L: { palm: at(-1), preset: 'open' }, R: { palm: at(1), preset: 'open' } };
+  }
+
+  /**
+   * Hands on what is held: the firing hand on the grip (or a blade's handle), the other on the
+   * handguard or cupping the firing hand; during a reload the support hand swaps the magazine;
+   * empty hands rest low in view, swinging with the steps, and jab when punching.
+   */
+  private heldHands(model: Group | null, thrown: boolean, moving: boolean, phase: number, bob: number): { L: FpHand; R: FpHand } {
+    const cam = (x: number, y: number, z: number) => this.camera.localToWorld(new Vector3(x, y, z));
+    const out: { L: FpHand; R: FpHand } = { L: null, R: null };
+    const hold = this.current ? this.holds.get(this.current) : undefined;
+    if (model && !thrown) {
+      model.updateWorldMatrix(true, false);
+      const W = (x: number, y: number, z: number) => model.localToWorld(new Vector3(x, y, z));
+      const D = (x: number, y: number, z: number) => new Vector3(x, y, z).transformDirection(model.matrixWorld);
+      const strike = this.strikeAxes;
+      if (strike) {
+        // A blade or club: the handle runs along the display's +X, the palm on its right.
+        const axis = D(strike.axis.x, strike.axis.y, strike.axis.z);
+        const approach = D(0, 0, -1);
+        approach.addScaledVector(axis, -approach.dot(axis)).normalize();
+        out.R = { grasp: { center: model.localToWorld(strike.grip.clone()), axis, approach, radius: .016 } };
+        if (hold?.support) out.L = { grasp: { center: model.localToWorld(hold.support.clone()), axis: axis.clone(), approach: approach.clone(), radius: .016 } };
+      } else if (this.rig()?.visual.aim || this.rig()?.visual.muzzle || hold?.support) {
+        const basis = !hold?.pistol ? this.hands?.rifleGripBasis('R') : null;
+        const supportBasis = !hold?.pistol ? this.hands?.rifleGripBasis('L') : null;
+        const handle = basis ? D(basis.axis.x, basis.axis.y, basis.axis.z) : D(.34, .94, 0);
+        const grip: Grasp = fitGripProfile(model, { center: W(0, 0, 0), axis: handle, approach: basis ? D(basis.approach.x, basis.approach.y, basis.approach.z) : D(.35, 0, -1).normalize(), radius: this.rig()?.visual.spec?.gripRadius ?? .017, trigger: true });
+        out.R = { grasp: grip };
+        const guard: Grasp | null = hold?.pistol
+          ? { center: W(-.004, -.032, -.032), axis: handle.clone(), approach: D(0, .25, 1).normalize(), radius: .03 }
+          : hold?.support ? { center: model.localToWorld(hold.support.clone()), axis: supportBasis ? D(supportBasis.axis.x, supportBasis.axis.y, supportBasis.axis.z) : D(1, 0, 0), approach: supportBasis ? D(supportBasis.approach.x, supportBasis.approach.y, supportBasis.approach.z) : D(0, 1, .35).normalize(), radius: this.rig()?.visual.spec?.supportRadius ?? .021 } : null;
+        out.L = guard ? { grasp: fitGripProfile(model, guard) } : null;
+        const r = this.reloadT >= 0 ? this.reloadT / this.reloadDur : -1;
+        const recordedReload = !!this.hands?.recordedReload;
+        // Long guns: both arms from the recorded rifle hold, the gun in the recorded firing hand.
+        if (!hold?.pistol && hold?.support) {
+          const spec = this.rig()?.visual.spec;
+          out.R = { rifle: { model, key: this.current ?? '', support: hold.support.clone(), gripRadius: spec?.gripRadius, supportRadius: spec?.supportRadius } };
+          // The support hand is placed with the arms; a non-recorded reload overrides it below.
+          out.L = null;
+        }
+        if (guard && !recordedReload && r > .04 && r < .97) {
+          // Magazine change: down to the magazine, pull it, a fresh one from below the view, in,
+          // a slap, then the charging handle, and back to the handguard.
+          const reach = hold?.support ?? new Vector3(.2, -.03, 0);
+          const mag = W(reach.x * .3, -.08, 0), out1 = cam(-.14, -.62, -.2), rack = W(.03, .045, .045);
+          const keys: Array<[number, Vector3, 'fist' | 'open' | 'pinch' | 'ready']> = [
+            [0, guard.center, 'ready'], [.12, mag, 'fist'], [.26, mag.clone().add(D(0, -.14, 0)), 'fist'], [.42, out1, 'fist'], [.5, out1, 'fist'],
+            [.64, mag.clone().add(D(0, -.13, 0)), 'fist'], [.72, mag, 'fist'], [.76, mag.clone().add(D(0, .014, 0)), 'open'],
+            [.84, rack, 'pinch'], [.9, rack.clone().add(D(-.07, 0, 0)), 'pinch'], [.95, rack, 'pinch'], [1, guard.center, 'ready'],
+          ];
+          let i = 0;
+          while (i < keys.length - 2 && r > keys[i + 1]![0]) i++;
+          const [t0, p0] = keys[i]!, [t1, p1, preset] = keys[i + 1]!;
+          out.L = { palm: p0.clone().lerp(p1, ease((r - t0) / (t1 - t0))), preset };
+        }
+      } else {
+        // Grenades, tools, the detonator: closed round in the right hand.
+        out.R = { palm: W(0, 0, 0), preset: 'fist' };
+      }
+    } else if (thrown) {
+      out.R = { palm: cam(.2, -.2, -.5), preset: 'open' };
+    }
+    // Running: the arms pump forward and back in opposite phase, lifting a little on each step.
+    // (Kept small: at a sprint the bob grows, and a free hand swinging far looks loose.)
+    const swing = moving ? Math.sin(phase) * Math.min(1, bob) : 0, lift = moving ? Math.abs(Math.cos(phase)) * Math.min(1, bob) : 0;
+    if (!out.R && !model) {
+      // Empty hands: low in view, swinging with each step; a jab when punching.
+      const p = this.punchT >= 0 ? Math.sin(Math.min(1, this.punchT / .36) * Math.PI) : 0;
+      out.R = { palm: cam(.2 - .14 * p, -.3 + .14 * p + .015 * lift, -.42 - .045 * swing - .28 * p), preset: p > .05 ? 'fist' : moving ? 'ready' : 'relaxed' };
+      // The other hand draws back as the punch goes out.
+      if (!this.offhandModel) out.L = { palm: cam(-.2 + .03 * p, -.3 + .015 * lift, -.42 + .045 * swing + .08 * p), preset: p > .05 ? 'fist' : moving ? 'ready' : 'relaxed' };
+    }
+    // Both hands always in view: a free hand rests low at its side of the view.
+    if (!out.R && !this.offhandModel && model) out.R = { palm: cam(.17, -.22, -.4), preset: 'relaxed' };
+    const rifleHeld = !!out.R && 'rifle' in out.R;
+    if (!out.L && !rifleHeld && !this.offhandModel && !(this.reloadT >= 0)) {
+      // The free hand rests low at the side of the view, swings with the steps and pulls back
+      // against a swing (the body's counter-rotation).
+      const cut = this.swingT >= 0 ? Math.sin(Math.min(1, this.swingT / .46) * Math.PI) : 0;
+      out.L = { palm: cam(-.28 + .05 * cut, -.29 + .015 * lift - .04 * cut, -.42 + .04 * swing + .12 * cut), preset: moving || cut > .1 ? 'ready' : 'relaxed' };
+    }
+    if (this.rollBlend > .01) {
+      // Rolling: the hands tuck in low towards the chest.
+      const k = ease(this.rollBlend);
+      for (const side of ['L', 'R'] as const) {
+        const h = out[side];
+        if (h && 'palm' in h) h.palm.lerp(cam(side === 'L' ? -.12 : .12, -.45, -.25), k);
+      }
+    }
+    if (this.offhandModel) {
+      const off = this.offhandModel;
+      off.updateWorldMatrix(true, false);
+      out.L = { grasp: { center: off.localToWorld(new Vector3()), axis: new Vector3(1, 0, 0).transformDirection(off.matrixWorld), approach: new Vector3(0, 0, 1).transformDirection(off.matrixWorld), radius: .018 } };
+    }
+    return out;
   }
 
   dispose(): void {
+    this.heldMagazine.clear();
     this.root.removeFromParent();
     this.swimRoot.removeFromParent();
+    this.hands?.dispose();
   }
 }
 

@@ -2,10 +2,11 @@ import { Box3, Group, Matrix4, Mesh, Vector3, type Euler, type Object3D, type Sc
 import { EntityFlags, Limb, isCrawling, ZombieVariant } from '@zion/shared';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip, type CharacterTemplate } from './character-model';
 import { Ragdoll } from './ragdoll';
-import { armorPieces } from './armor-models';
+import { AnimatedZombie } from './animated-zombie';
+import type { SkinnedRagdoll } from './skinned-ragdoll';
+export { ZOMBIE_MODEL_URLS } from './zombie-model';
 
-export const ZOMBIE_MODEL_URL = '/models/mobs/hunched-rotting-zombie.bbmodel';
-export const ZOMBIE_MODEL_URLS = [ZOMBIE_MODEL_URL, '/models/mobs/gaunt-zombie.bbmodel', '/models/mobs/brute-zombie.bbmodel', '/models/mobs/crimson-eyed-zombie.bbmodel'] as const;
+export const ZOMBIE_MODEL_URL = '/models/mobs/polyart-zombie-01.glb';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -56,6 +57,7 @@ export interface LastHit {
 
 /** Rendered zombie: shambles/runs, lunges, loses limbs, crawls, and collapses when killed. */
 export class ZombieAvatar {
+  private readonly native: AnimatedZombie | null = null;
   readonly root = new Group();
   private readonly model: Group;
   private readonly bones = new Map<string, Bone>();
@@ -83,7 +85,16 @@ export class ZombieAvatar {
     private readonly onGore: GoreCallback,
     scale = 1,
     private readonly variant: ZombieVariant = ZombieVariant.Rotting,
+    motionSeed = 0,
   ) {
+    if (template.zombie) {
+      this.root.scale.setScalar(scale);
+      this.native = new AnimatedZombie(template, this.root, variant, onGore, motionSeed);
+      this.model = this.native.model;
+      for (const [name, node] of this.native.sockets) this.bones.set(name, { node, restPos: node.position.clone(), restRot: node.rotation.clone() });
+      this.root.visible = false;
+      return;
+    }
     this.model = template.root.clone(true);
     this.model.traverse((o) => {
       if (o instanceof Mesh) {
@@ -98,36 +109,14 @@ export class ZombieAvatar {
     this.root.visible = false;
   }
 
-  private readonly armor = new Map<string, Object3D[]>();
-  private restWorld: Map<string, Vector3> | null = null;
   private bucket: Object3D | null = null;
-
-  /** Armour off a dead survivor (same pieces as the players'), riding on this zombie's bones. */
-  setArmor(slot: string, template: CharacterTemplate | null): void {
-    for (const o of this.armor.get(slot) ?? []) o.removeFromParent();
-    this.armor.delete(slot);
-    if (!template) return;
-    if (!this.restWorld) {
-      // Bone rest positions in model space (taken once, before any animation moved them).
-      const saved = this.model.parent;
-      this.model.removeFromParent(); this.model.updateMatrixWorld(true);
-      this.restWorld = new Map([...this.bones].map(([name, b]) => [name, b.node.getWorldPosition(new Vector3())]));
-      saved?.add(this.model);
-    }
-    const objs: Object3D[] = [];
-    for (const { bone, object } of armorPieces(template, (b) => this.restWorld!.get(b))) {
-      this.bones.get(bone)?.node.add(object);
-      objs.push(object);
-    }
-    this.armor.set(slot, objs);
-  }
 
   /** An iron bucket upside down over the head (`model`: the bucket prop), or none. */
   setBucket(model: Object3D | null): void {
     this.bucket?.removeFromParent();
     this.bucket = null;
     const head = this.bones.get('head')?.node;
-    if (!model || !head) return;
+    if (!model || !head || this.variant === ZombieVariant.Crimson || this.template.zombie?.kind === 'dog') return;
     // Fit it over the head: a little wider than the skull, sitting down to the brow.
     const box = new Box3().setFromObject(model), size = box.getSize(new Vector3());
     const holder = new Group();
@@ -165,7 +154,8 @@ export class ZombieAvatar {
   }
 
   /** The killing hit makes the connected body go limp, just like a player corpse. */
-  startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): Ragdoll | null {
+  startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): Ragdoll | SkinnedRagdoll | null {
+    if (this.native) { this.deadFor = 0; return this.native.startRagdoll(kx, kz, force, ground); }
     if (this.deadFor >= 0) return this.ragdoll;
     this.deadFor = 0; // Death stays latched while older interpolated snapshots catch up.
     this.flinch = 0;
@@ -177,6 +167,7 @@ export class ZombieAvatar {
 
   /** Clone only this zombie's head; shared mesh resources remain owned by the model library. */
   severHead(kx = 0, kz = 1, force = 4): void {
+    if (this.native) { this.native.severHead(kx, kz, force); return; }
     if (this.variant === ZombieVariant.Brute || this.detachedHead) return;
     const head = this.bones.get('head')?.node;
     if (!head) return;
@@ -223,6 +214,19 @@ export class ZombieAvatar {
   private headPitch = 0;
 
   update(x: number, y: number, z: number, yaw: number, flags: number, limbs: number, dt: number, health = 100, pitch = 0): void {
+    if (this.native) {
+      if (this.lastX !== this.lastX) { this.lastX = x; this.lastZ = z; }
+      const speed = Math.hypot(x - this.lastX, z - this.lastZ) / Math.max(.001, dt);
+      this.lastX = x; this.lastZ = z;
+      if (this.deadFor < 0) { this.root.position.set(x, y, z); this.root.rotation.y = yaw; }
+      const ground = this.ground ?? (() => y);
+      if (limbs & Limb.Head) this.native.severHead(Math.sin(yaw), Math.cos(yaw), 4);
+      if ((flags & EntityFlags.Dead) && this.deadFor < 0) this.startRagdoll(Math.sin(yaw), Math.cos(yaw), 1, ground);
+      this.native.update(speed, flags, limbs, dt, pitch, this.flinch, ground);
+      this.flinch = Math.max(0, this.flinch - dt * 5);
+      this.updateVisibility(dt);
+      return;
+    }
     if ((limbs & Limb.Head) && !this.detachedHead) {
       if (!this.ragdoll && this.deadFor < 0) { this.root.position.set(x, y, z); this.root.rotation.y = yaw; }
       this.severHead(Math.sin(yaw), Math.cos(yaw));
@@ -377,6 +381,7 @@ export class ZombieAvatar {
   }
 
   dispose(scene: Scene): void {
+    this.native?.dispose();
     this.ragdoll?.release();
     this.ragdoll = null;
     this.detachedHead?.node.removeFromParent();

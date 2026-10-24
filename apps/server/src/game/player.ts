@@ -1,4 +1,4 @@
-import type { SuspendedZombie } from '@zion/shared';
+import type { Appearance, SuspendedZombie } from '@zion/shared';
 import type { LifePlayer, TimedAction } from './base-life';
 import type { TutorialId } from '@zion/shared';
 import type { QuestEvent, QuestJournal } from './quests';
@@ -91,6 +91,8 @@ export class Player {
   pvpUntil = 0;
   pvpLastSecond = 0;
   rank = { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' };
+  /** The character look chosen in the creator (null: never chosen). */
+  look: Appearance | null = null;
   suspendedZombies: SuspendedZombie[] = [];
   nextEncounterRestoreAt = 0;
   readonly state: CharacterState;
@@ -152,10 +154,18 @@ export class Player {
   readonly suspicion = new SuspicionTracker();
   readonly history = new PoseHistory();
   attackReadyAt = 0;
+  /** Blade combo: the step of the last swing (−1 none) and when that swing could be followed. */
+  bladeStep = -1;
+  /** Long or heavy swings so far (they alternate recorded swings). */
+  meleeSwings = 0;
+  bladeReadyAt = 0;
   /** WeaponId currently in hand (client-declared loadout; rules enforced server-side). */
   weapon = 0;
   /** WeaponId slung on the back (cosmetic, shown to others). */
   backWeapon = 0;
+  /** Other carried gear for the character model (see packGear) and whether a backpack is worn. */
+  gearPacked = 0;
+  packWorn = 0;
   /** Armour the client reports wearing (wire ids per slot) and its movement multiplier. */
   armor: ArmorLoadout = { ...NO_ARMOR };
   speedMul = 1;

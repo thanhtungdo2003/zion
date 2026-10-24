@@ -14,6 +14,7 @@ import {
 } from 'three';
 import { FACES, type FaceName } from './bbmodel-loader';
 import { cachedFetch } from '@/lib/preload';
+import { HUMAN_SCALE, fetchBinary, loadHumanAssets, type HumanAssets } from './human-rig';
 
 /** Served from apps/web/public/models (copy of /models/characters/teen-wasteland-survivor.bbmodel). */
 export const CHARACTER_MODEL_URL = '/models/characters/teen-wasteland-survivor.bbmodel';
@@ -82,12 +83,17 @@ export interface CharacterClip {
 }
 
 export interface CharacterTemplate {
+  zombie?: import('./zombie-model').ZombieModel;
   /** Bone hierarchy with merged per-bone meshes; clone(true) per avatar (geometry is shared). */
   root: Group;
   boneNames: string[];
   clips: Map<string, CharacterClip>;
   /** Fitting metadata written by ModelGen (`zion_attachment`), when the file has it. */
   attachment?: ModelAttachmentFitting;
+  /** Authored gun grip/support sockets from the model itself. */
+  weapon?: ModelWeaponFitting;
+  /** The skinned survivor that follows this rig (player characters). */
+  human?: HumanAssets;
 }
 
 /** `zion_attachment` of a ModelGen accessory: points in the file's pixels, +Z forward, +Y up. */
@@ -100,6 +106,12 @@ export interface ModelAttachmentFitting {
   eye?: [number, number, number];
   muzzle?: [number, number, number];
   lens?: string;
+}
+
+export interface ModelWeaponFitting {
+  barrel?: Vec3; up?: Vec3; grip?: Vec3; support?: Vec3; muzzle?: Vec3; eject?: Vec3;
+  length?: number; rail?: Vec3; sight?: { rear: Vec3; front: Vec3 };
+  gripAxis?: Vec3; supportAxis?: Vec3; gripRadius?: number; supportRadius?: number;
 }
 
 function num(v: string | number | undefined): number {
@@ -296,7 +308,8 @@ export async function buildBBModel(model: RawModel): Promise<CharacterTemplate> 
   root.name = 'character';
   for (const node of model.outliner) if (typeof node !== 'string') root.add(buildBone(node, [0, 0, 0]));
   const attachment = (model as { zion_attachment?: ModelAttachmentFitting }).zion_attachment;
-  return { root, boneNames, clips: parseClips(model), ...(attachment ? { attachment } : {}) };
+  const weapon = (model as { zion_weapon?: ModelWeaponFitting }).zion_weapon;
+  return { root, boneNames, clips: parseClips(model), ...(attachment ? { attachment } : {}), ...(weapon ? { weapon } : {}) };
 }
 
 /** Samples a track at time t (seconds) into out; linear between keys, holds outside. */
@@ -365,7 +378,64 @@ export function mirrorCharacter(template: CharacterTemplate): CharacterTemplate 
   return template;
 }
 
-/** A player / NPC character model, mirrored so its named right hand is on the right. */
+/**
+ * The rig's bones re-pivoted onto the survivor model's joints (model space: feet on y = 0, facing
+ * −Z, the character's right on +X). Same names, hierarchy and clips as the Blockbench rig, so all
+ * gameplay posing (clips, aim, held weapons, ragdoll) is unchanged; its meshes are dropped and the
+ * skinned survivor (`HumanBody`) follows it instead.
+ */
+export function survivorTemplate(rig: CharacterTemplate, human: HumanAssets): CharacterTemplate {
+  const root = rig.root.clone(true);
+  const meshes: Mesh[] = [];
+  root.traverse((o) => { if (o instanceof Mesh) meshes.push(o); });
+  for (const m of meshes) m.removeFromParent();
+  const at = (name: string) => {
+    const i = human.index.get(name);
+    if (i === undefined) throw new Error(`survivor model lacks ${name}`);
+    const p = human.restP[i]!;
+    return new Vector3(-p.x, p.y, -p.z).multiplyScalar(HUMAN_SCALE);
+  };
+  // The rig's hand pivot sits a fist below its grip point (weapons are fitted to that grip): put
+  // the grip where the survivor's palm is with the arm hanging, the elbow very slightly bent.
+  const reach = (side: 'L' | 'R') => (at(`upper_arm_${side}`).distanceTo(at(`forearm_${side}`)) + at(`forearm_${side}`).distanceTo(at(`hand_${side}`)) + human.hands[side].palm.length() * HUMAN_SCALE) * .97;
+  const pivots: Record<string, Vector3> = {
+    root: new Vector3(),
+    body: at('spine_001'),
+    head: at('spine_004'),
+    back_attach: new Vector3(0, at('spine_003').y, .118 * HUMAN_SCALE),
+    arm_right: at('upper_arm_R'), arm_left: at('upper_arm_L'),
+    leg_right: at('thigh_R'), leg_left: at('thigh_L'),
+  };
+  // Hanging a little away from the body, as relaxed arms do (straight down they press into the ribs).
+  pivots.hand_right = pivots.arm_right!.clone().add(new Vector3(.21, -1, 0).normalize().multiplyScalar(reach('R') + HAND_GRIP_HEIGHT));
+  pivots.hand_left = pivots.arm_left!.clone().add(new Vector3(-.21, -1, 0).normalize().multiplyScalar(reach('L') + HAND_GRIP_HEIGHT));
+  root.traverse((o) => {
+    const p = pivots[o.name];
+    if (!p || !o.userData.restPos) return;
+    const parent = o.parent && pivots[o.parent.name] ? pivots[o.parent.name]! : new Vector3();
+    o.position.copy(p).sub(parent);
+    o.userData.restPos = o.position.clone();
+  });
+  return { root, boneNames: [...rig.boneNames], clips: rig.clips, human };
+}
+
+/** Height of the rig hand's grip point above its pivot (`HAND_GRIP` in weapons.ts). */
+const HAND_GRIP_HEIGHT = 2 / UNITS_PER_METER;
+
+/**
+ * The player character: the survivor model (with its rig re-pivoted to it), or the Blockbench
+ * character itself for other models and when the survivor cannot load.
+ */
 export async function loadPlayerCharacter(url = CHARACTER_MODEL_URL, onProgress?: (p: number) => void): Promise<CharacterTemplate> {
-  return mirrorCharacter(await loadCharacterModel(url, onProgress));
+  const rig = mirrorCharacter(await loadCharacterModel(url, (p) => onProgress?.(url === CHARACTER_MODEL_URL ? p * .1 : p)));
+  if (url !== CHARACTER_MODEL_URL) return rig;
+  try {
+    const human = await loadHumanAssets((u) => fetchBinary(cachedFetch, u, (p) => onProgress?.(.1 + p * .9)));
+    const template = survivorTemplate(rig, human);
+    rig.root.traverse((o) => { if (o instanceof Mesh) (o.geometry as BufferGeometry).dispose(); });
+    return template;
+  } catch (err) {
+    console.warn('survivor model unavailable, using the block character', err);
+    return rig;
+  }
 }

@@ -1440,6 +1440,14 @@ kbd {
   color: var(--accent-ink);
 }
 
+/* A visor or mask over the eyes: the screen edges dark, the more the narrower the view. */
+.hud-visor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 48%, transparent calc(78% - var(--visor) * 110%), rgba(4, 6, 8, 0.92) calc(100% - var(--visor) * 60%));
+}
+
 /* Damage: red haze around the screen edges, fading out. */
 .hud-hurt {
   position: absolute;
@@ -2377,8 +2385,9 @@ kbd {
 .fp-scope-focus { position: fixed; inset: 0; pointer-events: none; z-index: 0; -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); -webkit-mask-image: radial-gradient(circle at center, transparent 24vmin, rgba(0, 0, 0, .45) 38vmin, #000 72vmin); mask-image: radial-gradient(circle at center, transparent 24vmin, rgba(0, 0, 0, .45) 38vmin, #000 72vmin); animation: fp-scope-focus .25s ease-out; }
 @keyframes fp-scope-focus { from { opacity: 0; } }
 .fp-scope-reticle { display: block; width: 100%; height: 100%; }
-.fp-scope-etching { fill: none; stroke: #0a0b0c; stroke-width: .45; filter: drop-shadow(0 0 .15px #fff9); }
-.fp-scope-dot { fill: #e24632; }
+.fp-scope-etching { fill: none; stroke: #050607; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: .9; }
+.fp-scope-etching path { vector-effect: non-scaling-stroke; }
+.fp-scope-dot { fill: #050607; }
 .fp-scope-power { fill: var(--accent); font: 600 5px var(--mono); paint-order: stroke; stroke: #000; stroke-width: .4; letter-spacing: .7px; }
 .chest-price { font: 700 11px var(--mono); font-style: normal; color: var(--accent); white-space: nowrap; }
 .inv-cache-out { color: var(--danger) !important; }
@@ -2724,8 +2733,8 @@ kbd {
 .hud-spectate b { font: 700 20px var(--sans); color: #cfe6ff; }
 
 /* ---- Optics: calibrated reticles, red dot, night vision (confined to the lens). */
-.fp-scope-mil { fill: #0a0b0c; stroke: none; }
-.fp-scope-post { stroke-width: 2.2; }
+.fp-scope-mil { fill: #050607; stroke: none; }
+.fp-scope-post { stroke-width: 3px; }
 .fp-scope-label { fill: #0a0b0c; stroke: none; font: 600 3.2px var(--mono); }
 .fp-scope-lens.nv { backdrop-filter: grayscale(1) brightness(2.6) contrast(1.4) sepia(1) hue-rotate(58deg) saturate(3.2); }
 .fp-scope-lens.nv::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(circle, transparent 55%, rgba(0, 20, 0, .55) 100%), repeating-linear-gradient(0deg, rgba(0, 0, 0, .08) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
@@ -2742,7 +2751,7 @@ kbd {
 .fp-nv-hint.on .fp-nv-pupil { fill: #7dff5a; }
 @keyframes fp-nv-wheel { 50% { transform: translateY(1.6px); } }
 .fp-reddot { position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; z-index: 1; }
-.fp-reddot i { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: #ff2a1a; box-shadow: 0 0 4px 1px rgba(255, 40, 20, .8), 0 0 10px 2px rgba(255, 40, 20, .35); }
+.fp-reddot i { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: #ff1414; box-shadow: 0 0 2px .5px rgba(255, 0, 0, .55); }
 
 /* ---- Attachment screen (Alt / right-click a gun): the gun over the game, slots around it. */
 .att-screen { position: fixed; inset: 0; z-index: 60; background: transparent; pointer-events: auto; }
@@ -2794,8 +2803,12 @@ kbd {
 .wg-ret { fill: none; stroke: #b6ff9a; stroke-width: 1; }
 .wg-ret-dot { fill: #b6ff9a; }
 .inv-attach-hint { position: absolute; right: 8px; bottom: -112px; width: 300px; padding: 4px 8px; background: rgba(9,11,10,.92); border: 1px solid var(--line); pointer-events: none; }
-.fp-reddot.holo i { left: -1.5px; top: -1.5px; width: 3px; height: 3px; }
-.fp-reddot.holo b { position: absolute; left: -26px; top: -26px; width: 52px; height: 52px; border-radius: 50%; border: 1.5px solid rgba(255, 50, 30, .9); box-shadow: 0 0 6px rgba(255, 40, 20, .55); }
+.fp-reddot.holo i { left: -1px; top: -1px; width: 2px; height: 2px; }
+.fp-reddot.holo b { position: absolute; left: -26px; top: -26px; width: 52px; height: 52px; border-radius: 50%; border: 1px solid rgba(255, 20, 20, .9); box-shadow: 0 0 2px rgba(255, 0, 0, .4); }
+/* EOTech-style ticks at the ring's four points. */
+.fp-reddot.holo b::before, .fp-reddot.holo b::after { content: ''; position: absolute; background: rgba(255, 20, 20, .9); }
+.fp-reddot.holo b::before { left: 50%; top: -5px; width: 1px; height: calc(100% + 10px); margin-left: -.5px; clip-path: polygon(0 0, 100% 0, 100% 8px, 0 8px, 0 calc(100% - 8px), 100% calc(100% - 8px), 100% 100%, 0 100%); }
+.fp-reddot.holo b::after { top: 50%; left: -5px; height: 1px; width: calc(100% + 10px); margin-top: -.5px; clip-path: polygon(0 0, 8px 0, 8px 100%, calc(100% - 8px) 100%, calc(100% - 8px) 0, 100% 0, 100% 100%, 0 100%); }
 
 .shop-attach-guide { margin-left: auto; width: 170px; align-self: center; opacity: .85; }
 .shop-attach-guide .wg-guide { margin: 0; }
@@ -3265,3 +3278,148 @@ kbd {
 .map-tile-players svg { width: 14px; height: 14px; }
 .map-pages { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 10px; }
 @media (max-width: 700px) { .map-grid { grid-template-columns: repeat(2, 1fr); grid-auto-rows: 130px; } }
+
+/* ------------------------------------------------------------- character creator */
+/* Same DNA as the menu: hard edges, flat dark panels, one amber accent, condensed caps. */
+.cc-overlay { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-columns: minmax(0, 1fr) 420px; background: var(--bg); font-family: var(--sans); }
+.cc-stage { position: relative; min-height: 0; overflow: hidden; }
+.cc-stage canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+.cc-stage canvas:active { cursor: grabbing; }
+.cc-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font: 600 13px var(--cond); letter-spacing: .12em; text-transform: uppercase; }
+.cc-stage-hint { position: absolute; left: 24px; bottom: 22px; display: flex; align-items: center; gap: 8px; color: var(--muted); font: 600 11px var(--cond); letter-spacing: .16em; text-transform: uppercase; pointer-events: none; }
+.cc-stage-hint svg { width: 16px; height: 16px; }
+.cc-stage-height { position: absolute; left: 24px; top: 24px; display: grid; gap: 2px; padding: 10px 14px; border: 1px solid var(--line); border-left: 2px solid var(--accent); background: var(--panel); pointer-events: none; }
+.cc-stage-height small { color: var(--muted); font: 600 10px var(--cond); letter-spacing: .18em; text-transform: uppercase; }
+.cc-stage-height b { font: 800 22px/1 var(--cond); letter-spacing: .04em; }
+.cc-panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel-solid); border-left: 1px solid var(--line); border-top: 2px solid var(--accent); }
+.cc-head { padding: 24px 24px 10px; }
+.cc-head h2 { margin: 0 0 8px; font: 800 28px/1.05 var(--cond); letter-spacing: .1em; text-transform: uppercase; }
+.cc-head p { margin: 0; color: var(--muted); font: 13px/1.6 var(--sans); }
+.cc-tabs { margin: 8px 24px 0; }
+.cc-tabs .tab { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 2px; font-size: 11px; letter-spacing: .08em; }
+.cc-tabs .tab svg { width: 18px; height: 18px; }
+.cc-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 16px; scrollbar-width: thin; }
+.cc-body h3 { margin: 16px 0 10px; color: var(--muted); font: 700 11px var(--cond); letter-spacing: .18em; text-transform: uppercase; }
+.cc-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.cc-option { display: grid; gap: 3px; min-height: 58px; padding: 10px 12px; border: 1px solid var(--line); border-left: 2px solid var(--line); border-radius: 0; background: #16181a; color: var(--text); text-align: left; cursor: pointer; }
+.cc-option b { font: 700 14px/1.2 var(--cond); letter-spacing: .03em; }
+.cc-option small { color: var(--muted); font: 11px/1.35 var(--sans); }
+.cc-option:hover { border-color: #4a4e52; }
+.cc-option[aria-pressed='true'] { border-color: var(--accent); border-left-color: var(--accent); background: rgba(255, 176, 0, .08); }
+.cc-option:focus-visible, .cc-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cc-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.cc-swatch { width: 36px; height: 36px; padding: 0; border: 1px solid rgba(255, 255, 255, .18); border-radius: 0; cursor: pointer; box-shadow: inset 0 0 0 2px var(--panel-solid); }
+.cc-swatch[aria-checked='true'] { border: 2px solid var(--accent); box-shadow: inset 0 0 0 2px var(--panel-solid); }
+.cc-check { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--text); font: 13px var(--sans); cursor: pointer; }
+.cc-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.cc-slider { display: grid; gap: 6px; margin-bottom: 14px; }
+.cc-slider-head { display: flex; justify-content: space-between; align-items: baseline; }
+.cc-slider-head b { font: 600 12px var(--cond); letter-spacing: .1em; text-transform: uppercase; }
+.cc-slider-head em { font: 700 13px var(--mono); font-style: normal; color: var(--accent); }
+.cc-slider-ends { display: flex; justify-content: space-between; color: var(--muted); font: 10px var(--sans); }
+.cc-slider input[type='range'] { width: 100%; height: 4px; appearance: none; -webkit-appearance: none; background: #26292c; border-radius: 0; outline: none; cursor: pointer; }
+.cc-slider input[type='range']::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 12px; height: 20px; border: 0; border-radius: 0; background: var(--accent); cursor: pointer; }
+.cc-slider input[type='range']::-moz-range-thumb { width: 12px; height: 20px; border: 0; border-radius: 0; background: var(--accent); cursor: pointer; }
+.cc-slider input[type='range']:focus-visible { outline: 1px solid var(--accent); outline-offset: 6px; }
+.cc-panel > .error { margin: 0 24px 8px; }
+.cc-foot { display: grid; gap: 8px; padding: 14px 24px 20px; border-top: 1px solid var(--line); }
+.cc-foot-tools, .cc-foot-main { display: flex; gap: 8px; }
+.cc-foot .btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.cc-foot .btn svg { width: 16px; height: 16px; }
+.cc-foot-tools .btn { padding-block: 9px; font-size: 12px; }
+.cc-foot-main .btn { width: auto; flex: 1; min-height: 48px; }
+.cc-foot-main .btn-primary { flex: 2; font-size: 15px; }
+.menu-profile-look { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.menu-profile-look svg { width: 16px; height: 16px; }
+@media (max-width: 900px) {
+  .cc-overlay { grid-template-columns: 1fr; grid-template-rows: 42dvh minmax(0, 1fr); }
+  .cc-panel { border-left: 0; }
+  .cc-head { padding: 14px 16px 4px; }
+  .cc-head h2 { font-size: 22px; }
+  .cc-head p { display: none; }
+  .cc-tabs { margin: 4px 16px 0; }
+  .cc-body { padding: 0 16px 12px; }
+  .cc-foot { padding: 10px 16px max(12px, env(safe-area-inset-bottom)); }
+  .cc-stage-hint { left: 16px; bottom: 12px; }
+  .cc-stage-height { left: 16px; top: 16px; padding: 8px 10px; }
+  .cc-stage-height b { font-size: 18px; }
+}
+@media (max-height: 520px) and (min-width: 600px) {
+  .cc-overlay { grid-template-columns: minmax(0, 1fr) minmax(320px, 46%); grid-template-rows: none; }
+  .cc-head p { display: none; }
+}
+
+/* ---- Full-screen inventory: frosted glass over the game, four columns -------------------------
+   1 storage (pockets + backpack) · 2 weapon slots · 3 the character (or the armour beside a chest)
+   · 4 armour + backpack (or the chest / station). Amber stays on what matters. */
+.inv-overlay:has(.inv-full) { background: rgba(6, 9, 12, .38); backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15); }
+.inv-wrap.inv-full { position: fixed; inset: 0; transform: none; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: stretch; }
+.inv-full > .inv-panel { width: 100%; height: 100%; max-width: none; background: transparent; border: 0; padding: 22px 32px 24px; display: flex; flex-direction: column; }
+.inv-full .inv-title { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.inv-full .inv-title h2 { font-size: 20px; letter-spacing: .06em; text-transform: uppercase; }
+.inv-full .inv-close { border-color: rgba(255, 176, 0, .55); color: var(--accent); }
+.inv-quad { flex: none; min-height: 0; display: flex; justify-content: center; align-items: stretch; gap: 8px; margin: auto 0; }
+/* Bento: every tray exactly as tall as the others; boxes have fixed overheads (BENTO in Inventory.tsx). */
+.inv-quad > .inv-col { gap: 8px; height: 100%; min-height: 0; }
+.inv-full .inv-box { padding: 6px 8px 8px; }
+.inv-full .inv-box header { height: 18px; margin-bottom: 4px; align-items: center; overflow: hidden; white-space: nowrap; }
+.inv-full .inv-col .inv-row { gap: 8px; align-items: stretch; }
+/* A one-piece slot fills its share of the tray; its cells sit centred. */
+.inv-fill { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.inv-fill-area { flex: 1; min-height: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .18); cursor: pointer; }
+.inv-fill-area > .inv-grid { background-color: transparent; }
+.inv-q2 > .inv-box, .inv-q2 > .inv-pack-hint { flex: 1 1 0; }
+.inv-q2 .inv-pack-hint { display: flex; flex-direction: column; width: auto !important; }
+.inv-q2 .inv-pack-hint-body { flex: 1; height: auto !important; }
+.inv-worn-bento { flex: 1; min-height: 0; display: grid; gap: 8px; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(4, 1fr); grid-template-areas: 'head ears' 'chest face' 'legs pack' 'feet pack'; }
+.inv-worn-bento > div { display: flex; min-height: 0; min-width: 0; }
+.inv-worn-bento > div > .inv-box { flex: 1; }
+.inv-full .inv-box { background: rgba(18, 22, 26, .46); border: 1px solid rgba(255, 255, 255, .09); box-shadow: 0 10px 28px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .05); backdrop-filter: blur(6px); }
+.inv-full .inv-box header { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: rgba(236, 240, 244, .82); }
+.inv-full .inv-grid { background-color: rgba(0, 0, 0, .22); }
+.inv-full .inv-heavy { border-color: rgba(255, 176, 0, .7); box-shadow: 0 0 0 1px rgba(255, 176, 0, .25), 0 10px 28px rgba(0, 0, 0, .28); }
+.inv-full .inv-sort, .inv-full .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+/* Column 1/2 fill top to bottom; column 3 holds the model at full height. */
+.inv-q1, .inv-q2 { justify-content: flex-start; }
+.inv-q3 { justify-content: stretch; }
+.inv-model { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-bottom: 0; }
+.inv-model header { align-items: baseline; }
+.inv-model-view { position: relative; flex: 1; min-height: 0; }
+/* The character stands on the frosted backdrop itself: no tray behind it. */
+.inv-full .inv-model { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; }
+.inv-model-view canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+/* Armour + backpack slots: one column of compact boxes. */
+.inv-worn { display: flex; flex-direction: column; gap: 10px; }
+.inv-worn-slots { display: flex; flex-direction: column; gap: 10px; }
+.inv-worn-wide .inv-worn-slots { display: grid; grid-template-columns: repeat(2, max-content); gap: 10px; }
+.inv-worn-head { display: flex; flex-direction: column; gap: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: rgba(236, 240, 244, .82); font-weight: 600; }
+/* Where the backpack's grids appear once worn. */
+.inv-pack-hint { opacity: .75; }
+.inv-pack-hint-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px dashed rgba(255, 176, 0, .35); color: rgba(255, 210, 140, .7); font-size: 12px; text-align: center; padding: 0 12px; }
+.inv-pack-hint-body svg { width: 22px; height: 22px; }
+/* A station beside the bento keeps its height (its list scrolls inside). */
+.inv-quad > .inv-q4 { min-height: 0; overflow: hidden; }
+.inv-quad > .inv-q4 > * { flex: 1 1 auto; min-height: 0; max-height: 100%; overflow: auto; }
+
+/* Gear Studio (/studio/gear): settings | the character | the piece being fitted. */
+.gs-page { position: fixed; inset: 0; display: grid; grid-template-columns: 300px 1fr 320px; grid-template-rows: auto 1fr; background: #14181c; color: var(--text); }
+.gs-bar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.gs-bar h1 { font-size: 16px; margin: 0; }
+.gs-bar .btn { width: auto; flex: none; }
+.gs-motion { display: flex; gap: 6px; margin-left: 16px; }
+.gs-status { margin-left: auto; font-size: 13px; color: var(--muted); }
+.gs-panel { overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--border); }
+.gs-panel:last-of-type { border-right: 0; border-left: 1px solid var(--border); }
+.gs-panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 8px 0 2px; }
+.gs-panel h4 { font-size: 12px; color: var(--muted); margin: 6px 0 0; font-weight: 500; }
+.gs-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.gs-row > span { flex: 0 0 112px; }
+.gs-row select, .gs-target { flex: 1; min-width: 0; }
+.gs-num { display: grid; grid-template-columns: 52px 1fr 70px; gap: 6px; align-items: center; font-size: 12px; }
+.gs-num input[type='number'] { width: 70px; }
+.gs-view { position: relative; min-height: 0; }
+.gs-view canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.gs-view.painting { cursor: crosshair; }
+.gs-hint { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.gs-panel select { flex: none; height: 30px; }
+.gs-row select { flex: 1; }

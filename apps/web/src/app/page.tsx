@@ -22,7 +22,9 @@ import { LibraryNav } from '@/components/LibraryNav';
 import { LeaderboardModal } from '@/components/LeaderboardModal';
 import { InstallAppButton } from '@/components/InstallAppButton';
 import { WorldChat } from '@/components/WorldChat';
-import { SQUAD_LIMIT, TEAM_LIMIT, type TeamAction, type TeamLobby as Lobby } from '@zion/shared';
+import { SQUAD_LIMIT, TEAM_LIMIT, type Appearance, type TeamAction, type TeamLobby as Lobby } from '@zion/shared';
+import { CharacterCreator } from '@/components/CharacterCreator';
+import { cachedLook, loadLook, storeLook } from '@/lib/appearance';
 
 // WebGL: client only.
 const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false });
@@ -100,6 +102,11 @@ export default function MainMenu() {
   const seenLaunch = useRef<string | null | undefined>(undefined);
   const battleMode = gameMode === 'battle-royale';
   const teamWorking = useRef(false);
+  /** The account's character look; 'none' = never made (the creator opens before the first match). */
+  const [look, setLook] = useState<Appearance | null>(null);
+  const [lookState, setLookState] = useState<'unknown' | 'none' | 'ready'>('unknown');
+  const [creator, setCreator] = useState<null | { mode: 'first' | 'edit'; then?: () => void }>(null);
+  const creatorOffered = useRef(false);
   const team = lobby?.team;
 
   const applyLobby = useCallback((next: Lobby) => {
@@ -177,6 +184,20 @@ export default function MainMenu() {
     };
   }, []);
 
+  // The character look: shown on the menu's survivor; a first-time player makes one before playing.
+  useEffect(() => {
+    if (!session) { setLook(null); setLookState('unknown'); return; }
+    let alive = true;
+    const cached = cachedLook();
+    if (cached) { setLook(cached); setLookState('ready'); }
+    void loadLook().then((saved) => {
+      if (!alive) return;
+      setLook(saved); setLookState(saved ? 'ready' : 'none');
+      if (!saved && !creatorOffered.current) { creatorOffered.current = true; setCreator((c) => c ?? { mode: 'first' }); }
+    }).catch(() => { /* offline: play with the cached or default look */ });
+    return () => { alive = false; };
+  }, [session]);
+
   useEffect(() => {
     if (!session) { setLinked([]); setLinkedReady(false); return; }
     let alive = true;
@@ -226,7 +247,8 @@ export default function MainMenu() {
     finally { teamWorking.current = false; setTeamBusy(false); }
   };
   const play = () => {
-    if (session) void run(() => Promise.resolve());
+    if (session && lookState === 'none') setCreator({ mode: 'first', then: () => { void run(() => Promise.resolve()); } });
+    else if (session) void run(() => Promise.resolve());
     else { setEntryIntent('play'); setError(null); setAuthOpen(true); }
   };
 
@@ -241,8 +263,11 @@ export default function MainMenu() {
     try {
       await playAsGuest(name);
       setSession(true);
-      if (entryIntent === 'team') { setNameOpen(false); setTeamOpen(true); setBusy(false); }
-      else router.push(playUrl(gameMode));
+      // A new survivor: make the character first.
+      creatorOffered.current = true;
+      setNameOpen(false); setBusy(false);
+      if (entryIntent === 'team') { setTeamOpen(true); setCreator({ mode: 'first' }); }
+      else setCreator({ mode: 'first', then: () => { setBusy(true); router.push(playUrl(gameMode)); } });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'username_taken') setNameError(t('menu.name_taken'));
       else if (err instanceof ApiError && err.code === 'invalid_request') setNameError(t('menu.name_rules'));
@@ -308,7 +333,7 @@ export default function MainMenu() {
       <div className="menu-bigword" aria-hidden>
         ZION
       </div>
-      <MenuStage members={team?.members.map((m) => ({ name: m.name, rank: m.rank }))} />
+      <MenuStage members={team?.members.map((m) => ({ name: m.name, rank: m.rank }))} look={look} self={currentAccount()?.username} />
       <CareerPanel session={session}><WorldChat session={session} /></CareerPanel>
 
       <header className="menu-top">
@@ -344,6 +369,7 @@ export default function MainMenu() {
             <h2>{currentAccount()?.username}</h2>
             <button type="button" className="menu-account icon" aria-label="Đổi tên" title="Đổi tên" disabled={busy} onClick={() => { setNameDraft(currentAccount()?.username ?? ''); setNameNotice(null); }}><Icon name="lucide:pencil" /></button>
           </div>}
+          {session && nameDraft === null && <button type="button" className="btn menu-profile-look" disabled={busy} onClick={() => setCreator({ mode: 'edit' })}><Icon name="lucide:user-round-pen" /> Chỉnh sửa nhân vật</button>}
           {session && nameDraft !== null && <form className="menu-profile-form" onSubmit={(e) => {
             e.preventDefault();
             setBusy(true); setNameNotice(null);
@@ -476,6 +502,18 @@ export default function MainMenu() {
           </div>
         </form>
       </div>}
+      {creator && session && <CharacterCreator
+        mode={creator.mode}
+        initial={look}
+        onSave={async (next) => {
+          const saved = await storeLook(next);
+          setLook(saved); setLookState('ready');
+          const then = creator.then;
+          setCreator(null);
+          then?.();
+        }}
+        onClose={creator.mode === 'edit' ? () => setCreator(null) : undefined}
+      />}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {leaderboardOpen && <LeaderboardModal onClose={() => setLeaderboardOpen(false)} />}
       {loading && <LoadingScreen onDone={doneLoading} />}

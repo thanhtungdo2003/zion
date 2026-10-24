@@ -75,6 +75,7 @@ export class LocalPlayer {
       jump: this.state.flight ? pressedJump : (buttons & Buttons.Jump) !== 0,
       sprint: (buttons & Buttons.Sprint) !== 0,
       roll: (buttons & Buttons.Roll) !== 0,
+      lunge: (buttons & Buttons.Lunge) !== 0,
       prone: (buttons & Buttons.Prone) !== 0,
       crouch: (buttons & Buttons.Crouch) !== 0,
       speedMul: this.speedMul * (buttons & Buttons.Aim ? .65 : 1) * (performance.now() < this.slowUntil ? this.slowFactor : 1),
@@ -117,6 +118,7 @@ export class LocalPlayer {
     s.rollTicks = server.rollTicks;
     s.rollCooldown = server.rollCooldown;
     s.rollYaw = server.rollYaw;
+    s.lungeTicks = server.lungeTicks ?? 0;
     // A mantle in progress at the acknowledged tick: the same climb, rewound to that tick (the
     // server only reports that one is running; both sides start it from the same inputs).
     s.mantle = server.flags & EntityFlags.Mantling && before.mantle ? { ...before.mantle, t: Math.max(0, before.mantle.t - this.pending.length * TICK_DT) } : undefined;

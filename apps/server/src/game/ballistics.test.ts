@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CollisionWorld, Heightfield, Layer, makeBox } from '@zion/physics';
-import { WeaponId, TICK_DT, type BallisticState, type ProjectileSpec } from '@zion/shared';
+import { WeaponId, TICK_DT, type BallisticState, type ProjectileSpec, type InputMessage } from '@zion/shared';
 import { GameServer } from './game-server';
 import { Player } from './player';
 import type { ClientSession } from './session';
 
 interface Harness {
   rounds: Array<BallisticState & { id: number; spec: ProjectileSpec }>;
-  tryShoot(p: Player, now: number, renderTime?: number): void;
+  tryShoot(p: Player, now: number, renderTime?: number, bore?: InputMessage['bore']): void;
   stepRounds(now: number): void;
   hitTarget: ReturnType<typeof vi.fn>;
   broadcastAt: ReturnType<typeof vi.fn>;
@@ -44,6 +44,26 @@ function setup(wall = false) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('authoritative bullet flight', () => {
+  it('launches the real bullet from the animated muzzle along the visible barrel', () => {
+    const { server, shooter } = setup();
+    const bore = { x: .23, y: 1.42, z: -.85, dx: 1, dy: 0, dz: 0 };
+    server.tryShoot(shooter, 1000, undefined, bore);
+    const round = server.rounds[0]!;
+    expect(round.x).toBeCloseTo(shooter.state.x + bore.x);
+    expect(round.y).toBeCloseTo(shooter.state.y + bore.y);
+    expect(round.z).toBeCloseTo(shooter.state.z + bore.z);
+    expect(round.vx).toBeGreaterThan(0);
+    expect(round.vy).toBeCloseTo(0); expect(round.vz).toBeCloseTo(0);
+  });
+  it('keeps an animated muzzle behind cover from spawning a bullet through a wall', () => {
+    const { server, shooter, step } = setup(true);
+    shooter.state.z = 50;
+    server.tryShoot(shooter, 1000, undefined, { x: 0, y: 1.4, z: -1.5, dx: 0, dy: 0, dz: -1 });
+    expect(server.rounds[0]!.z).toBeGreaterThan(49);
+    step(1000 + TICK_DT * 1000);
+    expect(server.rounds).toHaveLength(0);
+    expect(server.hitTarget).not.toHaveBeenCalled();
+  });
   it('does not damage on trigger pull; reaches the target after multiple simulation ticks', () => {
     const { server, shooter, target, step } = setup();
     server.tryShoot(shooter, 1000);

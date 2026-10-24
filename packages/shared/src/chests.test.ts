@@ -12,7 +12,7 @@ describe('chest loot', () => {
       expect(item).toBeDefined();
       if (['rifle', 'pistol', 'smg', 'shotgun', 'heavy'].includes(item.category)) weapons++;
       if (ARMOR_BY_ITEM.has(id)) armor++;
-      if (['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher'].includes(id) || ['epic', 'legendary'].includes(ARMOR_BY_ITEM.get(id)?.rarity ?? '')) elite++;
+      if (['awm', 'm4a1', 'aug', 'svd', 'saiga12', 'grenade_launcher', 'rocket_launcher'].includes(id) || ['rare', 'epic', 'legendary'].includes(ARMOR_BY_ITEM.get(id)?.rarity ?? '')) elite++;
     }
     expect(weapons / 100_000).toBeLessThan(.04);
     expect(armor / 100_000).toBeLessThan(.03);

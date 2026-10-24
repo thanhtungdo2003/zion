@@ -13,7 +13,7 @@ function fixture() {
   muzzle.position.set(0.7, 0.08, 0);
   display.add(muzzle);
   const view = new ViewModel(camera);
-  view.set('test', new Map([['test', { display }]]) as unknown as WeaponLibrary);
+  view.set('test', new Map([['test', { display, aim: { barrel: new Vector3(1, 0, 0), up: new Vector3(0, 1, 0), grip: new Vector3() } }]]) as unknown as WeaponLibrary);
   const state = { visible: true, moving: false, sprint: false, reloading: false, yaw: 1.2, pitch: 0.4, firing: false };
   return { camera, view, state };
 }
@@ -50,6 +50,11 @@ describe('first person weapon', () => {
     const rendered = camera.getObjectByName('weapon-muzzle')!.getWorldPosition(new Vector3());
     expect(at.distanceTo(rendered)).toBeLessThan(1e-8);
     expect(view.weaponPoint('eject', at)).toBe(false);
+    const direction = new Vector3();
+    expect(view.weaponBore(at, direction)).toBe(true);
+    expect(at.distanceTo(rendered)).toBeLessThan(1e-8);
+    const marker = camera.getObjectByName('weapon-muzzle')!;
+    expect(direction.distanceTo(new Vector3(1, 0, 0).transformDirection(marker.parent!.matrixWorld))).toBeLessThan(1e-8);
   });
 
   it('centres the gun only while aiming and converges the barrel on the target', () => {

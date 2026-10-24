@@ -4,7 +4,7 @@
  */
 import { ARMOR_SPECS, RARITY_COLOR, type ArmorSlot } from './armor';
 
-export type ItemCategory = 'rifle' | 'shotgun' | 'pistol' | 'smg' | 'heavy' | 'grenade' | 'ammo' | 'melee' | 'medical' | 'armor_head' | 'armor_chest' | 'armor_legs' | 'armor_feet' | 'food' | 'resource' | 'tool' | 'attachment';
+export type ItemCategory = 'rifle' | 'shotgun' | 'pistol' | 'smg' | 'heavy' | 'grenade' | 'ammo' | 'melee' | 'medical' | 'armor_head' | 'armor_chest' | 'armor_face' | 'armor_ears' | 'armor_legs' | 'armor_feet' | 'food' | 'resource' | 'tool' | 'attachment' | 'backpack';
 
 /** Upper-body stance the character model uses while the item is in hand. */
 export type Stance = 'unarmed' | 'rifle' | 'pistol' | 'melee' | 'grenade';
@@ -28,6 +28,10 @@ export interface ItemDef {
   armor?: { slot: ArmorSlot; id: number; durability: number };
   /** Stackable resources: units one item holds at most (`count` holds how many). */
   stack?: number;
+  /** Only found and sold in survival mode (masks). */
+  survivalOnly?: boolean;
+  /** Backpacks: worn in the pack slot they add a storage grid and a rifle slot. */
+  pack?: { cols: number; rows: number };
 }
 
 export const ITEMS: Record<string, ItemDef> = {
@@ -71,6 +75,7 @@ export const ITEMS: Record<string, ItemDef> = {
   shovel: { id: 'shovel', name: 'Xẻng', category: 'melee', w: 6, h: 1, stance: 'melee', color: '#6b6653', info: 'Heavy shovel · sweeping strike' },
   long_sledgehammer: { id: 'long_sledgehammer', name: 'Búa tạ dài', category: 'melee', w: 7, h: 2, stance: 'melee', color: '#68615a', info: 'Slow heavy swing · wide cleave and stun' },
   quam: { id: 'quam', name: 'Cây Quắm', category: 'melee', w: 7, h: 1, stance: 'melee', color: '#5a4630', info: 'Polearm hook blade · long reach, heavy cut' },
+  military_backpack: { id: 'military_backpack', name: 'Ba lô quân đội', category: 'backpack', w: 3, h: 3, stance: 'unarmed', color: '#4d5a3a', info: 'Đeo vào ô Ba lô: thêm 8×4 ô chứa đồ và một chỗ súng trường · đồ bên trong đi theo ba lô', pack: { cols: 8, rows: 4 } },
   flashlight: { id: 'flashlight', name: 'Đèn pin', category: 'tool', w: 2, h: 1, stance: 'unarmed', color: '#3a3f44', info: 'Off-hand tool · lights up the way ahead at night (turns on by itself)' },
   medkit: { id: 'medkit', name: 'Hộp cứu thương', category: 'medical', w: 2, h: 1, stance: 'unarmed', color: '#8a2a2a', info: 'Restores full health · 3 uses · 5 s to apply, interrupted by moving or damage', uses: 3 },
   potato: { id: 'potato', name: 'Khoai tây', category: 'food', w: 1, h: 1, stance: 'unarmed', color: '#8a6a3a', info: 'Raw potato · plant it, cook it, or right-click to eat raw (little filling)' },
@@ -138,14 +143,16 @@ for (const a of ARMOR_SPECS) {
     h: 2,
     stance: 'unarmed',
     color: RARITY_COLOR[a.rarity],
-    info: `${a.rarity} · −${Math.round(a.protection * 100)}% damage · ${a.weight} kg`,
+    info: [`−${Math.round(a.protection * 100)}% sát thương`, `${a.weight} kg`, a.vision ? `−${Math.round(a.vision * 100)}% tầm nhìn` : '', a.hearing !== 1 ? `thính lực ${a.hearing > 1 ? '+' : '−'}${Math.round(Math.abs(a.hearing - 1) * 100)}%` : '', a.note].filter(Boolean).join(' · '),
     armor: { slot: a.slot, id: a.id, durability: a.durability },
+    ...(a.survivalOnly ? { survivalOnly: true } : {}),
   };
 }
 
 export const CATEGORY_LABEL: Record<ItemCategory, string> = {
   rifle: 'Rifle',
   attachment: 'Attachment',
+  backpack: 'Backpack',
   tool: 'Tool',
   shotgun: 'Shotgun',
   pistol: 'Pistol',
@@ -157,7 +164,9 @@ export const CATEGORY_LABEL: Record<ItemCategory, string> = {
   medical: 'Medical',
   armor_head: 'Helmet',
   armor_chest: 'Body armour',
-  armor_legs: 'Leg armour',
+  armor_face: 'Face',
+  armor_ears: 'Headset',
+  armor_legs: 'Trousers',
   armor_feet: 'Boots',
   food: 'Food',
   resource: 'Resource',

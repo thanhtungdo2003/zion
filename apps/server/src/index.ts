@@ -13,6 +13,7 @@ import { BattleMapService, DEFAULT_BATTLE_MAP_ID } from './world/battle-maps';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
 import { CustomWeaponStore } from './repositories/custom-weapons';
+import { GearFitStore } from './repositories/gear-fit';
 import { ProgressionService } from './game/progression';
 import { atlasProvider, atlasTileProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
@@ -79,7 +80,8 @@ async function main(): Promise<void> {
 
   const tokens = new TokenService(config.JWT_SECRET, config.JWT_ISSUER, config.JWT_AUDIENCE, config.ACCESS_TOKEN_TTL_SEC);
   const refreshTokens = new RefreshTokenRepository(db);
-  const auth = new AuthService(new AccountRepository(db), refreshTokens, tokens, kv, audit, {
+  const accounts = new AccountRepository(db);
+  const auth = new AuthService(accounts, refreshTokens, tokens, kv, audit, {
     refreshTtlDays: config.REFRESH_TOKEN_TTL_DAYS,
     allowGuest: config.ALLOW_GUEST,
   });
@@ -88,10 +90,13 @@ async function main(): Promise<void> {
   await progression.initialize();
   const playerStates = new PlayerStateRepository(db, config.WORLD_ID, progression);
   // Studio weapons join the shared weapon/item/shop tables before any game server starts.
+  const gearFit = new GearFitStore(db);
+  await gearFit.load().catch((err: unknown) => logger.warn({ err }, 'gear fit not loaded'));
   const customWeapons = new CustomWeaponStore(db);
   await customWeapons.load((id, err) => logger.warn({ id, err }, 'custom weapon skipped (invalid definition)'));
   const teams = new TeamService(await playerStates.loadTeams(), (id, team, player) => playerStates.saveTeam(id, team, player));
   const game = new GameServer({
+    appearances: accounts,
     progression,
     teams,
     config,
@@ -114,13 +119,13 @@ async function main(): Promise<void> {
   // "Play" is matched into a match still gathering players (see MatchPool).
   let vehicleJolt: boolean | null = null;
   const battlePool = new MatchPool(() => {
-    const match = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   }, logger.child({ module: 'battle-matches' }));
   // Battle royale maps published from the World Studio: one world and match pool each.
   const battleMaps = new BattleMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId) => {
-    const match = new GameServer({ teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
+    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   });
@@ -129,7 +134,7 @@ async function main(): Promise<void> {
   // Infection maps come from the Studio; new matches are built on the active one.
   const infectionMaps = new InfectionMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'infection-maps' }));
   await infectionMaps.load();
-  const infectionPool = new MatchPool(() => new GameServer({ config, logger, metrics: new Metrics(), audit, world: infectionMaps.world, registry, playerStates, worlds, worldId: infectionMaps.worldId, initialWorldTimeMs: 0, mode: 'infection' }), logger.child({ module: 'infection-matches' }));
+  const infectionPool = new MatchPool(() => new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: infectionMaps.world, registry, playerStates, worlds, worldId: infectionMaps.worldId, initialWorldTimeMs: 0, mode: 'infection' }), logger.child({ module: 'infection-matches' }));
   infectionMaps.onSwitch = () => { void infectionPool.retireIdle(); };
   setInterval(() => { void infectionMaps.sweep(new Set(infectionPool.matches.map((m) => m.worldService))); }, 60_000).unref();
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
@@ -175,8 +180,10 @@ async function main(): Promise<void> {
   }
 
   const app = await buildHttpApp({
+    appearances: accounts,
     news: new NewsRepository(db),
     customWeapons,
+    gearFit,
     progression,
     atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas() : survivalAtlas(),
     atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),

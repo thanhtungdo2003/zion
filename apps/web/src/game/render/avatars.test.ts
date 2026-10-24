@@ -58,7 +58,7 @@ describe('stowed weapons', () => {
     avatar.setBackWeapon(itemId, library());
     avatar.root.updateMatrixWorld(true);
     const sling = avatar.root.getObjectByName('stowed-weapon')!;
-    expect(sling.parent?.name).toBe('back_attach');
+    expect(sling.parent?.name).toBe('carry-hook-back_right');
     expect(new Vector3(1, 0, 0).transformDirection(sling.matrixWorld).y).toBeLessThan(-.5);
     expect(sling.getWorldPosition(new Vector3()).z).toBeGreaterThan(0);
   });
@@ -70,10 +70,11 @@ describe('stowed weapons', () => {
     avatar.root.updateMatrixWorld(true);
     const sling = avatar.root.getObjectByName('stowed-weapon')!;
     const bounds = new Box3().setFromObject(sling);
-    expect(sling.parent?.name).toBe('body');
+    expect(sling.parent?.name).toBe('carry-hook-hip_right');
     expect(new Vector3(1, 0, 0).transformDirection(sling.matrixWorld).y).toBeCloseTo(-1);
-    expect(bounds.max.x).toBeLessThan(-4 / BB_UNITS_PER_METER);
-    expect(bounds.max.y).toBeCloseTo(12 / BB_UNITS_PER_METER);
+    const hook = sling.parent!.getWorldPosition(new Vector3());
+    expect(bounds.min.x).toBeGreaterThan(hook.x + .05);
+    expect(bounds.max.y).toBeCloseTo(hook.y);
     avatar.setBackWeapon('ak47', weapons);
     expect(sling.parent).toBeNull();
     avatar.setBackWeapon(null, weapons);

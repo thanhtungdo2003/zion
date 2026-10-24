@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-21T04:53:57.953Z",
+  "generatedAt": "2026-10-24T04:02:09.776Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -39,9 +39,9 @@
       "kind": "bbmodel"
     },
     "accessorys/nv-scope-x6.bbmodel": {
-      "url": "/assets/models/accessorys_nv-scope-x6.faec553aa228.bbmodel",
-      "sha256": "faec553aa22831090a663e96129a4cae3bada23070b7373e6eef26d3fe1b9242",
-      "bytes": 235871,
+      "url": "/assets/models/accessorys_nv-scope-x6.8282e0c3dd52.bbmodel",
+      "sha256": "8282e0c3dd52b6cd68e8a5d54b28886c1c845a90f8005f922f53bee9baf2280d",
+      "bytes": 416331,
       "kind": "bbmodel"
     },
     "accessorys/red-dot-exps.bbmodel": {
@@ -57,15 +57,15 @@
       "kind": "bbmodel"
     },
     "accessorys/scope-10x.bbmodel": {
-      "url": "/assets/models/accessorys_scope-10x.32a3b4ef8d90.bbmodel",
-      "sha256": "32a3b4ef8d90b1843ed6b9aa455edcbb9f51d65b7d1e17b2460a6792510afc4c",
-      "bytes": 25008,
+      "url": "/assets/models/accessorys_scope-10x.88bc066e17e9.bbmodel",
+      "sha256": "88bc066e17e9cb5a09202cf28428a817782d091540b29319e55c8518f1bd298c",
+      "bytes": 401200,
       "kind": "bbmodel"
     },
     "accessorys/scope-2x-fixed.bbmodel": {
-      "url": "/assets/models/accessorys_scope-2x-fixed.fe96f4a62800.bbmodel",
-      "sha256": "fe96f4a62800d06fc997773a200ede4e1bbe11a28ae63fbbe82bd7b477e9e4ae",
-      "bytes": 197587,
+      "url": "/assets/models/accessorys_scope-2x-fixed.5c05346e6b16.bbmodel",
+      "sha256": "5c05346e6b16f1f3034412e408c7a5a94aea9509f6e2f6122f6798a9176c31e1",
+      "bytes": 365233,
       "kind": "bbmodel"
     },
     "accessorys/scope-2x.bbmodel": {
@@ -81,9 +81,9 @@
       "kind": "bbmodel"
     },
     "accessorys/scope-4x32.bbmodel": {
-      "url": "/assets/models/accessorys_scope-4x32.cfad57bf1695.bbmodel",
-      "sha256": "cfad57bf1695bd0b56d582e66b357374883c07d2af4e9eee95ce711bc34e0907",
-      "bytes": 228523,
+      "url": "/assets/models/accessorys_scope-4x32.39adfcf5d846.bbmodel",
+      "sha256": "39adfcf5d846739330e93160cbaf138289c29f99087bfc4e606c62b850836431",
+      "bytes": 392566,
       "kind": "bbmodel"
     },
     "accessorys/scope-8x.bbmodel": {
@@ -93,15 +93,15 @@
       "kind": "bbmodel"
     },
     "accessorys/scope-8x40.bbmodel": {
-      "url": "/assets/models/accessorys_scope-8x40.9e0a7ebed9c1.bbmodel",
-      "sha256": "9e0a7ebed9c140a0101b239ff693b9cfec50866761407c801dca0b0c56c46837",
-      "bytes": 252387,
+      "url": "/assets/models/accessorys_scope-8x40.df25e8f256a1.bbmodel",
+      "sha256": "df25e8f256a10f8a2dc39ed0d42efb2a856061025d7d3c8de9a9878c6c54d36c",
+      "bytes": 463075,
       "kind": "bbmodel"
     },
     "accessorys/scope-pgo7.bbmodel": {
-      "url": "/assets/models/accessorys_scope-pgo7.b37cd41119f5.bbmodel",
-      "sha256": "b37cd41119f5215e310e0f93a862b02892aa29091bf1810803bcaae908d213f1",
-      "bytes": 185831,
+      "url": "/assets/models/accessorys_scope-pgo7.a5d013c1f4e8.bbmodel",
+      "sha256": "a5d013c1f4e8f83daaf6c0dc500110025852a1aceccd0dc5721f6f290a39ce30",
+      "bytes": 326934,
       "kind": "bbmodel"
     },
     "accessorys/suppressor-compact.bbmodel": {
@@ -320,6 +320,12 @@
       "bytes": 183448,
       "kind": "bbmodel"
     },
+    "characters/zion-survivor.glb": {
+      "url": "/assets/models/characters_zion-survivor.88af9f6dcf3e.glb",
+      "sha256": "88af9f6dcf3ee4342945c572fd133c205d68e93f4a4993e967314cfe80f0cb58",
+      "bytes": 7664864,
+      "kind": "glb"
+    },
     "dists/arrow-quiver.bbmodel": {
       "url": "/assets/models/dists_arrow-quiver.0d172157a901.bbmodel",
       "sha256": "0d172157a90138b64d21e7da21a205480c2072b3450c52dd7a6dac4d12a7c356",
@@ -481,6 +487,42 @@
       "sha256": "fee10debfc8edc7fd9477db1ffa842d20f0b8b747126229c9dd2a0a7a6e75731",
       "bytes": 13243,
       "kind": "bbmodel"
+    },
+    "gear/armor/combat-helmet-k63.glb": {
+      "url": "/assets/models/gear_armor_combat-helmet-k63.106352917b4f.glb",
+      "sha256": "106352917b4f20c910be003286157c4c705aac813ebbe734ecd8efa83e311b71",
+      "bytes": 3936524,
+      "kind": "glb"
+    },
+    "gear/armor/head-pack.glb": {
+      "url": "/assets/models/gear_armor_head-pack.d6629f66b061.glb",
+      "sha256": "d6629f66b0617aadba37c0e155cd8a4b8f8e114ebe7113c79c7e9c8911cba304",
+      "bytes": 5168552,
+      "kind": "glb"
+    },
+    "gear/armor/military-helmet.glb": {
+      "url": "/assets/models/gear_armor_military-helmet.c580176a9690.glb",
+      "sha256": "c580176a9690231f08b1cb5e09ac55ecf120683ed90c3e050f86abe7c9a29dae",
+      "bytes": 1985964,
+      "kind": "glb"
+    },
+    "gear/armor/tactical-helmet-headset.glb": {
+      "url": "/assets/models/gear_armor_tactical-helmet-headset.8b243d114d1e.glb",
+      "sha256": "8b243d114d1ec82294304728ec56c337a529a8493465ceb375379637a4585c15",
+      "bytes": 1907504,
+      "kind": "glb"
+    },
+    "gear/armor/vest-pack.glb": {
+      "url": "/assets/models/gear_armor_vest-pack.4518dfab16cd.glb",
+      "sha256": "4518dfab16cdf3b397f3d31cffee08a3599bb20e049bbf542917d289a3def26d",
+      "bytes": 3528380,
+      "kind": "glb"
+    },
+    "gear/military-backpack.glb": {
+      "url": "/assets/models/gear_military-backpack.5da8762aa5d3.glb",
+      "sha256": "5da8762aa5d3f5ffc3636082cf1ff410da871ed05c5f69d1993732da78e07d87",
+      "bytes": 2405488,
+      "kind": "glb"
     },
     "glock-18.bbmodel": {
       "url": "/assets/models/glock-18.c5aa76944bdb.bbmodel",
@@ -950,6 +992,66 @@
       "bytes": 21715,
       "kind": "bbmodel"
     },
+    "mobs/polyart-zombie-01.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-01.7cb58b9b1381.glb",
+      "sha256": "7cb58b9b13815261a5a6c36bea38533609ea7cd6721827768ab0f4b666e267e6",
+      "bytes": 299956,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-02.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-02.43eb49498cdb.glb",
+      "sha256": "43eb49498cdb0091b1efd533681b4a611a2094cf2c6df76642736b04778ff1a5",
+      "bytes": 310728,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-03.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-03.d2180659a466.glb",
+      "sha256": "d2180659a4662462a622daff0bc7d9a223e3faa5a10dc11a17fb7da343ded72e",
+      "bytes": 328300,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-04.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-04.165c25b49afb.glb",
+      "sha256": "165c25b49afbc607b9309eec29c45d8e9d3b24a99a99d16a08eb7d520bf1a3b7",
+      "bytes": 249744,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-05.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-05.ea366f119415.glb",
+      "sha256": "ea366f119415ff69a5f2703507580d50ec13b86d6a5063ad66d6391e6f2f320c",
+      "bytes": 251996,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-06.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-06.823ff835f22c.glb",
+      "sha256": "823ff835f22c50937ba95d8b1130c2f38c0b55800aa938205368f14de2b17856",
+      "bytes": 267380,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-07.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-07.dbcac59cd2fe.glb",
+      "sha256": "dbcac59cd2fe8650b1c9918e7d1df8baca48d71887f1c1c84fd6f3c858e0a1b9",
+      "bytes": 307652,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-08.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-08.710c67f3e3c0.glb",
+      "sha256": "710c67f3e3c0dddcb8e97f452041862f88a69b70ddf89f2671c87a7bad29983a",
+      "bytes": 257444,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-09.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-09.4b808cf3f589.glb",
+      "sha256": "4b808cf3f5896758d901d10e533ac4a2dbfb0b1df0aeb19e309cf0f1fa9faff9",
+      "bytes": 251456,
+      "kind": "glb"
+    },
+    "mobs/polyart-zombie-10.glb": {
+      "url": "/assets/models/mobs_polyart-zombie-10.7d185d73ba07.glb",
+      "sha256": "7d185d73ba07e4b304f2c0579417051cef5434fb573306d5801c26314c6f3404",
+      "bytes": 321820,
+      "kind": "glb"
+    },
     "mobs/suffolk-sheep.bbmodel": {
       "url": "/assets/models/mobs_suffolk-sheep.5d2af38c95ab.bbmodel",
       "sha256": "5d2af38c95ab0e4736828b26bebb74af9fbd4f324635139d68ec7e3a0f210736",
@@ -961,6 +1063,18 @@
       "sha256": "2d2fc6aeda5bed7bb221ebde556d4b3360d7639cbf7484790ec1e760a580e23f",
       "bytes": 26769,
       "kind": "bbmodel"
+    },
+    "mobs/zombie-dog.glb": {
+      "url": "/assets/models/mobs_zombie-dog.1dd219afa2b6.glb",
+      "sha256": "1dd219afa2b632f7240ab2fa92b53dd9c38f7db635e8d8be0367aaf98970914d",
+      "bytes": 904112,
+      "kind": "glb"
+    },
+    "mobs/zombie-hunter.glb": {
+      "url": "/assets/models/mobs_zombie-hunter.06b2c9c1f11a.glb",
+      "sha256": "06b2c9c1f11a260c70ce50fe17c4f3c7fd559c6efea3480ca5aa117dfb2898ae",
+      "bytes": 4517536,
+      "kind": "glb"
     },
     "nationals/banana_tree_low_poly.glb": {
       "url": "/assets/models/nationals_banana_tree_low_poly.56a3e4ed0adc.glb",
@@ -1087,6 +1201,12 @@
       "sha256": "37e22300c0f17b8543d5d00bd0a98246abe9ac65f9306cb68654f8e255857385",
       "bytes": 22666,
       "kind": "bbmodel"
+    },
+    "npcs/russian-soldier.glb": {
+      "url": "/assets/models/npcs_russian-soldier.f891e8bc9dd3.glb",
+      "sha256": "f891e8bc9dd35791f9611af2678b9ca62d9a820196cf2cb6ab8acdc3f51953ac",
+      "bytes": 10188516,
+      "kind": "glb"
     },
     "npcs/scrap-dealer-npc.bbmodel": {
       "url": "/assets/models/npcs_scrap-dealer-npc.3b9f3ec1250c.bbmodel",

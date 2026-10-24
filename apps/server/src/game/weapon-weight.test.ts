@@ -29,7 +29,7 @@ describe('held weapon burden', () => {
     Object.assign(server, { collision: world, grid: { query: () => [] }, zombies: { near: () => [target], alert: vi.fn() }, animals: new Map(), scratch: [], npcOnRay: () => null, broadcastNear: vi.fn(), hitTarget: vi.fn() });
     const gun = player.inv.add('pkm')!;
     player.inv.equip(gun.uid); player.weapon = WeaponId.PKM;
-    const armor = player.inv.add('riot_protection_jacket')!;
+    const armor = player.inv.add('vest_premium')!;
     expect(player.inv.move(armor.uid, 'armor_chest', 0, 0, false)).toBe(true);
     server.syncLoadout(player);
     player.life.capacity = player.life.stamina = DEFAULT_BASE_LIFE.stamina.minimumCapacity;
@@ -65,7 +65,7 @@ describe('held weapon burden', () => {
   it('combines held weapon and worn armor burdens and spends the same extra effort on dodges', () => {
     const { server, player, local } = fixture();
     const gun = player.inv.add('barrett')!; player.inv.equip(gun.uid);
-    const jacket = player.inv.add('worn_work_jacket')!;
+    const jacket = player.inv.add('vest_t1')!;
     expect(player.inv.move(jacket.uid, 'armor_chest', 0, 0, false)).toBe(true);
     server.syncLoadout(player); local.speedMul = player.speedMul;
     expect(player.armor.chest).toBeGreaterThan(0);

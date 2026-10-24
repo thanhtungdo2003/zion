@@ -40,6 +40,7 @@ export const NURSE_HEAL_PRICE = 40;
 export const SHOP_STOCK: readonly ShopEntry[] = [
   ...['recruit', 'private', 'corporal', 'sergeant', 'elite'].map((rank, i) => ({ item: `badge_${rank}`, price: [300, 600, 1100, 1800, 3000][i]!, category: 'tools' as const })),
   { item: 'flashlight', price: 150, category: 'tools' },
+  { item: 'military_backpack', price: 900, category: 'tools' },
   { item: 'pickaxe', price: 160, category: 'tools' },
   { item: 'supply_radio', price: 650, category: 'tools' },
   { item: 'nuclear_cell', price: 700, category: 'tools' },

@@ -1,8 +1,10 @@
 import { Box3, Group, Matrix4, Vector3, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { bake, loadGlbScene } from './armor-models';
 import { ATTACHMENT_SLOTS, attachmentDef, type Attachments } from '@zion/shared';
 import { cachedFetch } from '@/lib/preload';
 import { loadCustomWeapons } from '../custom-weapons';
+import { loadGearFit } from '../gear-fit';
 import { ResourceDisposer } from './resources';
 import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
@@ -30,6 +32,11 @@ export interface WeaponSpec {
   emitter?: Vec3;
   /** Left palm under the handguard, for the two-handed lobby pose. */
   support?: Vec3;
+  /** Optional model-authored handle axes and radii in metres (before character scaling). */
+  gripAxis?: Vec3;
+  supportAxis?: Vec3;
+  gripRadius?: number;
+  supportRadius?: number;
   /** Trigger hand for the authored patrol pose (the lobby rig carries the stock on its left locator). */
   patrolTriggerHand?: 'left' | 'right';
   /** Muzzle tip and ejection port (optional for non-guns). */
@@ -50,6 +57,9 @@ export interface WeaponSpec {
   /** Real length of an attachment along `barrel` (metres). */
   /** Model file format when the URL does not say (Studio uploads). */
   format?: 'glb' | 'bbmodel';
+  /** A GLB pack holding several items: the node of this one (and its turn to face +Z). */
+  node?: string;
+  nodeYaw?: number;
   /** First-person view: hip offset (x right, y up, z forward, metres) and eye relief when aiming. */
   fpHip?: Vec3;
   fpEyeRelief?: number;
@@ -99,6 +109,8 @@ export function builtinWeaponVisual(itemId: string): WeaponSpec | undefined {
  * character). Grenades and inventory icons are unaffected.
  */
 const HELD_GUN_SCALE = 1.5;
+/** The survivor is a realistically proportioned person: guns at (almost) real size. */
+const SURVIVOR_GUN_SCALE = 1.05;
 /**
  * Extra placement of held guns relative to the grip, in metres: `back` pulls the gun towards the
  * shoulder (along the barrel), `up` raises it.
@@ -122,9 +134,9 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   red_dot: { url: '/models/accessorys/red-dot-exps.bbmodel', length: 0.086, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 9.5, -15], mountLength: 0.087 },
   nv_scope_6x: { url: '/models/accessorys/nv-scope-x6.bbmodel', length: 0.284, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 16.672, -45.312], mountLength: 0.288 },
   scope_2x: { url: '/models/accessorys/scope-2x-fixed.bbmodel', length: 0.287, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -48.512], mountLength: 0.289 },
-  scope_4x: { url: '/models/accessorys/scope-4x32.bbmodel', length: 0.305, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -49.472], mountLength: 0.308 },
+  scope_4x: { url: '/models/accessorys/scope-4x32.bbmodel', length: 0.305, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -49.472], mountLength: 0.307 },
   scope_8x: { url: '/models/accessorys/scope-8x40.bbmodel', length: 0.303, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -45.632], mountLength: 0.305 },
-  scope_10x: { url: '/models/accessorys/scope-10x.bbmodel', length: 0.3, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0, -7.5], eye: [0, 4.5, 6.7], mountLength: 0.42 },
+  scope_10x: { url: '/models/accessorys/scope-10x.bbmodel', length: 0.38125, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12.8, -61.84], mountLength: 0.38375 },
   holo_sight: { url: '/models/accessorys/holo-xps.bbmodel', length: 0.099, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], eye: [0, 12, -16.5], mountLength: 0.1 },
   suppressor_pistol: { url: '/models/accessorys/suppressor-compact.bbmodel', length: 0.168, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 54.125], mountLength: 0.171 },
   suppressor_rifle: { url: '/models/accessorys/suppressor-standard.bbmodel', length: 0.181, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 0, 0], tip: [0, 0, 58.5], mountLength: 0.184 },
@@ -137,7 +149,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   ammo_pkm: { url: '/models/weapons/pkm-ammo-box.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   barrett: { url: '/models/weapons/barrett-m82a1.bbmodel', length: 1.773, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12.85, 1.55], support: [0, -4.05, 51], muzzle: [0, 0, 140], eject: [-3.65, -3, 18], sight: { rear: [0, 7, 14.28], front: [0, 7, 138] }, rail: [0, 5.5, 20.28], fpHip: [0.2, -0.4123, -0.2137] },
   ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
-  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], edge: [1, 0, 0], strikePoint: [0, 27, 0] },
+  fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [0, 27, 0] },
   shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0.115, 9.604, -9.1], eject: [1.05, 10.677, -0.739], reloadClip: 'reload', sight: { rear: [0.046, 11.5, 3.866], front: [0.041, 12.5, -7.42] }, rail: [0.028, 11.052, 2.022], attachmentScale: { red_dot: 0.65 } },
   awm: { url: '/models/weapons/awm-338-lapua.bbmodel', length: 1.27, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -10.2, -2.45], support: [0, -7.165, 36.75], muzzle: [0, 0, 90.6], eject: [-2.508, -0.35, 12.75], sight: { rear: [0, 5.1, 7.25], front: [0, 5.1, 88.6] }, rail: [0, 3.6, 13.25] },
@@ -158,12 +170,12 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   flamethrower: { url: '/models/weapons/m2-flamethrower.bbmodel', length: 1.159, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -9.5, 5.25], muzzle: [0, 0, 95.5], eject: [-2.9, 0, 9], sight: { rear: [0, 5.5, 3], front: [0, 5.5, 93.5] } },
   // Blades: fitted like a gun (point forward); `muzzle` marks the tip for slash effects.
   machete: { url: '/models/weapons/machete.bbmodel', length: 0.65, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 3, 0], edge: [-1, 0, 0], strikePoint: [0, 20, 0], fpHip: [0.3359, -0.235, -0.2537], fpSupport: [0, 0, 0], fpRot: [0.548, 0.0349] },
-  baseball_bat: { url: '/models/weapons/baseball-bat.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], edge: [-1, 0, 0], strikePoint: [0, 26, 0], fpHip: [0.255, -0.215, -0.205], fpRot: [0.4538, 0] },
+  baseball_bat: { url: '/models/weapons/baseball-bat.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], support: [0, 1.4, 0], edge: [-1, 0, 0], strikePoint: [0, 26, 0], fpHip: [0.255, -0.215, -0.205], fpRot: [0.4538, 0] },
   crowbar: { url: '/models/weapons/crowbar.bbmodel', length: 0.7, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], edge: [-1, 0, 0], strikePoint: [0, 23, 0], fpHip: [0.3359, -0.27, -0.25], fpRot: [0.3595, 0.1012] },
   katana: { url: '/models/weapons/katana.bbmodel', length: 1, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0], strikePoint: [0, 32, 0], fpHip: [0.2988, -0.2559, -0.1437], fpRot: [0.3944, 0.2269] },
-  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], edge: [1, 0, 0], strikePoint: [0, 56, 0], fpHip: [0.4088, -0.329, -0.25], fpRot: [0.4014, -0.199] },
+  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], support: [0, 8, 0], edge: [1, 0, 0], strikePoint: [0, 56, 0], fpHip: [0.4088, -0.329, -0.25], fpRot: [0.4014, -0.199] },
   shovel: { url: '/models/tools/shovel.bbmodel', length: 1.15, barrel: [0, -1, 0], up: [0, 0, 1], grip: [8, 13, 8], strikePoint: [7.917, 1.57, 9], fpHip: [0.4115, -0.27, -0.25] },
-  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], edge: [1, 0, 0], strikePoint: [0, 43, 0] },
+  long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [0, 43, 0] },
   // Ammo boxes are never held; they are loaded for their inventory icons (muzzle-less = no gun scaling).
   ammo_762: { url: '/models/ammos/ak-box-762x39.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
   ammo_9mm: { url: '/models/ammos/ammo-box-9mm-30rd.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },
@@ -198,7 +210,7 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
 };
 
 // Base building: the pickaxe (held and swung like the axe) and the resources, blueprints and radio.
-WEAPON_SPECS.pickaxe = { url: '/models/tools/pickaxe.bbmodel', length: .85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 5, 0], edge: [1, 0, 0], strikePoint: [11, 26, 0] };
+WEAPON_SPECS.pickaxe = { url: '/models/tools/pickaxe.bbmodel', length: .85, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 5, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [11, 26, 0] };
 for (const [item, url, length] of [
   ['wood_log', '/models/materias/old-wooden-beam.bbmodel', 1], ['plank', '/models/materias/old-dusty-wood-board.bbmodel', 1], ['stone', '/models/materias/stone-chunk.bbmodel', .3],
   ['iron_ore', '/models/materias/iron-ore.bbmodel', .3], ['copper_ore', '/models/materias/copper-ore.bbmodel', .3], ['lead_ore', '/models/materias/lead-ore.bbmodel', .3],
@@ -206,6 +218,8 @@ for (const [item, url, length] of [
   ['supply_radio', '/models/tools/supply-radio.bbmodel', .3],
 ] as const) WEAPON_SPECS[item] = { url, length, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] };
 
+// The backpack (worn in the pack slot; the same model as on the character's back).
+WEAPON_SPECS.military_backpack = { url: '/models/gear/military-backpack.glb', length: 0.55, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 0, 0] };
 WEAPON_SPECS.flashlight = { url: '/models/tools/flashlight.bbmodel', length: 0.22, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, 2, 0], emitter: [0, 2, 9] };
 
 // Food and resources: inventory icons (and held/ground models).
@@ -214,7 +228,7 @@ for (const [item, file] of Object.entries({ potato: 'potato', potato_cooked: 'po
 }
 
 // Armour pieces: loaded for their inventory icons only (worn models come from armor-models.ts).
-for (const a of ARMOR_SPECS) WEAPON_SPECS[a.item] = { url: a.model, length: 0.45, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] };
+for (const a of ARMOR_SPECS) WEAPON_SPECS[a.item] = { url: a.model.url, ...(a.model.node ? { node: a.model.node, nodeYaw: a.model.yaw ?? 0 } : {}), length: a.slot === 'chest' ? 0.55 : 0.3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] };
 
 /** The visual table before any Studio edits. */
 const BUILTIN_VISUALS = new Map(Object.entries(WEAPON_SPECS).map(([id, spec]) => [id, structuredClone(spec)]));
@@ -226,6 +240,8 @@ const AIM_DIR = new Vector3(0, -0.08, -1).normalize();
 
 export interface WeaponVisual {
   itemId: string;
+  /** Scale guns were fitted at relative to their real size (the block characters hold them larger). */
+  heldScale?: number;
   object: Group;
   /** Transform relative to the right-hand bone. */
   attach: Matrix4;
@@ -258,7 +274,14 @@ export interface WeaponVisual {
 export type WeaponLibrary = Map<string, WeaponVisual>;
 
 /** Loads a weapon model: Blockbench JSON, or an imported GLB whose own units are the authoring units. */
-export async function loadWeaponModel(url: string, onProgress?: (p: number) => void, format?: 'glb' | 'bbmodel'): Promise<CharacterTemplate> {
+export async function loadWeaponModel(url: string, onProgress?: (p: number) => void, format?: 'glb' | 'bbmodel', node?: string, nodeYaw = 0): Promise<CharacterTemplate> {
+  if (node) {
+    const root = new Group(), piece = bake(await loadGlbScene(url), node, nodeYaw);
+    onProgress?.(1);
+    piece.scale.setScalar(1 / BB_UNITS_PER_METER);
+    root.add(piece);
+    return { root, boneNames: [], clips: new Map() };
+  }
   if ((format ?? (url.split('?')[0]!.endsWith('.glb') ? 'glb' : 'bbmodel')) !== 'glb') return buildBBModel(JSON.parse(await fetchWithProgress(url, onProgress)) as RawModel);
   const res = await cachedFetch(url);
   if (!res.ok) throw new Error(`weapon model unavailable (${res.status})`);
@@ -268,7 +291,8 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
   // Spec points are given in the file's units; Blockbench models use pixels (1/16 m) the same way.
   gltf.scene.scale.setScalar(1 / BB_UNITS_PER_METER);
   root.add(gltf.scene);
-  return { root, boneNames: [], clips: new Map() };
+  const weapon = gltf.parser.json.extras?.zion_weapon ?? gltf.scene.userData.zion_weapon;
+  return { root, boneNames: [], clips: new Map(), ...(weapon ? { weapon } : {}) };
 }
 
 /**
@@ -277,6 +301,18 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
  * and lines up its optical axis without hand tuning.
  */
 export function fittedSpec(spec: WeaponSpec, template: CharacterTemplate): WeaponSpec {
+  if (template.weapon) {
+    const gun = template.weapon;
+    spec = { ...spec,
+      ...(gun.barrel ? { barrel: gun.barrel } : {}), ...(gun.up ? { up: gun.up } : {}),
+      ...(gun.grip ? { grip: gun.grip } : {}), ...(gun.support ? { support: gun.support } : {}),
+      ...(gun.muzzle ? { muzzle: gun.muzzle } : {}), ...(gun.eject ? { eject: gun.eject } : {}),
+      ...(gun.length ? { length: gun.length } : {}), ...(gun.rail ? { rail: gun.rail } : {}),
+      ...(gun.sight ? { sight: gun.sight } : {}),
+      ...(gun.gripAxis ? { gripAxis: gun.gripAxis } : {}), ...(gun.supportAxis ? { supportAxis: gun.supportAxis } : {}),
+      ...(gun.gripRadius ? { gripRadius: gun.gripRadius } : {}), ...(gun.supportRadius ? { supportRadius: gun.supportRadius } : {}),
+    };
+  }
   const fit = template.attachment;
   if (!fit) return spec;
   return {
@@ -421,6 +457,11 @@ export async function loadItemDisplayModel(itemId: string, attachments?: Attachm
   return dressWeapon(lib, itemId, attachments)!.display;
 }
 
+/** Held guns: real size for the survivor, larger on the stylised block character. */
+function heldGunScale(character: CharacterTemplate): number {
+  return character.human ? SURVIVOR_GUN_SCALE : HELD_GUN_SCALE;
+}
+
 function frame(forward: Vector3, up: Vector3): Matrix4 {
   const f = forward.clone().normalize();
   const side = new Vector3().crossVectors(f, up).normalize();
@@ -433,15 +474,15 @@ function frame(forward: Vector3, up: Vector3): Matrix4 {
  * solves the hand-local transform that puts the grip in the fist with the muzzle pointing
  * forward and the top facing up. Walk/attack clips then carry the gun along with the hand.
  */
-function fitToHand(character: CharacterTemplate, spec: WeaponSpec, stance: Stance, weaponRoot: Group, side: 'left' | 'right' = 'right'): Matrix4 {
-  const avatar = new Avatar(character, true);
+export function fitToHand(character: CharacterTemplate, spec: WeaponSpec, stance: Stance, weaponRoot: Group, side: 'left' | 'right' = 'right'): Matrix4 {
+  const avatar = new Avatar(character, true, { body: false });
   avatar.setStance(stance);
   for (let i = 0; i < 3; i++) avatar.update(0, 0, 0, 0, EntityFlags.Grounded, 0.25, 0);
   avatar.root.updateMatrixWorld(true);
   const hand = avatar.root.getObjectByName(`hand_${side}`);
   if (!hand) throw new Error('character has no hand_right bone');
 
-  const scale = ((spec.muzzle ? HELD_GUN_SCALE : 1) * spec.length) / Math.max(1e-3, measureAlong(weaponRoot, new Vector3(...spec.barrel)));
+  const scale = ((spec.muzzle ? heldGunScale(character) : 1) * spec.length) / Math.max(1e-3, measureAlong(weaponRoot, new Vector3(...spec.barrel)));
 
   const handWorld = hand.matrixWorld.clone();
   const gripWorld = HAND_GRIP.clone().applyMatrix4(handWorld);
@@ -549,7 +590,7 @@ export function firstPersonArms(character: CharacterTemplate, itemId: string, sp
   // Pistols: the support hand wraps the firing hand from the left, under the slide.
   if (gun && ITEMS[itemId]?.stance === 'pistol' && !spec.support) contact = new Vector3(.005, -.045, -.045);
   // The palm cups the handguard from underneath (a little below the authored point).
-  else if (spec.support) contact = local(spec.support).applyMatrix4(displayTransform).add(new Vector3(0, gun ? -.018 : 0, 0));
+  else if (spec.support) contact = local(spec.support).applyMatrix4(displayTransform);
   else if (gun) contact = new Vector3(Math.max(.08, local(spec.muzzle!).applyMatrix4(displayTransform).x * .38), -.025, 0);
   if (contact && spec.fpSupport) contact.add(new Vector3(...spec.fpSupport));
   return {
@@ -576,7 +617,8 @@ export function standaloneVisual(itemId: string, spec: WeaponSpec, root: Group, 
 
 /** Downloads and fits every weapon model; part of the pre-game loading step. */
 export async function loadWeapons(character: CharacterTemplate, onProgress?: (p: number) => void): Promise<WeaponLibrary> {
-  await loadCustomWeapons();
+  // The Studio's weapons and gear fitting, before anything is built or dressed.
+  await Promise.all([loadCustomWeapons(), loadGearFit()]);
   const ids = Object.keys(WEAPON_SPECS);
   const progress = new Array<number>(ids.length).fill(0);
   const report = () => onProgress?.(progress.reduce((a, b) => a + b, 0) / ids.length);
@@ -588,7 +630,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
       const built = await loadWeaponModel(tableSpec.url, (p) => {
         progress[i] = p;
         report();
-      }, tableSpec.format);
+      }, tableSpec.format, tableSpec.node, tableSpec.nodeYaw);
       const spec = fittedSpec(tableSpec, built);
       if (spec.round && spec.muzzle) await loadRound(built.root, spec, spec.round);
       if (spec.emitter) {
@@ -613,6 +655,7 @@ export async function loadWeapons(character: CharacterTemplate, onProgress?: (p:
         itemId,
         object: built.root,
         attach: fitToHand(character, spec, stance, built.root),
+        ...(spec.muzzle ? { heldScale: heldGunScale(character) } : {}),
         ...(ITEMS[itemId]?.category === 'tool' ? { offhandAttach: fitToHand(character, spec, stance, built.root, 'left') } : {}),
         ...(ITEMS[itemId]?.category === 'tool' && character.root.getObjectByName('arm_left') ? { offhandArm: character.root.getObjectByName('arm_left')! } : {}),
         ...(spec.muzzle ? { aim: { barrel: new Vector3(...spec.barrel), up: new Vector3(...spec.up), grip: local(spec.grip)! } } : {}),

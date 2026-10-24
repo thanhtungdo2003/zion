@@ -175,10 +175,6 @@ export class GameConnection {
     this.send({ t: 'nurseheal', req });
   }
 
-  sendArmor(a: { head: number; chest: number; legs: number; feet: number }): void {
-    this.send({ t: 'armor', ...a });
-  }
-
   /** Battle royale automatic jump point (negative = clear). */
   sendJumpPoint(x: number, z: number): void {
     this.send({ t: 'jumppoint', x: Math.round(x), z: Math.round(z) });

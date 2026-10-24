@@ -1,6 +1,8 @@
 import { SharedChests } from './chests';
+import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
-import { ARCHITECT_ID, type BuildMessage } from '@zion/shared';
+import { packGear } from '@zion/shared';
+import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
@@ -116,6 +118,7 @@ import type { Metrics } from '../metrics';
 import type { AuditLog } from '../repositories/audit';
 import type { PlayerStateRepository } from '../repositories/player-states';
 import type { WorldRepository } from '../repositories/worlds';
+import type { AppearanceStore } from '../repositories/accounts';
 import type { WorldService } from '../world/world-service';
 import { sanitizeChat, type SuspicionKind } from './anticheat';
 import { ChunkStreamer } from './chunk-streamer';
@@ -157,6 +160,8 @@ const MAX_STEP_DISTANCE = DEFAULT_CHARACTER.sprintSpeed * TICK_DT * 3 + 0.5;
 
 export interface GameServerDeps {
   mode?: GameMode;
+  /** Character looks, sent to every player in the match. */
+  appearances?: AppearanceStore;
   progression?: ProgressionService;
   teams?: TeamService;
   config: AppConfig;
@@ -257,7 +262,7 @@ export class GameServer {
   private readonly blastHit = makeRayHit();
   /** ZCoin lying on the ground, waiting to be picked up. */
   /** Items players dropped on the ground (visible to everyone, pick-up by anyone). */
-  private readonly groundItems = new Map<number, { itemId: string; count?: number; mag?: number; issued?: boolean; attachments?: Attachments; x: number; y: number; z: number; expiresAt: number; livestock?: boolean; quest?: string }>();
+  private readonly groundItems = new Map<number, { itemId: string; count?: number; mag?: number; issued?: boolean; attachments?: Attachments; x: number; y: number; z: number; expiresAt: number; livestock?: boolean; quest?: string; contents?: PlacedItem[] }>();
   private nextGroundId = 1;
   private readonly coinDrops = new Map<number, { x: number; y: number; z: number; amount: number; expiresAt: number }>();
   private nextCoinId = 1;
@@ -1188,6 +1193,7 @@ export class GameServer {
     if (this.battle && !this.battle.accepting && !rejoin) { session.sendError('server_full', 'Trận đã bắt đầu. Hãy thử trận tiếp theo.', true); session.close(CloseCode.ServerFull, 'battle started'); return; }
     if (this.deps.progression) saved = await this.deps.playerStates.deliverRequisitions({ accountId: acc.accountId, x: pos.x, y: pos.y, z: pos.z, yaw: saved?.yaw ?? 0, health, coins: saved?.coins ?? STARTING_ZCOIN, inventory: saved?.inventory ?? defaultLoadout(), journal: saved?.journal, life: saved?.life, suspendedZombies: saved?.suspendedZombies ?? [] });
     const joinedRank = await this.deps.progression?.title(acc.accountId);
+    const look = await this.deps.appearances?.loadAppearance(acc.accountId).catch((err: unknown) => { this.log.warn({ err, accountId: acc.accountId }, 'appearance unavailable'); return null; });
     if (!session.open) return;
     if (this.byAccount.has(acc.accountId)) {
       session.sendError('duplicate_session', 'already connected', true);
@@ -1207,6 +1213,7 @@ export class GameServer {
     player.journal = saved?.journal ?? {};
     player.suspendedZombies = saved?.suspendedZombies ?? [];
     if (joinedRank) player.rank = joinedRank;
+    if (look) player.look = look;
     this.quests.reset(player, Date.now());
     player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
     // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
@@ -2531,6 +2538,13 @@ export class GameServer {
     if (now < p.knockedUntil) { input = { ...input, mx: 0, mz: 0 }; buttons = 0; }
     // Staggered by a hit: no steering until it lands.
     if (now < p.stunUntil) { input = { ...input, mx: 0, mz: 0 }; buttons &= ~(Buttons.Sprint | Buttons.Roll | Buttons.Jump); }
+    // Swinging a melee weapon: no sprinting until the swing is over.
+    if (now < p.attackingUntil && weaponSpec(p.weapon)?.kind === 'melee') buttons &= ~Buttons.Sprint;
+    // The finisher's lunge only with the combo's last swing, starting this tick.
+    if (buttons & Buttons.Lunge) {
+      const blade = BLADE_COMBO_WEAPONS.has(p.weapon) && (buttons & Buttons.Attack) !== 0 && now >= p.attackReadyAt - BLADE_COMBO_TOLERANCE_MS;
+      if (!blade || !BLADE_COMBO[nextBladeStep(p.bladeStep, p.bladeReadyAt, now)]!.lunge || !s.grounded || s.rollTicks > 0 || s.prone || s.swimming) buttons &= ~Buttons.Lunge;
+    }
     if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT * this.effort(p))) buttons &= ~Buttons.Sprint;
     if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll * this.effort(p))) buttons &= ~Buttons.Roll;
     input = { ...input, b: buttons };
@@ -2539,7 +2553,7 @@ export class GameServer {
     const falling = !s.grounded && !s.swimming && !s.climbing ? -s.vy : 0;
     const info = this.controller.step(
       s,
-      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) * (now < p.slowUntil ? p.slowFactor : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
+      { mx: input.mx, mz: input.mz, yaw: input.yaw, jump: (input.b & Buttons.Jump) !== 0, sprint: (input.b & Buttons.Sprint) !== 0, roll: (input.b & Buttons.Roll) !== 0, lunge: (input.b & Buttons.Lunge) !== 0, prone: (input.b & Buttons.Prone) !== 0, crouch: (input.b & Buttons.Crouch) !== 0, speedMul: p.speedMul * (p.aiming ? .65 : 1) * (now < p.slowUntil ? p.slowFactor : 1), jumpMul: zombie ? this.infectionRules.zombieJump : 1 },
       TICK_DT,
       this.stepInfo,
     );
@@ -2574,9 +2588,9 @@ export class GameServer {
       if (spec?.kind === 'gun') {
         // No shooting while airborne (jumping/falling).
         if (p.state.grounded) {
-          if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td);
-          else if (spec.fire === 'flame') this.tryFlame(p, spec, now);
-          else this.tryShoot(p, now, input.rt);
+          if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td, input.bore);
+          else if (spec.fire === 'flame') this.tryFlame(p, spec, now, input.bore);
+          else this.tryShoot(p, now, input.rt, input.bore);
         }
       }
       else if (spec?.kind === 'throw') this.tryThrow(p, now, input.td);
@@ -2608,9 +2622,9 @@ export class GameServer {
     const v = this.vehicles.driving(p);
     if (v && spec?.kind === 'gun' && (buttons & Buttons.Attack)) {
       this.vehicles.withoutColliders(v, () => {
-        if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td);
-        else if (spec.fire === 'flame') this.tryFlame(p, spec, now);
-        else this.tryShoot(p, now, input.rt);
+        if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td, input.bore);
+        else if (spec.fire === 'flame') this.tryFlame(p, spec, now, input.bore);
+        else this.tryShoot(p, now, input.rt, input.bore);
       });
     }
     p.lastProcessedSeq = input.s;
@@ -2669,13 +2683,32 @@ export class GameServer {
   }
 
   private tryAttack(p: Player, now: number, renderTime: number | undefined, blade?: MeleeSpec): void {
-    if (now < p.attackReadyAt - FIRE_TOLERANCE_MS) return;
+    if (now < p.attackReadyAt - (BLADE_COMBO_WEAPONS.has(p.weapon) && blade ? BLADE_COMBO_TOLERANCE_MS : FIRE_TOLERANCE_MS)) return;
     if (!this.life.spend(p.life, this.attackStaminaCost(p))) return;
-    p.attackReadyAt = now + (blade?.cooldownMs ?? MELEE.cooldownMs);
-    p.attackingUntil = now + (blade?.swingMs ?? MELEE.swingMs);
     if (renderTime !== undefined && (renderTime > now + 1000 || renderTime < now - 2000)) {
       this.flag(p, 'rewind_out_of_window', { delta: Math.round(now - renderTime) });
     }
+    if (blade && BLADE_COMBO_WEAPONS.has(p.weapon)) {
+      // One-handed blade: the next step of the combo, timed and weighted by that step.
+      const step = nextBladeStep(p.bladeStep, p.bladeReadyAt, now), timing = bladeStepTiming(blade, step), c = BLADE_COMBO[step]!;
+      p.bladeStep = step;
+      p.attackReadyAt = p.bladeReadyAt = now + timing.cooldownMs;
+      p.attackingUntil = now + timing.durationMs;
+      const cut: MeleeSpec = { ...blade, damage: blade.damage * c.damage, halfAngle: c.halfAngle, range: blade.range + c.rangeBonus,
+        decapitationChance: (blade.decapitationChance ?? 0) * (c.lunge ? 2 : 1), cleaveMultiplier: c.lunge ? .9 : blade.cleaveMultiplier };
+      p.strike = { at: now + timing.hitMs, blade: cut, rewind: renderTime === undefined ? undefined : now - renderTime };
+      return;
+    }
+    // Long-hafted and heavy weapons: the blow lands at the recorded swing's fastest point.
+    const swing = blade ? meleeSwing(p.weapon, blade, p.meleeSwings++) : null;
+    if (blade && swing) {
+      p.attackReadyAt = now + Math.max(blade.cooldownMs, swing.durationMs * .85);
+      p.attackingUntil = now + swing.durationMs;
+      p.strike = { at: now + swing.hitMs, blade, rewind: renderTime === undefined ? undefined : now - renderTime };
+      return;
+    }
+    p.attackReadyAt = now + (blade?.cooldownMs ?? MELEE.cooldownMs);
+    p.attackingUntil = now + (blade?.swingMs ?? MELEE.swingMs);
     // Like a zombie's bite, the blow lands after its wind-up, judged on where everyone is then.
     p.strike = { at: now + (blade ? blade.hitDelayMs ?? BLADE_HIT_DELAY_MS : FIST_HIT_DELAY_MS), blade, rewind: renderTime === undefined ? undefined : now - renderTime };
   }
@@ -3008,17 +3041,22 @@ export class GameServer {
     }
   }
 
+  private shotBore(p: Player, bore?: InputMessage['bore']) {
+    const y = p.state.y + muzzleHeight(p.state.prone, !!p.state.crouched);
+    const [x, z] = this.leanOrigin(p, y);
+    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch);
+    return animatedBore(p.state, { x, y, z, dx, dy, dz }, bore, this.collision);
+  }
+
   /** Spawn ammunition now; damage is resolved only when its swept flight reaches a body. */
-  private tryShoot(p: Player, now: number, _renderTime: number | undefined): void {
+  private tryShoot(p: Player, now: number, _renderTime: number | undefined, bore?: InputMessage['bore']): void {
     const spec = WEAPON_SPECS[p.weapon as Exclude<WeaponId, 0>];
     if (spec?.kind !== 'gun' || now < p.fireReadyAt - FIRE_TOLERANCE_MS || this.rounds.length + spec.pellets > 4096) return;
     if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
     this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
     const s = p.state;
-    const oy = s.y + muzzleHeight(s.prone, !!s.crouched);
-    const [ox, oz] = this.leanOrigin(p, oy);
-    let [ax, ay, az] = aimDirection(p.yaw, p.pitch);
+    const { x: ox, y: oy, z: oz, dx: ax, dy: ay, dz: az } = this.shotBore(p, bore);
     const attachments = p.inv.equippedItem()?.attachments;
     p.gunHeat = Math.max(0, p.gunHeat - (now - p.lastGunShotAt) / 700);
     const spread = gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone, p.gunHeat) * attachmentModifier(attachments, 'spread');
@@ -3026,10 +3064,11 @@ export class GameServer {
     p.lastGunShotAt = now;
     const proj = bulletSpec(p.weapon, spec);
     // Mouse-look aim already runs from the muzzle to the crosshair point: only the drop to the zero is added.
-    if (p.eyeAim) [ax, ay, az] = droppedDirection(ax, ay, az, zeroDistance(spec, !!opticOf(attachments)), proj.speed, proj.gravity);
+    // With an animated bore, elevation is already visible on the weapon itself.
+    const [bx, by, bz] = p.eyeAim && !bore ? droppedDirection(ax, ay, az, zeroDistance(spec, !!opticOf(attachments)), proj.speed, proj.gravity) : [ax, ay, az];
     this.broadcastNear(p, { t: 'shot', shooterId: p.id, w: p.weapon, ox, oy, oz, ends: [], ...(attachmentModifier(attachments, 'flash') === 0 ? { sup: 1 as const } : {}) });
     for (let i = 0; i < spec.pellets; i++) {
-      const [dx, dy, dz] = spreadDirection(ax, ay, az, spread, Math.random);
+      const [dx, dy, dz] = spreadDirection(bx, by, bz, spread, Math.random);
       const id = this.nextGrenadeId++;
       const vx = dx * proj.speed, vy = dy * proj.speed, vz = dz * proj.speed;
       this.rounds.push({ id, owner: p, w: p.weapon, spec: proj, damage: spec.damage, knockback: spec.knockback ?? 1, traveled: 0, x: ox, y: oy, z: oz, vx, vy, vz, dieAt: now + proj.maxFlightSec * 1000 });
@@ -3240,7 +3279,7 @@ export class GameServer {
   }
 
   /** Launcher: spawns a server-simulated round (lobbed 40 mm grenade, rocket or bolt). */
-  private tryLaunch(p: Player, spec: GunSpec, now: number, targetDist?: number): void {
+  private tryLaunch(p: Player, spec: GunSpec, now: number, targetDist?: number, bore?: InputMessage['bore']): void {
     const proj = spec.projectile;
     if (!proj || now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
     if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
@@ -3249,9 +3288,10 @@ export class GameServer {
     const s = p.state;
     const fx = -Math.sin(p.yaw);
     const fz = -Math.cos(p.yaw);
-    const x = s.x + fx * 0.7;
-    const y = s.y + muzzleHeight(s.prone, !!s.crouched);
-    const z = s.z + fz * 0.7;
+    const launch = this.shotBore(p, bore);
+    const x = bore ? launch.x : s.x + fx * 0.7;
+    const y = launch.y;
+    const z = bore ? launch.z : s.z + fz * 0.7;
     let vx: number;
     let vy: number;
     let vz: number;
@@ -3264,8 +3304,9 @@ export class GameServer {
       vx = fx * h;
       vy = Math.sin(proj.lob.elevation) * speed;
       vz = fz * h;
+      if (bore) { vx = launch.dx * speed; vy = launch.dy * speed; vz = launch.dz * speed; }
     } else {
-      const [ax, ay, az] = aimDirection(p.yaw, p.pitch);
+      const [ax, ay, az] = [launch.dx, launch.dy, launch.dz];
       const [dx, dy, dz] = spreadDirection(ax, ay, az, gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone), Math.random);
       vx = dx * proj.speed;
       vy = dy * proj.speed;
@@ -3345,24 +3386,20 @@ export class GameServer {
   }
 
   /** Flamethrower: a short cone of fire; zombies caught in it keep burning for a while. */
-  private tryFlame(p: Player, spec: GunSpec, now: number): void {
+  private tryFlame(p: Player, spec: GunSpec, now: number, bore?: InputMessage['bore']): void {
     if (now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
     if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
     this.life.spend(p.life, this.attackStaminaCost(p));
     p.fireReadyAt = Math.max(now, p.fireReadyAt) + spec.fireMs;
-    const s = p.state;
-    const oy = s.y + muzzleHeight(s.prone, !!s.crouched);
-    const [ox, oz] = this.leanOrigin(p, oy);
-    const fx = -Math.sin(p.yaw);
-    const fz = -Math.cos(p.yaw);
+    const { x: ox, y: oy, z: oz, dx: fx, dy: fy, dz: fz } = this.shotBore(p, bore);
     const inCone = (x: number, y: number, z: number): boolean => {
       const dx = x - ox;
       const dz = z - oz;
-      const d = Math.hypot(dx, dz);
-      if (d > spec.range || d < 0.05) return d < 0.05;
-      const cos = (dx * fx + dz * fz) / d;
-      if (cos < Math.cos(spec.spread + Math.atan(0.45 / d))) return false;
       const dy = y - oy;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > spec.range || d < 0.05) return d < 0.05;
+      const cos = (dx * fx + dy * fy + dz * fz) / d;
+      if (cos < Math.cos(spec.spread + Math.atan(0.45 / d))) return false;
       const l = Math.hypot(dx, dy, dz);
       return !this.collision.raycast(ox, oy, oz, dx / l, dy / l, dz / l, l, Mask.LineOfSight, this.blastHit);
     };
@@ -3444,8 +3481,8 @@ export class GameServer {
     if (p.reloadUid && p.inv.equippedItem()?.uid !== p.reloadUid) p.cancelReload();
     p.armor = p.inv.worn();
     p.speedMul = this.infection?.isZombie(p.id) ? this.infectionRules.zombieSpeed : armorSpeedFactor(p.armor) * weaponSpeedFactor(WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0);
-    const back = p.inv.backItem();
-    p.backWeapon = back ? (WEAPON_BY_ITEM[back.itemId] ?? 0) : 0;
+    const gear = packGear(p.inv.gear(), (id) => WEAPON_BY_ITEM[id] ?? 0);
+    p.backWeapon = gear.back; p.gearPacked = gear.gear; p.packWorn = gear.pack;
     p.dirty = true;
   }
 
@@ -3514,6 +3551,12 @@ export class GameServer {
         changed = p.inv.equip(msg.uid);
         if (changed) p.cancelReload();
         break;
+      case 'chestDrop': {
+        // Only from the chest this player has open; the chest's viewers see it go.
+        if (this.chests.viewing(p) !== msg.id) break;
+        for (const it of this.chests.takeLive(msg.id, (items) => items.some((i) => i.uid === msg.uid) ? [msg.uid] : []) ?? []) this.dropGroundItem(p, it);
+        break;
+      }
       case 'drop': {
         const at = p.inv.get(msg.uid)?.container;
         if (at && isStash(at) && !this.atStorage(p)) break;
@@ -3548,6 +3591,8 @@ export class GameServer {
         if (g.mag !== undefined) added.mag = g.mag;
         if (g.quest) added.quest = g.quest;
         if (g.attachments) added.attachments = { ...g.attachments };
+        // A backpack comes back with everything that was packed inside it.
+        p.inv.restoreContents(added.uid, g.contents);
         if (g.livestock) this.queueQuestEvent(p, { type: 'collect', target: g.itemId, quantity: g.count ?? 1 });
         this.groundItems.delete(msg.id);
         this.broadcast({ t: 'groundGone', id: msg.id });
@@ -3624,7 +3669,7 @@ export class GameServer {
     return !!camp && !!s && !p.dead && Math.abs(p.state.y - camp.y) < 4 && Math.hypot(p.state.x - camp.x - s.x, p.state.z - camp.z - s.z) <= s.radius;
   }
 
-  private dropGroundItem(p: Player, it: { itemId: string; count?: number; mag?: number; issued?: boolean; quest?: string; attachments?: Attachments }): void {
+  private dropGroundItem(p: Player, it: { itemId: string; count?: number; mag?: number; issued?: boolean; quest?: string; attachments?: Attachments; contents?: PlacedItem[] }): void {
     const id = this.nextGroundId++;
     const a = p.yaw + (Math.random() - 0.5) * 0.8;
     const d = 0.9 + Math.random() * 0.5;
@@ -3632,7 +3677,7 @@ export class GameServer {
     const z = p.state.z - Math.cos(a) * d;
     const ground = this.collision.terrainHeight(x, z);
     const y = Number.isFinite(ground) && Math.abs(ground - p.state.y) < 1.5 ? ground : p.state.y;
-    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, ...(it.attachments ? { attachments: { ...it.attachments } } : {}), x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
+    const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, ...(it.attachments ? { attachments: { ...it.attachments } } : {}), ...(it.contents?.length ? { contents: it.contents } : {}), x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
     this.groundItems.set(id, g);
     this.broadcast({ t: 'ground', items: [{ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z }] });
   }
@@ -3840,6 +3885,8 @@ export class GameServer {
           health: o.downed ? Math.ceil(o.bleed) : o.health,
           weapon: o.weapon,
           back: o.backWeapon,
+          gear: o.gearPacked,
+          pack: o.packWorn,
           armor: packArmor(o.armor),
           att: packAttachments(o.inv.equippedItem()?.attachments),
         });
@@ -3862,7 +3909,7 @@ export class GameServer {
         serverTime: now,
         timeOfDay: tod,
         ackSeq: p.lastProcessedSeq,
-        self: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, flags: this.flagsOf(p, now), health: p.downed ? Math.max(1, Math.ceil(p.bleed)) : p.health, stuckTicks: s.stuckTicks, rollTicks: s.rollTicks, rollCooldown: s.rollCooldown, rollYaw: s.rollYaw },
+        self: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, flags: this.flagsOf(p, now), health: p.downed ? Math.max(1, Math.ceil(p.bleed)) : p.health, stuckTicks: s.stuckTicks, rollTicks: s.rollTicks, rollCooldown: s.rollCooldown, rollYaw: s.rollYaw, lungeTicks: s.lungeTicks ?? 0 },
         entities,
       });
       p.session.sendBinary(frame, true);
@@ -3919,7 +3966,7 @@ export class GameServer {
     this.statsDirty = false;
     const score = (id: number) => this.stats.get(id) ?? { kills: 0, deaths: 0 };
     const zombie = (id: number) => this.infection?.zombies.has(id) ?? false;
-    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled, ...score(p.id), dead: p.dead || (this.battle?.eliminated.has(p.id) ?? false), zombie: zombie(p.id) }));
+    const players = [...this.players.values()].map((p) => ({ id: p.id, name: p.username, rank: p.rank, pvp: p.pvpEnabled, ...score(p.id), dead: p.dead || (this.battle?.eliminated.has(p.id) ?? false), zombie: zombie(p.id), ...(p.look ? { look: p.look } : {}) }));
     for (const bot of this.bots?.bots ?? []) players.push({ id: bot.id, name: bot.name, rank: { step: 0, tier: 0, stars: 1, title: 'Tân Binh I' }, pvp: false, ...score(bot.id), dead: bot.dead, zombie: zombie(bot.id), bot: true } as (typeof players)[number]);
     this.broadcast({ t: 'players', players });
   }

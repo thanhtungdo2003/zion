@@ -1,6 +1,8 @@
 import { CACHE_DRAWS_PER_DAY, type BlueprintProgress, type ChestStateMessage } from '@zion/shared';
 import { markPending } from '../pending';
 import {
+  InventoryModel,
+  isPackContainer,
   ARMOR_CONTAINERS,
   ARMOR_SLOTS,
   EQUIP_ORDER,
@@ -36,6 +38,8 @@ export interface HeldItem {
   uid: number;
   itemId: string;
   rotated: boolean;
+  /** A backpack not worn: what is packed inside it. */
+  contents?: PlacedItem[];
   count?: number;
   issued?: boolean;
   mag?: number;
@@ -153,8 +157,24 @@ export class InventoryStore {
   throwHeld(): void {
     const h = this.state.held;
     if (!h) return;
-    this.set({ held: null });
+    // A worn backpack leaves with its grids (the server packs them into it).
+    this.set({ held: null, ...(h.from.container === 'pack' ? { items: this.state.items.filter((i) => !isPackContainer(i.container)) } : {}) });
     this.send?.({ t: 'inv', op: 'drop', uid: h.uid });
+  }
+
+  /** Throws an item out of the bag onto the ground without dragging it (Q over it). */
+  throwItem(uid: number): void {
+    if (this.state.held) return;
+    if (!this.state.items.some((i) => i.uid === uid)) return;
+    this.pickUp(uid);
+    this.throwHeld();
+  }
+
+  /** Throws an item out of the open chest onto the ground. */
+  chestDrop(uid: number): void {
+    const chest = this.state.chest;
+    if (!chest || chest.busy || chest.searchRemainingMs > 0) return;
+    this.send?.({ t: 'inv', op: 'chestDrop', id: chest.id, uid });
   }
 
   /** Picks up a ground item by id (server checks reach and room). */
@@ -228,14 +248,23 @@ export class InventoryStore {
     if (!it) return;
     this.set({
       items: this.state.items.filter((i) => i.uid !== uid),
-      held: { uid, itemId: it.itemId, rotated: it.rotated, count: it.count, issued: it.issued, mag: it.mag, attachments: it.attachments, from: { container: it.container, x: it.x, y: it.y, rotated: it.rotated } },
+      held: { uid, itemId: it.itemId, rotated: it.rotated, count: it.count, issued: it.issued, mag: it.mag, attachments: it.attachments, ...(it.contents ? { contents: it.contents } : {}), from: { container: it.container, x: it.x, y: it.y, rotated: it.rotated } },
     });
   }
 
   /** Drop the held item with its top-left cell at (x,y). Returns false if it doesn't fit. */
   drop(container: ContainerId, x: number, y: number): boolean {
     const h = this.state.held;
-    if (!h || !canPlace(this.state.items, container, h.itemId, x, y, h.rotated)) return false;
+    if (!h) return false;
+    if (ITEMS[h.itemId]?.category === 'backpack') {
+      // Putting a pack on or taking it off moves its grids too: predicted with the server's own rules.
+      const m = new InventoryModel({ items: [...this.state.items, this.placedFromHeld(h, h.from.container, h.from.x, h.from.y, h.from.rotated)], equipped: this.state.equipped });
+      if (!m.move(h.uid, container, x, y, h.rotated)) return false;
+      this.set({ items: m.items, equipped: m.equipped, held: null });
+      this.send?.({ t: 'inv', op: 'move', uid: h.uid, c: container, x, y, r: h.rotated });
+      return true;
+    }
+    if (!canPlace(this.state.items, container, h.itemId, x, y, h.rotated)) return false;
     const placed = this.placedFromHeld(h, container, x, y, h.rotated);
     this.set({ items: [...this.state.items, placed], held: null });
     this.send?.({ t: 'inv', op: 'move', uid: h.uid, c: container, x, y, r: h.rotated });
@@ -243,7 +272,7 @@ export class InventoryStore {
   }
 
   private placedFromHeld(h: HeldItem, container: ContainerId, x: number, y: number, rotated: boolean): PlacedItem {
-    return { uid: h.uid, itemId: h.itemId, container, x, y, rotated, count: h.count, issued: h.issued, mag: h.mag, ...(h.attachments ? { attachments: h.attachments } : {}) };
+    return { uid: h.uid, itemId: h.itemId, container, x, y, rotated, count: h.count, issued: h.issued, mag: h.mag, ...(h.attachments ? { attachments: h.attachments } : {}), ...(h.contents ? { contents: h.contents } : {}) };
   }
 
   rotateHeld(): void {
@@ -269,7 +298,15 @@ export class InventoryStore {
     if (!it) return;
     const rest = this.state.items.filter((i) => i.uid !== uid);
     const armor = ITEMS[it.itemId]?.armor;
-    const order: ContainerId[] = it.container !== 'backpack' ? ['backpack'] : armor ? [ARMOR_CONTAINERS[armor.slot]] : [...EQUIP_ORDER];
+    if (ITEMS[it.itemId]?.category === 'backpack') {
+      // Double-click a pack: on the back from the pockets, back into the pockets from the slot.
+      const target = it.container === 'pack' ? findSpot(rest.filter((i) => !isPackContainer(i.container)), it.itemId, ['backpack']) : findSpot(rest, it.itemId, ['pack']);
+      if (!target) return;
+      this.set({ held: { uid, itemId: it.itemId, rotated: it.rotated, ...(it.contents ? { contents: it.contents } : {}), from: { container: it.container, x: it.x, y: it.y, rotated: it.rotated } }, items: rest });
+      if (!this.drop(target.container, target.x, target.y)) this.returnHeld();
+      return;
+    }
+    const order: ContainerId[] = it.container !== 'backpack' ? ['backpack'] : armor ? [ARMOR_CONTAINERS[armor.slot]] : [...EQUIP_ORDER, 'pack_storage'];
     const spot = findSpot(rest, it.itemId, order);
     if (!spot) return;
     this.set({ items: [...rest, { ...it, ...spot }] });

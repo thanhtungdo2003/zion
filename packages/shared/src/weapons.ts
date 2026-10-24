@@ -206,6 +206,73 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.FireAxe]: { kind: 'melee', weight: 3.5, damage: 65, range: 2.8, cooldownMs: 1050, swingMs: 650, hitDelayMs: 260, animationMs: 650, halfAngle: 1.1, cleaveMultiplier: .55, decapitationChance: .18 },
 };
 
+/**
+ * One-handed blades (machete, katana) cut in a four-hit combo: outward slash, thrust, slash, then
+ * a lunging finisher (wide, heavy, critical). Each step plays a span of a recorded clip; the next
+ * attack within the window continues the combo, otherwise it starts over.
+ */
+export const BLADE_COMBO_WEAPONS: ReadonlySet<number> = new Set<number>([WeaponId.Katana, WeaponId.Machete]);
+/** Long-hafted weapons (two recorded slashes in turn). */
+export const LONG_MELEE_WEAPONS: ReadonlySet<number> = new Set<number>([WeaponId.Quam]);
+/** Heavy blunt or chopping weapons swung with both hands (the recorded hammer swing). */
+export const HEAVY_MELEE_WEAPONS: ReadonlySet<number> = new Set<number>([WeaponId.Sledgehammer, WeaponId.BaseballBat, WeaponId.Crowbar, WeaponId.Shovel, WeaponId.FireAxe, WeaponId.Pickaxe]);
+/**
+ * Recorded swings of long-hafted and heavy weapons (seconds of the recording: the span played and
+ * the blow — the hand's fastest point, measured on the clip). The blow lands, server side, at that
+ * point of the swing; the client shows the same moment.
+ */
+export interface MeleeSwingClip { clip: string; from: number; to: number; hit: number }
+export const LONG_MELEE_SWINGS: readonly MeleeSwingClip[] = [
+  { clip: 'long_melee_slash', from: .15, to: 1.7, hit: .72 },
+  { clip: 'long_melee_slash_2', from: .2, to: 1.5, hit: .75 },
+];
+export const HEAVY_MELEE_SWINGS: readonly MeleeSwingClip[] = [{ clip: 'hammer', from: .05, to: 1.27, hit: .57 }];
+
+/** The recorded swing a long or heavy weapon plays for its `count`-th blow, and its timing (ms); null for the rest. */
+export function meleeSwing(weapon: number, spec: MeleeSpec, count: number): (MeleeSwingClip & { durationMs: number; hitMs: number }) | null {
+  const list = LONG_MELEE_WEAPONS.has(weapon) ? LONG_MELEE_SWINGS : HEAVY_MELEE_WEAPONS.has(weapon) ? HEAVY_MELEE_SWINGS : null;
+  if (!list) return null;
+  const s = list[((count % list.length) + list.length) % list.length]!;
+  const durationMs = spec.animationMs ?? Math.max(spec.swingMs * 2, spec.cooldownMs * .95);
+  return { ...s, durationMs, hitMs: (s.hit - s.from) / (s.to - s.from) * durationMs };
+}
+
+/** Bladed weapons (a blade's slash sound); everything else whooshes through the air. */
+export const EDGED_MELEE_WEAPONS: ReadonlySet<number> = new Set<number>([WeaponId.Katana, WeaponId.Machete, WeaponId.Quam]);
+/** Combo swings may arrive this early (network jitter compresses consecutive clicks). */
+export const BLADE_COMBO_TOLERANCE_MS = 160;
+/** Time after a swing's cooldown during which the next swing continues the combo. */
+export const BLADE_COMBO_WINDOW_MS = 900;
+export interface BladeComboStep {
+  /** Recorded clip and the span played (seconds of the source), its blow at `hit`. */
+  clip: string; from: number; to: number; hit: number;
+  /** Playback speed relative to the recording (before the weapon's own speed). */
+  rate: number;
+  damage: number; halfAngle: number; rangeBonus: number;
+  /** Finisher: lunges forward and doubles decapitation chance. */
+  lunge?: boolean;
+}
+export const BLADE_COMBO: readonly BladeComboStep[] = [
+  { clip: 'sword_slash', from: .3, to: 1.6, hit: .85, rate: 1.6, damage: 1, halfAngle: 1.05, rangeBonus: 0 },
+  { clip: 'sword_thrust_slash', from: .3, to: 1.2, hit: .75, rate: 1.6, damage: 1.15, halfAngle: .45, rangeBonus: .5 },
+  { clip: 'sword_thrust_slash', from: 1.2, to: 2.4, hit: 1.45, rate: 1.6, damage: 1, halfAngle: 1.1, rangeBonus: 0 },
+  // At the recording's own speed: the physics lunge replays its forward travel tick for tick.
+  { clip: 'sword_combo', from: 0, to: 1.3, hit: .62, rate: 1, damage: 2.2, halfAngle: 1.7, rangeBonus: 1.2, lunge: true },
+];
+
+/** The combo step a new swing plays: the next one if it follows within the window, else the first. */
+export function nextBladeStep(previous: number, readyAt: number, now: number): number {
+  return previous >= 0 && now - readyAt <= BLADE_COMBO_WINDOW_MS ? (previous + 1) % BLADE_COMBO.length : 0;
+}
+
+/** Timing of one combo step for a blade (ms): the whole move, its blow, and when the next may start. */
+export function bladeStepTiming(spec: MeleeSpec, step: number): { durationMs: number; hitMs: number; cooldownMs: number } {
+  const s = BLADE_COMBO[step]!, speed = s.lunge ? s.rate : s.rate * (520 / spec.cooldownMs);
+  const durationMs = (s.to - s.from) / speed * 1000, hitMs = (s.hit - s.from) / speed * 1000;
+  // The next swing may cut into this one's recovery; the finisher recovers fully.
+  return { durationMs, hitMs, cooldownMs: s.lunge ? durationMs : hitMs + 200 };
+}
+
 /** Inventory item id → weapon id. */
 export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   ak47: WeaponId.AK47,

@@ -33,6 +33,8 @@ export interface CharacterParams {
   rollSpeed: number;
   rollDuration: number;
   rollCooldown: number;
+  /** Blade finisher lunge: distance covered (m) at 30 fps samples; its length sets the duration. */
+  lungeProfile: readonly number[];
   /** Climbing speed on ladders (m/s). */
   climbSpeed: number;
   /** Collider tags (asset ids) that can be climbed. */
@@ -64,6 +66,9 @@ export const DEFAULT_CHARACTER: Readonly<CharacterParams> = Object.freeze({
   rollSpeed: 7.5,
   rollDuration: 0.8,
   rollCooldown: 3,
+  // The recorded finisher's (comboslash.fbx) forward travel at the survivor's size, so the
+  // body moves exactly as the animation steps: 2.85 m over 1.3 s, fastest mid-swing.
+  lungeProfile: [0, 0.06, 0.129, 0.207, 0.291, 0.403, 0.53, 0.657, 0.786, 0.906, 1.026, 1.139, 1.232, 1.317, 1.404, 1.483, 1.574, 1.702, 1.839, 1.982, 2.114, 2.214, 2.301, 2.378, 2.458, 2.542, 2.622, 2.685, 2.731, 2.756, 2.775, 2.795, 2.81, 2.821, 2.83, 2.837, 2.841, 2.843, 2.846, 2.848],
   climbSpeed: 2.4,
   // Camp asset 2022 (rusty iron wall ladder).
   ladderTags: [2022],
@@ -92,8 +97,10 @@ export interface CharacterState {
   rollTicks: number;
   /** Ticks until another roll may start. */
   rollCooldown: number;
-  /** Direction of the active roll (same convention as yaw). */
+  /** Direction of the active roll or lunge (same convention as yaw). */
   rollYaw: number;
+  /** Remaining ticks of a blade finisher's forward lunge (0 = none). */
+  lungeTicks?: number;
   /** On a ladder this tick (derived each step from contacts; drives the climb animation). */
   climbing: boolean;
   /** Outside shove (m/s, e.g. a zombie hit by bullets): added to the move, fades by itself, never blocks steering. */
@@ -125,6 +132,8 @@ export interface CharacterInput {
   speedMul?: number;
   /** Jump height multiplier (take-off speed); 1 when omitted. */
   jumpMul?: number;
+  /** Starts a blade finisher's lunge along `yaw` (the server only lets it through for the finisher). */
+  lunge?: boolean;
 }
 
 export interface StepInfo {
@@ -167,6 +176,7 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
   dst.rollTicks = src.rollTicks;
   dst.rollCooldown = src.rollCooldown;
   dst.rollYaw = src.rollYaw;
+  dst.lungeTicks = src.lungeTicks ?? 0;
   dst.climbing = src.climbing;
   dst.prone = src.prone;
   dst.crouched = src.crouched;
@@ -177,6 +187,17 @@ export function copyCharacterState(src: CharacterState, dst: CharacterState): Ch
 }
 
 const MAX_SUBSTEPS = 24;
+/** Sample rate of `lungeProfile`. */
+const LUNGE_FPS = 30;
+
+/** Average speed along a sampled distance curve between t and t + dt (s). */
+function lungeSpeed(profile: readonly number[], t: number, dt: number): number {
+  const at = (time: number) => {
+    const f = Math.min(profile.length - 1, Math.max(0, time * LUNGE_FPS)), i = Math.floor(f), j = Math.min(profile.length - 1, i + 1);
+    return profile[i]! + (profile[j]! - profile[i]!) * (f - i);
+  };
+  return (at(t + dt) - at(t)) / dt;
+}
 const RESOLVE_ITERATIONS = 4;
 const STUCK_TOLERANCE = 0.06;
 
@@ -256,7 +277,14 @@ export class CharacterController {
       // Roll where the player is steering; standing still rolls toward the facing direction.
       s.rollYaw = wishX * wishX + wishZ * wishZ > 0.01 ? Math.atan2(-wishX, -wishZ) : input.yaw;
     }
-    const rolling = s.rollTicks > 0;
+    // --- Blade finisher lunge: a short committed dash along the facing direction --------------
+    const lungeTotal = Math.max(1, Math.round((p.lungeProfile.length - 1) / LUNGE_FPS / dt));
+    if (s.lungeTicks) s.lungeTicks--;
+    if (input.lunge && !s.lungeTicks && s.rollTicks === 0 && s.grounded && !s.swimming && !s.prone && !s.climbing) {
+      s.lungeTicks = lungeTotal;
+      s.rollYaw = input.yaw;
+    }
+    const rolling = s.rollTicks > 0 || !!s.lungeTicks;
     // --- Mantle: jump into a ledge too high to jump onto (W + Space) and climb over it ------
     if (input.jump && (s.grounded || s.vy > -2) && !rolling && !s.prone && !s.swimming && !s.climbing && mz > 0.3 && this.tryMantle(s, input.yaw, s.grounded ? 0 : this.risen(s, input.jumpMul ?? 1))) {
       info.mantled = true;
@@ -264,8 +292,9 @@ export class CharacterController {
     }
 
     if (rolling) {
-      s.vx = -Math.sin(s.rollYaw) * p.rollSpeed;
-      s.vz = -Math.cos(s.rollYaw) * p.rollSpeed;
+      const dash = s.lungeTicks ? lungeSpeed(p.lungeProfile, (lungeTotal - s.lungeTicks) * dt, dt) : p.rollSpeed;
+      s.vx = -Math.sin(s.rollYaw) * dash;
+      s.vz = -Math.cos(s.rollYaw) * dash;
     } else {
       const accel = s.swimming ? p.waterAccel : s.grounded ? p.groundAccel : p.airAccel;
       const dvx = targetX - s.vx;

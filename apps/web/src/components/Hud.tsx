@@ -153,6 +153,7 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
         {state.vehicle.exploding && <b>XE SẮP NỔ! NHẤN F ĐỂ THOÁT!</b>}
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }))}>F · {state.vehicle.driving ? 'Xuống xe' : 'Lên xe'}</button>
       </div>}
+      {state.visorVision > 0 && <div className="hud-visor" style={{ '--visor': state.visorVision } as React.CSSProperties} />}
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
       {state.damageDirAt > 0 && <div key={`dmg-${state.damageDirAt}`} className="hud-damage-dir" style={{ transform: `rotate(${-state.damageDir}rad)` }} aria-hidden><i /></div>}
       {state.killAt > 0 && <div key={`kill-${state.killAt}`} className="hud-kill" role="status"><b>{state.killStreak > 1 ? `HẠ GỤC ×${state.killStreak}` : 'HẠ GỤC'}</b><span>{state.killName}</span></div>}
