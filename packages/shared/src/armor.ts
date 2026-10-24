@@ -45,6 +45,12 @@ export interface ArmorSpec {
   /** One line on how it plays, for tooltips and the handbook. */
   note: string;
   model: ArmorModel;
+  /**
+   * Default clothes this piece takes the place of (hidden while worn), e.g. a full suit over the
+   * shirt. Omitted: worn over them (a vest over the shirt). Trousers and boots always replace
+   * the default ones of their own slot.
+   */
+  replaces?: ReadonlyArray<'top' | 'legs' | 'feet'>;
 }
 
 const HEAD = '/models/gear/armor/head-pack.glb';

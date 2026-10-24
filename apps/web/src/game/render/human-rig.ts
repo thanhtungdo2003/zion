@@ -615,7 +615,7 @@ export class HumanBody {
 
   private readonly outfitCovered = new Set<string>();
   /** Trousers / boots worn over the default ones hide them. */
-  setOutfitCovered(slot: 'legs' | 'feet', on: boolean): void {
+  setOutfitCovered(slot: 'top' | 'legs' | 'feet', on: boolean): void {
     if (on === this.outfitCovered.has(slot)) return;
     if (on) this.outfitCovered.add(slot); else this.outfitCovered.delete(slot);
     const mesh = this.meshes.get(slot);

@@ -583,9 +583,10 @@ export class Avatar {
     this.armorTails.delete(slot);
     if (piece) this.armorPieces.set(slot, piece); else this.armorPieces.delete(slot);
     const human = this.human, assets = this.template.human;
-    // Worn trousers / boots replace the default ones.
-    human?.setOutfitCovered('legs', this.armorPieces.has('legs'));
-    human?.setOutfitCovered('feet', this.armorPieces.has('feet'));
+    // Worn trousers / boots replace the default ones; other pieces only those they say they replace
+    // (most armour is simply worn over the shirt).
+    const replaced = (part: 'top' | 'legs' | 'feet') => this.armorPieces.has(part) || [...this.armorPieces.values()].some((p) => p.spec.replaces?.includes(part));
+    for (const part of ['top', 'legs', 'feet'] as const) human?.setOutfitCovered(part, replaced(part));
     human?.setHairCovered([...this.armor.values()].some((objs) => objs.some((o) => o.userData.coversHair)));
     if (!piece || !human || !assets) return;
     // The automatic fit, then the Studio's hand adjustment (offset, turn, size about the piece's centre).
