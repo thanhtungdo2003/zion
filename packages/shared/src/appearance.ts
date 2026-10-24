@@ -15,7 +15,8 @@ export type TopStyle = (typeof TOP_STYLES)[number];
 export const SKIN_TONES = ['#f2d4bf', '#e3b899', '#cd9b78', '#ad7652', '#845437', '#5a3826'] as const;
 export const HAIR_COLORS = ['#2a1d14', '#0f0d0c', '#4a2f1d', '#7a5232', '#b08a58', '#8e3b22', '#8a8784', '#ddd6c8'] as const;
 export const TOP_COLORS = ['#4a4f2e', '#2a2b2a', '#e6e1d4', '#3b4a5e', '#6c2e28', '#8a7a58', '#5e6b73'] as const;
-export const PANTS_COLORS = ['#b5a27a', '#4a503a', '#2b2b2d', '#5d6670', '#34465f', '#6f5741'] as const;
+/** Muted only (washed-out work and outdoor colours, never bright): grey joggers first. */
+export const PANTS_COLORS = ['#7a7b79', '#4a503a', '#2b2b2d', '#5d6670', '#3d4652', '#6f5741', '#9a8f78'] as const;
 export const BOOT_COLORS = ['#6b5236', '#2a2420', '#4f5141', '#80705c'] as const;
 
 /** Face sliders, −100…100 (0 = the base model). */
