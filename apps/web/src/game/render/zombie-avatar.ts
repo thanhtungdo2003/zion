@@ -137,8 +137,10 @@ export class ZombieAvatar {
     return out.setFromMatrixPosition(b.matrixWorld);
   }
 
-  flinchFrom(): void {
+  /** `heavy`: a strong blade cut or hammer blow, which staggers it (recorded reaction). */
+  flinchFrom(heavy = false): void {
     this.flinch = 1;
+    if (heavy) this.native?.staggered();
   }
 
   private play(name: string | null, rate = 1, fade = 0): void {

@@ -1378,7 +1378,8 @@ export class GameEngine {
     }
     if (isZombieId(m.targetId)) {
       const zb = this.zombies.get(m.targetId);
-      zb?.avatar.flinchFrom();
+      // Heavy blows (strong cuts, hammer blows, heavy rounds) stagger it.
+      zb?.avatar.flinchFrom(m.damage >= 45);
       if (zb) zb.lastHit = { x: m.x, y: m.y, z: m.z, zone: m.zone, damage: m.damage, kx: m.kx ?? dx, kz: m.kz ?? dz, force: m.force ?? 2 };
       const now = performance.now();
       if (zb && m.zone !== 'head' && now - zb.hurtAt > 250) {

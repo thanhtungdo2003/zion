@@ -181,7 +181,8 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   crowbar: { url: '/models/weapons/crowbar.bbmodel', length: 0.7, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], edge: [-1, 0, 0], strikePoint: [0, 23, 0], fpHip: [0.3359, -0.27, -0.25], fpRot: [0.3595, 0.1012] },
   katana: { url: '/models/weapons/katana.bbmodel', length: 1, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0], strikePoint: [0, 32, 0], fpHip: [0.2988, -0.2559, -0.1437], fpRot: [0.3944, 0.2269] },
   quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], support: [0, 8, 0], edge: [1, 0, 0], strikePoint: [0, 56, 0], fpHip: [0.4088, -0.329, -0.25], fpRot: [0.4014, -0.199] },
-  shovel: { url: '/models/tools/shovel.bbmodel', length: 1.15, barrel: [0, -1, 0], up: [0, 0, 1], grip: [8, 13, 8], strikePoint: [7.917, 1.57, 9], fpHip: [0.4115, -0.27, -0.25] },
+  // Low-poly pirate shovel (Sketchfab, GLB units): handle end at −Z, blade towards +Z, blade face across Y.
+  shovel: { url: '/models/tools/shovel.glb', length: 1.15, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -.01, -2.6], strikePoint: [0, -.05, 2.3], fpHip: [0.4115, -0.27, -0.25] },
   long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [0, 43, 0] },
   // Ammo boxes are never held; they are loaded for their inventory icons (muzzle-less = no gun scaling).
   ammo_762: { url: '/models/ammos/ak-box-762x39.bbmodel', length: 0.2, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 8, 0] },

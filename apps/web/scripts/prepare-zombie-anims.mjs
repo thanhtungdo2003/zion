@@ -18,7 +18,8 @@ const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js');
 
 const root = path.resolve(import.meta.dirname, '../../..');
 const dir = path.join(root, 'models/mobs/mocap');
-const CLIPS = { walk: { file: 'zombie-walk.fbx', loop: true }, run: { file: 'zombie-run.fbx', loop: true }, scream: { file: 'zombie-scream.fbx', loop: false } };
+const CLIPS = { walk: { file: 'zombie-walk.fbx', loop: true }, run: { file: 'zombie-run.fbx', loop: true }, scream: { file: 'zombie-scream.fbx', loop: false },
+  dying: { file: 'zombie-dying.fbx', loop: false }, death: { file: 'zombie-death.fbx', loop: false }, hit: { file: 'zombie-hit.fbx', loop: false } };
 /** Mixamo bone → role (the biped bone it drives, see zombie-clips.ts). */
 const ROLES = {
   Hips: 'pelvis', Spine: 'spine', Spine2: 'spine1', Neck: 'neck', Head: 'head',

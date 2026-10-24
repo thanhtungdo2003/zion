@@ -22,6 +22,11 @@ export class AnimatedZombie {
   private clipTime = 0;
   private clipWeight = 0;
   private screamFor = -1;
+  /** Seconds into the recorded hit reaction (heavy blows), −1 when none. */
+  private hitFor = -1;
+  /** The recorded death being played (instead of the limp body), with its time. */
+  private dying: { name: string; t: number } | null = null;
+  private readonly seed: number;
   private readonly bones = new Map<string, Object3D>();
   private attack = 0;
   private wasAttacking = false;
@@ -31,6 +36,7 @@ export class AnimatedZombie {
   private head: { root: Group; position: Vector3; velocity: Vector3; age: number } | null = null;
   constructor(template: CharacterTemplate, private readonly root: Group, private readonly variant: ZombieVariant, private readonly gore: GoreCallback, seed = root.id) {
     this.model = clone(template.root) as Group; root.add(this.model);
+    this.seed = seed;
     const meta = template.zombie!;
     for (const [key, name] of Object.entries(meta.aliases)) {
       const node = this.model.getObjectByName(name); if (node) this.bones.set(key, node);
@@ -51,6 +57,15 @@ export class AnimatedZombie {
   }
   update(speed: number, flags: number, limbs: number, dt: number, pitch: number, flinch: number, ground: (x: number, z: number) => number): void {
     this.stepHead(dt, ground);
+    if (this.dying && this.clips) {
+      // Recorded fall, held on its last frame once down.
+      this.dying.t = Math.min(this.clips.duration(this.dying.name), this.dying.t + dt);
+      this.clips.pose(this.dying.name, this.dying.t, 1);
+      this.root.updateMatrixWorld(true);
+      this.model.traverse(o => { if (o instanceof SkinnedMesh) o.skeleton.update(); });
+      this.updateSockets();
+      return;
+    }
     if (this.dead) { this.ragdoll?.step(dt); this.updateSockets(); return; }
     const fresh = limbs & ~this.limbs;
     for (const [bit, zone] of LOWER) if (fresh & bit) {
@@ -78,7 +93,13 @@ export class AnimatedZombie {
   private playClips(speed: number, flags: number, limbs: number, dt: number, attack: number): void {
     const clips = this.clips!, legless = !!(limbs & (Limb.LegL | Limb.LegR));
     let want = 0;
-    if (flags & EntityFlags.Screaming) {
+    if (this.hitFor >= 0 && !legless) {
+      // A heavy blow: the recorded stagger, then back to walking.
+      this.hitFor += dt;
+      if (this.hitFor < clips.duration('hit')) { this.clipName = 'hit'; this.clipTime = this.hitFor; want = 1; }
+      else { this.hitFor = -1; this.clipName = 'walk'; this.clipTime = 0; }
+    }
+    if (want) { /* stagger playing */ } else if (flags & EntityFlags.Screaming) {
       if (this.screamFor < 0) { this.screamFor = 0; this.clipName = 'scream'; this.clipTime = 0; }
       this.screamFor += dt;
       this.clipTime = this.screamFor;
@@ -89,7 +110,7 @@ export class AnimatedZombie {
         const name = speed > 2 ? 'run' : 'walk';
         if (name !== this.clipName) {
           // Same point of the stride in the new loop (left foot stays left foot).
-          const phase = this.clipName === 'scream' ? 0 : this.clipTime / clips.duration(this.clipName);
+          const phase = this.clipName === 'scream' || this.clipName === 'hit' ? 0 : this.clipTime / clips.duration(this.clipName);
           this.clipName = name; this.clipTime = phase * clips.duration(name);
         }
         this.clipTime += speed * dt / clips.stride(name) * clips.duration(name);
@@ -109,9 +130,19 @@ export class AnimatedZombie {
       socket.quaternion.copy(rotation).multiply(b.getWorldQuaternion(new Quaternion())).multiply(this.socketRotations.get(name)!);
     }
   }
+  /** Struck hard (a heavy blade cut or a hammer blow): plays the recorded hit reaction. */
+  staggered(): void {
+    if (this.clips && !this.dead) this.hitFor = 0;
+  }
+
   startRagdoll(kx: number, kz: number, force: number, ground: (x: number, z: number) => number): SkinnedRagdoll | null {
     if (this.dead) return this.ragdoll;
     this.dead = true;
+    // Ordinary deaths fall as recorded (one of two); blasts and legless bodies go limp.
+    if (this.clips && force < 7 && !(this.limbs & (Limb.LegL | Limb.LegR))) {
+      this.dying = { name: (this.seed & 1) ? 'dying' : 'death', t: 0 };
+      return null;
+    }
     if (this.variant === ZombieVariant.Brute) kx = kz = force = 0;
     const bones: Bone[] = []; this.model.traverse(o => { if (o instanceof Bone) bones.push(o); });
     this.ragdoll = new SkinnedRagdoll(this.model, bones, ground, kx, kz, force);
