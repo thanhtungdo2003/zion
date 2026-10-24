@@ -385,7 +385,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
                 <label className="studio-field-inline"><span>Hướng lên</span><select value={axisName(d.model.up)} onChange={(e) => setModel({ up: AXES[e.target.value]! })}>{Object.keys(AXES).map((a) => <option key={a}>{a}</option>)}</select></label>
                 {d.format === 'glb' && url && <button type="button" className="btn" title="Đặt lại hướng nòng, hướng lên và các điểm theo hình dạng model" onClick={() => void glbFit(url, d.kind).then((h) => { if (h) { setModel({ ...h, attachmentOffset: undefined }); setNotice('Đã tự căn theo hình dạng model: kiểm tra hướng (đổi dấu nếu ngược) rồi bấm Lưu.'); } })}><Icon name="lucide:wand-sparkles" /> Tự căn theo model</button>}
                 {num('Chiều dài thật (m)', d.model.length, (v) => setModel({ length: v }), .01, .1, 3)}
-                {num('Kích thước khi cầm (×)', d.model.size ?? 1, (v) => { if (v > 0) setModel({ size: v === 1 ? undefined : v }); }, .05, .2, 5)}
+                {num('Kích thước khi cầm, góc nhìn thứ ba (×)', d.model.size ?? 1, (v) => { if (v > 0) setModel({ size: v === 1 ? undefined : v }); }, .05, .2, 5)}
               </div>
               <ul className="ws-points">
                 {keys.map((k) => {
@@ -708,7 +708,7 @@ function HeldPreview({ url, draft, children }: { url: string; draft: Draft; chil
       st.avatar.setWeapon(null, null);
       st.avatar.setStance(ITEMS[key]?.stance ?? 'rifle');
       st.avatar.setWeapon(key, new Map([[key, visual]]));
-      setLength(fitted.length);
+      setLength(fitted.length * (fitted.size ?? 1));
     } catch { /* points not usable yet: keep the last fit */ }
   }, [spec, loaded, draft.id, draft.item.category]);
   return <div className="ws-viewer" ref={host}>

@@ -62,7 +62,10 @@ export interface WeaponSpec {
   format?: 'glb' | 'bbmodel';
   /** A shipped model's points edited in the Studio: they win over the fitting embedded in the file. */
   studio?: boolean;
-  /** Studio size multiplier on top of the length (and of any fitting embedded in the file). */
+  /**
+   * Studio size multiplier for the gun in the character's hand (third person) only, on top of the
+   * length and any fitting in the file. First person has its own (`fpScale`).
+   */
   size?: number;
   /** A GLB pack holding several items: the node of this one (and its turn to face +Z). */
   node?: string;
@@ -357,7 +360,6 @@ export function fittedSpec(spec: WeaponSpec, template: CharacterTemplate): Weapo
       ...(gun.gripRadius ? { gripRadius: gun.gripRadius } : {}), ...(gun.supportRadius ? { supportRadius: gun.supportRadius } : {}),
     };
   }
-  if (spec.size && spec.size !== 1) spec = { ...spec, length: spec.length * spec.size, size: 1 };
   const fit = template.attachment;
   if (!fit) return spec;
   return {
@@ -527,7 +529,7 @@ export function fitToHand(character: CharacterTemplate, spec: WeaponSpec, stance
   const hand = avatar.root.getObjectByName(`hand_${side}`);
   if (!hand) throw new Error('character has no hand_right bone');
 
-  const scale = ((spec.muzzle ? heldGunScale(character) : 1) * spec.length) / Math.max(1e-3, measureAlong(weaponRoot, new Vector3(...spec.barrel)));
+  const scale = ((spec.muzzle ? heldGunScale(character) : 1) * spec.length * (spec.size ?? 1)) / Math.max(1e-3, measureAlong(weaponRoot, new Vector3(...spec.barrel)));
 
   const handWorld = hand.matrixWorld.clone();
   const gripWorld = HAND_GRIP.clone().applyMatrix4(handWorld);
