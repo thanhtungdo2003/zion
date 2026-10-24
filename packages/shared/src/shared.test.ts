@@ -140,7 +140,7 @@ describe('client message validation', () => {
   it.each([
     ['extra field', { ...ok, x: 100 }],
     ['out of range axis', { ...ok, mx: 2 }],
-    ['unknown buttons', { ...ok, b: 4096 }],
+    ['unknown buttons', { ...ok, b: 1 << 20 }],
     ['negative seq', { ...ok, s: -1 }],
     ['wrong type', { ...ok, yaw: '1' }],
     ['unknown message', { t: 'teleport', x: 1 }],

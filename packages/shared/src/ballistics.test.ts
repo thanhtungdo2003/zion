@@ -38,6 +38,6 @@ describe('ballistic ammunition', () => {
     const input = { t: 'in', s: 1, mx: 0, mz: 0, yaw: 0, pitch: 0, b: Buttons.Aim };
     expect(inputMessageSchema.safeParse(input).success).toBe(true);
     expect(inputMessageSchema.safeParse({ ...input, b: Buttons.Aim | Buttons.Attack }).success).toBe(true);
-    expect(inputMessageSchema.safeParse({ ...input, b: 4096 }).success).toBe(false);
+    expect(inputMessageSchema.safeParse({ ...input, b: 1 << 20 }).success).toBe(false);
   });
 });

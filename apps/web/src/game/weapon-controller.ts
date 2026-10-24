@@ -84,6 +84,7 @@ export class WeaponController {
     }
     if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; } // swapping cancels
     if (weapon === WeaponId.C4) {
+      this.primed = false;
       if (!canAct) return 'none';
       const spec = WEAPON_SPECS[WeaponId.C4];
       if (secondaryPressed && now >= this.nextThrow && spec.kind === 'throw') {
@@ -92,6 +93,18 @@ export class WeaponController {
       }
       return pressed ? 'detonate' : 'none';
     }
+    const throwable = weapon !== WeaponId.None && WEAPON_SPECS[weapon as Exclude<WeaponId, 0>]?.kind === 'throw';
+    // Hand grenades: holding the left button pulls the pin and raises it; the right button throws.
+    // Letting go of the left button first puts it away unthrown.
+    if (throwable) {
+      const spec = WEAPON_SPECS[weapon as Exclude<WeaponId, 0>];
+      this.primed = canAct && trigger && now >= this.nextThrow && spec.kind === 'throw';
+      if (!this.primed || !secondaryPressed || spec.kind !== 'throw') return 'none';
+      this.primed = false;
+      this.nextThrow = now + spec.cooldownMs;
+      return 'throw';
+    }
+    this.primed = false;
     if (!canAct || !trigger) return 'none';
 
     if (weapon === WeaponId.None) return 'melee';
@@ -119,11 +132,7 @@ export class WeaponController {
       this.swingUntil = now + (spec.animationMs ?? spec.swingMs);
       return 'melee';
     }
-    if (spec.kind === 'throw') {
-      if (!pressed || now < this.nextThrow) return 'none';
-      this.nextThrow = now + spec.cooldownMs;
-      return 'throw';
-    }
+    if (spec.kind !== 'gun') return 'none';
     if (this.reloadWeapon || now < this.nextFire || (!spec.auto && !pressed && !repeatTrigger)) return 'none';
     const mag = this.mag(weapon, spec);
     if (mag <= 0) {
@@ -135,6 +144,8 @@ export class WeaponController {
     return 'shot';
   }
 
+  /** A hand grenade held up with its pin pulled (left button held), waiting for the throw. */
+  primed = false;
   /** Combo step of the last blade swing (−1: not a combo blade). */
   bladeStep = -1;
   /** Long or heavy swings so far (they alternate recorded swings, as on the server). */

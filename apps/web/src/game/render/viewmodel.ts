@@ -64,6 +64,9 @@ export class ViewModel {
   private swingDir = 1;
   private swingRate = 1;
   private throwT = -1;
+  private primeBlend = 0;
+  /** A grenade held up with its pin pulled (set each frame by the engine). */
+  primed = false;
   private readonly meleeEdge = new MeleeEdge();
   private strikeAxes: StrikeAxes | null = null;
   private readonly supportArms = new Map<string, Group>();
@@ -440,6 +443,9 @@ export class ViewModel {
       } else this.swingT = -1;
     }
     let hidden = false;
+    // Pin pulled: the grenade raised and drawn back, ready to throw.
+    this.primeBlend += ((this.primed && this.throwT < 0 ? 1 : 0) - this.primeBlend) * (1 - Math.exp(-dt * 10));
+    if (this.throwT < 0 && this.primeBlend > .001) { const k = ease(this.primeBlend); ax += .06 * k; ay += .2 * k; az += .16 * k; rx += 1.0 * k; rz -= .3 * k; }
     if (this.throwT >= 0) {
       this.throwT += dt;
       const t = this.throwT;

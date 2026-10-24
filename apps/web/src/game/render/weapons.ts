@@ -1,4 +1,4 @@
-import { Box3, Group, Matrix4, Vector3, type Object3D } from 'three';
+import { Box3, Group, Matrix4, Mesh, type SkinnedMesh, Vector3, type Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { bake, loadGlbScene } from './armor-models';
 import { ATTACHMENT_SLOTS, attachmentDef, type Attachments } from '@zion/shared';
@@ -280,6 +280,30 @@ export interface WeaponVisual {
 
 export type WeaponLibrary = Map<string, WeaponVisual>;
 
+/**
+ * Skinned meshes (common in Sketchfab exports) become plain meshes in their bind pose. Skinned,
+ * they would be scaled twice by the weapon's fitting (bones and mesh both carry it) and shrink to
+ * nothing, and a clone (display / held copies) would still follow the original's bones.
+ */
+function unskin(scene: Object3D): void {
+  scene.updateMatrixWorld(true);
+  const skinned: SkinnedMesh[] = [];
+  scene.traverse((o) => { if ((o as SkinnedMesh).isSkinnedMesh) skinned.push(o as SkinnedMesh); });
+  const v = new Vector3();
+  for (const sm of skinned) {
+    const geo = sm.geometry.clone();
+    const pos = geo.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) { sm.getVertexPosition(i, v); pos.setXYZ(i, v.x, v.y, v.z); }
+    pos.needsUpdate = true;
+    geo.deleteAttribute('skinIndex'); geo.deleteAttribute('skinWeight');
+    geo.computeBoundingBox(); geo.computeBoundingSphere();
+    const mesh = new Mesh(geo, sm.material);
+    mesh.name = sm.name; mesh.castShadow = sm.castShadow; mesh.receiveShadow = sm.receiveShadow;
+    mesh.position.copy(sm.position); mesh.quaternion.copy(sm.quaternion); mesh.scale.copy(sm.scale);
+    sm.parent?.add(mesh); sm.removeFromParent();
+  }
+}
+
 /** Loads a weapon model: Blockbench JSON, or an imported GLB whose own units are the authoring units. */
 export async function loadWeaponModel(url: string, onProgress?: (p: number) => void, format?: 'glb' | 'bbmodel', node?: string, nodeYaw = 0): Promise<CharacterTemplate> {
   if (node) {
@@ -294,6 +318,7 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
   if (!res.ok) throw new Error(`weapon model unavailable (${res.status})`);
   const gltf = await new GLTFLoader().parseAsync(await res.arrayBuffer(), '');
   onProgress?.(1);
+  unskin(gltf.scene);
   const root = new Group();
   // Spec points are given in the file's units; Blockbench models use pixels (1/16 m) the same way.
   gltf.scene.scale.setScalar(1 / BB_UNITS_PER_METER);

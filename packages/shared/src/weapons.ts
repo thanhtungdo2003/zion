@@ -167,12 +167,12 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.ScarL]: { kind: 'gun', weight: 3.5, fireMs: 95, damage: 14, pellets: 1, spread: 0.019, range: 78, magazine: 30, reloadMs: 2300, auto: true },
   [WeaponId.GrenadeLauncher]: {
     kind: 'gun', weight: 7, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 45, magazine: 6, reloadMs: 3400, auto: false,
-    projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
+    projectile: { kind: 'grenade40', speed: 34, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
   },
   // Single-shot break-open 40 mm launcher: same round as the six-shot launcher, light and quick to bring up.
   [WeaponId.M79]: {
     kind: 'gun', weight: 2.9, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 40, magazine: 1, reloadMs: 2300, auto: false,
-    projectile: { kind: 'grenade40', speed: 24, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 40 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
+    projectile: { kind: 'grenade40', speed: 34, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 40 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
   },
   // Bolt-action .308 hunting / police sniper rifle.
   [WeaponId.Remington700]: { kind: 'gun', weight: 4.1, fireMs: 1650, damage: 90, pellets: 1, spread: 0.0045, range: 130, magazine: 5, reloadMs: 2900, auto: false },
@@ -361,6 +361,24 @@ export function lobSpeed(elevation: number, maxRange: number, dist: number, dy: 
   const den = 2 * c * c * (x * Math.tan(elevation) - dy);
   if (den <= 0) return vMax;
   return Math.min(vMax, Math.sqrt((gravity * x * x) / den));
+}
+
+/**
+ * Hand throws fly along the aim like a shot: this launch speed carries a throw aimed 45° up to
+ * the item's `maxRange` on flat ground.
+ */
+export function aimedThrowSpeed(spec: ThrowSpec, gravity = GRENADE_GRAVITY): number {
+  return Math.sqrt(spec.maxRange * gravity);
+}
+
+/**
+ * Elevation (the lower of the two solutions) that lands a round launched at `speed` at horizontal
+ * distance `dist`, `dy` metres above the launch point; 45° when it cannot reach.
+ */
+export function elevationFor(speed: number, dist: number, dy: number, gravity = GRENADE_GRAVITY): number {
+  const v2 = speed * speed, x = Math.max(.1, dist);
+  const disc = v2 * v2 - gravity * (gravity * x * x + 2 * dy * v2);
+  return disc < 0 ? Math.PI / 4 : Math.atan((v2 - Math.sqrt(disc)) / (gravity * x));
 }
 
 /** Hand-grenade version of `lobSpeed`. */

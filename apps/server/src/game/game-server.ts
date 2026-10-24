@@ -44,7 +44,7 @@ import {
   ENTITY_INTEREST_RADIUS_CHUNKS,
   FIRE_TOLERANCE_MS,
   GRENADE_GRAVITY,
-  throwSpeed,
+  aimedThrowSpeed,
   lobSpeed,
   weaponSpec,
   buyPrice,
@@ -2587,19 +2587,19 @@ export class GameServer {
       p.attackingUntil = 0;
     }
     if (!s.swimming && p.weapon === WeaponId.C4 && s.rollTicks === 0) {
-      if (input.b & Buttons.ThrowC4) this.tryThrowC4(p, now, input.td);
+      if (input.b & Buttons.ThrowC4) this.tryThrowC4(p, now);
       else if (input.b & Buttons.Attack) this.tryDetonateC4(p, now);
     } else if (!s.swimming && (input.b & Buttons.Attack) !== 0 && p.weapon !== WeaponId.C4) {
       const spec = weaponSpec(p.weapon);
       if (spec?.kind === 'gun') {
         // No shooting while airborne (jumping/falling).
         if (p.state.grounded) {
-          if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td, input.bore);
+          if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.bore);
           else if (spec.fire === 'flame') this.tryFlame(p, spec, now, input.bore);
           else this.tryShoot(p, now, input.rt, input.bore);
         }
       }
-      else if (spec?.kind === 'throw') this.tryThrow(p, now, input.td);
+      else if (spec?.kind === 'throw') this.tryThrow(p, now);
       else this.tryAttack(p, now, input.rt, spec?.kind === 'melee' ? spec : undefined);
     }
     p.lastProcessedSeq = input.s;
@@ -2628,7 +2628,7 @@ export class GameServer {
     const v = this.vehicles.driving(p);
     if (v && spec?.kind === 'gun' && (buttons & Buttons.Attack)) {
       this.vehicles.withoutColliders(v, () => {
-        if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.td, input.bore);
+        if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.bore);
         else if (spec.fire === 'flame') this.tryFlame(p, spec, now, input.bore);
         else this.tryShoot(p, now, input.rt, input.bore);
       });
@@ -3083,7 +3083,7 @@ export class GameServer {
     this.zombies.alert(ox, oz, 45, now);
   }
 
-  private tryThrow(p: Player, now: number, targetDist?: number): void {
+  private tryThrow(p: Player, now: number): void {
     // Any hand-thrown grenade: frag, stun, smoke (and Studio-made ones); not the remote C4.
     const weapon = WEAPON_BY_ITEM[p.inv.equippedItem()?.itemId ?? ''] ?? 0;
     const spec = weaponSpec(weapon);
@@ -3100,21 +3100,13 @@ export class GameServer {
     const ox = s.x + fx * 0.4;
     const oy = s.y + (s.prone ? muzzleHeight(true) : 1.6);
     const oz = s.z + fz * 0.4;
-    // Aimed throw: speed chosen so the grenade lands at the requested distance.
-    let speed = spec.speed;
-    let carry = 0.5;
-    if (targetDist !== undefined) {
-      const d = Math.min(targetDist, spec.maxRange);
-      const ground = this.collision.terrainHeight(s.x + fx * d, s.z + fz * d);
-      speed = throwSpeed(spec, Math.max(0, d - 0.4), (Number.isFinite(ground) ? ground : s.y) - oy);
-      carry = 0;
-    }
-    const h = Math.cos(spec.elevation) * speed;
+    // Thrown along the aim (yaw and pitch) like a shot, only slower and dropping sooner.
+    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch), speed = aimedThrowSpeed(spec);
     const g = {
       id: this.nextGrenadeId++,
       ownerId: p.id,
       owner: p,
-      s: { x: ox, y: oy, z: oz, vx: fx * h + s.vx * carry, vy: Math.sin(spec.elevation) * speed, vz: fz * h + s.vz * carry, resting: false },
+      s: { x: ox, y: oy, z: oz, vx: dx * speed, vy: dy * speed, vz: dz * speed, resting: false },
       explodeAt: now + spec.fuseMs,
       spec,
     };
@@ -3122,20 +3114,18 @@ export class GameServer {
     this.broadcastNear(p, { t: 'grenade', id: g.id, ownerId: p.id, ...pick(g.s), fuseMs: spec.fuseMs, ...(weapon !== WeaponId.Grenade ? { w: weapon } : {}) });
   }
 
-  private tryThrowC4(p: Player, now: number, targetDist?: number): void {
+  private tryThrowC4(p: Player, now: number): void {
     const item = p.inv.equippedItem();
     const spec = WEAPON_SPECS[WeaponId.C4];
     if (item?.itemId !== 'c4' || spec.kind !== 'throw' || now < p.throwReadyAt || p.life.stamina < this.attackStaminaCost(p)) return;
     if ([...this.c4Charges.values()].filter(c => c.accountId === p.accountId).length >= 32) return;
-    const s = p.state, fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    const s = p.state;
     // Start at the body, so even a wall touching the player is swept before the bomb passes it.
+    // Thrown along the aim, like a grenade.
     const oy = s.y + (s.prone ? muzzleHeight(true) : 1.6);
-    const distance = Math.min(spec.maxRange, Math.max(0, targetDist ?? spec.maxRange));
-    const ground = this.collision.terrainHeight(s.x + fx * distance, s.z + fz * distance);
-    const speed = throwSpeed(spec, distance, (Number.isFinite(ground) ? ground : s.y) - oy);
-    const h = Math.cos(spec.elevation) * speed;
+    const [dx, dy, dz] = aimDirection(p.yaw, p.pitch), speed = aimedThrowSpeed(spec);
     const id = this.nextGrenadeId++;
-    this.c4Charges.set(id, new C4Charge(id, p.accountId, item.uid, { x: s.x, y: oy, z: s.z, vx: fx * h, vy: Math.sin(spec.elevation) * speed, vz: fz * h, resting: false }));
+    this.c4Charges.set(id, new C4Charge(id, p.accountId, item.uid, { x: s.x, y: oy, z: s.z, vx: dx * speed, vy: dy * speed, vz: dz * speed, resting: false }));
     item.itemId = 'c4_detonator';
     item.chargeId = id;
     p.throwReadyAt = now + spec.cooldownMs;
@@ -3285,7 +3275,7 @@ export class GameServer {
   }
 
   /** Launcher: spawns a server-simulated round (lobbed 40 mm grenade, rocket or bolt). */
-  private tryLaunch(p: Player, spec: GunSpec, now: number, targetDist?: number, bore?: InputMessage['bore']): void {
+  private tryLaunch(p: Player, spec: GunSpec, now: number, bore?: InputMessage['bore']): void {
     const proj = spec.projectile;
     if (!proj || now < p.fireReadyAt - FIRE_TOLERANCE_MS) return;
     if (p.life.stamina < this.attackStaminaCost(p) || !this.useRound(p)) return;
@@ -3298,26 +3288,9 @@ export class GameServer {
     const x = bore ? launch.x : s.x + fx * 0.7;
     const y = launch.y;
     const z = bore ? launch.z : s.z + fz * 0.7;
-    let vx: number;
-    let vy: number;
-    let vz: number;
-    if (proj.lob) {
-      // Lobbed high so it comes down on the cursor.
-      const d = Math.min(targetDist ?? proj.lob.maxRange * 0.5, proj.lob.maxRange);
-      const ground = this.collision.terrainHeight(s.x + fx * d, s.z + fz * d);
-      const speed = lobSpeed(proj.lob.elevation, proj.lob.maxRange, Math.max(0.5, d - 0.7), (Number.isFinite(ground) ? ground : s.y) - y, proj.gravity);
-      const h = Math.cos(proj.lob.elevation) * speed;
-      vx = fx * h;
-      vy = Math.sin(proj.lob.elevation) * speed;
-      vz = fz * h;
-      if (bore) { vx = launch.dx * speed; vy = launch.dy * speed; vz = launch.dz * speed; }
-    } else {
-      const [ax, ay, az] = [launch.dx, launch.dy, launch.dz];
-      const [dx, dy, dz] = spreadDirection(ax, ay, az, gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone), Math.random);
-      vx = dx * proj.speed;
-      vy = dy * proj.speed;
-      vz = dz * proj.speed;
-    }
+    // Every round leaves along the bore like a bullet; grenade rounds are slow and drop much sooner.
+    const [dx, dy, dz] = spreadDirection(launch.dx, launch.dy, launch.dz, gunSpread(spec, p.aiming ? (now - p.aimStartedAt) / 180 : 0, Math.hypot(s.vx, s.vz), s.prone), Math.random);
+    const vx = dx * proj.speed, vy = dy * proj.speed, vz = dz * proj.speed;
     const id = this.nextGrenadeId++;
     this.rounds.push({ id, owner: p, w: p.weapon, spec: proj, damage: spec.damage, knockback: spec.knockback ?? 1, traveled: 0, x, y, z, vx, vy, vz, dieAt: now + proj.maxFlightSec * 1000 });
     this.broadcastNear(p, { t: 'proj', id, ownerId: p.id, w: p.weapon, kind: proj.kind, x, y, z, vx, vy, vz, gravity: proj.gravity });
@@ -3939,6 +3912,7 @@ export class GameServer {
     if (lean < 0) f |= EntityFlags.LeanLeft; else if (lean > 0) f |= EntityFlags.LeanRight;
     if (p.aiming && !p.dead && !p.downed) f |= EntityFlags.Aiming;
     if (p.inv.hasFlashlight()) f |= EntityFlags.Flashlight;
+    if ((p.lastButtons & Buttons.Prime) !== 0 && weaponSpec(p.weapon)?.kind === 'throw') f |= EntityFlags.Priming;
     if (p.state.climbing) f |= EntityFlags.Climbing;
     if (p.state.mantle) f |= EntityFlags.Mantling;
     if ((p.lastButtons & Buttons.Plan) !== 0 && !this.arena) f |= EntityFlags.Planning;

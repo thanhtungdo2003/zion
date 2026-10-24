@@ -25,9 +25,11 @@ export const Buttons = {
   Lunge: 1 << 12,
   /** With Lunge: the long-hafted slash's step in (the quắm's second swing) instead of the blade finisher. */
   LungeLong: 1 << 13,
+  /** Hand grenade held up with its pin pulled (left button held), waiting for the throw (right button). */
+  Prime: 1 << 14,
 } as const;
 
-export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan | Buttons.Lunge | Buttons.LungeLong;
+export const BUTTON_MASK = Buttons.Jump | Buttons.Sprint | Buttons.Attack | Buttons.Roll | Buttons.Prone | Buttons.ThrowC4 | Buttons.Aim | Buttons.Heal | Buttons.LeanLeft | Buttons.LeanRight | Buttons.Crouch | Buttons.Plan | Buttons.Lunge | Buttons.LungeLong | Buttons.Prime;
 
 const u32 = z.number().int().min(0).max(0xffffffff);
 const finite = z.number().finite();
@@ -67,7 +69,7 @@ export const inputMessageSchema = z
       .number()
       .int()
       .min(0)
-      .max(4095)
+      .max(BUTTON_MASK)
       .refine((v) => (v & ~BUTTON_MASK) === 0, 'unknown button bits'),
     /** Weapon in hand (WeaponId); omitted = empty hands. */
     w: z.number().int().min(0).max(Math.max(MAX_WEAPON_ID, 250)).optional(),

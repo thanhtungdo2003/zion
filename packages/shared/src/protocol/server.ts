@@ -408,6 +408,8 @@ export const EntityFlags = {
   Planning: 1 << 22,
   /** A badly hurt zombie standing still and screaming before it charges. */
   Screaming: 1 << 23,
+  /** Holding a grenade up with the pin pulled, ready to throw. */
+  Priming: 1 << 24,
 } as const;
 
 export interface SelfState {

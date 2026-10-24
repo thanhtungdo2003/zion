@@ -97,9 +97,8 @@ import {
   muzzleHeight,
   leanOf,
   leanOffset,
-  throwScatter,
-  throwSpeed,
-  lobSpeed,
+  aimedThrowSpeed,
+  elevationFor,
   GRENADE_GRAVITY,
   WEAPON_BY_ITEM,
   WEAPON_SPECS,
@@ -2002,7 +2001,7 @@ export class GameEngine {
     this.guardPoses.length = 0;
     // Movement flags come from local prediction so jump/roll animations start on the key press,
     // not a round trip later; the rest (dead, attacking…) stays server-authoritative.
-    const predicted = EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming | EntityFlags.Crouching | EntityFlags.LeanLeft | EntityFlags.LeanRight | EntityFlags.Mantling;
+    const predicted = EntityFlags.Priming | EntityFlags.Grounded | EntityFlags.Swimming | EntityFlags.Rolling | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Prone | EntityFlags.Aiming | EntityFlags.Crouching | EntityFlags.LeanLeft | EntityFlags.LeanRight | EntityFlags.Mantling;
     const selfLean = leanOf(local.lastButtons);
     const selfFlags =
       ((local.lastServer?.flags ?? 0) & ~predicted) |
@@ -2015,7 +2014,8 @@ export class GameEngine {
       (this.aiming ? EntityFlags.Aiming : 0) |
       (local.lastButtons & Buttons.Sprint ? EntityFlags.Sprinting : 0) |
       (local.state.climbing ? EntityFlags.Climbing : 0) |
-      (local.state.mantle ? EntityFlags.Mantling : 0);
+      (local.state.mantle ? EntityFlags.Mantling : 0) |
+      (this.weaponCtl.primed ? EntityFlags.Priming : 0);
     this.scanStations(px, pz, now);
     this.updateHover();
     // Zombies: interpolated like players, but only visible inside the vision cone (or very close).
@@ -2397,7 +2397,7 @@ export class GameEngine {
     if (life && life.stamina < life.config.stamina.sprintPerSecond * TICK_DT * effort) buttons &= ~Buttons.Sprint;
     const canAffordAttack = !life || life.stamina >= weaponAttackStaminaCost(weapon, life.config.stamina.attack, armorStaminaFactor(this.inventory.wornArmor())) || (weapon === WeaponId.C4 && !c4Throw);
     let yaw = this.shotYaw;
-    let throwDist: number | undefined;
+    let pitch = this.shotPitch;
     // Swimming blocks every attack; guns also cannot fire mid-jump.
     // (On a ladder the gun still fires from the hip; aiming needs both feet down.)
     const airborne = !local.state.grounded && !local.state.swimming && !local.state.climbing;
@@ -2407,7 +2407,9 @@ export class GameEngine {
     // only once the bore is on the aim.
     const gunUp = !isGun || this.eyeView || this.firstPerson || (this.localAvatar?.gunReady() ?? true);
     const action = this.weaponCtl.tick(actionTime, weapon, trigger && gunUp, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
-      weapon === WeaponId.C4 && this.inventory.equippedItemId() === 'c4' && c4Throw);
+      (weapon !== WeaponId.C4 || this.inventory.equippedItemId() === 'c4') && c4Throw);
+    if (this.weaponCtl.primed) buttons |= Buttons.Prime;
+    if (this.viewModel) this.viewModel.primed = this.weaponCtl.primed;
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
     else if (action !== 'none') buttons |= Buttons.Attack;
@@ -2419,12 +2421,6 @@ export class GameEngine {
     const spec = weaponSpec(weapon);
     if (action === 'shot') {
       this.localShot(weapon);
-      // Launchers aim at the ground point under the cursor (the lob solves for that distance).
-      if (spec?.kind === 'gun' && spec.fire === 'projectile' && this.throwAim.r > 0) {
-        const dx = this.throwAim.x - local.state.x;
-        const dz = this.throwAim.z - local.state.z;
-        throwDist = Math.hypot(dx, dz);
-      }
     } else if (action === 'melee' && spec?.kind === 'melee') {
       const variant = this.localAvatar?.slash(this.weaponCtl.bladeStep, this.weaponCtl.meleeSwings - 1) ?? 1;
       // First person keeps the same swing length as the body (long / heavy weapons' recorded swing).
@@ -2445,22 +2441,13 @@ export class GameEngine {
       this.viewModel?.kick(.15);
     } else if (action === 'throw') {
       this.viewModel?.throw();
-      // Land somewhere random inside the red circle around the cursor.
-      const t = this.throwAim;
-      if (t.r > 0) {
-        const a = Math.random() * Math.PI * 2;
-        const d = Math.sqrt(Math.random()) * t.r;
-        const dx = t.x + Math.cos(a) * d - local.state.x;
-        const dz = t.z + Math.sin(a) * d - local.state.z;
-        throwDist = Math.hypot(dx, dz);
-        if (throwDist > 0.1) yaw = Math.atan2(-dx, -dz);
-      }
+      // Along the aim like a shot (top-down: pitched to come down on the cursor).
+      if (this.throwPlan) ({ yaw, pitch } = this.throwPlan);
       this.localAvatar?.playOnce('grenade_throw');
     }
-    const msg = local.step(moveX, moveZ, this.mouseLook ? this.input.yaw : yaw, this.shotPitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
+    const msg = local.step(moveX, moveZ, this.mouseLook ? this.input.yaw : yaw, pitch, buttons, this.clock.now() - INTERPOLATION_DELAY_MS, weapon);
     if (this.mouseLook) msg.aimYaw = yaw;
     this.input.acknowledgeTouchPresses();
-    if (throwDist !== undefined) msg.td = Math.min(100, throwDist);
     const back = this.backItemId();
     const bw = back ? WEAPON_BY_ITEM[back] : undefined;
     if (bw) msg.bw = bw;
@@ -3210,47 +3197,66 @@ export class GameEngine {
     this.hud.set({ ammo: view });
   }
 
-  /** Grenade aim: centre and scatter radius (r = 0 when not holding a throwable). */
-  private readonly throwAim = { x: 0, z: 0, r: 0 };
+  /** Throw / launch aim this frame: the yaw and pitch the server launches along (null: none). */
+  private throwPlan: { yaw: number; pitch: number } | null = null;
   private throwMarker: Group | null = null;
   private throwArc: ThrowArc | null = null;
 
   /**
-   * While a throwable or a lobbing launcher is in hand: the faint flight path from the hand /
-   * muzzle to where it comes down (the server's own launch), dashes drifting forward, and a thin
-   * ring where it lands.
+   * Grenades (once the pin is pulled), C4 and grenade launchers: the faint flight path from the
+   * hand / muzzle along the aim (the server's own launch: aim direction, speed and drop), dashes
+   * drifting forward, and a thin ring where it comes down.
    */
   private updateThrowMarker(px: number, py: number, pz: number): void {
     const spec = weaponSpec(this.equippedWeapon());
-    // Hand grenades show where they may land; the lobbing grenade launcher shows its blast radius.
-    // (Straight-firing rockets need no marker.)
-    const blast = spec?.kind === 'gun' && spec.projectile?.lob ? spec.projectile.blast : undefined;
-    const maxRange = spec?.kind === 'throw' ? spec.maxRange : spec?.kind === 'gun' && blast ? (spec.projectile?.lob?.maxRange ?? spec.range) : 0;
-    const show = maxRange > 0 && this.inventory.equippedItemId() !== 'c4_detonator' && this.input.locked && !this.input.suspended && !this.local?.dead;
-    if (!show) {
-      this.throwAim.r = 0;
+    const item = this.inventory.equippedItemId();
+    const throwable = spec?.kind === 'throw' && item !== 'c4_detonator';
+    const launcher = spec?.kind === 'gun' && !!spec.projectile?.lob;
+    const ready = this.input.locked && !this.input.suspended && !this.local?.dead;
+    this.throwPlan = null;
+    if (!ready || !(launcher || (throwable && (this.weaponCtl.primed || item === 'c4')))) {
       if (this.throwMarker) this.throwMarker.visible = false;
       if (this.throwArc) this.throwArc.mesh.visible = false;
       return;
     }
-    let dx = this.aimPoint.x - px;
-    let dz = this.aimPoint.z - pz;
-    const d = Math.hypot(dx, dz);
-    if (d > maxRange) {
-      dx *= maxRange / d;
-      dz *= maxRange / d;
+    const prone = !!this.local?.state.prone, crouched = !!this.local?.state.crouched;
+    const groundAt = (x: number, z: number) => { const h = this.store?.collision.terrainHeight(x, z) ?? Number.NaN; return Number.isFinite(h) ? h : py; };
+    let launch: ArcLaunch;
+    if (spec?.kind === 'throw') {
+      const speed = aimedThrowSpeed(spec);
+      const oy = py + (prone ? muzzleHeight(true) : 1.6);
+      let yaw = this.shotYaw, pitch = this.shotPitch;
+      if (!this.mouseLook) {
+        // Top-down: thrown towards the cursor, pitched so it comes down on it.
+        const dx = this.aimPoint.x - px, dz = this.aimPoint.z - pz;
+        if (Math.hypot(dx, dz) > .3) yaw = Math.atan2(-dx, -dz);
+        pitch = elevationFor(speed, Math.max(0, Math.hypot(dx, dz) - .4), groundAt(this.aimPoint.x, this.aimPoint.z) - oy);
+      }
+      this.throwPlan = { yaw, pitch };
+      const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+      launch = { origin: this.tmpB.set(px + fx * .4, oy, pz + fz * .4), dirX: fx, dirZ: fz, elevation: pitch, gravity: GRENADE_GRAVITY, groundY: py, speed };
+    } else {
+      const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
+      if (!proj) return;
+      const yaw = this.shotYaw, pitch = this.shotPitch, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+      launch = { origin: this.tmpB.set(px + fx * .7, py + muzzleHeight(prone, crouched), pz + fz * .7), dirX: fx, dirZ: fz, elevation: pitch, gravity: proj.gravity, groundY: py, speed: proj.speed };
+      // From the muzzle along the bore, as the round will leave (see the shot input).
+      if (this.localWeaponBore(this.tmpA, this.tmpC)) {
+        this.towardsAim(this.tmpA, this.tmpC);
+        launch.origin.copy(this.tmpA);
+        const horizontal = Math.hypot(this.tmpC.x, this.tmpC.z);
+        if (horizontal > 1e-6) { launch.dirX = this.tmpC.x / horizontal; launch.dirZ = this.tmpC.z / horizontal; }
+        launch.elevation = Math.atan2(this.tmpC.y, horizontal);
+      }
     }
-    const a = this.throwAim;
-    a.x = px + dx;
-    a.z = pz + dz;
-    // Launcher: a small landing marker, not the blast size.
-    a.r = spec?.kind === 'throw' ? throwScatter(spec, Math.min(d, spec.maxRange)) : LAUNCHER_MARKER_RADIUS;
+    // Ends where it meets the ground (refined against the terrain under the landing point).
+    for (let i = 0; i < 3; i++) launch.groundY = groundAt(ThrowArc.landing(launch, this.tmpA).x, this.tmpA.z);
+    ThrowArc.landing(launch, this.tmpA);
     if (!this.throwMarker) {
       const m = new Group();
-      const mat = { color: 0xff2a1a, transparent: true, depthWrite: false };
-      const mat2 = { ...mat, color: 0xfff4e0 };
-      const fill = new Mesh(new CircleGeometry(1, 40), new MeshBasicMaterial({ ...mat2, opacity: 0.06 }));
-      const edge = new Mesh(new RingGeometry(0.94, 1, 48), new MeshBasicMaterial({ ...mat2, opacity: 0.3 }));
+      const mat = { color: 0xfff4e0, transparent: true, depthWrite: false };
+      const fill = new Mesh(new CircleGeometry(1, 40), new MeshBasicMaterial({ ...mat, opacity: 0.06 }));
+      const edge = new Mesh(new RingGeometry(0.94, 1, 48), new MeshBasicMaterial({ ...mat, opacity: 0.3 }));
       for (const o of [fill, edge]) {
         o.rotation.x = -Math.PI / 2;
         o.renderOrder = 5;
@@ -3259,41 +3265,9 @@ export class GameEngine {
       this.scene.add(m);
       this.throwMarker = m;
     }
-    const ground = this.store?.collision.terrainHeight(a.x, a.z) ?? Number.NaN;
     this.throwMarker.visible = true;
-    this.throwMarker.position.set(a.x, (Number.isFinite(ground) ? ground : this.aimPoint.y - 1) + 0.06, a.z);
-    this.throwMarker.scale.setScalar(a.r);
-
-    // Same launch as the server (game-server tryThrow / launcher lob): origin ahead of the body,
-    // speed solved so the round comes down on the aim point.
-    const dist = Math.hypot(dx, dz);
-    if (dist < 0.3) { if (this.throwArc) this.throwArc.mesh.visible = false; return; }
-    const prone = !!this.local?.state.prone, crouched = !!this.local?.state.crouched;
-    const fx = dx / dist, fz = dz / dist;
-    const groundY = Number.isFinite(ground) ? ground : py;
-    let launch: ArcLaunch;
-    if (spec?.kind === 'throw') {
-      const oy = py + (prone ? muzzleHeight(true) : 1.6);
-      launch = { origin: this.tmpB.set(px + fx * 0.4, oy, pz + fz * 0.4), dirX: fx, dirZ: fz, elevation: spec.elevation, gravity: GRENADE_GRAVITY, groundY,
-        speed: throwSpeed(spec, Math.max(0, dist - 0.4), groundY - oy) };
-    } else {
-      const proj = spec?.kind === 'gun' ? spec.projectile : undefined;
-      if (!proj?.lob) return;
-      const { lob, gravity } = { lob: proj.lob, gravity: proj.gravity };
-      const oy = py + muzzleHeight(prone, crouched);
-      launch = { origin: this.tmpB.set(px + fx * 0.7, oy, pz + fz * 0.7), dirX: fx, dirZ: fz, elevation: lob.elevation, gravity, groundY,
-        speed: lobSpeed(lob.elevation, lob.maxRange, Math.max(0.5, dist - 0.7), groundY - oy, gravity) };
-      if (this.localWeaponBore(this.tmpA, this.tmpC)) {
-        launch.origin.copy(this.tmpA);
-        const horizontal = Math.hypot(this.tmpC.x, this.tmpC.z);
-        launch.dirX = horizontal > 1e-6 ? this.tmpC.x / horizontal : fx;
-        launch.dirZ = horizontal > 1e-6 ? this.tmpC.z / horizontal : fz;
-        launch.elevation = Math.atan2(this.tmpC.y, horizontal);
-        launch.speed = lobSpeed(lob.elevation, lob.maxRange, Math.max(.5, dist - .7), groundY - launch.origin.y, gravity);
-        ThrowArc.landing(launch, this.tmpA);
-        this.throwMarker.position.copy(this.tmpA).addScaledVector(new Vector3(0, 1, 0), .06);
-      }
-    }
+    this.throwMarker.position.set(this.tmpA.x, launch.groundY + .06, this.tmpA.z);
+    this.throwMarker.scale.setScalar(LAUNCHER_MARKER_RADIUS);
     if (!this.throwArc) { this.throwArc = new ThrowArc(); this.scene.add(this.throwArc.mesh); }
     this.throwArc.update(launch, this.camera, this.elapsed);
   }

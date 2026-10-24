@@ -1449,7 +1449,10 @@ export class Avatar {
     const k = SURVIVOR_SIZE * this.model.scale.y;
     const yaw = this.root.rotation.y + this.lookYaw;
     const fwd = new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new Vector3(-fwd.z, 0, fwd.x);
-    const throwing = this.oneShot === 'grenade_throw' && this.cur.clip ? Math.min(1, this.cur.time / this.cur.clip.length) : -1;
+    const clipT = this.oneShot === 'grenade_throw' && this.cur.clip ? Math.min(1, this.cur.time / this.cur.clip.length) : -1;
+    // Thrown from the raised (primed) hold: the swing starts at the wind-up, not from the chest.
+    if (clipT < 0) this.throwFromPrime = false; else if (this.primeBlend > .5) this.throwFromPrime = true;
+    const throwing = clipT >= 0 && this.throwFromPrime ? .38 + clipT * .62 : clipT;
     const at = (bone: string, f: number, r: number, u: number) => human.bonePosition(bone).addScaledVector(fwd, f * k).addScaledVector(right, r * k).addScaledVector(UP, u * k);
     const carry = at('spine_002', .22, .1, -.04);
     let hand = carry, chestYaw = 0, lean = 0, point = 0;
@@ -1469,6 +1472,13 @@ export class Avatar {
       hand = p0.clone().lerp(p1, u); chestYaw = y0 + (y1 - y0) * u; lean = l0 + (l1 - l0) * u; point = a0 + (a1 - a0) * u;
       this.throwBlend = 1;
     } else this.throwBlend = Math.max(0, this.throwBlend - dt * 4);
+    // Pin pulled: the grenade held up behind the shoulder, the free arm on the target, until thrown.
+    const priming = throwing < 0 && (this.frame.flags & EntityFlags.Priming) !== 0;
+    this.primeBlend += ((priming ? 1 : 0) - this.primeBlend) * (1 - Math.exp(-dt * 9));
+    if (throwing < 0 && this.primeBlend > .001) {
+      const b = this.primeBlend;
+      hand = carry.clone().lerp(at('upper_arm_R', -.2, .1, .16), b); chestYaw = .55 * b; lean = -.05 * b; point = b;
+    }
     this.carryBlend += (1 - this.carryBlend) * (1 - Math.exp(-dt * 10));
     // The chest winds and unwinds about the spine; the throw drives the body forward.
     if (chestYaw || lean) human.turnChest(new Quaternion().setFromAxisAngle(UP, chestYaw).multiply(new Quaternion().setFromAxisAngle(right, lean)));
@@ -1507,6 +1517,8 @@ export class Avatar {
   }
 
   private throwBlend = 0;
+  private primeBlend = 0;
+  private throwFromPrime = false;
   private carryBlend = 0;
 
   /** The held gun points along the aim (shots wait for it while it comes up). Bodies without
