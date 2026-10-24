@@ -122,8 +122,27 @@ export function GearStudioPage() {
   // The fitting is applied live (every avatar listening re-dresses).
   const update = (next: GearFit) => { setFit(next); setGearFit(next); setTimeout(() => setDressed((n) => n + 1), 300); };
   void dressed;
-  const adjust = fit.adjust[target] ?? NO_ADJUST;
-  const setAdjust = (a: GearAdjust) => update({ ...fit, adjust: { ...fit.adjust, [target]: a } });
+  /** The weapon hung at a sling place in this preview (for its own setting). */
+  function targetsItem(key: string): string | null {
+    const m = /^sling:(back|pack)_(\d)$/.exec(key);
+    if (m) return gear.back[Number(m[2]) - 1] ?? null;
+    if (key === 'sling:holster') return gear.holster;
+    if (key === 'sling:belt') return gear.belt;
+    return null;
+  }
+  // A weapon's place (sling:…): its own setting for the weapon hung there, when ticked.
+  const slungItem = targetsItem(target);
+  const ownKey = slungItem ? `${target}:${slungItem}` : null;
+  const own = !!ownKey && !!fit.adjust[ownKey];
+  const editKey = own ? ownKey! : target;
+  const adjust = fit.adjust[editKey] ?? NO_ADJUST;
+  const setAdjust = (a: GearAdjust) => update({ ...fit, adjust: { ...fit.adjust, [editKey]: a } });
+  const setOwn = (on: boolean) => {
+    if (!ownKey) return;
+    const a = { ...fit.adjust };
+    if (on) a[ownKey] = fit.adjust[target] ?? NO_ADJUST; else delete a[ownKey];
+    update({ ...fit, adjust: a });
+  };
   const targets = useMemo(() => [
     ...ARMOR_SLOTS.flatMap((s) => { const spec = ARMOR_SPECS.find((a) => a.id === armor[s]); return spec ? [{ key: spec.item, name: `${SLOT_NAME[s]}: ${spec.name}`, paintable: true }] : []; }),
     ...(gear.pack ? [{ key: 'military_backpack', name: 'Ba lô quân đội', paintable: true }] : []),
@@ -285,13 +304,14 @@ export function GearStudioPage() {
           {targets.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
           {!targets.some((t) => t.key === target) && <option value={target}>{target}</option>}
         </select>
+        {slungItem && <label className="gs-row"><input type="checkbox" checked={own} onChange={(e) => setOwn(e.target.checked)} /> <span>Chỉ chỉnh cho {ITEMS[slungItem]?.name ?? slungItem} (vị trí, góc, kích thước riêng)</span></label>}
         <h4>Vị trí (m) · trái/phải, lên/xuống, trước/sau</h4>
         {(['X', 'Y', 'Z'] as const).map((a, k) => num(a, adjust.offset[k]!, -.3, .3, .002, (v) => { const o = [...adjust.offset] as [number, number, number]; o[k] = v; setAdjust({ ...adjust, offset: o }); }))}
         <h4>Xoay (độ)</h4>
         {(['X', 'Y', 'Z'] as const).map((a, k) => num(a, adjust.rotate[k]!, -180, 180, 1, (v) => { const r = [...adjust.rotate] as [number, number, number]; r[k] = v; setAdjust({ ...adjust, rotate: r }); }))}
         <h4>Kích thước</h4>
         {num('×', adjust.scale, .5, 1.6, .005, (v) => setAdjust({ ...adjust, scale: v }))}
-        <button className="btn" onClick={() => { const a = { ...fit.adjust }; delete a[target]; update({ ...fit, adjust: a }); }}>Về mặc định</button>
+        <button className="btn" onClick={() => { const a = { ...fit.adjust }; delete a[editKey]; update({ ...fit, adjust: a }); }}>Về mặc định</button>
         {paintable && <>
           <h3>Vùng mềm (dây thừa, dây treo…)</h3>
           <label className="gs-row"><span>Phần model</span><select value={meshIndex} onChange={(e) => setMeshIndex(Number(e.target.value))}>{(world.current?.avatar.gearMeshes(target) ?? []).map((m, i) => <option key={i} value={i}>{i + 1}. {m.name || 'mesh'}{regions.some((r) => r.mesh === i) ? ' · mềm' : ''}</option>)}</select></label>

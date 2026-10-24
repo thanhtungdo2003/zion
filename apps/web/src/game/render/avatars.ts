@@ -2212,7 +2212,8 @@ export class Avatar {
       g.scale.setScalar(scale);
       place(g, box, (box.max.z - box.min.z) * scale);
       // The Studio's adjustment of this place, in the character's axes, about the weapon itself.
-      const a = key ? adjustFor(key) : undefined;
+      // A weapon's own setting for this place wins over the place's.
+      const a = key ? adjustFor(`${key}:${itemId}`) ?? adjustFor(key) : undefined;
       if (a) {
         const frame = this.restFrame(anchor);
         g.updateMatrix();
