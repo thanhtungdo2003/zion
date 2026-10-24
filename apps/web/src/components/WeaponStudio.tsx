@@ -41,7 +41,11 @@ const AMMO = Object.values(ITEMS).filter((d) => d.ammo).map((d) => d.id);
  * hand and attachment points (in the file's Blockbench pixels) and the real length. Without it
  * a new model starts with the default axes and must be oriented by hand.
  */
-async function modelHints(file: File): Promise<Partial<Draft['model']> | null> {
+async function modelHints(file: File, kind: Draft['kind'] = 'melee'): Promise<Partial<Draft['model']> | null> {
+  if (file.name.toLowerCase().endsWith('.glb')) {
+    const url = URL.createObjectURL(file);
+    try { return await glbFit(url, kind); } finally { URL.revokeObjectURL(url); }
+  }
   if (!file.name.toLowerCase().endsWith('.bbmodel')) return null;
   try {
     const raw = (JSON.parse(await file.text()) as { zion_weapon?: Record<string, unknown> }).zion_weapon;
@@ -184,7 +188,7 @@ export function WeaponManagerPage() {
       </div>
       {creating && <NewWeaponDialog onCancel={() => setCreating(false)} onPick={(kind, file) => {
         setCreating(false);
-        void modelHints(file).then((hints) => {
+        void modelHints(file, kind).then((hints) => {
           const draft = blankDraft(kind, file.name.toLowerCase().endsWith('.glb') ? 'glb' : 'bbmodel');
           setFresh({ draft: hints ? { ...draft, model: { ...draft.model, ...hints } } : draft, file });
         });
@@ -222,6 +226,50 @@ function readBase64(file: File): Promise<string> {
     r.onerror = () => reject(r.error);
     r.readAsDataURL(file);
   });
+}
+
+/**
+ * A GLB without fitting data: barrel along its longest extent, pointing at the slimmer end (blade
+ * tip, muzzle), up along the middle extent, and the hand / strike points placed along it. Only a
+ * starting point to check, but the model comes in at its real length and in the hand.
+ */
+async function glbFit(url: string, kind: Draft['kind']): Promise<Partial<Draft['model']> | null> {
+  try {
+    const { root } = await loadWeaponModel(url, undefined, 'glb');
+    root.updateMatrixWorld(true);
+    const inv = new Matrix4().copy(root.matrixWorld).invert(), m = new Matrix4(), pts: Vector3[] = [];
+    root.traverse((o) => {
+      const geo = (o as Mesh).geometry, pos = geo?.getAttribute('position');
+      if (!pos) return;
+      m.multiplyMatrices(inv, o.matrixWorld);
+      for (let i = 0; i < pos.count; i++) pts.push(new Vector3().fromBufferAttribute(pos, i).applyMatrix4(m).multiplyScalar(BB_UNITS_PER_METER));
+    });
+    if (pts.length < 3) return null;
+    const box = new Box3().setFromPoints(pts), size = box.getSize(new Vector3()).toArray();
+    const order = [0, 1, 2].sort((a, b) => size[b]! - size[a]!);
+    const long = order[0]!, mid = order[1]!, lo = box.min.getComponent(long), span = size[long]!;
+    // Cross-section near each end: the slimmer one is the tip.
+    const width = (from: number, to: number) => {
+      const near = pts.filter((p) => { const t = (p.getComponent(long) - lo) / span; return t >= from && t <= to; });
+      if (!near.length) return 0;
+      const b = new Box3().setFromPoints(near).getSize(new Vector3());
+      return b.getComponent(mid) + b.getComponent(order[2]!);
+    };
+    const sign = width(.9, 1) <= width(0, .1) ? 1 : -1;
+    const axis = (i: number, s = 1): Vec3 => [0, 1, 2].map((k) => (k === i ? s : 0)) as Vec3;
+    const centre = box.getCenter(new Vector3());
+    const at = (t: number): Vec3 => {
+      const p = centre.clone(); p.setComponent(long, sign > 0 ? lo + span * t : lo + span * (1 - t));
+      return p.toArray().map((v) => +v.toFixed(3)) as Vec3;
+    };
+    const gun = kind === 'gun';
+    return {
+      barrel: axis(long, sign), up: axis(mid), grip: at(gun ? .35 : .08),
+      ...(gun ? { muzzle: at(1), support: at(.6) } : { support: at(.2), strikePoint: at(.85) }),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Spec for the in-game visual from the draft (what `registerWeaponVisual` will get). */
@@ -308,7 +356,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
               // Per-attachment offsets were tuned in the OLD model's units and axes (on one file Y is the
               // barrel, on the next it may be up): carried over, they lift or sink every optic. Start clean.
               if (d.model.attachmentOffset) setModel({ attachmentOffset: undefined });
-              void modelHints(f).then((hints) => {
+              void modelHints(f, d.kind).then((hints) => {
                 if (!hints) return;
                 setModel({ ...hints, attachmentOffset: undefined });
                 setNotice(`Đã chọn ${f.name}: hướng nòng, hướng lên và các điểm gắn được lấy từ file (Gun Studio). Kiểm tra lại rồi bấm Lưu.`);
@@ -333,6 +381,7 @@ function WeaponEditor({ initial, file: initialFile, modelUrl, builtin, onClose, 
               <div className="ws-axes">
                 <label className="studio-field-inline"><span>Hướng nòng</span><select value={axisName(d.model.barrel)} onChange={(e) => setModel({ barrel: AXES[e.target.value]! })}>{Object.keys(AXES).map((a) => <option key={a}>{a}</option>)}</select></label>
                 <label className="studio-field-inline"><span>Hướng lên</span><select value={axisName(d.model.up)} onChange={(e) => setModel({ up: AXES[e.target.value]! })}>{Object.keys(AXES).map((a) => <option key={a}>{a}</option>)}</select></label>
+                {d.format === 'glb' && url && <button type="button" className="btn" title="Đặt lại hướng nòng, hướng lên và các điểm theo hình dạng model" onClick={() => void glbFit(url, d.kind).then((h) => { if (h) { setModel({ ...h, attachmentOffset: undefined }); setNotice('Đã tự căn theo hình dạng model: kiểm tra hướng (đổi dấu nếu ngược) rồi bấm Lưu.'); } })}><Icon name="lucide:wand-sparkles" /> Tự căn theo model</button>}
                 {num('Chiều dài thật (m)', d.model.length, (v) => setModel({ length: v }), .01, .1, 3)}
                 {num('Kích thước khi cầm (×)', d.model.size ?? 1, (v) => { if (v > 0) setModel({ size: v === 1 ? undefined : v }); }, .05, .2, 5)}
               </div>
