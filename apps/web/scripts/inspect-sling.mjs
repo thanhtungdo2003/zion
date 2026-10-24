@@ -5,7 +5,7 @@ globalThis.fetch = async (url) => { const path = String(url).split('?')[0]; if (
 const { Avatar } = await import('../src/game/render/avatars');
 const { buildBBModel, mirrorCharacter, survivorTemplate } = await import('../src/game/render/character-model');
 const { parseHumanAssets } = await import('../src/game/render/human-rig');
-const { builtinWeaponVisual, fittedSpec, standaloneVisual, loadWeaponModel } = await import('../src/game/render/weapons');
+const { builtinWeaponVisual, fittedSpec, standaloneVisual } = await import('../src/game/render/weapons');
 const { setGearFit } = await import('../src/game/gear-fit');
 const raw = async (u) => { const d = JSON.parse(await readFile(u, 'utf8')); d.textures = []; return buildBBModel(d); };
 const glb = await readFile('models/characters/zion-survivor.glb');
