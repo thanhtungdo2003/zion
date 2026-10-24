@@ -11,6 +11,7 @@ import {
   Skeleton,
   SkinnedMesh,
   Sphere,
+  type Texture,
   Vector3,
   type InterleavedBufferAttribute,
   type Material,
@@ -18,6 +19,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SkinSurface, bindGarment } from './skin-surface';
+import { settingsStore, type TextureQuality } from '@/lib/settings';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
 
 /**
@@ -101,7 +103,8 @@ export interface MocapPose extends MocapLayer {
 
 interface BoneDef { name: string; parent: number; position: Vector3; quaternion: Quaternion; scale: Vector3 }
 interface HandFrame { palm: Vector3; normal: Vector3; across: Vector3 }
-interface HumanPart { geometry: BufferGeometry; slot: string; roughness: number; metalness: number; mean: Color }
+/** A clothing part; textured garments carry their own colour, normal and occlusion maps. */
+interface HumanPart { geometry: BufferGeometry; slot: string; roughness: number; metalness: number; mean: Color; maps?: { map: Texture | null; normalMap: Texture | null; aoMap: Texture | null } }
 
 export interface HumanAssets {
   bones: BoneDef[];
@@ -398,8 +401,11 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
     const material = mesh.material as MeshStandardMaterial;
     const geometry = mesh.geometry;
     geometry.computeBoundingSphere();
-    parts.set(slot, { geometry, slot, roughness: material.roughness ?? .8, metalness: material.metalness ?? 0, mean: meanColor(geometry) });
-    material.dispose();
+    // Textured garments: the texture's own mean colour (the vertex colours are plain white).
+    const mean = (mesh.userData.mean ?? (geometry.userData as { mean?: number[] }).mean) as number[] | undefined;
+    const maps = material.map ? { map: material.map, normalMap: material.normalMap, aoMap: material.aoMap } : undefined;
+    parts.set(slot, { geometry, slot, roughness: material.roughness ?? .8, metalness: material.metalness ?? 0, mean: maps && mean ? new Color(mean[0], mean[1], mean[2]) : meanColor(geometry), ...(maps ? { maps } : {}) });
+    if (!maps) material.dispose();
   }
   const body = parts.get('body');
   const hairPart = parts.get('hair');
@@ -447,8 +453,31 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
 const materialCache = new Map<string, MeshStandardMaterial>();
 
 /** A vertex-coloured material whose colours are recoloured so their mean becomes `target`. */
+/** Longest side (px) of garment textures for each texture quality (high: as shipped). */
+const TEXTURE_LIMIT: Record<TextureQuality, number> = { low: 256, medium: 512, high: Infinity };
+const limited = new Map<string, Texture>();
+
+/** A garment texture at the player's texture quality: downscaled copies for low / medium. */
+function atQuality(tex: Texture | null, quality: TextureQuality): Texture | null {
+  const image = tex?.image as { width?: number; height?: number } | undefined;
+  const max = TEXTURE_LIMIT[quality];
+  if (!tex || !image?.width || !image.height || Math.max(image.width, image.height) <= max || typeof document === 'undefined') return tex;
+  const id = `${tex.uuid}|${max}`;
+  let out = limited.get(id);
+  if (!out) {
+    const k = max / Math.max(image.width, image.height);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * k)); canvas.height = Math.max(1, Math.round(image.height * k));
+    canvas.getContext('2d')?.drawImage(tex.image as CanvasImageSource, 0, 0, canvas.width, canvas.height);
+    out = tex.clone(); out.image = canvas; out.needsUpdate = true;
+    limited.set(id, out);
+  }
+  return out;
+}
+
 function partMaterial(part: HumanPart, target: string | null, key: string): MeshStandardMaterial {
-  const id = `${key}|${target ?? ''}`;
+  const quality = settingsStore.get().textureQuality;
+  const id = `${key}|${target ?? ''}|${part.maps ? quality : ''}`;
   let m = materialCache.get(id);
   if (!m) {
     const tint = new Color(1, 1, 1);
@@ -461,6 +490,10 @@ function partMaterial(part: HumanPart, target: string | null, key: string): Mesh
     // Skin is matte (no plastic sheen under lights); clothes keep the model's own finish.
     const skin = part.slot === 'body';
     m = new MeshStandardMaterial({ vertexColors: true, color: tint, roughness: skin ? Math.max(.82, part.roughness) : part.roughness, metalness: skin ? 0 : part.metalness, polygonOffset: layered, polygonOffsetFactor: layered ? -1.5 : 0, polygonOffsetUnits: layered ? -3 : 0 });
+    if (part.maps) {
+      // The garment's own textures (tinted by the chosen colour).
+      m.map = atQuality(part.maps.map, quality); m.normalMap = atQuality(part.maps.normalMap, quality); m.aoMap = atQuality(part.maps.aoMap, quality);
+    }
     m.name = `survivor-${key}`;
     materialCache.set(id, m);
   }

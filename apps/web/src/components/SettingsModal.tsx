@@ -1,7 +1,7 @@
 'use client';
 import { Icon } from './Icon';
 
-import { ATTACH_KEYS, NV_KEYS, keyLabel, GRAPHICS_PRESETS, GROUND_DETAILS, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
+import { ATTACH_KEYS, NV_KEYS, keyLabel, GRAPHICS_PRESETS, GROUND_DETAILS, TEXTURE_QUALITIES, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isRollKey, isProneKey, PRONE_KEYS, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
@@ -22,7 +22,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
   const settings = useSettings();
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, groundDetail, t } = settings;
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, groundDetail, textureQuality, t } = settings;
   const preset = graphicsPreset(settings);
 
   useEffect(() => {
@@ -189,6 +189,15 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
                 <b>{q === 'off' ? 'ĐẤT TRƠN' : q === 'low' ? 'ĐẤT THẤP' : q === 'medium' ? 'ĐẤT VỪA' : 'ĐẤT CAO'}</b>
                 <small>{q === 'off' ? 'Mặt đất màu, nhẹ nhất' : q === 'low' ? 'Chất liệu 256 px' : q === 'medium' ? 'Chất liệu 512 px' : 'Chất liệu 1024 px · nét nhất'}</small>
                 <i aria-hidden><Icon name={groundDetail === q ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
+          <div className="set-langs set-camera" role="radiogroup" aria-label="Chất lượng texture trang phục">
+            {TEXTURE_QUALITIES.map((q) => (
+              <button key={q} type="button" role="radio" aria-checked={textureQuality === q} className="set-lang" onClick={() => settingsStore.set({ textureQuality: q })}>
+                <b>{q === 'low' ? 'TEXTURE THẤP' : q === 'medium' ? 'TEXTURE VỪA' : 'TEXTURE CAO'}</b>
+                <small>{q === 'low' ? 'Trang phục 256 px, nhẹ nhất' : q === 'medium' ? 'Trang phục 512 px' : 'Giữ nguyên texture gốc'}</small>
+                <i aria-hidden><Icon name={textureQuality === q ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>

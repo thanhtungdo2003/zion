@@ -1,3 +1,4 @@
+import { untexturedGlb } from './test-glb';
 import { readFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
@@ -9,7 +10,7 @@ import { parseHumanAssets } from './human-rig';
 let template: CharacterTemplate;
 beforeAll(async () => {
   const bytes = await readFile(new URL('../../../../../models/characters/zion-survivor.glb', import.meta.url));
-  const assets = await parseHumanAssets(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  const assets = await parseHumanAssets(untexturedGlb(bytes));
   const raw = JSON.parse(await readFile(new URL('../../../../../models/characters/teen-wasteland-survivor.bbmodel', import.meta.url), 'utf8')) as RawModel;
   raw.textures = [];
   template = survivorTemplate(mirrorCharacter(await buildBBModel(raw)), assets);

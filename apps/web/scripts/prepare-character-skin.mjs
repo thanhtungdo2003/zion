@@ -4,12 +4,15 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseHumanAssets } from '../src/game/render/human-rig.ts';
+import { untexturedGlb } from '../src/game/render/test-glb.ts';
 
 const file = path.resolve(import.meta.dirname, '../../../models/characters/zion-survivor.glb');
 const source = await readFile(file), jsonLength = source.readUInt32LE(12);
 const json = JSON.parse(source.subarray(20, 20 + jsonLength));
 const binary = Buffer.from(source.subarray(28 + jsonLength));
-const assets = await parseHumanAssets(source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength), { rebuildSkin: true });
+// Geometry only: Node has no image decoder for the garments' textures.
+const plain = untexturedGlb(source);
+const assets = await parseHumanAssets(plain, { rebuildSkin: true });
 const mesh = json.meshes.find(m => m.extras?.slot === 'top');
 if (!mesh || mesh.primitives.length !== 1) throw new Error('Expected one prepared top primitive');
 const primitive = mesh.primitives[0], geometry = assets.parts.get('top').geometry;

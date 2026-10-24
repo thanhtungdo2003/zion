@@ -1,3 +1,4 @@
+import { untexturedGlb } from './test-glb';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -17,7 +18,7 @@ let template: CharacterTemplate;
 
 beforeAll(async () => {
   const glb = await readFile(new URL('../../../../../models/characters/zion-survivor.glb', import.meta.url));
-  assets = await parseHumanAssets(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength) as ArrayBuffer);
+  assets = await parseHumanAssets(untexturedGlb(glb));
   const raw = JSON.parse(await readFile(new URL('../../../../../models/characters/teen-wasteland-survivor.bbmodel', import.meta.url), 'utf8')) as RawModel;
   raw.textures = [];
   template = survivorTemplate(mirrorCharacter(await buildBBModel(raw)), assets);
@@ -59,7 +60,7 @@ async function realRifle(): Promise<WeaponVisual> {
 describe('survivor model', () => {
   it('loads baked cloth weights and coverage matching surface preparation without changing animation clips', async () => {
     const glb = await readFile(new URL('../../../../../models/characters/zion-survivor.glb', import.meta.url));
-    const rebuilt = await parseHumanAssets(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength) as ArrayBuffer, { rebuildSkin: true });
+    const rebuilt = await parseHumanAssets(untexturedGlb(glb), { rebuildSkin: true });
     for (const kind of ['bare', 'top'] as const) {
       expect(Array.from(assets.bodies[kind].getIndex()!.array)).toEqual(Array.from(rebuilt.bodies[kind].getIndex()!.array));
       expect(assets.bodies[kind].getAttribute('position')).toBe(assets.parts.get('body')!.geometry.getAttribute('position'));

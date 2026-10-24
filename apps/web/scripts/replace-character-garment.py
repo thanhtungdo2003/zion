@@ -91,7 +91,14 @@ def garment(path):
         fx, fy = (x - x0)[:, None], (y - y0)[:, None]
         return (img[y0, x0] * (1 - fx) * (1 - fy) + img[y0, x1] * fx * (1 - fy) + img[y1, x0] * (1 - fx) * fy + img[y1, x1] * fx * fy)
 
-    pos, col, idx = [], [], []
+    def raw_image(tex):
+        if tex is None:
+            return None
+        img = j['images'][j['textures'][tex['index']]['source']]
+        bv = j['bufferViews'][img['bufferView']]
+        return bytes(binary[bv.get('byteOffset', 0): bv.get('byteOffset', 0) + bv['byteLength']]), img.get('mimeType', 'image/png')
+
+    pos, col, idx, uvs, maps = [], [], [], [], {}
     for i, node in enumerate(j['nodes']):
         if 'mesh' not in node:
             continue
@@ -103,17 +110,19 @@ def garment(path):
             mat = j['materials'][prim.get('material', 0)] if j.get('materials') else {}
             pbr = mat.get('pbrMetallicRoughness', {})
             c = np.ones((len(p), 3)) * np.array(pbr.get('baseColorFactor', [1, 1, 1, 1])[:3])
-            base = image(pbr.get('baseColorTexture') or mat.get('extensions', {}).get('KHR_materials_pbrSpecularGlossiness', {}).get('diffuseTexture'))
+            base_ref = pbr.get('baseColorTexture') or mat.get('extensions', {}).get('KHR_materials_pbrSpecularGlossiness', {}).get('diffuseTexture')
+            base = image(base_ref)
             if base is not None:
-                c = c * sample(base, uv) ** 1.0
-            ao = image(mat.get('occlusionTexture'))
-            if ao is not None:
-                c = c * (.35 + .65 * sample(ao, uv)[:, :1])
+                c = c * sample(base, uv)
+            # The garment's own texture files, kept as they are (the game draws them).
+            if not maps and base_ref:
+                maps = {'base': raw_image(base_ref), 'normal': raw_image(mat.get('normalTexture')), 'ao': raw_image(mat.get('occlusionTexture'))}
+            uvs.append(uv)
             ind = read(j, binary, prim['indices']).reshape(-1) if 'indices' in prim else np.arange(len(p))
             idx.append(ind + sum(len(q) for q in pos))
             pos.append(p)
             col.append(c)
-    return np.concatenate(pos), np.concatenate(col), np.concatenate(idx).astype(np.int64)
+    return np.concatenate(pos), np.concatenate(col), np.concatenate(idx).astype(np.int64), np.concatenate(uvs), maps
 
 
 def profile(points, ys, band):
@@ -185,6 +194,78 @@ def shirt(new, old, skin, skin_n):
     return fitted, (fitted[:, 0] >= 0).astype(int)
 
 
+TEX_KEYS = ('normalTexture', 'occlusionTexture', 'emissiveTexture')
+
+
+def material_textures(m):
+    pbr = m.get('pbrMetallicRoughness', {})
+    return [t for t in [*(m.get(k) for k in TEX_KEYS), pbr.get('baseColorTexture'), pbr.get('metallicRoughnessTexture')] if t]
+
+
+def compact(j, binary):
+    """Drops buffer data nothing refers to any more (replaced parts and their textures)."""
+    used_tex = sorted({t['index'] for m in j.get('materials', []) for t in material_textures(m)})
+    tex_map = {old: new for new, old in enumerate(used_tex)}
+    j['textures'] = [j['textures'][i] for i in used_tex]
+    for m in j.get('materials', []):
+        for t in material_textures(m):
+            t['index'] = tex_map[t['index']]
+    used_img = sorted({t['source'] for t in j['textures']})
+    img_map = {old: new for new, old in enumerate(used_img)}
+    j['images'] = [j['images'][i] for i in used_img]
+    for t in j['textures']:
+        t['source'] = img_map[t['source']]
+    used_acc = set()
+    for m in j.get('meshes', []):
+        for p in m['primitives']:
+            used_acc.update(p['attributes'].values())
+            if 'indices' in p:
+                used_acc.add(p['indices'])
+            for t in p.get('targets', []):
+                used_acc.update(t.values())
+    for sk in j.get('skins', []):
+        if 'inverseBindMatrices' in sk:
+            used_acc.add(sk['inverseBindMatrices'])
+    for an in j.get('animations', []):
+        for sm in an['samplers']:
+            used_acc.update([sm['input'], sm['output']])
+    acc_ids = sorted(used_acc)
+    am = {old: new for new, old in enumerate(acc_ids)}
+    for m in j.get('meshes', []):
+        for p in m['primitives']:
+            p['attributes'] = {k: am[v] for k, v in p['attributes'].items()}
+            if 'indices' in p:
+                p['indices'] = am[p['indices']]
+            if 'targets' in p:
+                p['targets'] = [{k: am[v] for k, v in t.items()} for t in p['targets']]
+    for sk in j.get('skins', []):
+        if 'inverseBindMatrices' in sk:
+            sk['inverseBindMatrices'] = am[sk['inverseBindMatrices']]
+    for an in j.get('animations', []):
+        for sm in an['samplers']:
+            sm['input'] = am[sm['input']]; sm['output'] = am[sm['output']]
+    j['accessors'] = [j['accessors'][i] for i in acc_ids]
+    views = sorted({a['bufferView'] for a in j['accessors'] if 'bufferView' in a} | {i['bufferView'] for i in j['images']})
+    data = bytearray()
+    view_map = {}
+    for new, old in enumerate(views):
+        v = j['bufferViews'][old]
+        while len(data) % 4:
+            data.append(0)
+        chunk = binary[v.get('byteOffset', 0): v.get('byteOffset', 0) + v['byteLength']]
+        view_map[old] = new
+        v['byteOffset'] = len(data)
+        data.extend(chunk)
+    j['bufferViews'] = [j['bufferViews'][i] for i in views]
+    for a in j['accessors']:
+        if 'bufferView' in a:
+            a['bufferView'] = view_map[a['bufferView']]
+    for i in j['images']:
+        i['bufferView'] = view_map[i['bufferView']]
+    binary[:] = data
+    j['buffers'][0]['byteLength'] = len(binary)
+
+
 def main():
     feet = '--feet' in sys.argv
     top = '--top' in sys.argv
@@ -202,10 +283,11 @@ def main():
     skin = read(j, binary, body_prim['attributes']['POSITION'])
     skin_n = read(j, binary, body_prim['attributes']['NORMAL']).astype(np.float64) / 127
 
-    new, colour, index = garment(src)
+    new, colour, index, uv, maps = garment(src)
     if feet:
         fitted, index, side = boots(new, index, old)
         colour = np.concatenate([colour, colour])
+        uv = np.concatenate([uv, uv])
     elif top:
         # Sleeves need arm weights: taken from the body, not the sleeveless old top.
         fitted, side = shirt(new, old, skin, skin_n)
@@ -214,7 +296,7 @@ def main():
         old_weights = read(j, binary, body_prim['attributes']['WEIGHTS_0'])
     else:
         fitted, side = trousers(new, old)
-    finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, 'military_boots' if feet else 'shirt' if top else 'joggers')
+    finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, uv, maps, 'military_boots' if feet else 'shirt' if top else 'joggers')
 
 
 def trousers(new, old):
@@ -241,7 +323,7 @@ def trousers(new, old):
     return fitted, side
 
 
-def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, name):
+def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, uv, maps, name):
     # Over the skin: no vertex closer than 10 mm under / over the nearest body surface.
     from scipy.spatial import cKDTree
     body_tree = cKDTree(skin)
@@ -296,7 +378,9 @@ def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, s
     attrs = {
         'POSITION': add(fitted.astype(np.float32), 5126, 'VEC3', target=34962, minmax=True),
         'NORMAL': add(np.round(normal * 127).astype(np.int8), 5120, 'VEC3', True, 34962),
-        'COLOR_0': add(np.round(np.clip(colour, 0, 1) * 255).astype(np.uint8), 5121, 'VEC3', True, 34962),
+        # Textured: plain white vertex colours (the texture carries the colour).
+        'COLOR_0': add(np.full((len(fitted), 3), 255, dtype=np.uint8), 5121, 'VEC3', True, 34962),
+        'TEXCOORD_0': add(uv.astype(np.float32), 5126, 'VEC2', target=34962),
         'JOINTS_0': add(joints.astype(np.uint8), 5121, 'VEC4', target=34962),
         'WEIGHTS_0': add(q_weights.astype(np.uint8), 5121, 'VEC4', True, 34962),
     }
@@ -306,9 +390,34 @@ def finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, s
     old_prim['indices'] = indices
     mesh = j['meshes'][legs_mesh]
     mesh['name'] = name
-    mesh['extras'] = {**mesh.get('extras', {}), 'part': name, 'label': label}
-    j['materials'][old_prim['material']]['pbrMetallicRoughness']['roughnessFactor'] = .9
-    j['buffers'][0]['byteLength'] = len(binary)
+    # Mean colour of the texture (linear), what the game tints against.
+    lin = np.where(colour <= .04045, colour / 12.92, ((colour + .055) / 1.055) ** 2.4)
+    mesh['extras'] = {**mesh.get('extras', {}), 'part': name, 'label': label, 'mean': lin.mean(0).round(4).tolist()}
+    material = j['materials'][old_prim['material']]
+    material['pbrMetallicRoughness']['roughnessFactor'] = .9
+    j.setdefault('images', []); j.setdefault('textures', []); j.setdefault('samplers', [])
+    if not j['samplers']:
+        j['samplers'].append({'magFilter': 9729, 'minFilter': 9987, 'wrapS': 10497, 'wrapT': 10497})
+
+    def texture(entry):
+        data, mime = entry
+        while len(binary) % 4:
+            binary.append(0)
+        j['bufferViews'].append({'buffer': 0, 'byteOffset': len(binary), 'byteLength': len(data)})
+        binary.extend(data)
+        j['images'].append({'bufferView': len(j['bufferViews']) - 1, 'mimeType': mime})
+        j['textures'].append({'sampler': 0, 'source': len(j['images']) - 1})
+        return {'index': len(j['textures']) - 1}
+    for key in ('normalTexture', 'occlusionTexture'):
+        material.pop(key, None)
+    material['pbrMetallicRoughness'].pop('baseColorTexture', None)
+    if maps.get('base'):
+        material['pbrMetallicRoughness']['baseColorTexture'] = texture(maps['base'])
+    if maps.get('normal'):
+        material['normalTexture'] = texture(maps['normal'])
+    if maps.get('ao'):
+        material['occlusionTexture'] = texture(maps['ao'])
+    compact(j, binary)
 
     payload = json.dumps(j, separators=(',', ':')).encode()
     payload += b' ' * (-len(payload) % 4)

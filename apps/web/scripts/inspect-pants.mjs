@@ -14,7 +14,7 @@ const { buildBBModel, mirrorCharacter, survivorTemplate } = await import('../src
 const { parseHumanAssets } = await import('../src/game/render/human-rig');
 const raw = async (u) => { const d = JSON.parse(await readFile(u, 'utf8')); d.textures = []; return buildBBModel(d); };
 const glb = await readFile('models/characters/zion-survivor.glb');
-const human = await parseHumanAssets(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength));
+const human = await parseHumanAssets(untexturedGlb(glb));
 const template = survivorTemplate(mirrorCharacter(await raw('models/characters/teen-wasteland-survivor.bbmodel')), human);
 const out = [];
 for (const [label, speed, flags, colour] of [['stand', 0, 0, 0], ['walk', 1.6, 0, 3], ['run', 5, EntityFlags.Sprinting, 1], ['crouch', 0, EntityFlags.Crouching, 4]]) {
