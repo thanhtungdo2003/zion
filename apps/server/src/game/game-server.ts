@@ -3468,6 +3468,9 @@ export class GameServer {
   /** Takes one round from the magazine of the gun in hand; false if it is empty or reloading. */
   private useRound(p: Player): boolean {
     const gun = p.inv.equippedItem();
+    // A tube being loaded shell by shell: firing (with a shell in) stops the loading.
+    const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
+    if (gun && p.reloadAt && spec?.kind === 'gun' && spec.shellReload && (gun.mag ?? 0) > 0) p.cancelReload();
     if (!gun || p.reloadAt || (gun.mag ?? 0) <= 0) return false;
     gun.mag = (gun.mag ?? 0) - 1;
     p.dirty = true;
@@ -3488,7 +3491,7 @@ export class GameServer {
     if ((gun.mag ?? 0) >= spec.magazine || (!this.infection && p.inv.ammoFor(gun.itemId) <= 0)) return;
     p.reloadUid = gun.uid;
     // Lenient: clients time reloads to their sound, so the server only enforces half the time.
-    p.reloadAt = this.serverTime + spec.reloadMs * 0.5;
+    p.reloadAt = this.serverTime + (spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : spec.reloadMs) * 0.5;
   }
 
   private stepReloads(now: number): void {
@@ -3500,6 +3503,17 @@ export class GameServer {
       const spec = gun ? weaponSpec(WEAPON_BY_ITEM[gun.itemId] ?? 0) : undefined;
       // Swapping weapons cancels the reload.
       if (!gun || gun.uid !== reloadUid || spec?.kind !== 'gun') continue;
+      if (spec.shellReload) {
+        // One shell into the tube; the next follows while there is room and shells.
+        gun.mag = (gun.mag ?? 0) + (this.infection ? 1 : p.inv.takeAmmo(gun.itemId, 1));
+        if (gun.mag < spec.magazine && (this.infection || p.inv.ammoFor(gun.itemId) > 0)) {
+          p.reloadUid = gun.uid;
+          p.reloadAt = now + spec.shellReload.shellMs * .5;
+        }
+        p.dirty = true;
+        this.sendInv(p);
+        continue;
+      }
       // Infection: unlimited ammunition, but the magazine still has to be reloaded.
       gun.mag = this.infection ? spec.magazine : (gun.mag ?? 0) + p.inv.takeAmmo(gun.itemId, spec.magazine - (gun.mag ?? 0));
       p.dirty = true;

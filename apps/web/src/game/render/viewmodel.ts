@@ -1,5 +1,5 @@
 import { Box3, BufferGeometry, CircleGeometry, DoubleSide, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Raycaster, Vector3, type Camera, type Material, type Object3D } from 'three';
-import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
+import { ITEMS, WEAPON_BY_ITEM, weaponSpec, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
 import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
 import { fitGripProfile } from './grip-profile';
@@ -282,6 +282,18 @@ export class ViewModel {
   kick(strength = 1): void {
     this.recoil.kick(strength * .065);
     this.rig()?.mechanics.fire();
+  }
+
+  /** The gun in hand loads shell by shell (a pump shotgun's tube). */
+  private shellLoading(): boolean {
+    const spec = weaponSpec(WEAPON_BY_ITEM[this.rig()?.visual.itemId ?? ''] ?? 0);
+    return spec?.kind === 'gun' && !!spec.shellReload;
+  }
+
+  /** A shell-by-shell reload stopped (a shot): hands back on the gun. */
+  stopReload(): void {
+    this.reloadT = -1;
+    this.rig()?.mechanics.cancel();
   }
 
   /** A reload began: magazine / clip animation over its whole length. */
@@ -587,7 +599,10 @@ export class ViewModel {
         // Long guns: both arms from the recorded rifle hold, the gun in the recorded firing hand.
         if (!hold?.pistol && hold?.support) {
           const spec = this.rig()?.visual.spec;
-          out.R = { rifle: { model, key: this.current ?? '', support: hold.support.clone(), gripRadius: spec?.gripRadius, supportRadius: spec?.supportRadius } };
+          // The support hand rides the pump's fore-end as it is racked.
+          const shift = this.rig()?.mechanics.supportShift(new Vector3());
+          const support = shift && shift.lengthSq() > 0 ? model.worldToLocal(model.localToWorld(hold.support.clone()).add(shift)) : hold.support.clone();
+          out.R = { rifle: { model, key: this.current ?? '', support, gripRadius: spec?.gripRadius, supportRadius: spec?.supportRadius } };
           // The support hand is placed with the arms; a non-recorded reload overrides it below.
           out.L = null;
         }
@@ -596,7 +611,11 @@ export class ViewModel {
           // a slap, then the charging handle, and back to the handguard.
           const reach = hold?.support ?? new Vector3(.2, -.03, 0);
           const mag = W(reach.x * .3, -.08, 0), out1 = cam(-.14, -.62, -.2), rack = W(.03, .045, .045);
-          const keys: Array<[number, Vector3, 'fist' | 'open' | 'pinch' | 'ready']> = [
+          // A tube-fed shotgun: one shell from below into the loading port under the receiver.
+          const port = W(reach.x * .3, -.05, 0), pouch = cam(-.12, -.5, -.3);
+          const keys: Array<[number, Vector3, 'fist' | 'open' | 'pinch' | 'ready']> = this.shellLoading() ? [
+            [0, guard.center, 'ready'], [.3, pouch, 'pinch'], [.55, port.clone().add(D(0, -.05, 0)), 'pinch'], [.72, port, 'pinch'], [.8, port, 'open'], [1, guard.center, 'ready'],
+          ] : [
             [0, guard.center, 'ready'], [.12, mag, 'fist'], [.26, mag.clone().add(D(0, -.14, 0)), 'fist'], [.42, out1, 'fist'], [.5, out1, 'fist'],
             [.64, mag.clone().add(D(0, -.13, 0)), 'fist'], [.72, mag, 'fist'], [.76, mag.clone().add(D(0, .014, 0)), 'open'],
             [.84, rack, 'pinch'], [.9, rack.clone().add(D(-.07, 0, 0)), 'pinch'], [.95, rack, 'pinch'], [1, guard.center, 'ready'],

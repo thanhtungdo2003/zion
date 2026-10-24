@@ -770,6 +770,7 @@ export class GameEngine {
       this.weaponCtl.setReloadMs(WeaponId.DoubleBarrel, this.sounds.duration('doubleBarrelReload') * 1000);
       this.weaponCtl.setReloadMs(WeaponId.RocketLauncher, this.sounds.duration('rocketReload') * 1000);
       this.weaponCtl.onReload = (weapon, ms) => this.onReload(weapon, ms);
+      this.weaponCtl.onReloadCancel = () => { this.viewModel?.stopReload(); this.localAvatar?.stopReload(); };
       this.weaponCtl.onEmpty = (weapon) => this.onOutOfAmmo(weapon);
       this.hud.set({ statusDetail: { key: 'status.preparing' }, loadProgress: 1 });
       const preview = new Avatar(this.character, true);
@@ -3182,7 +3183,9 @@ export class GameEngine {
     const local = this.local;
     const at = local ? { x: local.state.x, y: local.state.y + 1.2, z: local.state.z } : undefined;
     const [sound, rate] = reloadSound(weapon);
-    this.sounds?.play(sound, { at, rate });
+    // Shell by shell: a short click per shell (each shell is its own reload step).
+    const shells = (weaponSpec(weapon) as { shellReload?: unknown } | undefined)?.shellReload;
+    this.sounds?.play(shells ? 'pistolReload' : sound, shells ? { at, rate: 1.7, volume: .6 } : { at, rate });
     const visual = this.weapons?.get(ITEM_BY_WEAPON[weapon] ?? '');
     if (visual?.reloadClip) this.localAvatar?.playWeaponAnim(visual.reloadClip, ms / 1000);
     this.localAvatar?.startReload(ms / 1000);

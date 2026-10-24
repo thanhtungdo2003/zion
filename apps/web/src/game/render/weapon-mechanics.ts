@@ -23,6 +23,10 @@ export class WeaponMechanics {
   private readonly barrel: Vector3;
   private readonly up: Vector3;
   private fireT = -1;
+  /** The model's own after-shot clip (pump racked), and its time. */
+  private readonly fireClip: CharacterClip | null;
+  private readonly supportPart: Part | null;
+  private pumpT = -1;
   private cycleT = -1;
   private reloadT = -1;
   private reloadLength = 1;
@@ -44,7 +48,10 @@ export class WeaponMechanics {
     const find = (re: RegExp) => [...this.parts.entries()].find(([name, p]) => re.test(name) && !p.node.type.includes('Mesh'))?.[1] ?? null;
     this.slide = find(/^slide$/i) ?? find(/slide/i);
     this.bolt = find(/^bolt$/i) ?? find(/bolt/i);
-    this.magazine = find(/^magazine$/i) ?? find(/magazine|^mag$/i);
+    // A shotgun's magazine tube stays put (it is loaded shell by shell).
+    this.magazine = find(/^magazine$/i) ?? [...this.parts.entries()].find(([name, p]) => /magazine|^mag$/i.test(name) && !/tube|cap/i.test(name) && !p.node.type.includes('Mesh'))?.[1] ?? null;
+    this.fireClip = visual.spec?.fireClip ? visual.clips.get(visual.spec.fireClip) ?? null : null;
+    this.supportPart = visual.spec?.supportPart ? this.parts.get(visual.spec.supportPart) ?? null : null;
     this.barrel = new Vector3(...(visual.spec?.barrel ?? [1, 0, 0])).normalize();
     this.up = new Vector3(...(visual.spec?.up ?? [0, 1, 0])).normalize();
   }
@@ -52,6 +59,7 @@ export class WeaponMechanics {
   /** A round was fired. */
   fire(): void {
     this.fireT = 0;
+    if (this.fireClip) this.pumpT = 0;
     if (this.boltAction) this.cycleT = 0;
   }
 
@@ -64,11 +72,19 @@ export class WeaponMechanics {
   }
 
   cancel(): void {
-    this.reloadT = -1; this.cycleT = -1; this.fireT = -1;
+    this.reloadT = -1; this.cycleT = -1; this.fireT = -1; this.pumpT = -1;
     this.reset();
   }
 
   get reloading(): boolean { return this.reloadT >= 0; }
+
+  /** How far the part the support hand holds (a pump's fore-end) has moved from rest, in world space. */
+  supportShift(out: Vector3): Vector3 {
+    const p = this.supportPart, parent = p?.node.parent;
+    if (!p || !parent) return out.set(0, 0, 0);
+    parent.updateWorldMatrix(true, false);
+    return out.copy(p.node.position).applyMatrix4(parent.matrixWorld).sub(p.restPos.clone().applyMatrix4(parent.matrixWorld));
+  }
 
   update(dt: number): void {
     this.reset();
@@ -97,6 +113,13 @@ export class WeaponMechanics {
         // The shooter rolls the rifle slightly to work the bolt, with or without a bolt part.
         this.cant = -lift * .18; this.lift = -lift * .015;
       }
+    }
+    // Pump action: racked by the model's own clip just after the shot (with its sound).
+    if (this.pumpT >= 0 && this.fireClip) {
+      this.pumpT += dt;
+      const t = this.pumpT - .2;
+      if (t >= this.fireClip.length) this.pumpT = -1;
+      else if (t > 0) this.playClip(this.fireClip, t);
     }
     if (this.reloadT >= 0) {
       this.reloadT += dt;

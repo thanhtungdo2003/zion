@@ -711,6 +711,9 @@ export class Avatar {
     if (this.human) this.reloadAnim = { t: 0, dur: Math.max(.3, seconds) };
   }
 
+  /** A reload cut short (a shot stops a shotgun's shell-by-shell loading). */
+  stopReload(): void { this.reloadAnim = null; }
+
   setName(name: string, rank?: RankTitle, pvp = false): void {
     const key = `${name}:${rank?.step ?? ''}:${pvp}`;
     if (key === this.labelText) return;

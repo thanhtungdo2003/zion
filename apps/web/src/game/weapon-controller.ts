@@ -34,6 +34,8 @@ export class WeaponController {
   private readonly reloadMs = new Map<number, number>();
   /** Called when a reload starts (manual or automatic), with its duration. */
   onReload: ((weapon: number, ms: number) => void) | null = null;
+  /** Called when a shell-by-shell reload is stopped by a shot. */
+  onReloadCancel: ((weapon: number) => void) | null = null;
   /** Called when the trigger is pulled on an empty gun with no ammo boxes left. */
   onEmpty: ((weapon: number) => void) | null = null;
 
@@ -41,7 +43,7 @@ export class WeaponController {
 
   /** The server's magazine count for a gun (ignored mid-reload, when our own timer is running). */
   syncMag(weapon: number, rounds: number): void {
-    if (this.reloadWeapon === weapon) {
+    if (this.reloadWeapon === weapon && !this.gun(weapon)?.shellReload) {
       // Mid-reload: the server may already have finished it (and used up the last box), so keep
       // its count for when our timer ends instead of re-drawing from boxes that are gone.
       this.serverDuringReload = rounds;
@@ -74,13 +76,24 @@ export class WeaponController {
     if (this.reloadWeapon && now >= this.reloadEnd) {
       const w = this.reloadWeapon;
       const spec = this.gun(w);
-      if (spec) {
-        const mag = this.mag(w, spec);
-        const rounds = this.serverDuringReload;
-        this.mags.set(w, rounds !== null ? rounds : mag + this.ammo.take(w, spec.magazine - mag));
+      if (spec?.shellReload) {
+        // One shell in; the next one while there is room and shells.
+        const mag = this.mag(w, spec) + this.ammo.take(w, 1);
+        this.mags.set(w, mag);
+        if (mag < spec.magazine && this.ammo.available(w) > 0) {
+          this.reloadStart = now; this.reloadEnd = now + spec.shellReload.shellMs;
+          this.onReload?.(w, spec.shellReload.shellMs);
+        } else this.reloadWeapon = 0;
+        this.serverDuringReload = null;
+      } else {
+        if (spec) {
+          const mag = this.mag(w, spec);
+          const rounds = this.serverDuringReload;
+          this.mags.set(w, rounds !== null ? rounds : mag + this.ammo.take(w, spec.magazine - mag));
+        }
+        this.reloadWeapon = 0;
+        this.serverDuringReload = null;
       }
-      this.reloadWeapon = 0;
-      this.serverDuringReload = null;
     }
     if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; } // swapping cancels
     if (weapon === WeaponId.C4) {
@@ -133,6 +146,8 @@ export class WeaponController {
       return 'melee';
     }
     if (spec.kind !== 'gun') return 'none';
+    // Loading a tube shell by shell: a trigger pull with a shell in stops it and fires.
+    if (this.reloadWeapon === weapon && spec.shellReload && pressed && this.mag(weapon, spec) > 0) { this.reloadWeapon = 0; this.serverDuringReload = null; this.onReloadCancel?.(weapon); }
     if (this.reloadWeapon || now < this.nextFire || (!spec.auto && !pressed && !repeatTrigger)) return 'none';
     const mag = this.mag(weapon, spec);
     if (mag <= 0) {
@@ -172,7 +187,7 @@ export class WeaponController {
     this.reloadWeapon = weapon;
     this.serverDuringReload = null;
     this.reloadStart = now;
-    const ms = this.reloadMs.get(weapon) ?? spec.reloadMs;
+    const ms = spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : this.reloadMs.get(weapon) ?? spec.reloadMs;
     this.reloadEnd = now + ms;
     this.onReload?.(weapon, ms);
   }

@@ -90,6 +90,11 @@ export interface GunSpec {
   /** Optical magnification while aiming through the scope (right mouse button). */
   scope?: number;
   projectile?: ProjectileSpec;
+  /**
+   * Tube-fed guns load one shell at a time: the first after `firstMs + shellMs`, each next after
+   * `shellMs`, until full or out of shells; a trigger pull with a shell in stops the loading.
+   */
+  shellReload?: { firstMs: number; shellMs: number };
   /** Flame: seconds a target keeps burning and the burn damage per second. */
   burn?: { seconds: number; dps: number };
   /** Studio weapons: first-person kick per shot (degrees) and shot sound name. */
@@ -146,7 +151,9 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.AK47]: { kind: 'gun', weight: 3.8, fireMs: 100, damage: 14, pellets: 1, spread: 0.025, range: 70, magazine: 30, reloadMs: 2300, auto: true },
   [WeaponId.PKM]: { kind: 'gun', weight: 15, fireMs: 100, damage: 22, pellets: 1, spread: .04, range: 85, magazine: 100, reloadMs: 4000, auto: true },
   [WeaponId.Barrett]: { kind: 'gun', weight: 14, fireMs: 1700, damage: 145, pellets: 1, spread: .003, range: 180, magazine: 10, reloadMs: 4200, auto: false, knockback: 1.8 },
-  [WeaponId.Shotgun]: { kind: 'gun', weight: 3.6, fireMs: 850, damage: 10, pellets: 8, spread: 0.1, range: 24, magazine: 6, reloadMs: 2600, auto: false },
+  // Remington 870P Police Magnum, 18" barrel: pump action (racked after every shot), the tube
+  // loaded shell by shell.
+  [WeaponId.Shotgun]: { kind: 'gun', weight: 3.6, fireMs: 850, damage: 10, pellets: 8, spread: 0.1, range: 24, magazine: 6, reloadMs: 2600, auto: false, shellReload: { firstMs: 300, shellMs: 520 } },
   [WeaponId.GL18]: { kind: 'gun', weight: 0.9, fireMs: 140, damage: 11, pellets: 1, spread: 0.035, range: 45, magazine: 17, reloadMs: 1500, auto: false },
   [WeaponId.AWM]: { kind: 'gun', weight: 6.5, fireMs: 1800, damage: 95, pellets: 1, spread: 0.004, range: 130, magazine: 5, reloadMs: 3200, auto: false },
   [WeaponId.M4A1]: { kind: 'gun', weight: 3.1, fireMs: 85, damage: 13, pellets: 1, spread: 0.02, range: 75, magazine: 30, reloadMs: 2200, auto: true },

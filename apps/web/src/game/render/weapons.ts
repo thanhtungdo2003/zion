@@ -44,6 +44,9 @@ export interface WeaponSpec {
   eject?: Vec3;
   /** Name of the model's reload clip, if any. */
   reloadClip?: string;
+  /** Clip played after every shot (a pump action racked), and the part the support hand rides on. */
+  fireClip?: string;
+  supportPart?: string;
   /** Iron sights: tops of the rear and front sight (the sight line the eye looks along). */
   sight?: { rear: Vec3; front: Vec3 };
   /**
@@ -157,7 +160,8 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   barrett: { url: '/models/weapons/barrett-m82a1.bbmodel', length: 1.773, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12.85, 1.55], support: [0, -4.05, 51], muzzle: [0, 0, 140], eject: [-3.65, -3, 18], sight: { rear: [0, 7, 14.28], front: [0, 7, 138] }, rail: [0, 5.5, 20.28], fpHip: [0.2, -0.4123, -0.2137] },
   ammo_50bmg: { url: '/models/weapons/bmg50-ammo-box.bbmodel', length: .3, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5, 0] },
   fire_axe: { url: '/models/weapons/fire-axe.bbmodel', length: .9, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 6, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [0, 27, 0] },
-  shotgun: { url: '/models/weapons/pump-shotgun.bbmodel', length: 1.0, barrel: [0, 1, 0], up: [0, 0, -1], grip: [0, 16, 4.5], muzzle: [0, 52, -1], eject: [1, 24, 0] },
+  // Remington 870P (ModelGen Gun Studio: its own fitting and pump / trigger clips).
+  shotgun: { url: '/models/weapons/remington-870.bbmodel', length: 0.982, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7.8, 4.5], support: [0, -6.3, 38], muzzle: [0, 0, 62.7], eject: [-1.697, -1.2, 12], rail: [0, 3, 12], sight: { rear: [0, 3, 29], front: [0, 3, 59.5] }, fireClip: 'pump.pump', supportPart: 'pump' },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0.115, 9.604, -9.1], eject: [1.05, 10.677, -0.739], reloadClip: 'reload', sight: { rear: [0.046, 11.5, 3.866], front: [0.041, 12.5, -7.42] }, rail: [0.028, 11.052, 2.022], attachmentScale: { red_dot: 0.65 } },
   awm: { url: '/models/weapons/awm-338-lapua.bbmodel', length: 1.27, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -10.2, -2.45], support: [0, -7.165, 36.75], muzzle: [0, 0, 90.6], eject: [-2.508, -0.35, 12.75], sight: { rear: [0, 5.1, 7.25], front: [0, 5.1, 88.6] }, rail: [0, 3.6, 13.25] },
   m4a1: { url: '/models/weapons/m4a1-sopmod.bbmodel', length: 0.83, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.1, -0.15], support: [0, -2.6, 26.9], muzzle: [0, 0, 59], eject: [-1.27, 0.1, 9], sight: { rear: [0, 7, 18.77], front: [0, 7, 37.25] }, rail: [0, 4, 26.77] },

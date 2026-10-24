@@ -150,7 +150,7 @@ export class CombatEffects {
     if (own) { s.play(own, { at, volume: 0.9, maxDistance: 100 }); if (weapon === WeaponId.AWM || weapon === WeaponId.Kar98k || weapon === WeaponId.Remington700) this.rechamber(at, 1.15); return; }
     switch (weapon) {
       case WeaponId.PKM: s.play('pkmShot', { at, volume: 1, maxDistance: 130 }); break;
-      case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); break;
+      case WeaponId.Shotgun: s.play('pumpShot', { at, maxDistance: 90 }); this.pumpRack(at); break;
       case WeaponId.Saiga12: s.play('shotgunShot', { at, rate: 1.12, volume: 0.95, maxDistance: 90 }); break;
       case WeaponId.DoubleBarrel: s.play('shotgunShot', { at, rate: 0.88, volume: 1.15, maxDistance: 100 }); break;
       case WeaponId.AWM: s.play('sniperRifleShot', { at, volume: 1.25, maxDistance: 180 }); this.rechamber(at, 1.15); break;
@@ -175,6 +175,12 @@ export class CombatEffects {
   }
 
   /** Bolt-action rifles: the bolt is worked and the case ejected just after each shot. */
+  /** Pump action: the fore-end racked back and forward right after the shot. */
+  private pumpRack(at: Vector3): void {
+    const where = at.clone();
+    setTimeout(() => this.sounds?.play('shotgunPump', { at: where, volume: .85, maxDistance: 45 }), 200);
+  }
+
   private rechamber(at: Vector3, rate: number): void {
     const where = at.clone();
     setTimeout(() => this.sounds?.play('rechamber', { at: where, rate, volume: .8, maxDistance: 40 }), 220);
