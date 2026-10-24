@@ -11,7 +11,7 @@ which the game tints with the chosen trouser colour.
 Afterwards rebuild the hidden skin under the clothes and copy the model to public/:
   tsx --tsconfig apps/web/tsconfig.json apps/web/scripts/prepare-character-skin.mjs
 Usage (repo root): python apps/web/scripts/replace-character-garment.py <garment.glb> [label] [--feet]
-(--feet: one boot model, fitted onto both boots instead of the trousers)
+(--feet: one boot model, fitted onto both boots; --top: a shirt over the body instead of the top)
 """
 import io
 import json
@@ -168,11 +168,29 @@ def boots(new, index, old):
     return np.concatenate(parts), np.concatenate(faces).reshape(-1), np.concatenate(sides)
 
 
+def shirt(new, old, skin, skin_n):
+    """A shirt onto the body: scaled as a whole so its hem-to-collar height covers the old top's,
+    centred on it, then each point kept a cloth's thickness over the nearest skin (sleeves follow
+    the arms even where the source's arm angle differs a little)."""
+    s = (old[:, 1].max() - old[:, 1].min()) / (new[:, 1].max() - new[:, 1].min())
+    fitted = (new - np.array([(new[:, 0].min() + new[:, 0].max()) / 2, new[:, 1].min(), 0])) * s
+    fitted += np.array([0, old[:, 1].min(), (old[:, 2].min() + old[:, 2].max()) / 2 - (fitted[:, 2].min() + fitted[:, 2].max()) / 2])
+    from scipy.spatial import cKDTree
+    tree = cKDTree(skin)
+    for _ in range(3):
+        _, near = tree.query(fitted)
+        d = np.einsum('ij,ij->i', fitted - skin[near], skin_n[near])
+        want = np.clip(d, .008, .035)
+        fitted += skin_n[near] * (want - d)[:, None]
+    return fitted, (fitted[:, 0] >= 0).astype(int)
+
+
 def main():
     feet = '--feet' in sys.argv
-    args = [a for a in sys.argv[1:] if a != '--feet']
-    src, label = args[0], args[1] if len(args) > 1 else ('Military Boots' if feet else 'Grey Joggers')
-    slot = 'feet' if feet else 'legs'
+    top = '--top' in sys.argv
+    args = [a for a in sys.argv[1:] if a not in ('--feet', '--top')]
+    src, label = args[0], args[1] if len(args) > 1 else ('Military Boots' if feet else 'Shirt' if top else 'Grey Joggers')
+    slot = 'feet' if feet else 'top' if top else 'legs'
     j, binary = load(SURVIVOR)
     legs_mesh = next(i for i, m in enumerate(j['meshes']) if m.get('extras', {}).get('slot') == slot)
     body_mesh = next(i for i, m in enumerate(j['meshes']) if m.get('extras', {}).get('slot') == 'body')
@@ -188,9 +206,15 @@ def main():
     if feet:
         fitted, index, side = boots(new, index, old)
         colour = np.concatenate([colour, colour])
+    elif top:
+        # Sleeves need arm weights: taken from the body, not the sleeveless old top.
+        fitted, side = shirt(new, old, skin, skin_n)
+        old = skin
+        old_joints = read(j, binary, body_prim['attributes']['JOINTS_0'])
+        old_weights = read(j, binary, body_prim['attributes']['WEIGHTS_0'])
     else:
         fitted, side = trousers(new, old)
-    finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, 'military_boots' if feet else 'joggers')
+    finish(j, binary, legs_mesh, old_prim, old, old_joints, old_weights, skin, skin_n, fitted, colour, index, side, label, 'military_boots' if feet else 'shirt' if top else 'joggers')
 
 
 def trousers(new, old):

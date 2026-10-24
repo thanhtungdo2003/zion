@@ -228,8 +228,8 @@ function armorMeshes(holder: Object3D): Object3D[] {
 }
 const MODEL_FRAME = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
 
-/** Gear Studio keys of the default trousers and boots (always worn, not inventory items). */
-export const OUTFIT_KEYS = { legs: 'outfit:legs', feet: 'outfit:feet' } as const;
+/** Gear Studio keys of the default shirt, trousers and boots (always worn, not inventory items). */
+export const OUTFIT_KEYS = { top: 'outfit:top', legs: 'outfit:legs', feet: 'outfit:feet' } as const;
 
 /**
  * The Studio's position / turn / size for the default trousers and boots, applied to their shared

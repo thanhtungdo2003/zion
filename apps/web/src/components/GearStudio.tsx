@@ -133,6 +133,7 @@ export function GearStudioPage() {
     ...(gear.belt ? [{ key: 'sling:belt', name: `Móc thắt lưng: ${ITEMS[gear.belt]?.name ?? gear.belt}`, paintable: false }] : []),
     ...CARRY_HOOKS.map((h) => ({ key: `hook:${h}`, name: HOOK_NAME[h]!, paintable: false })),
     // The default trousers and boots every survivor wears (not inventory items).
+    { key: OUTFIT_KEYS.top, name: 'Áo mặc định', paintable: false },
     { key: OUTFIT_KEYS.legs, name: 'Quần mặc định', paintable: false },
     { key: OUTFIT_KEYS.feet, name: 'Giày mặc định', paintable: false },
   ], [armor, gear]);
