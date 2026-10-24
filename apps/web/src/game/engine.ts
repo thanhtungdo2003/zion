@@ -489,7 +489,11 @@ export class GameEngine {
    * Seeing through the held gun's eyes: first person, or the shoulder camera while scoped (it moves
    * to the eye and shows the same lens sight as first person).
    */
-  private get eyeView(): boolean { return this.firstPerson || (this.cameraMode === 'third-person' && this.scoped); }
+  /**
+   * Seen from the eye: first person, and the shoulder camera while aiming a gun (down its sights
+   * or optic, the same first-person sight picture as in the Studio).
+   */
+  private get eyeView(): boolean { return this.firstPerson || (this.cameraMode === 'third-person' && (this.scoped || this.aiming)); }
   private lensScopeReady(): boolean { return (this.firstPerson || this.cameraMode === 'third-person') && !!this.viewModel?.lens; }
   private get lensScoped(): boolean { return this.scoped && this.eyeView && !!this.viewModel?.lens; }
   /** Sight picture drawn on the optic's lens: magnified optics while scoped, red dots / holos once raised to the eye. */
@@ -2106,7 +2110,7 @@ export class GameEngine {
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
-    if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
+    if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && !this.aiming && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
     this.updateShoulderAim(px, py, pz);
     if (this.eyeView && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
@@ -3604,7 +3608,7 @@ export class GameEngine {
         const t = this.store?.collision.raycast(f.x, f.y, f.z, lx / d, 0, lz / d, d + .2, Mask.LineOfSight, this.shotRay) ? Math.max(0, this.shotRay.t - .2) : d;
         leaned.x += lx / d * t; leaned.z += lz / d * t; leaned.y -= Math.abs(this.leanBlend) * .06;
       }
-      if (this.cameraMode === 'third-person' && !this.scoped) {
+      if (this.cameraMode === 'third-person' && !this.eyeView) {
         const ride = this.passenger ? this.vehicles?.rider(this.welcome!.playerId) : undefined;
         if (ride) this.vehicles!.withoutOwnColliders(ride, () => this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming));
         else this.thirdPersonCamera.update(cam, leaned, this.input.yaw, this.input.pitch, dt, this.store?.collision, this.aiming);
