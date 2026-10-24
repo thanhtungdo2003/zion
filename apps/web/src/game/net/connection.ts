@@ -1,3 +1,4 @@
+import { reloadForNewVersion } from '@/lib/launcher';
 import {
   type InvMessage,
   type ClientMessage,
@@ -93,7 +94,11 @@ export class GameConnection {
       }
       if (msg.t === 'welcome') this.handlers.onWelcome(msg);
       else {
-        if (msg.t === 'error') this.lastError = { message: msg.message, fatal: msg.fatal };
+        if (msg.t === 'error') {
+          this.lastError = { message: msg.message, fatal: msg.fatal };
+          // A new build is live: load it instead of asking the player to refresh.
+          if (msg.code === 'protocol_version' && reloadForNewVersion()) return;
+        }
         this.handlers.onMessage(msg);
       }
       return;

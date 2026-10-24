@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSettings } from '@/lib/settings';
 import { usePwa } from './PwaProvider';
 import { Icon } from './Icon';
+import { launcherUpdate } from '@/lib/launcher';
 
 /**
  * The game as a ZIP, served by this site itself: put the file at apps/web/public/downloads/zion.zip
@@ -25,6 +26,9 @@ export function InstallAppButton() {
     void fetch(ZIP_DOWNLOAD_URL, { method: 'HEAD' }).then((r) => { if (live) setZip(r.ok); }).catch(() => { if (live) setZip(false); });
     return () => { live = false; };
   }, [open]);
+  /** Playing in an out-of-date desktop launcher: the newer version (the game itself is always current). */
+  const [update, setUpdate] = useState<string | null>(null);
+  useEffect(() => { void launcherUpdate().then(setUpdate); }, []);
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -42,7 +46,7 @@ export function InstallAppButton() {
     if (outcome === 'unavailable') setHelp(true); else close();
   };
   return <>
-    <button type="button" className="menu-account menu-install" data-no-fullscreen title={t('pwa.download')} aria-label={t('pwa.download')} onClick={() => setOpen(true)}><Icon name="lucide:download" /><span>{t('pwa.download')}</span></button>
+    <button type="button" className={`menu-account menu-install${update ? ' has-update' : ''}`} data-no-fullscreen title={t('pwa.download')} aria-label={t('pwa.download')} onClick={() => setOpen(true)}><Icon name="lucide:download" /><span>{update ? t('pwa.update', { version: update }) : t('pwa.download')}</span></button>
     {open && <dialog ref={dialog} className="pwa-dialog download-dialog" data-no-fullscreen aria-labelledby="pwa-title" onCancel={close} onClick={e => { if (e.target === e.currentTarget) { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close(); } }}>
       <header className="set-head"><h2 id="pwa-title"><Icon name="lucide:download" />{t('pwa.download')}</h2><button type="button" className="btn" aria-label={t('pwa.close')} onClick={close}><Icon name="lucide:x" /></button></header>
       {help ? <>

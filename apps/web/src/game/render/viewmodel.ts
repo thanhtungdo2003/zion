@@ -297,6 +297,8 @@ export class ViewModel {
 
   /** The first-person gun and arms, to leave out of the scope image. */
   get object(): Object3D { return this.root; }
+  /** Everything of the first-person view in front of the eye (gun and arms): left out of a scope's picture. */
+  get scopeHidden(): Object3D[] { return [this.root, this.swimRoot, ...(this.hands ? [this.hands.holder] : [])]; }
 
   get aimed(): number { return this.aimBlend; }
 

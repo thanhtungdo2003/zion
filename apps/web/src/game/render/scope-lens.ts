@@ -157,9 +157,9 @@ export class ScopeLens {
 
   /**
    * Renders the magnified view for this frame and puts it on `lens`. Call once per frame, before
-   * the main render, while scoped. `hide` (the first-person gun) is left out of the scope image.
+   * the main render, while scoped. `hide` (the first-person gun and arms) is left out of the scope image.
    */
-  render(renderer: WebGLRenderer, scene: Scene, main: PerspectiveCamera, lens: Mesh, hide: Object3D, view: ScopeView): void {
+  render(renderer: WebGLRenderer, scene: Scene, main: PerspectiveCamera, lens: Mesh, hide: Object3D | readonly Object3D[], view: ScopeView): void {
     if (this.active && this.active.mesh !== lens) this.release();
     renderer.getDrawingBufferSize(this.size);
     const w = Math.max(1, Math.floor(this.size.x)), h = Math.max(1, Math.floor(this.size.y));
@@ -180,8 +180,9 @@ export class ScopeLens {
     const radiusPx = rect ? Math.max(rect.w, rect.h) / 2 : Math.min(w, h) / 4;
     if (view.magnification > 1 && rect) {
       const before = renderer.getRenderTarget();
-      const wasVisible = hide.visible, lensVisible = lens.visible;
-      hide.visible = false; lens.visible = false;
+      const hidden = Array.isArray(hide) ? hide : [hide as Object3D], wasVisible = hidden.map((o) => o.visible), lensVisible = lens.visible;
+      for (const o of hidden) o.visible = false;
+      lens.visible = false;
       // Shadows are drawn once a frame, by the main pass; the scope picture reuses them.
       const shadows = renderer.shadowMap.autoUpdate;
       renderer.shadowMap.autoUpdate = false;
@@ -192,7 +193,8 @@ export class ScopeLens {
       renderer.render(scene, this.camera);
       renderer.setRenderTarget(before);
       renderer.shadowMap.autoUpdate = shadows;
-      hide.visible = wasVisible; lens.visible = lensVisible;
+      hidden.forEach((o, i) => { o.visible = wasVisible[i]!; });
+      lens.visible = lensVisible;
     }
 
     const u = this.material.uniforms;

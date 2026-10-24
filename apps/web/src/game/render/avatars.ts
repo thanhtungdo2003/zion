@@ -1396,6 +1396,14 @@ export class Avatar {
       const gun = new Matrix4().compose(position, rotation, new Vector3(scale, scale, scale));
       human.placeHand(trig, gun.multiply(fit.inHand.clone().invert()), hip, Math.PI);
     }
+    // A compact gun (P90, MP5…) carried low sits against the belly: the support hand would sink
+    // into it. Bring the gun forward until the handguard has a forearm's room in front of the body.
+    if (v.twoHandGrip && this.supportGripBlend > .01) {
+      const k = SURVIVOR_SIZE * this.model.scale.y, front = new Vector3(0, 0, -1).applyQuaternion(this.root.getWorldQuaternion(new Quaternion())).setY(0).normalize();
+      const guard = v.twoHandGrip.support.clone().applyMatrix4(gunWorld()), belly = human.bonePosition('spine_002');
+      const need = .2 * k - guard.sub(belly).dot(front);
+      if (need > 0) human.placeHand(trig, human.handMatrix(trig).premultiply(new Matrix4().makeTranslation(front.x * need, 0, front.z * need)), 1, Math.PI);
+    }
     const world = gunWorld();
     const bore = aim.barrel.clone().transformDirection(world);
     // Ready to fire only once the bore is on the true aim, not merely on where the head points.

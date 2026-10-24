@@ -2543,6 +2543,7 @@ kbd {
 .pwa-dialog .set-head h2 { display: flex; gap: 10px; align-items: center; }
 .pwa-dialog p { font-size: 14px; line-height: 1.7; }
 /* Download: two large choices, one above the other (web app, ZIP). */
+.menu-install.has-update { border-color: var(--accent); color: var(--accent); }
 .download-choices { display: grid; grid-template-rows: 1fr 1fr; gap: 12px; }
 .download-choice { display: flex; align-items: center; gap: 16px; min-height: 110px; padding: 18px 20px; border: 1px solid #685536; background: rgba(255, 176, 0, .06); color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s; }
 .download-choice:hover:not(:disabled) { background: rgba(255, 176, 0, .16); border-color: var(--accent); }
