@@ -280,7 +280,7 @@ function visualSpec(d: Draft, url: string): WeaponSpec {
     ...(m.support ? { support: m.support } : {}), ...(m.muzzle ? { muzzle: m.muzzle } : {}), ...(m.eject ? { eject: m.eject } : {}),
     ...(m.sight ? { sight: m.sight } : {}), ...(m.rail ? { rail: m.rail } : {}), ...(m.edge ? { edge: m.edge } : {}), ...(m.strikePoint ? { strikePoint: m.strikePoint } : {}),
     ...(m.size ? { size: m.size } : {}),
-    ...(m.fpHip ? { fpHip: m.fpHip } : {}), ...(m.fpSupport ? { fpSupport: m.fpSupport } : {}), ...(m.fpRot ? { fpRot: m.fpRot } : {}), ...(m.opticScale ? { opticScale: m.opticScale } : {}), ...(m.muzzleScale ? { muzzleScale: m.muzzleScale } : {}), ...(m.attachmentScale ? { attachmentScale: m.attachmentScale } : {}), ...(m.attachmentOffset ? { attachmentOffset: m.attachmentOffset } : {}),
+    ...(m.fpHip ? { fpHip: m.fpHip } : {}), ...(m.fpSupport ? { fpSupport: m.fpSupport } : {}), ...(m.fpRot ? { fpRot: m.fpRot } : {}), ...(m.fpScale ? { fpScale: m.fpScale } : {}), ...(m.opticScale ? { opticScale: m.opticScale } : {}), ...(m.muzzleScale ? { muzzleScale: m.muzzleScale } : {}), ...(m.attachmentScale ? { attachmentScale: m.attachmentScale } : {}), ...(m.attachmentOffset ? { attachmentOffset: m.attachmentOffset } : {}),
     // The preview has no item entry: give handguns their usual longer eye relief explicitly.
     fpEyeRelief: m.fpEyeRelief ?? (d.item.category === 'pistol' ? .4 : .3),
   };
@@ -785,6 +785,7 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
       {draft.gun ? <div className="ws-tabs"><button className={`btn${!aiming ? ' btn-primary' : ''}`} onClick={() => setAiming(false)}>Bình thường</button><button className={`btn${aiming ? ' btn-primary' : ''}`} onClick={() => setAiming(true)}>Nhắm bắn</button></div> : null}
       <div className="ws-tabs"><button className="btn" onClick={() => stage.current?.view?.preview(draft.gun ? 'reload' : 'swing')}><Icon name="lucide:play" /> {draft.gun ? 'Thử thay đạn' : 'Thử vung'}</button></div>
       <h4>Khi cầm bình thường</h4>
+      {slider('Kích thước súng (×)', draft.model.fpScale ?? 1, .5, 2, (v) => onChange({ fpScale: Math.abs(v - 1) < .005 ? undefined : +v.toFixed(3) }))}
       {slider('Sang phải', hip[0], -.1, .45, (v) => onChange({ fpHip: [v, hip[1], hip[2]] }))}
       {slider('Lên / xuống', hip[1], -.5, -.05, (v) => onChange({ fpHip: [hip[0], v, hip[2]] }))}
       {slider('Xa / gần', hip[2], -.6, -.1, (v) => onChange({ fpHip: [hip[0], hip[1], v] }))}
@@ -800,7 +801,7 @@ function FirstPersonEditor({ url, draft, onChange }: { url: string; draft: Draft
         {slider('Khoảng cách mắt – thước ngắm (m)', relief, .1, .8, (v) => onChange({ fpEyeRelief: v }))}
         {!draft.model.sight && <p className="studio-muted">Đặt “Thước ngắm sau / trước” ở tab Model để súng ngắm đúng tâm.</p>}
       </>}
-      <button type="button" className="btn" onClick={() => onChange({ fpHip: undefined, fpEyeRelief: undefined, fpSupport: undefined, fpRot: undefined })}>Về mặc định</button>
+      <button type="button" className="btn" onClick={() => onChange({ fpHip: undefined, fpEyeRelief: undefined, fpSupport: undefined, fpRot: undefined, fpScale: undefined })}>Về mặc định</button>
     </aside>
   </>;
 }

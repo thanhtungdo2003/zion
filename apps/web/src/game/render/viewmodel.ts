@@ -226,6 +226,8 @@ export class ViewModel {
         if (arm) { arm.name = 'first-person-arm-right'; model.add(arm); }
       }
     }
+    // The Studio's first-person size (about the grip, the display's origin).
+    model.scale.setScalar(spec?.fpScale ?? 1);
     if (!this.lenses.has(key) && optic && ((optic.magnification ?? 1) > 1 || optic.reticle)) {
       const lens = opticLens(model, visual, optic.id, (optic.magnification ?? 1) > 1);
       if (lens) this.lenses.set(key, lens);

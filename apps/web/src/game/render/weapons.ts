@@ -74,6 +74,8 @@ export interface WeaponSpec {
   fpSupport?: Vec3;
   /** First-person view: hip tilt, pitch and yaw (radians). */
   fpRot?: [number, number];
+  /** First-person view only: size of the gun in view (1 = real size), about its grip. */
+  fpScale?: number;
   /** Size of mounted optics / muzzle devices on this gun (1 = default). */
   opticScale?: number;
   muzzleScale?: number;
