@@ -430,7 +430,9 @@ describe('survivor model', () => {
 
   it('shows both first-person hands: one round a grip, one resting in view', () => {
     const arms = new HumanBody(assets, { armsOnly: true });
-    expect(arms.meshList).toHaveLength(1);
+    // The skin of the arms, and the shirt's sleeves over them (the skin under the sleeves left out).
+    expect(arms.meshList.map((m) => m.name).sort()).toEqual(assets.sleeves ? ['survivor-body', 'survivor-top'] : ['survivor-body']);
+    if (assets.sleeves) expect(arms.meshList.find((m) => m.name === 'survivor-body')!.geometry.getIndex()!.count).toBeLessThan(assets.arms.getIndex()!.count);
     const scene = new Scene(), camera = new PerspectiveCamera(75, 16 / 9, .02, 100);
     scene.add(camera);
     camera.position.set(3, 1.62, 2);

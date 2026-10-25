@@ -118,6 +118,9 @@ export interface HumanAssets {
   hair: Map<HairStyle, BufferGeometry>;
   /** Forearms and hands only (first-person view). */
   arms: BufferGeometry;
+  /** First-person arms in the shirt: the skin it covers left out, and its sleeves (when the model has a shirt). */
+  armsDressed?: BufferGeometry;
+  sleeves?: BufferGeometry;
   /** The body with the skin under the trousers and boots left out, with and without the top. */
   bodies: { top: BufferGeometry; bare: BufferGeometry };
   /** Bind pose in the model's own space (+Y up, facing +Z, +X = the character's left). */
@@ -439,12 +442,14 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
   // The pistol draw's held one-handed frames play as their own layers (see avatars.ts).
   const draw = clipMap.get('pistol_draw');
   if (draw) { clipMap.set('pistol_hold', draw); clipMap.set('pistol_hip', draw); }
+  const bodies = preparedSkin ? { bare: preparedBody(body.geometry, preparedSkin.hidden.bare), top: preparedBody(body.geometry, preparedSkin.hidden.top) }
+    : { bare: bodyUnder(body.geometry, always), top: bodyUnder(body.geometry, top ? [...always, top] : always) };
   return {
     bones, index, inverses: skeleton.boneInverses.map((m) => m.clone()), parts,
     hair: hairPart ? haircuts(hairPart.geometry, body.geometry) : new Map(),
     arms: armsOnly(body.geometry, names),
-    bodies: preparedSkin ? { bare: preparedBody(body.geometry, preparedSkin.hidden.bare), top: preparedBody(body.geometry, preparedSkin.hidden.top) }
-      : { bare: bodyUnder(body.geometry, always), top: bodyUnder(body.geometry, top ? [...always, top] : always) },
+    ...(shirt ? { sleeves: armsOnly(shirt.geometry, names), armsDressed: armsOnly(bodies.top, names) } : {}),
+    bodies,
     restP, restQ,
     hands: { L: handFrame(base, 'L'), R: handFrame(base, 'R') },
     clips: clipMap,
@@ -639,7 +644,8 @@ export class HumanBody {
       this.group.add(mesh);
       this.meshes.set(slot, mesh);
     };
-    if (options.armsOnly) add('body', assets.arms);
+    // First person: the forearms and hands, in the shirt's sleeves when there is one.
+    if (options.armsOnly) { add('body', assets.armsDressed ?? assets.arms); if (assets.sleeves) add('top', assets.sleeves); }
     else for (const [slot, part] of assets.parts) add(slot, slot === 'hair' ? assets.hair.get('side_part') ?? part.geometry : slot === 'body' ? assets.bodies.top : part.geometry);
     this.setAppearance(DEFAULT_APPEARANCE);
   }
@@ -681,7 +687,8 @@ export class HumanBody {
     };
     set('body', SKIN_TONES[a.skin] ?? SKIN_TONES[1]!);
     const body = this.meshes.get('body');
-    if (body && body.geometry !== A.arms) body.geometry = a.top === 'none' ? A.bodies.bare : A.bodies.top;
+    if (body && this.armsOnly) body.geometry = a.top === 'none' || !A.sleeves ? A.arms : A.armsDressed ?? A.arms;
+    else if (body) body.geometry = a.top === 'none' ? A.bodies.bare : A.bodies.top;
     set('eyes', null);
     set('top', TOP_COLORS[a.topColor] ?? null, a.top !== 'none');
     set('legs', PANTS_COLORS[a.pantsColor] ?? null);
