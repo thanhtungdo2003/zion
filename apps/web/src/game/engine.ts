@@ -20,6 +20,7 @@ import { AimSway } from './aim-sway';
 import { ThrowArc, type ArcLaunch } from './render/throw-arc';
 import { reloadScriptOf, type PartSound } from './reload-scripts';
 import { Compass, type CompassMark } from './render/compass';
+import { NearBlur } from './render/near-blur';
 import { handAnimationFor } from './hand-studio';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -892,6 +893,13 @@ export class GameEngine {
     if (this.toastTimer) clearTimeout(this.toastTimer);
   }
 
+  private nearBlur: NearBlur | null = null;
+  /** How much the things right in front of the eye are blurred: first person only, less while aiming down the sights (the eye on the sights), none through a scope. */
+  private nearBlurStrength(): number {
+    if (!settingsStore.get().nearBlur || !this.eyeView || this.scoped || !this.viewModel) return 0;
+    return 1 - .7 * this.viewModel.aimed;
+  }
+
   attachMinimap(canvas: HTMLCanvasElement | null): void {
     this.minimapCanvas = canvas;
     this.minimap = canvas && this.welcome ? new Minimap(canvas, this.welcome.world.seaLevel, this.registry, this.library) : null;
@@ -1759,6 +1767,12 @@ export class GameEngine {
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
         if (m.kind !== 'flash') this.shockwaves.add(m.x, m.y + .3, m.z, m.radius);
+        // Close to a blast: the ears ring (a high whine over muffled hearing), more the closer.
+        if (m.kind !== 'flash' && this.local && !this.local.dead) {
+          const p = this.local.state, d = Math.hypot(p.x - m.x, p.y + 1.5 - m.y, p.z - m.z);
+          const ring = Math.min(.85, Math.max(0, 1 - d / Math.max(8, m.radius * 3)) * 1.1);
+          if (ring > .05) this.sounds?.stun(ring, 1600 + 2600 * ring);
+        }
         break;
       case 'stagger':
         // Shot while infected: the same shove and slowness the server applies.
@@ -2227,7 +2241,13 @@ export class GameEngine {
         this.renderer.setRenderTarget(target);
         this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines);
         this.renderer.setRenderTarget(before);
-      } : undefined);
+      } : undefined, this.nearBlurStrength());
+    } else if (this.nearBlurStrength() > 0) {
+      // The near blur over the plain render (and the zombie outlines, when shown).
+      this.nearBlur ??= new NearBlur();
+      const outlined = this.outlinedZombies.length > 0;
+      if (outlined) this.zombieOutline ??= new ZombieOutline();
+      this.nearBlur.render(this.renderer, this.scene, this.camera, this.nearBlurStrength(), outlined ? () => this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines) : undefined);
     } else if (this.outlinedZombies.length) {
       this.zombieOutline ??= new ZombieOutline();
       this.zombieOutline.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines);

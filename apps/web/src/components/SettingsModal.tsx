@@ -22,7 +22,7 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
   const settings = useSettings();
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, groundDetail, textureQuality, t } = settings;
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, nearBlur, groundDetail, textureQuality, t } = settings;
   const preset = graphicsPreset(settings);
 
   useEffect(() => {
@@ -207,6 +207,15 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
                 <b>{on ? 'SHADER BẬT' : 'SHADER TẮT'}</b>
                 <small>{on ? 'Bóng mềm, ánh sáng toả, tia nắng, AO · nặng GPU' : 'Hình ảnh thường, nhẹ máy'}</small>
                 <i aria-hidden><Icon name={shaders === on ? 'lucide:square-check' : 'lucide:square'} /></i>
+              </button>
+            ))}
+          </div>
+          <div className="set-langs set-camera" role="radiogroup" aria-label="Làm mờ vật ở gần mắt">
+            {([true, false] as const).map((on) => (
+              <button key={String(on)} type="button" role="radio" aria-checked={nearBlur === on} className="set-lang" onClick={() => settingsStore.set({ nearBlur: on })}>
+                <b>{on ? 'MỜ GẦN MẮT BẬT' : 'MỜ GẦN MẮT TẮT'}</b>
+                <small>{on ? 'Súng, tay sát mắt hơi nhoè như mắt nhìn xa' : 'Mọi thứ đều nét'}</small>
+                <i aria-hidden><Icon name={nearBlur === on ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>

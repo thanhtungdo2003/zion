@@ -45,6 +45,8 @@ export interface SettingsState {
   grassDensity: number;
   /** Shader pack: ambient occlusion, bloom, sun shafts, soft shadows and a cinematic grade. */
   shaders: boolean;
+  /** Things right in front of the eye (gun, hands) out of focus in first person. */
+  nearBlur: boolean;
   /** Photographed ground materials: off, or 256 / 512 / 1024 px layers. */
   groundDetail: GroundDetail;
   /** Clothing textures: as shipped (high), or downscaled to 512 / 256 px. */
@@ -69,7 +71,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'first-person', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false, textureQuality: 'high',
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'first-person', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false, nearBlur: true, textureQuality: 'high',
   // The desktop app ships every texture locally: full 1024 px ground; the browser 512 px.
   groundDetail: process.env.NEXT_PUBLIC_API_URL === 'same-origin' ? 'high' : 'medium', ...GRAPHICS_PRESETS.high };
 
@@ -96,6 +98,7 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     state.grassDensity = clamp01(saved.grassDensity, 0, state.grassDensity);
     if (saved.shadows === 'off' || saved.shadows === 'low' || saved.shadows === 'high') state.shadows = saved.shadows;
     if (typeof saved.shaders === 'boolean') state.shaders = saved.shaders;
+    if (typeof saved.nearBlur === 'boolean') state.nearBlur = saved.nearBlur;
     if (GROUND_DETAILS.includes(saved.groundDetail as GroundDetail)) state.groundDetail = saved.groundDetail!;
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;

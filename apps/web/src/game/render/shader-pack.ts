@@ -1,10 +1,11 @@
-import { Color, HalfFloatType, Vector2, Vector3, WebGLRenderTarget, type Camera, type PerspectiveCamera, type Scene, type WebGLRenderer } from 'three';
+import { Color, DepthTexture, HalfFloatType, UnsignedIntType, Vector2, Vector3, WebGLRenderTarget, type Camera, type PerspectiveCamera, type Scene, type WebGLRenderer } from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { NearBlurShader, setNearBlur } from './near-blur';
 
 /**
  * Light rays from the sun: the bright sky around the sun's position on screen, blurred radially
@@ -85,12 +86,14 @@ export class ShaderPack {
   private readonly bloom: UnrealBloomPass;
   private readonly shafts = new ShaderPass(SunShafts);
   private readonly grade = new ShaderPass(Grade);
+  private readonly near = new ShaderPass(NearBlurShader);
   private readonly size = new Vector2();
   private readonly sun = new Vector3();
 
   constructor(private readonly renderer: WebGLRenderer, scene: Scene, camera: Camera) {
     renderer.getDrawingBufferSize(this.size);
-    const target = new WebGLRenderTarget(this.size.x, this.size.y, { type: HalfFloatType });
+    // With depth: the near blur reads it.
+    const target = new WebGLRenderTarget(this.size.x, this.size.y, { type: HalfFloatType, depthTexture: new DepthTexture(this.size.x, this.size.y, UnsignedIntType) });
     this.composer = new EffectComposer(renderer, target);
     this.renderPass = new RenderPass(scene, camera);
     this.ao = new GTAOPass(scene, camera, this.size.x, this.size.y);
@@ -98,6 +101,7 @@ export class ShaderPack {
     this.ao.blendIntensity = .75;
     this.bloom = new UnrealBloomPass(new Vector2(this.size.x, this.size.y), .5, .55, .88);
     this.composer.addPass(this.renderPass);
+    this.composer.addPass(this.near);
     this.composer.addPass(this.ao);
     this.composer.addPass(this.bloom);
     this.composer.addPass(this.shafts);
@@ -110,7 +114,7 @@ export class ShaderPack {
    * cooler grade); `world`: draws the scene into the target instead of the plain render pass
    * (the zombie outline uses its own render).
    */
-  render(camera: PerspectiveCamera, sunDir: Vector3, night: number, elapsed: number, world?: (target: WebGLRenderTarget) => void): void {
+  render(camera: PerspectiveCamera, sunDir: Vector3, night: number, elapsed: number, world?: (target: WebGLRenderTarget) => void, nearBlur = 0): void {
     this.renderer.getDrawingBufferSize(this.size);
     if (this.composer.readBuffer.width !== this.size.x || this.composer.readBuffer.height !== this.size.y) {
       this.composer.setPixelRatio(1);
@@ -128,6 +132,9 @@ export class ShaderPack {
     g.uCool!.value.setRGB(.92 - night * .08, .97, 1.08 + night * .08);
     this.bloom.strength = .45 + night * .35;
     this.renderPass.enabled = !world;
+    // Right after the scene: the render target holding its depth is still the one read.
+    this.near.enabled = nearBlur > 0 && !!this.composer.readBuffer.depthTexture;
+    if (this.near.enabled) setNearBlur(this.near.uniforms as Record<string, { value: unknown }>, this.composer.readBuffer.texture, this.composer.readBuffer.depthTexture!, camera, this.size, nearBlur);
     if (world) world(this.composer.readBuffer);
     this.composer.render();
   }
