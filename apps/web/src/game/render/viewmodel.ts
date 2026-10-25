@@ -12,6 +12,9 @@ import { FirstPersonHands, type FpHand } from './fp-hands';
 import type { Grasp, HumanAssets } from './human-rig';
 import { usesRifleReload } from './recorded-reload';
 import { ReloadMagazine } from './reload-magazine';
+import { handAnimationFor } from '../hand-studio';
+import { sampleClip, sampleHandPoint, samplePos, samplePose, sampleRot, sampleScale } from './hand-animation';
+import type { HandAnimation, HandKey } from '@zion/shared';
 
 /**
  * First-person weapon held in front of the camera. Uses the weapon's display model (muzzle +X,
@@ -231,6 +234,7 @@ export class ViewModel {
     }
     // The Studio's first-person size (about the grip, the display's origin).
     model.scale.setScalar(spec?.fpScale ?? 1);
+    this.baseScale = spec?.fpScale ?? 1;
     if (!this.lenses.has(key) && optic && ((optic.magnification ?? 1) > 1 || optic.reticle)) {
       const lens = opticLens(model, visual, optic.id, (optic.magnification ?? 1) > 1);
       if (lens) this.lenses.set(key, lens);
@@ -352,14 +356,59 @@ export class ViewModel {
   stopReload(): void {
     this.reloadT = -1;
     this.rig()?.mechanics.cancel();
+    if (this.animGame) { this.anim = null; this.animGame = false; this.animT = -1; }
   }
 
   /** A reload began: magazine / clip animation over its whole length. */
   reload(seconds: number): void {
-    this.rig()?.mechanics.reload(seconds, reloadScriptOf(this.rig()?.visual.itemId));
+    // A Hand Studio animation made for this weapon plays over the reload's length instead.
+    const anim = this.studioAnim ? null : handAnimationFor(this.rig()?.visual.itemId);
+    if (anim) { this.anim = anim; this.animGame = true; }
+    this.rig()?.mechanics.reload(seconds, reloadScriptOf(this.rig()?.visual.itemId), !!anim);
     this.reloadT = 0;
     this.reloadDur = Math.max(.3, seconds);
   }
+
+  /** Hand Studio animation playing: in game the weapon's reload; in the Studio a preview at a set time. */
+  private anim: HandAnimation | null = null;
+  private animT = -1;
+  private animGame = false;
+  private studioAnim = false;
+  /** The Studio's first-person size of the gun in hand (an animation's gun scale multiplies it). */
+  private baseScale = 1;
+
+  /** Studio: shows an animation at a share `t` of its length (null: none, back to the game's own poses). */
+  previewAnimation(anim: HandAnimation | null, t = 0): void {
+    this.studioAnim = !!anim;
+    this.anim = anim; this.animGame = false;
+    this.animT = anim ? Math.min(1, Math.max(0, t)) : -1;
+  }
+
+  /** The gun in hand's moving parts and clips (Studio track choices). */
+  get studioParts(): { parts: string[]; clips: string[] } {
+    const m = this.rig()?.mechanics;
+    return { parts: m?.partNames ?? [], clips: m?.clipNames ?? [] };
+  }
+
+  /** The gun in view (Studio: hand positions are captured in its frame). */
+  get gunModel(): Group | null { return this.current ? this.models.get(this.current) ?? null : null; }
+  /** The first-person arms (Studio: the hand bones shown and turned). */
+  get firstPersonHands(): FirstPersonHands | null { return this.hands; }
+
+  /** A hand bone's place and turn on the gun right now (gun metres, degrees): a Studio key from the current pose. */
+  handOnGun(side: 'L' | 'R'): { pos: [number, number, number]; rot: [number, number, number] } | null {
+    const model = this.gunModel, hand = this.hands?.rig.handBones(side).hand;
+    if (!model || !hand) return null;
+    model.updateWorldMatrix(true, false); hand.updateWorldMatrix(true, false);
+    const p = new Vector3(), q = new Quaternion(), sc = new Vector3(), gq = new Quaternion();
+    hand.matrixWorld.decompose(p, q, sc);
+    model.matrixWorld.decompose(new Vector3(), gq, sc);
+    const local = model.worldToLocal(p), e = new Euler().setFromQuaternion(gq.invert().multiply(q), 'XYZ');
+    const r4 = (v: number) => Math.round(v * 10000) / 10000;
+    return { pos: [r4(local.x), r4(local.y), r4(local.z)], rot: [e.x, e.y, e.z].map((v) => Math.round(v * 1800 / Math.PI) / 10) as [number, number, number] };
+  }
+
+  private get animOn(): boolean { return !!this.anim && this.animT >= 0; }
 
   /** Empty hands: a quick jab with the right fist. */
   punch(): void { this.punchT = 0; }
@@ -453,9 +502,13 @@ export class ViewModel {
     else if (this.reloadT >= 0) {
       const from = this.reloadT / this.reloadDur;
       if ((this.reloadT += dt) > this.reloadDur) this.reloadT = -1;
-      this.kickParts(from, this.reloadT < 0 ? 1 : this.reloadT / this.reloadDur);
+      if (!this.animGame) this.kickParts(from, this.reloadT < 0 ? 1 : this.reloadT / this.reloadDur);
     }
     this.stepKick(dt);
+    if (this.animGame) {
+      if (this.reloadT >= 0) this.animT = this.reloadT / this.reloadDur;
+      else { this.anim = null; this.animGame = false; this.animT = -1; }
+    }
     if (this.punchT >= 0 && (this.punchT += dt) > .36) this.punchT = -1;
     if (s.mantle && s.visible && this.hands) {
       this.root.visible = false;
@@ -483,6 +536,13 @@ export class ViewModel {
     this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 14 * this.adsSpeed : 12)));
     const rig = this.rig();
     rig?.mechanics.update(dt);
+    if (this.animOn && rig) {
+      // The animation's part tracks: a part's own clip played to a point, or moved and turned.
+      const gun = this.gunModel;
+      for (const tr of this.anim!.tracks) if (tr.kind === 'part' && gun) {
+        rig.mechanics.drive(tr.part, tr.clip, sampleClip(tr, this.animT), samplePos(tr, this.animT), sampleRot(tr, this.animT), gun);
+      }
+    }
     // Look sway: the gun lags slightly behind fast turns.
     let dyaw = s.yaw - this.lastYaw;
     dyaw -= Math.PI * 2 * Math.round(dyaw / (Math.PI * 2));
@@ -504,7 +564,7 @@ export class ViewModel {
     let ax = 0, ay = 0, az = 0, rx = 0, ry = 0, rz = 0;
     // Recoil springs back; reload lowers the gun.
     this.recoil.update(dt);
-    this.dip += ((s.reloading ? 1 : 0) - this.dip) * (1 - Math.exp(-dt * 9));
+    this.dip += ((s.reloading && !this.animGame ? 1 : 0) - this.dip) * (1 - Math.exp(-dt * 9));
     const sprintTilt = ease(sprinting);
     ay -= sprintTilt * .1;
     rx -= sprintTilt * .35;
@@ -534,9 +594,17 @@ export class ViewModel {
     // Reloading: from the first moment the gun rolls its handle's side up (handle on the right:
     // tilted left; on the left: tilted right), a little more and higher while the handle is worked;
     // each part pulled, pushed or racked jolts it on its spring.
-    const tilt = this.reloadTilt(), charging = this.chargeWeight();
+    const tilt = this.animGame ? 0 : this.reloadTilt(), charging = this.animGame ? 0 : this.chargeWeight();
     if (tilt > 0 || charging > 0) { const side = this.chargeSide() || -1; ay += .05 * tilt + .06 * charging; rx += .06 * tilt + .07 * charging; rz += side * (.3 * tilt + .1 * charging); ax -= side * .03 * tilt; }
     { const k = this.jolt; ay += k.y * .05; az += k.z * .05; rx += k.rx * .05; rz += k.rz * .05; }
+    // The animation's gun track: moved (camera metres), turned (degrees) and sized.
+    let animScale = 1;
+    if (this.animOn) for (const tr of this.anim!.tracks) if (tr.kind === 'gun') {
+      const p = samplePos(tr, this.animT), q = sampleRot(tr, this.animT);
+      if (p) { ax += p.x; ay += p.y; az += p.z; }
+      if (q) { const e = new Euler().setFromQuaternion(q, 'XYZ'); rx += e.x; ry += e.y; rz += e.z; }
+      animScale *= sampleScale(tr, this.animT) ?? 1;
+    }
     if (this.throwT >= 0) {
       this.throwT += dt;
       const t = this.throwT;
@@ -564,6 +632,7 @@ export class ViewModel {
     const supportArm = this.current ? this.supportArms.get(this.current) : null;
     if (supportArm) supportArm.visible = !s.reloading && !this.offhandId;
     const model = this.current ? this.models.get(this.current) : null;
+    if (model && !this.strikeAxes) model.scale.setScalar(this.baseScale * animScale);
     const sight = rig?.visual.sight;
     if (sight && model) {
       // Hip pose, then the sight picture: rotate so the rear→front sight line runs straight down
@@ -601,7 +670,7 @@ export class ViewModel {
       const swimming = swim > .5, moving = s.moving, phase = this.bobPhase, bob = this.bobAmount;
       const thrown = hidden;
       // Guns with their own reload script move the hands by it (not the recorded rifle reload).
-      const rifleReload = !!model && !swimming && !thrown && usesRifleReload(this.rig()?.visual.itemId) && !reloadScriptOf(this.rig()?.visual.itemId);
+      const rifleReload = !!model && !swimming && !thrown && !this.animGame && usesRifleReload(this.rig()?.visual.itemId) && !reloadScriptOf(this.rig()?.visual.itemId);
       this.hands.setReload(rifleReload ? this.reloadT : -1, this.reloadDur);
       this.hands.request(() => (swimming ? this.swimHands() : this.heldHands(model ?? null, thrown, moving, phase, bob)), () => {
         this.heldMagazine.update(model ?? null, rifleReload && this.reloadT >= 0 ? this.reloadT / this.reloadDur : -1, this.hands!.palmMatrix('L'));
@@ -610,6 +679,40 @@ export class ViewModel {
   }
 
   private rollBlend = 0;
+
+  /**
+   * The animation's hand tracks: each hand placed on the gun (on a part when the key names one,
+   * following it), turned as keyed or only reaching there, its fingers turning between poses.
+   * A hand without a track keeps the game's own hold.
+   */
+  private animHands(model: Group, out: { L: FpHand; R: FpHand }): void {
+    const t = this.animT, mech = this.rig()?.mechanics, hold = this.current ? this.holds.get(this.current) : undefined;
+    const gunQ = new Quaternion(); model.updateWorldMatrix(true, false); model.matrixWorld.decompose(new Vector3(), gunQ, new Vector3());
+    const place = (k: HandKey): Vector3 | null => {
+      if (!k.pos) return null;
+      const node = k.part ? mech?.partNode(k.part) : null;
+      if (!node) return model.localToWorld(new Vector3(...k.pos));
+      node.updateWorldMatrix(true, false);
+      return model.localToWorld(model.worldToLocal(node.getWorldPosition(new Vector3())).add(new Vector3(...k.pos)));
+    };
+    const animated = { L: false, R: false };
+    for (const side of ['L', 'R'] as const) {
+      const tr = this.anim!.tracks.find((x) => x.kind === (side === 'L' ? 'handL' : 'handR') && x.keys.length);
+      if (!tr) continue;
+      const at = sampleHandPoint(tr, t, place), turn = sampleRot(tr, t), pose = samplePose(tr, t);
+      if (!at) continue;
+      const preset = pose?.a ?? 'relaxed', to = pose?.b, u = pose?.u ?? 0;
+      out[side] = turn ? { target: new Matrix4().compose(at, gunQ.clone().multiply(turn), new Vector3(1, 1, 1)), preset, to, u } : { palm: at, preset, to, u };
+      animated[side] = true;
+    }
+    const R = out.R;
+    // The recorded two-handed hold keeps the right arm; an animated left hand leaves it.
+    if (animated.L && R && 'rifle' in R) R.rifle.support = null;
+    // The right hand animated off the grip: the left (when not animated) holds the handguard.
+    if (animated.R && !animated.L && !out.L && hold?.support) {
+      out.L = { grasp: { center: model.localToWorld(hold.support.clone()), axis: new Vector3(1, 0, 0).transformDirection(model.matrixWorld), approach: new Vector3(0, 1, .35).normalize().transformDirection(model.matrixWorld), radius: .021 } };
+    }
+  }
 
   /**
    * First-person head bob in step with the run (metres / radians, camera space): a dip on each
@@ -696,7 +799,7 @@ export class ViewModel {
           if (bolt) { out.R = { palm: bolt, preset: 'pinch' }; out.L = { grasp: fitGripProfile(model, guard) }; }
         }
         const script = reloadScriptOf(this.rig()?.visual.itemId);
-        if (guard && !recordedReload && script && r > .01 && r < .99) {
+        if (guard && !recordedReload && script && !this.animGame && r > .01 && r < .99) {
           // The gun's own reload: each hand goes to the part it works (followed while that part
           // moves), a pouch below the view, or back to the handguard.
           const reach = hold?.support ?? new Vector3(.2, -.03, 0);
@@ -751,7 +854,7 @@ export class ViewModel {
           const left = track('L'), right = track('R');
           if (right) { out.R = right; out.L = left ?? { grasp: fitGripProfile(model, guard) }; }
           else if (left) out.L = left;
-        } else if (guard && !recordedReload && r > .04 && r < .97) {
+        } else if (guard && !recordedReload && !this.animGame && r > .04 && r < .97) {
           // Magazine change: down to the magazine, pull it, a fresh one from below the view, in,
           // a slap, then the charging handle, and back to the handguard.
           const reach = hold?.support ?? new Vector3(.2, -.03, 0);
@@ -773,6 +876,7 @@ export class ViewModel {
     } else if (thrown) {
       out.R = { palm: cam(.2, -.2, -.5), preset: 'open' };
     }
+    if (model && !thrown && this.animOn) this.animHands(model, out);
     // Running: the arms pump forward and back in opposite phase, lifting a little on each step.
     // (Kept small: at a sprint the bob grows, and a free hand swinging far looks loose.)
     const swing = moving ? Math.sin(phase) * Math.min(1, bob) : 0, lift = moving ? Math.abs(Math.cos(phase)) * Math.min(1, bob) : 0;

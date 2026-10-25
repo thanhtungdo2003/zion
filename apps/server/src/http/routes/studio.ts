@@ -145,6 +145,20 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     });
   }
 
+  if (deps.handStudio) {
+    const store = deps.handStudio;
+    app.post('/api/studio/hand-studio', { preHandler: guard, bodyLimit: 4 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+      try {
+        const saved = await store.save(req.body, req.claims?.sub ?? null);
+        req.log.info({ actorId: req.claims?.sub ?? 'studio-password' }, 'hand studio saved');
+        return saved;
+      } catch (err) {
+        if (err instanceof z.ZodError) return reply.code(400).send({ error: 'invalid', message: err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ') });
+        throw err;
+      }
+    });
+  }
+
   if (deps.customWeapons) {
     const store = deps.customWeapons;
     const saveSchema = z.object({ def: z.record(z.unknown()), model: z.string().max(12 * 1024 * 1024).optional() }).strict();

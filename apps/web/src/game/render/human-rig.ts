@@ -3,6 +3,7 @@ import {
   type BufferAttribute,
   BufferGeometry,
   Color,
+  Euler,
   Float32BufferAttribute,
   Group,
   Matrix4,
@@ -20,6 +21,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SkinSurface, bindGarment } from './skin-surface';
 import { settingsStore, type TextureQuality } from '@/lib/settings';
+import { handPose } from '../hand-studio';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
 
 /**
@@ -47,7 +49,9 @@ const PALM_SKIN = 0.013;
 const FINGER_SKIN = 0.009;
 
 export type Side = 'L' | 'R';
-export type HandPreset = 'relaxed' | 'fist' | 'open' | 'ready' | 'pinch';
+/** The standard hand shapes; any Hand Studio pose id is a hand shape too. */
+export type BasicHandPreset = 'relaxed' | 'fist' | 'open' | 'ready' | 'pinch';
+export type HandPreset = BasicHandPreset | (string & {});
 
 /** A handle held in one hand. All vectors in world space. */
 export interface Grasp {
@@ -169,6 +173,7 @@ const FOREARM_TWIST_MAX = 1.6;
 const WRIST_BEND_MAX = .52;
 const tmpV = Array.from({ length: 12 }, () => new Vector3());
 const tmpQ = Array.from({ length: 8 }, () => new Quaternion());
+const tmpE = new Euler();
 const tmpM = new Matrix4();
 const ID = new Quaternion();
 const X_AXIS = new Vector3(1, 0, 0);
@@ -508,7 +513,7 @@ const FINGERS = ['f_index', 'f_middle', 'f_ring', 'f_pinky', 'thumb'] as const;
 /** Curl (rad) of a hand shape: the three finger joints (knuckle, middle, end) and the thumb's three. */
 export interface HandShapeCurl { finger: [number, number, number]; thumb: [number, number, number] }
 /** Extra curl (rad) of the three finger joints and the thumb for each hand shape. */
-const PRESETS: Record<HandPreset, HandShapeCurl> = {
+const PRESETS: Record<BasicHandPreset, HandShapeCurl> = {
   open: { finger: [-.05, -.05, 0], thumb: [0, 0, 0] },
   relaxed: { finger: [.22, .38, .28], thumb: [.1, .18, .12] },
   ready: { finger: [.7, .9, .6], thumb: [.35, .4, .3] },
@@ -516,7 +521,7 @@ const PRESETS: Record<HandPreset, HandShapeCurl> = {
   fist: { finger: [1.25, 1.3, .85], thumb: [.5, .6, .55] },
   pinch: { finger: [.45, .55, .35], thumb: [.45, .5, .4] },
 };
-export const HAND_SHAPES: Readonly<Record<HandPreset, HandShapeCurl>> = PRESETS;
+export const HAND_SHAPES: Readonly<Record<BasicHandPreset, HandShapeCurl>> = PRESETS;
 const TRIGGER_CURL: [number, number, number] = [.42, .52, .3];
 /** Most each joint may curl round a handle (rad): knuckle, middle and end joint; thumb. */
 const MAX_CURL: [number, number, number] = [1.55, 1.75, 1.25];
@@ -1394,8 +1399,57 @@ export class HumanBody {
     this.shapeFingers(s, 'relaxed');
   }
 
+  /** Every finger joint's local turn for a hand shape: the gun's own curls, a Hand Studio pose, or a standard shape. */
+  private poseTurns(preset: HandPreset, out: Quaternion[], trigger = false): Quaternion[] {
+    const own = this.shapeOverrides?.[preset];
+    const studio = own ? undefined : handPose(preset);
+    const P = own ?? PRESETS[preset as BasicHandPreset] ?? PRESETS.relaxed;
+    FINGERS.forEach((f, fi) => [1, 2, 3].forEach((k, j) => {
+      const q = out[fi * 3 + j] ??= new Quaternion();
+      const e = studio && !(fi === 0 && trigger) ? studio.bones[`${f}_0${k}`] : null;
+      if (studio) q.setFromEuler(tmpE.set(e?.[0] ?? (fi === 0 && trigger ? TRIGGER_CURL[j]! : 0), e?.[1] ?? 0, e?.[2] ?? 0));
+      else q.setFromAxisAngle(X_AXIS, (fi === 4 ? P.thumb : fi === 0 && trigger ? TRIGGER_CURL : P.finger)[j]!);
+    }));
+    return out;
+  }
+
+  /**
+   * Hand pose `a`, or on its way from `a` to `b` (`u` 0…1): each finger joint turns smoothly from
+   * one to the other, so a fist opens gradually rather than snapping open.
+   */
+  applyHandPose(s: Side, a: HandPreset, b?: HandPreset, u = 0): void {
+    const S = this.side[s];
+    const qa = this.poseTurns(a, this.turnsA), qb = b && b !== a && u > 0 ? this.poseTurns(b, this.turnsB) : null;
+    S.fingers.forEach((chain, f) => chain.forEach((i, k) => {
+      const q = tmpQ[1]!.copy(qa[f * 3 + k]!);
+      if (qb) q.slerp(qb[f * 3 + k]!, Math.min(1, u));
+      this.setLocal(i, tmpQ[2]!.copy(this.assets.bones[i]!.quaternion).multiply(q));
+    }));
+    this.fingerCache[s].key = '';
+  }
+  private readonly turnsA: Quaternion[] = [];
+  private readonly turnsB: Quaternion[] = [];
+
+  /** The finger bones of a hand (index, middle, ring, pinky, thumb; base to tip) and the hand bone. */
+  handBones(s: Side): { hand: Bone; fingers: Bone[][] } {
+    const S = this.side[s];
+    return { hand: this.bones[S.hand]!, fingers: S.fingers.map((chain) => chain.map((i) => this.bones[i]!)) };
+  }
+
+  /** A finger bone's turn from its bind pose (what a Hand Studio pose stores). */
+  boneTurn(bone: Bone): Quaternion {
+    const i = this.bones.indexOf(bone);
+    return this.assets.bones[i]!.quaternion.clone().invert().multiply(bone.quaternion);
+  }
+
   private shapeFingers(s: Side, preset: HandPreset, trigger = false): void {
-    const S = this.side[s], P = this.shapeOverrides?.[preset] ?? PRESETS[preset];
+    if (!this.shapeOverrides?.[preset] && handPose(preset)) {
+      const S = this.side[s], q = this.poseTurns(preset, this.turnsA, trigger);
+      S.fingers.forEach((chain, f) => chain.forEach((i, k) => this.setLocal(i, tmpQ[1]!.copy(this.assets.bones[i]!.quaternion).multiply(q[f * 3 + k]!))));
+      this.fingerCache[s].key = '';
+      return;
+    }
+    const S = this.side[s], P = this.shapeOverrides?.[preset] ?? PRESETS[preset as BasicHandPreset] ?? PRESETS.relaxed;
     S.fingers.forEach((chain, f) => {
       const curl = f === 4 ? P.thumb : f === 0 && trigger ? TRIGGER_CURL : P.finger;
       chain.forEach((i, k) => this.setLocal(i, tmpQ[1]!.copy(this.assets.bones[i]!.quaternion).multiply(tmpQ[2]!.setFromAxisAngle(X_AXIS, curl[k]!))));

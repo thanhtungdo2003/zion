@@ -14,6 +14,7 @@ import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
 import { CustomWeaponStore } from './repositories/custom-weapons';
 import { GearFitStore } from './repositories/gear-fit';
+import { HandStudioStore } from './repositories/hand-studio';
 import { ProgressionService } from './game/progression';
 import { atlasProvider, atlasTileProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
@@ -92,6 +93,8 @@ async function main(): Promise<void> {
   // Studio weapons join the shared weapon/item/shop tables before any game server starts.
   const gearFit = new GearFitStore(db);
   await gearFit.load().catch((err: unknown) => logger.warn({ err }, 'gear fit not loaded'));
+  const handStudio = new HandStudioStore(db);
+  await handStudio.load().catch((err: unknown) => logger.warn({ err }, 'hand studio not loaded'));
   const customWeapons = new CustomWeaponStore(db);
   await customWeapons.load((id, err) => logger.warn({ id, err }, 'custom weapon skipped (invalid definition)'));
   const teams = new TeamService(await playerStates.loadTeams(), (id, team, player) => playerStates.saveTeam(id, team, player));
@@ -204,6 +207,7 @@ async function main(): Promise<void> {
     news: new NewsRepository(db),
     customWeapons,
     gearFit,
+    handStudio,
     progression,
     atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas(map) : survivalAtlas(),
     atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),

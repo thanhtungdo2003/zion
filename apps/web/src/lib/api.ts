@@ -352,6 +352,11 @@ export function studioLoad(): Promise<StudioLayout> {
   return studioRequest<StudioLayout>('/api/studio/layout');
 }
 
+/** Saves the Hand Studio (hand poses and animations) for every client. */
+export function studioSaveHandStudio(studio: unknown): Promise<{ studio: unknown; version: number }> {
+  return studioRequest('/api/studio/hand-studio', { method: 'POST', body: JSON.stringify(studio) });
+}
+
 /** Saves the gear fitting (adjustments, soft regions) for every client. */
 export function studioSaveGearFit(fit: unknown): Promise<{ fit: unknown; version: number }> {
   return studioRequest('/api/studio/gear-fit', { method: 'POST', body: JSON.stringify(fit) });

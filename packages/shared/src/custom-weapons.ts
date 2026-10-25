@@ -112,7 +112,7 @@ export const customWeaponSchema = z.object({
      */
     fpHands: z.object({
       shapes: z.record(z.string().max(12), z.object({ finger: z.tuple([z.number(), z.number(), z.number()]), thumb: z.tuple([z.number(), z.number(), z.number()]) })).optional(),
-      actions: z.record(z.string().max(12), z.object({ offset: vec3.optional(), shape: z.enum(['relaxed', 'fist', 'open', 'ready', 'pinch']).optional() })).optional(),
+      actions: z.record(z.string().max(12), z.object({ offset: vec3.optional(), shape: z.string().max(40).optional() })).optional(),
     }).optional(),
     /** First-person view: hip tilt, pitch (up/down) and yaw (left/right), radians. */
     /** Size of mounted optics / muzzle devices on this gun (1 = default). */

@@ -14,7 +14,8 @@ import { Avatar } from '@/game/render/avatars';
 import { ViewModel } from '@/game/render/viewmodel';
 import { scopeFov } from '@/game/scope';
 import { reloadScriptOf, type HandTarget } from '@/game/reload-scripts';
-import { HAND_SHAPES, type HandPreset, type HandShapeCurl } from '@/game/render/human-rig';
+import { HAND_SHAPES, type BasicHandPreset, type HandPreset, type HandShapeCurl } from '@/game/render/human-rig';
+import { handStudio } from '@/game/hand-studio';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
@@ -835,7 +836,7 @@ const TARGET_LABELS: Record<HandTarget, string> = {
   grip: 'Về tay cầm', guard: 'Đỡ ốp lót tay', mag: 'Nắm băng đạn', magwell: 'Lắp băng đạn', pouch: 'Lấy đạn ở túi', charge: 'Kéo tay kéo', bolt: 'Kéo khóa nòng',
   slide: 'Kéo bệ khóa', pump: 'Bơm ốp trượt', breech: 'Mở khóa nòng', cylinder: 'Ổ xoay', port: 'Nhét đạn vào ổ', feed: 'Nắp tiếp đạn', muzzle: 'Đầu nòng',
 };
-const SHAPE_LABELS: Record<HandPreset, string> = { relaxed: 'Thả lỏng', ready: 'Chờ (khum)', fist: 'Nắm chặt', pinch: 'Kẹp (cái + trỏ)', open: 'Xòe' };
+const SHAPE_LABELS: Record<BasicHandPreset, string> = { relaxed: 'Thả lỏng', ready: 'Chờ (khum)', fist: 'Nắm chặt', pinch: 'Kẹp (cái + trỏ)', open: 'Xòe' };
 const JOINTS = ['gốc', 'đốt giữa', 'đầu'] as const;
 
 /**
@@ -845,7 +846,7 @@ const JOINTS = ['gốc', 'đốt giữa', 'đầu'] as const;
 function HandStudio({ draft, onChange, hold, onHold }: { draft: Draft; onChange: (p: Partial<Draft['model']>) => void; hold: number | null; onHold: (at: number | null) => void }) {
   const script = reloadScriptOf(draft.id);
   const hands = draft.model.fpHands ?? {};
-  const [shape, setShape] = useState<HandPreset>('fist');
+  const [shape, setShape] = useState<BasicHandPreset>('fist');
   const set = (next: NonNullable<Draft['model']['fpHands']>) => onChange({ fpHands: Object.keys(next.shapes ?? {}).length || Object.keys(next.actions ?? {}).length ? next : undefined });
   // One row per action: the first moment the script sends a hand there.
   const actions = [...new Map((script?.hands ?? []).filter((k) => k.target !== 'guard' && k.target !== 'grip').map((k) => [k.target, k] as const)).values()];
@@ -873,7 +874,7 @@ function HandStudio({ draft, onChange, hold, onHold }: { draft: Draft; onChange:
         </div>
         <label className="set-slider"><span>Kiểu bàn tay</span>
           <select value={a.shape ?? k.shape} onChange={(e) => setAction(k.target, { ...a, shape: e.target.value === k.shape ? undefined : e.target.value as HandPreset })}>
-            {(Object.keys(SHAPE_LABELS) as HandPreset[]).map((p) => <option key={p} value={p}>{SHAPE_LABELS[p]}{p === k.shape ? ' (mặc định)' : ''}</option>)}
+            {handStudio().poses.map((p) => <option key={p.id} value={p.id}>{p.name}{p.id === k.shape ? ' (mặc định)' : ''}</option>)}
           </select>
         </label>
         {open && (['Trước / sau', 'Lên / xuống', 'Trái / phải'] as const).map((label, i) =>
@@ -884,7 +885,7 @@ function HandStudio({ draft, onChange, hold, onHold }: { draft: Draft; onChange:
     })}
     <h4>Kiểu dáng bàn tay: cấu trúc xương</h4>
     <div className="ws-tabs" style={{ flexWrap: 'wrap' }}>
-      {(Object.keys(SHAPE_LABELS) as HandPreset[]).map((p) => <button key={p} type="button" className={`btn${p === shape ? ' btn-primary' : ''}`} onClick={() => setShape(p)}>{SHAPE_LABELS[p]}{hands.shapes?.[p] ? ' •' : ''}</button>)}
+      {(Object.keys(SHAPE_LABELS) as BasicHandPreset[]).map((p) => <button key={p} type="button" className={`btn${p === shape ? ' btn-primary' : ''}`} onClick={() => setShape(p)}>{SHAPE_LABELS[p]}{hands.shapes?.[p] ? ' •' : ''}</button>)}
     </div>
     <p className="studio-muted">Độ gập của từng đốt. Bấm “Xem” ở một thao tác dùng kiểu này để thấy ngay.</p>
     {JOINTS.map((j, i) => angle(`4 ngón: ${j}`, curl.finger[i]!, 110, (v) => { const f = [...curl.finger] as Vec3; f[i] = v; setCurl({ ...curl, finger: f }); }))}

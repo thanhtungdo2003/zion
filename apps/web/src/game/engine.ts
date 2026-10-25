@@ -18,7 +18,8 @@ import { scopeFov } from './scope';
 import { ScopeLens } from './render/scope-lens';
 import { AimSway } from './aim-sway';
 import { ThrowArc, type ArcLaunch } from './render/throw-arc';
-import { reloadScriptOf } from './reload-scripts';
+import { reloadScriptOf, type PartSound } from './reload-scripts';
+import { handAnimationFor } from './hand-studio';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
@@ -3201,7 +3202,9 @@ export class GameEngine {
     const at = local ? { x: local.state.x, y: local.state.y + 1.2, z: local.state.z } : undefined;
     // Each part heard as it moves (the gun's reload script), else the gun's whole reload sound.
     this.stopReloadSounds();
-    const script = reloadScriptOf(ITEM_BY_WEAPON[weapon]);
+    // A Hand Studio animation with its own sounds plays them; else the gun's reload script's.
+    const anim = handAnimationFor(ITEM_BY_WEAPON[weapon]);
+    const script = anim?.sounds.length ? { sounds: anim.sounds.map((e) => ({ at: e.at, sound: e.sound as PartSound, volume: e.volume, rate: undefined })) } : reloadScriptOf(ITEM_BY_WEAPON[weapon]);
     if (script) {
       for (const step of script.sounds) this.reloadTimers.push(window.setTimeout(() => {
         const p = this.local?.state;

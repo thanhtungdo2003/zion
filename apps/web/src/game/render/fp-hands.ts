@@ -4,7 +4,12 @@ import { HumanBody, MODEL_EYE_Y, type Grasp, type HandPreset, type HandShapeCurl
 import { rifleReloadLayer } from './recorded-reload';
 
 /** What one first-person hand does this frame: hold a handle, reach to a point, or nothing. */
-export type FpHand = { grasp: Grasp } | { palm: Vector3; preset: HandPreset } | { rifle: FpRifle } | null;
+/**
+ * What one first-person hand does this frame: hold a handle, reach to a point, be placed exactly
+ * (`target`: the hand bone's world matrix, from a Hand Studio animation), or nothing. A hand shape
+ * may be on its way to another (`to`, `u` 0…1: the fingers turn between them).
+ */
+export type FpHand = { grasp: Grasp } | { palm: Vector3; preset: HandPreset; to?: HandPreset; u?: number } | { target: Matrix4; preset: HandPreset; to?: HandPreset; u?: number } | { rifle: FpRifle } | null;
 
 /** A long gun held as recorded: the display model, grip at its origin, bore +X, top +Y. */
 export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number; /** Shift of the firing hand (display units). */ grip?: Vector3 }
@@ -52,6 +57,14 @@ export class FirstPersonHands {
   }
 
   setLook(a: Appearance): void { this.body.setAppearance(a); }
+
+  /** The skinned arms (Hand Studio: the bones it shows and turns). */
+  get rig(): HumanBody { return this.body; }
+
+  /** Hand Studio: a hand shape shown on a hand whatever it holds (null: as the game poses it). */
+  readonly poseOverride: Partial<Record<Side, HandPreset | null>> = {};
+  /** Hand Studio: called after the hands are posed each frame (bones edited live). */
+  afterEachPose: (() => void) | null = null;
 
   /** The gun in hand's own hand shapes (Studio), or the standard ones. */
   setShapes(shapes: Partial<Record<HandPreset, HandShapeCurl>> | null): void { this.body.shapeOverrides = shapes; }
@@ -129,16 +142,17 @@ export class FirstPersonHands {
       if (L && !('rifle' in L)) {
         const pole = this.holder.localToWorld(new Vector3(-.6, -1, .25)).sub(this.holder.getWorldPosition(new Vector3()));
         if ('grasp' in L) body.holdWith('L', L.grasp, pole, true, true);
-        else body.reachWith('L', L.palm, pole, L.preset);
+        else this.reachHand('L', L, pole);
       }
       if (this.reload && !L) body.reloadSupport(this.reload);
+      this.finish();
       return;
     }
     body.restPose();
     for (const s of SIDES) {
       const hand = hands[s];
       if (!hand || 'rifle' in hand) continue;
-      const target = 'grasp' in hand ? hand.grasp.center : hand.palm;
+      const target = 'grasp' in hand ? hand.grasp.center : 'target' in hand ? new Vector3().setFromMatrixPosition(hand.target) : hand.palm;
       // The shoulder comes forward (the torso turns, the shoulder blade slides) for far reaches,
       // staying low and inside, out of view.
       const shoulder = this.shoulders[s].clone();
@@ -149,11 +163,24 @@ export class FirstPersonHands {
       // Elbows down and out, as when holding a gun up.
       const pole = this.holder.localToWorld(new Vector3(s === 'L' ? -.6 : .6, -1, .25)).sub(this.holder.getWorldPosition(new Vector3()));
       if ('grasp' in hand) body.holdWith(s, hand.grasp, pole, true, s === 'L');
-      else body.reachWith(s, hand.palm, pole, hand.preset);
+      else this.reachHand(s, hand, pole);
     }
     // An unused hand stays out of view (the mesh is drawn for both arms).
     for (const s of SIDES) if (!hands[s]) body.reachWith(s, this.holder.localToWorld(new Vector3(s === 'L' ? -.3 : .3, -.9, .2)), new Vector3(0, -1, 0), 'relaxed');
     if (this.reload && hands.R && hands.L) body.reloadSupport(this.reload);
+    this.finish();
+  }
+
+  /** A hand reaching to a point, or placed exactly; its fingers in a shape (or between two). */
+  private reachHand(s: Side, hand: Extract<FpHand, { preset: HandPreset }>, pole: Vector3): void {
+    if ('target' in hand) this.body.placeHand(s, hand.target);
+    else this.body.reachWith(s, hand.palm, pole, hand.preset, false);
+    this.body.applyHandPose(s, hand.preset, hand.to, hand.u ?? 0);
+  }
+
+  private finish(): void {
+    for (const s of SIDES) { const p = this.poseOverride[s]; if (p) this.body.applyHandPose(s, p); }
+    this.afterEachPose?.();
   }
 
   dispose(): void {

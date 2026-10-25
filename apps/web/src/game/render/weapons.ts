@@ -5,6 +5,7 @@ import { ATTACHMENT_SLOTS, attachmentDef, type Attachments } from '@zion/shared'
 import { cachedFetch } from '@/lib/preload';
 import { loadCustomWeapons } from '../custom-weapons';
 import { loadGearFit } from '../gear-fit';
+import { loadHandStudio } from '../hand-studio';
 import { ResourceDisposer } from './resources';
 import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
@@ -682,7 +683,7 @@ export function standaloneVisual(itemId: string, spec: WeaponSpec, root: Group, 
 /** Downloads and fits every weapon model; part of the pre-game loading step. */
 export async function loadWeapons(character: CharacterTemplate, onProgress?: (p: number) => void): Promise<WeaponLibrary> {
   // The Studio's weapons and gear fitting, before anything is built or dressed.
-  await Promise.all([loadCustomWeapons(), loadGearFit()]);
+  await Promise.all([loadCustomWeapons(), loadGearFit(), loadHandStudio()]);
   const ids = Object.keys(WEAPON_SPECS);
   const progress = new Array<number>(ids.length).fill(0);
   const report = () => onProgress?.(progress.reduce((a, b) => a + b, 0) / ids.length);

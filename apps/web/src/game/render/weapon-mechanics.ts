@@ -1,4 +1,4 @@
-import { Box3, Matrix4, Vector3, type Euler, type Object3D } from 'three';
+import { Box3, Matrix4, Vector3, type Euler, type Object3D, type Quaternion } from 'three';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip } from './character-model';
 import type { WeaponVisual } from './weapons';
 import type { ReloadClip, ReloadScript } from '../reload-scripts';
@@ -76,10 +76,12 @@ export class WeaponMechanics {
   }
 
   /** A reload started; `seconds` is its full length (animations end with it). */
-  reload(seconds: number, script?: ReloadScript | null): void {
+  reload(seconds: number, script?: ReloadScript | null, driven = false): void {
     this.reloadT = 0;
     this.reloadLength = Math.max(.3, seconds);
-    this.clip = this.visual.reloadClip ? this.visual.clips.get(this.visual.reloadClip) ?? null : null;
+    // A Hand Studio animation moves the parts itself (see drive): nothing of the gun's own.
+    this.driven = driven;
+    this.clip = driven ? null : this.visual.reloadClip ? this.visual.clips.get(this.visual.reloadClip) ?? null : null;
     // The script's part clips this model has (the first name it knows of each).
     this.scripted = [];
     for (const c of script?.clips ?? []) {
@@ -95,6 +97,33 @@ export class WeaponMechanics {
 
   /** The script's part clips playing in this reload. */
   private scripted: Array<{ clip: CharacterClip; step: ReloadClip; peak: number }> = [];
+
+  private driven = false;
+
+  /** The gun's named parts and its own clips (Hand Studio: what a track can move or play). */
+  get partNames(): string[] { return [...this.parts.keys()].filter((n) => !/-mesh(_\d+)?$|_mesh$/.test(n)); }
+  get clipNames(): string[] { return [...this.visual.clips.keys()]; }
+
+  /** The part's own node (the Studio shows and picks it). */
+  partNode(name: string): Object3D | null { return this.parts.get(name)?.node ?? null; }
+
+  /**
+   * A Hand Studio part track this frame (after update): one of the model's clips at a share of its
+   * length, or the part moved (`move`: gun-frame metres, through `gun`) and turned (radians) from rest.
+   */
+  drive(name: string | undefined, clip: string | undefined, progress: number | null, move: Vector3 | null, turn: Quaternion | null, gun: Object3D): void {
+    const c = clip ? this.visual.clips.get(clip) : undefined;
+    if (c && progress !== null) this.playClip(c, Math.min(1, Math.max(0, progress)) * c.length);
+    const part = name ? this.parts.get(name) : undefined, parent = part?.node.parent;
+    if (!part || !parent) return;
+    if (move) {
+      // A gun-frame shift as seen in the part's parent's frame.
+      gun.updateWorldMatrix(true, false); parent.updateWorldMatrix(true, false);
+      const a = parent.worldToLocal(gun.localToWorld(new Vector3())), b = parent.worldToLocal(gun.localToWorld(move.clone()));
+      part.node.position.add(b.sub(a));
+    }
+    if (turn) part.node.quaternion.multiply(turn);
+  }
 
   /** A named part's place in the world (`rest`: where it sits when not moved), if the model has one. */
   partWorld(re: RegExp, out: Vector3, rest = false): Vector3 | null {
@@ -164,7 +193,7 @@ export class WeaponMechanics {
       const k = this.reloadT / this.reloadLength;
       if (k >= 1) { this.reloadT = -1; this.clip = null; this.reset(); return; }
       if (this.clip) this.playClip(this.clip, k * this.clip.length);
-      else if (this.scripted.length) {
+      else if (this.scripted.length && !this.driven) {
         // Each part's own clip: forward while opening, held, backwards while closing.
         // A clip that goes out and comes back (most do) opens up to its furthest frame and closes
         // over the rest; one that only goes out is played back for the close.
@@ -179,7 +208,7 @@ export class WeaponMechanics {
             for (const name of clip.bones.keys()) { const part = this.parts.get(name); if (part) part.node.visible = false; }
           }
         }
-      } else if (this.magazine) {
+      } else if (this.magazine && !this.driven) {
         // Out (drops along "down"), away, back in, seated.
         const out = k < .12 ? 0 : k < .32 ? (k - .12) / .2 : k < .62 ? 1 : k < .82 ? 1 - (k - .62) / .2 : 0;
         this.magazine.node.position.addScaledVector(this.up, -out * 9 * PX * this.magazine.unit);

@@ -38,3 +38,4 @@ export * from './building';
 export * from './appearance';
 export * from './gear-fit';
 export * from './gear-fit-default';
+export * from './hand-studio';

@@ -25,6 +25,7 @@ import { registerLibraryRoutes } from './routes/library';
 import { registerWeaponRoutes } from './routes/weapons';
 import type { CustomWeaponStore } from '../repositories/custom-weapons';
 import type { GearFitStore } from '../repositories/gear-fit';
+import type { HandStudioStore } from '../repositories/hand-studio';
 import { registerGearFitRoutes } from './routes/gear-fit';
 import type { AppearanceStore } from '../repositories/accounts';
 
@@ -35,6 +36,7 @@ export interface HttpDeps {
   customWeapons?: CustomWeaponStore;
   /** Gear fitting from the Studio (adjustments, soft regions). */
   gearFit?: GearFitStore;
+  handStudio?: HandStudioStore;
   news?: NewsBackend;
   progression?: ProgressionService;
   config: AppConfig;
@@ -150,6 +152,14 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerLibraryRoutes(app, deps);
   registerWeaponRoutes(app, deps);
   registerGearFitRoutes(app, deps);
+  if (deps.handStudio) {
+    const store = deps.handStudio;
+    // The Studio's hand poses and animations for game clients (read-only; saved under /api/studio).
+    app.get('/api/hand-studio', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return store.get();
+    });
+  }
   registerStudioRoutes(app, deps);
   return app;
 }
