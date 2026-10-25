@@ -8,7 +8,8 @@ import { z } from 'zod';
 
 /** Finger chains, base to tip: `<finger>_01…03` (the survivor rig, either hand). */
 export const HAND_FINGERS = ['f_index', 'f_middle', 'f_ring', 'f_pinky', 'thumb'] as const;
-export const HAND_POSE_BONES: readonly string[] = HAND_FINGERS.flatMap((f) => [1, 2, 3].map((k) => `${f}_0${k}`));
+/** `hand`: the wrist, turned from where the arm puts it (bent back / forward, sideways, twisted). */
+export const HAND_POSE_BONES: readonly string[] = ['hand', ...HAND_FINGERS.flatMap((f) => [1, 2, 3].map((k) => `${f}_0${k}`))];
 
 const num = z.number().finite();
 const vec3 = z.tuple([num, num, num]);

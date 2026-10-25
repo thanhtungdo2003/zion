@@ -911,6 +911,7 @@ export class HumanBody {
 
   /** Starts a frame: the group's world transform and the skeleton root at rest. */
   private begin(): void {
+    this.newPoseFrame();
     this.group.updateWorldMatrix(true, false);
     this.group.matrixWorld.decompose(tmpV[0]!, this.groupQ, tmpV[1]!);
     this.worldScale = tmpV[1]!.x;
@@ -1498,12 +1499,33 @@ export class HumanBody {
   applyHandPose(s: Side, a: HandPreset, b?: HandPreset, u = 0): void {
     const S = this.side[s];
     const qa = this.poseTurns(a, this.turnsA), qb = b && b !== a && u > 0 ? this.poseTurns(b, this.turnsB) : null;
+    // The wrist first (the fingers hang from it).
+    const wa = this.wristTurn(a, tmpQ[3]!), wb = qb ? this.wristTurn(b!, tmpQ[4]!) : null;
+    this.turnWrist(s, wb ? wa.slerp(wb, Math.min(1, u)) : wa);
     S.fingers.forEach((chain, f) => chain.forEach((i, k) => {
       const q = tmpQ[1]!.copy(qa[f * 3 + k]!);
       if (qb) q.slerp(qb[f * 3 + k]!, Math.min(1, u));
       this.setLocal(i, tmpQ[2]!.copy(this.assets.bones[i]!.quaternion).multiply(q));
     }));
     this.fingerCache[s].key = '';
+  }
+  /** The wrist's turn in a Hand Studio pose (none for the standard shapes). */
+  private wristTurn(preset: HandPreset, out: Quaternion): Quaternion {
+    const e = this.shapeOverrides?.[preset] ? undefined : handPose(preset)?.bones.hand;
+    return e ? out.setFromEuler(tmpE.set(e[0], e[1], e[2])) : out.identity();
+  }
+  /** Where the arm put the hand this frame, before a pose's wrist turn (the Studio edits from it). */
+  readonly wristBase: Record<Side, Quaternion> = { L: new Quaternion(), R: new Quaternion() };
+  private readonly wristTurned: Record<Side, boolean> = { L: false, R: false };
+  /** A new frame of posing: the next wrist turn starts from where the arm puts the hand. */
+  newPoseFrame(): void { this.wristTurned.L = this.wristTurned.R = false; }
+  private turnWrist(s: Side, turn: Quaternion): void {
+    const i = this.side[s].hand;
+    // A second pose on the same hand this frame (the Studio's) turns from the arm's hand, not on top.
+    if (this.wristTurned[s]) this.setLocal(i, tmpQ[6]!.copy(this.wristBase[s]));
+    else this.wristBase[s].copy(this.bones[i]!.quaternion);
+    this.wristTurned[s] = true;
+    if (turn.w < .99999) this.setLocal(i, tmpQ[5]!.copy(this.bones[i]!.quaternion).multiply(turn));
   }
   private readonly turnsA: Quaternion[] = [];
   private readonly turnsB: Quaternion[] = [];
@@ -1531,12 +1553,15 @@ export class HumanBody {
   /** A finger bone's turn from its bind pose (what a Hand Studio pose stores). */
   boneTurn(bone: Bone): Quaternion {
     const i = this.bones.indexOf(bone);
+    // The wrist: from where the arm put it this frame.
+    for (const s of ['L', 'R'] as const) if (i === this.side[s].hand) return this.wristBase[s].clone().invert().multiply(bone.quaternion);
     return this.assets.bones[i]!.quaternion.clone().invert().multiply(bone.quaternion);
   }
 
   private shapeFingers(s: Side, preset: HandPreset, trigger = false): void {
     if (!this.shapeOverrides?.[preset] && handPose(preset)) {
       const S = this.side[s], q = this.poseTurns(preset, this.turnsA, trigger);
+      this.turnWrist(s, this.wristTurn(preset, tmpQ[3]!));
       S.fingers.forEach((chain, f) => chain.forEach((i, k) => this.setLocal(i, tmpQ[1]!.copy(this.assets.bones[i]!.quaternion).multiply(q[f * 3 + k]!))));
       this.fingerCache[s].key = '';
       return;

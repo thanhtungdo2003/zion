@@ -135,6 +135,7 @@ export class FirstPersonHands {
 
   private pose(hands: Record<Side, FpHand>): void {
     const body = this.body;
+    body.newPoseFrame();
     const rifle = hands.R && 'rifle' in hands.R ? hands.R.rifle : null;
     if (rifle) {
       this.poseRifle(rifle);

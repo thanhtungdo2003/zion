@@ -40,6 +40,8 @@ const EASE_NAMES: Record<string, string> = { linear: 'Đều', in: 'Nhanh dần'
 
 /** Each joint's range (radians, XYZ): curl toward the palm on X, a little sideways (Y) and twist (Z). */
 function jointLimits(bone: string): [[number, number], [number, number], [number, number]] {
+  // The wrist: bent back / toward the palm, sideways (thumb / little finger side), twisted.
+  if (bone === 'hand') return [[-1.2, 1.2], [-.6, .6], [-1.2, 1.2]];
   if (bone.startsWith('thumb')) return bone.endsWith('01') ? [[-.6, 1.3], [-1, 1], [-1, 1]] : [[-.4, 1.4], [-.35, .35], [-.35, .35]];
   return bone.endsWith('01') ? [[-.4, 1.75], [-.4, .4], [-.25, .25]] : [[-.15, 1.9], [-.1, .1], [-.1, .1]];
 }
@@ -284,8 +286,8 @@ export function HandStudioPage() {
     const st = stage.current, hands = st?.view.firstPersonHands;
     const j = pickJoint(e);
     if (j === null || !st || !hands) return;
-    // Joint balls: 0 the hand, then 3 per finger (base→tip).
-    if (j === 0) return;
+    // Joint balls: 0 the wrist, then 3 per finger (base→tip).
+    if (j === 0) { setBone('hand'); return; }
     const f = Math.floor((j - 1) / 3), k = (j - 1) % 3, name = `${HAND_FINGERS[f]}_0${k + 1}`;
     setBone(name);
     if (mode !== 'drag') return;
@@ -556,6 +558,23 @@ export function HandStudioPage() {
             </div>
           </div>
           <p className="gs-hint">{mode === 'rotate' ? 'Bấm một khớp (chấm vàng) rồi xoay bằng vòng xoay (ở Camera tự do) hoặc nhập số bên dưới.' : 'Kéo chấm vàng ở đầu một đốt: đốt xương quay theo con trỏ, độ dài giữ nguyên.'} Mỗi khớp có giới hạn góc để bàn tay không bị dị dạng.</p>
+          <div className="hs-finger">
+            <h4>Cổ tay</h4>
+            {(() => {
+              const e = pose.bones.hand ?? [0, 0, 0], L = jointLimits('hand');
+              return (
+                <div className={`hs-joint${bone === 'hand' ? ' on' : ''}`} onClick={() => setBone('hand')}>
+                  <span>cổ tay</span>
+                  {(['Gập', 'Nghiêng', 'Vặn'] as const).map((label, i) => (
+                    <label key={label} title={`${label} (${Math.round(L[i]![0] / DEG)}°…${Math.round(L[i]![1] / DEG)}°)`}>
+                      <input type="range" min={L[i]![0] / DEG} max={L[i]![1] / DEG} step={.5} value={e[i]! / DEG} onChange={(ev) => setTurnDeg('hand', i, Number(ev.target.value))} />
+                    </label>
+                  ))}
+                  <b>{Math.round(e[0] / DEG)}°</b>
+                </div>
+              );
+            })()}
+          </div>
           {HAND_FINGERS.map((f) => (
             <div key={f} className="hs-finger">
               <h4>{FINGER_NAMES[f]}</h4>
@@ -647,7 +666,8 @@ function retime(a: HandAnimation, duration: number): HandAnimation {
   return { ...a, duration, tracks: a.tracks.map((tr) => ({ ...tr, keys: tr.keys.map((key) => ({ ...key, t: at(key.t) })) })), sounds: a.sounds.map((s) => ({ ...s, at: at(s.at) })) };
 }
 
-function boneByName(hand: { fingers: Bone[][] }, name: string): Bone | null {
+function boneByName(hand: { hand: Bone; fingers: Bone[][] }, name: string): Bone | null {
+  if (name === 'hand') return hand.hand;
   const m = /^(.+)_0(\d)$/.exec(name);
   if (!m) return null;
   return hand.fingers[HAND_FINGERS.indexOf(m[1] as (typeof HAND_FINGERS)[number])]?.[Number(m[2]) - 1] ?? null;
@@ -665,6 +685,8 @@ function drawSkeleton(st: { joints: Mesh[]; lines: LineSegments }, hand: { hand:
   const at = (b: Bone) => new Vector3().setFromMatrixPosition(b.matrixWorld);
   const wrist = at(hand.hand);
   st.joints[0]!.position.copy(wrist); st.joints[0]!.visible = show;
+  (st.joints[0]!.material as MeshBasicMaterial).color.setHex(picked === 'hand' ? 0xff5a36 : 0x7fd3ff);
+  st.joints[0]!.scale.setScalar(1.6);
   hand.fingers.forEach((chain, f) => {
     let prev = wrist;
     chain.forEach((b, k) => {
