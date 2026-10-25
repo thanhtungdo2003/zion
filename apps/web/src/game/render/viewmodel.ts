@@ -607,6 +607,12 @@ export class ViewModel {
           // The support hand is placed with the arms; a non-recorded reload overrides it below.
           out.L = null;
         }
+        // A bolt action worked after the shot: the right hand on the bolt handle, following it.
+        const worked = this.rig()?.mechanics;
+        if (worked?.boltWorked && hold?.support && guard && this.reloadT < 0) {
+          const bolt = worked.partWorld(/bolt-handle/, new Vector3()) ?? worked.partWorld(/^bolt$|bolt-carriage/, new Vector3());
+          if (bolt) { out.R = { palm: bolt, preset: 'pinch' }; out.L = { grasp: fitGripProfile(model, guard) }; }
+        }
         const script = reloadScriptOf(this.rig()?.visual.itemId);
         if (guard && !recordedReload && script && r > .01 && r < .99) {
           // The gun's own reload: each hand goes to the part it works (followed while that part

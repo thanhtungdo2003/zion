@@ -98,6 +98,8 @@ export class WeaponMechanics {
   }
 
   get reloading(): boolean { return this.reloadT >= 0; }
+  /** A bolt action being worked after a shot (the hand goes to the bolt handle). */
+  get boltWorked(): boolean { return this.cycleT >= .08 && this.cycleT < .22 + 1.25 + .05; }
 
   /** How far the part the support hand holds (a pump's fore-end) has moved from rest, in world space. */
   supportShift(out: Vector3): Vector3 {

@@ -161,7 +161,7 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Revolver]: { kind: 'gun', weight: 1.2, fireMs: 420, damage: 34, pellets: 1, spread: 0.02, range: 50, magazine: 6, reloadMs: 2800, auto: false },
   [WeaponId.SVD]: { kind: 'gun', weight: 4.3, fireMs: 450, damage: 62, pellets: 1, spread: 0.008, range: 110, magazine: 10, reloadMs: 2800, auto: false },
   [WeaponId.AUG]: { kind: 'gun', weight: 3.6, fireMs: 90, damage: 13, pellets: 1, spread: 0.018, range: 75, magazine: 30, reloadMs: 2400, auto: true },
-  [WeaponId.Saiga12]: { kind: 'gun', weight: 3.8, fireMs: 260, damage: 9, pellets: 8, spread: 0.1, range: 24, magazine: 8, reloadMs: 2900, auto: false },
+  [WeaponId.Saiga12]: { kind: 'gun', weight: 3.8, fireMs: 100, damage: 9, pellets: 8, spread: 0.1, range: 24, magazine: 8, reloadMs: 2900, auto: true },
   [WeaponId.DoubleBarrel]: { kind: 'gun', weight: 3.4, fireMs: 300, damage: 12, pellets: 9, spread: 0.12, range: 22, magazine: 2, reloadMs: 2200, auto: false },
   // Added set: one per role, reloads kept within 2.2-2.6 s like the rest of the armoury.
   [WeaponId.Deagle]: { kind: 'gun', weight: 1.9, fireMs: 400, damage: 38, pellets: 1, spread: 0.022, range: 55, magazine: 7, reloadMs: 2200, auto: false, knockback: 1.2 },
