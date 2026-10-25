@@ -3255,7 +3255,7 @@ export class GameEngine {
     this.stopReloadSounds();
     // A Hand Studio animation with its own sounds plays them; else the gun's reload script's.
     const anim = handAnimationFor(ITEM_BY_WEAPON[weapon]);
-    const script = anim?.sounds.length ? { sounds: anim.sounds.map((e) => ({ at: e.at, sound: e.sound as PartSound, volume: e.volume, rate: undefined })) } : reloadScriptOf(ITEM_BY_WEAPON[weapon]);
+    const script = anim?.sounds.length ? { sounds: anim.sounds.map((e) => ({ at: e.at, sound: e.sound as PartSound, volume: e.volume, rate: e.rate })) } : reloadScriptOf(ITEM_BY_WEAPON[weapon]);
     if (script) {
       for (const step of script.sounds) this.reloadTimers.push(window.setTimeout(() => {
         const p = this.local?.state;

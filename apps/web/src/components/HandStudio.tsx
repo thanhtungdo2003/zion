@@ -14,7 +14,7 @@ import { handStudio, loadHandStudio, setHandStudio } from '@/game/hand-studio';
 import { loadPlayerCharacter } from '@/game/render/character-model';
 import { loadWeapons, type WeaponLibrary } from '@/game/render/weapons';
 import { ViewModel } from '@/game/render/viewmodel';
-import { PART_SOUNDS } from '@/game/reload-scripts';
+import { SOUND_FILES } from '@/game/audio';
 import { Icon } from './Icon';
 
 /**
@@ -76,6 +76,9 @@ export function HandStudioPage() {
   const [playing, setPlaying] = useState(false);
   const [loop, setLoop] = useState(true);
   const [sel, setSel] = useState<{ track: string; key: number } | null>(null);
+  /** The sound picked on the timeline's sound row (its index). */
+  const [soundSel, setSoundSel] = useState<number | null>(null);
+  const soundDrag = useRef<number | null>(null);
   const [parts, setParts] = useState<{ parts: string[]; clips: string[] }>({ parts: [], clips: [] });
   const [weapons, setWeapons] = useState<string[]>([]);
 
@@ -356,6 +359,20 @@ export function HandStudioPage() {
     setAnim({ ...anim, tracks: anim.tracks.map((t) => (t.id === sel.track ? { ...t, keys: t.keys.filter((_, i) => i !== sel.key) } : t)) });
     setSel(null);
   };
+  type AnimSound = HandAnimation['sounds'][number];
+  const updateSound = (i: number, patch: Partial<AnimSound>) => {
+    const a = live.current.data.animations.find((x) => x.id === live.current.animId);
+    if (!a) return;
+    setAnim({ ...a, sounds: a.sounds.map((s, j) => (j === i ? { ...s, ...patch } : s)) });
+  };
+  /** A sound at a time: the one picked last (or the magazine out), the list kept in time order. */
+  const addSound = (at: number) => {
+    if (!anim) return;
+    const last = soundSel !== null ? anim.sounds[soundSel] : undefined;
+    const s: AnimSound = { at: Math.round(at * 1000) / 1000, sound: last?.sound ?? 'partMagOut', ...(last?.volume !== undefined ? { volume: last.volume } : {}), ...(last?.rate !== undefined ? { rate: last.rate } : {}) };
+    const sounds = [...anim.sounds, s].sort((a, b) => a.at - b.at);
+    setAnim({ ...anim, sounds }); setSoundSel(sounds.indexOf(s)); setSel(null);
+  };
   const addTrack = (kind: HandTrack['kind'], part?: string, clip?: string) => {
     if (!anim) return;
     const taken = new Set(anim.tracks.map((t) => t.id));
@@ -382,6 +399,7 @@ export function HandStudioPage() {
   }
 
   const selTrack = anim?.tracks.find((t) => t.id === sel?.track) ?? null;
+  const selSound = anim && soundSel !== null ? anim.sounds[soundSel] ?? null : null;
   const selKey = selTrack && sel ? selTrack.keys[sel.key] ?? null : null;
   const num = (label: string, value: number, step: number, on: (v: number) => void) =>
     <label className="gs-num" key={label}><span>{label}</span><input type="number" step={step} value={+value.toFixed(4)} onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) on(v); }} /></label>;
@@ -434,7 +452,7 @@ export function HandStudioPage() {
         </> : <>
           <h3>Animation</h3>
           <div className="hs-list">
-            {data.animations.map((a) => <button key={a.id} className={`hs-item${a.id === anim?.id ? ' on' : ''}`} onClick={() => { setAnimId(a.id); setSel(null); setTime(0); if (a.weapon !== '*' && weapons.includes(a.weapon)) setWeapon(a.weapon); }}>{a.name}<small>{a.weapon === '*' ? 'mọi súng' : weaponName(a.weapon)} · {a.action === 'reload' ? 'thay đạn' : 'không gán'}</small></button>)}
+            {data.animations.map((a) => <button key={a.id} className={`hs-item${a.id === anim?.id ? ' on' : ''}`} onClick={() => { setAnimId(a.id); setSel(null); setSoundSel(null); setTime(0); if (a.weapon !== '*' && weapons.includes(a.weapon)) setWeapon(a.weapon); }}>{a.name}<small>{a.weapon === '*' ? 'mọi súng' : weaponName(a.weapon)} · {a.action === 'reload' ? 'thay đạn' : 'không gán'}</small></button>)}
             {!data.animations.length && <p className="gs-hint">Chưa có animation. Bấm “Mới” để tạo cho vũ khí đang chọn.</p>}
           </div>
           <div className="gs-row">
@@ -449,15 +467,9 @@ export function HandStudioPage() {
             {num('Thời lượng xem thử (s)', anim.duration, .1, (v) => setAnim({ ...anim, duration: Math.min(20, Math.max(.1, v)) }))}
             {num('Tốc độ phát (×)', anim.speed, .05, (v) => setAnim({ ...anim, speed: Math.min(4, Math.max(.05, v)) }))}
             <p className="gs-hint">Trong game animation kéo dài đúng thời gian thay đạn của súng; âm thanh dưới đây (nếu có) phát theo tỉ lệ thời gian, không có thì dùng âm thanh thay đạn sẵn có của súng.</p>
-            <h4>Âm thanh</h4>
-            {anim.sounds.map((s, i) => (
-              <div key={i} className="gs-row">
-                <input type="number" step={.01} min={0} max={1} value={s.at} style={{ width: 64 }} onChange={(e) => setAnim({ ...anim, sounds: anim.sounds.map((x, j) => (j === i ? { ...x, at: Math.min(1, Math.max(0, Number(e.target.value) || 0)) } : x)) })} />
-                <select value={s.sound} onChange={(e) => setAnim({ ...anim, sounds: anim.sounds.map((x, j) => (j === i ? { ...x, sound: e.target.value } : x)) })}>{Object.keys(PART_SOUNDS).map((n) => <option key={n} value={n}>{n.replace(/^part/, '')}</option>)}</select>
-                <button className="btn hs-mini" onClick={() => setAnim({ ...anim, sounds: anim.sounds.filter((_, j) => j !== i) })}><Icon name="lucide:x" /></button>
-              </div>
-            ))}
-            <button className="btn" onClick={() => setAnim({ ...anim, sounds: [...anim.sounds, { at: Math.round(time * 100) / 100, sound: 'partMagOut' }].sort((a, b) => a.at - b.at) })}><Icon name="lucide:plus" /> Âm thanh tại {time.toFixed(2)}</button>
+            <h4>Âm thanh ({anim.sounds.length})</h4>
+            <p className="gs-hint">Âm thanh nằm ở hàng “Âm thanh” trên timeline: nhấp đúp để thêm, kéo để dời, bấm để chỉnh (âm, độ lớn, cao độ, nghe thử).</p>
+            {anim.sounds.length > 0 && <button className="btn" onClick={() => { if (confirm('Xoá hết âm thanh của animation này (game dùng lại âm thanh thay đạn sẵn có)?')) { setAnim({ ...anim, sounds: [] }); setSoundSel(null); } }}>Xoá hết âm thanh</button>}
           </>}
         </>}
       </aside>
@@ -466,8 +478,11 @@ export function HandStudioPage() {
         <div className="gs-view hs-view" ref={host} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerLeave={onPointerUp} />
         {tab === 'anim' && anim && (
           <div className="hs-timeline" ref={timeline}
-            onPointerMove={(e) => { const k = keyDrag.current; if (k) { const t = Math.round(tAt(e.clientX) * 1000) / 1000; updateKey(k.track, k.key, { t }); setTime(t); } }}
-            onPointerUp={() => { if (keyDrag.current && anim) { const k = keyDrag.current; keyDrag.current = null; const tr = anim.tracks.find((x) => x.id === k.track); if (tr) { const moved = tr.keys[k.key]; const keys = [...tr.keys].sort((a, b) => a.t - b.t); setAnim({ ...anim, tracks: anim.tracks.map((x) => (x.id === tr.id ? { ...x, keys } : x)) }); setSel({ track: tr.id, key: moved ? keys.indexOf(moved) : 0 }); } } }}>
+            onPointerMove={(e) => {
+              const k = keyDrag.current; if (k) { const t = Math.round(tAt(e.clientX) * 1000) / 1000; updateKey(k.track, k.key, { t }); setTime(t); }
+              const si = soundDrag.current; if (si !== null) { const t = Math.round(tAt(e.clientX) * 1000) / 1000; updateSound(si, { at: t }); setTime(t); }
+            }}
+            onPointerUp={() => { soundDrag.current = null; if (keyDrag.current && anim) { const k = keyDrag.current; keyDrag.current = null; const tr = anim.tracks.find((x) => x.id === k.track); if (tr) { const moved = tr.keys[k.key]; const keys = [...tr.keys].sort((a, b) => a.t - b.t); setAnim({ ...anim, tracks: anim.tracks.map((x) => (x.id === tr.id ? { ...x, keys } : x)) }); setSel({ track: tr.id, key: moved ? keys.indexOf(moved) : 0 }); } } }}>
             <div className="hs-transport">
               <button className="btn hs-mini" title="Về đầu" onClick={() => { setPlaying(false); setTime(0); }}><Icon name="lucide:skip-back" /></button>
               <button className="btn hs-mini" title="Lùi" onClick={() => setTime(Math.max(0, time - .02))}><Icon name="lucide:chevron-left" /></button>
@@ -489,6 +504,21 @@ export function HandStudioPage() {
               <span className="hs-ruler-label">Thời gian</span>
               <div className="hs-lane">{[0, .25, .5, .75, 1].map((t) => <i key={t} style={{ left: `${t * 100}%` }}>{(t * anim.duration).toFixed(2)}s</i>)}<b className="hs-head" style={{ left: `${time * 100}%` }} /></div>
             </div>
+            <div className="hs-track">
+              <span className="hs-track-label">
+                <Icon name="lucide:volume-2" /> Âm thanh
+                <button className="btn hs-mini" title="Thêm âm thanh tại đầu phát" onClick={() => addSound(time)}><Icon name="lucide:plus" /></button>
+              </span>
+              <div className="hs-lane hs-sound-lane" onDoubleClick={(e) => addSound(tAt(e.clientX))} onPointerDown={(e) => { if (e.target === e.currentTarget) { setPlaying(false); setTime(tAt(e.clientX)); } }}>
+                {anim.sounds.map((s, i) => (
+                  <button key={i} className={`hs-sound${soundSel === i ? ' on' : ''}`} style={{ left: `${s.at * 100}%` }} title={`${(s.at * anim.duration).toFixed(2)}s · ${soundName(s.sound)}`}
+                    onPointerDown={(e) => { e.stopPropagation(); setPlaying(false); setSoundSel(i); setSel(null); setTime(s.at); soundDrag.current = i; }}>
+                    <span>{soundName(s.sound)}</span>
+                  </button>
+                ))}
+                <b className="hs-head" style={{ left: `${time * 100}%` }} />
+              </div>
+            </div>
             {anim.tracks.map((tr) => (
               <div key={tr.id} className="hs-track">
                 <span className="hs-track-label" title={tr.part ?? tr.clip ?? ''}>
@@ -499,7 +529,7 @@ export function HandStudioPage() {
                 <div className="hs-lane" onDoubleClick={(e) => addKey(tr, tAt(e.clientX))} onPointerDown={(e) => { if (e.target === e.currentTarget) { setPlaying(false); setTime(tAt(e.clientX)); } }}>
                   {tr.keys.map((k, i) => (
                     <button key={i} className={`hs-key${sel?.track === tr.id && sel.key === i ? ' on' : ''}${k.pose ? ' posed' : ''}`} style={{ left: `${k.t * 100}%` }} title={`${(k.t * anim.duration).toFixed(2)}s${k.pose ? ` · ${k.pose}` : ''}`}
-                      onPointerDown={(e) => { e.stopPropagation(); setPlaying(false); setSel({ track: tr.id, key: i }); setTime(k.t); keyDrag.current = { track: tr.id, key: i }; }} />
+                      onPointerDown={(e) => { e.stopPropagation(); setPlaying(false); setSoundSel(null); setSel({ track: tr.id, key: i }); setTime(k.t); keyDrag.current = { track: tr.id, key: i }; }} />
                   ))}
                   <b className="hs-head" style={{ left: `${time * 100}%` }} />
                 </div>
@@ -545,6 +575,22 @@ export function HandStudioPage() {
           <button className="btn" onClick={() => commit({ ...data, poses: data.poses.map((p) => (p.id === pose.id ? { ...p, bones: {} } : p)) })}>Duỗi thẳng tất cả</button>
         </>}
         {tab === 'anim' && anim && <>
+          {selSound && soundSel !== null && <>
+            <h3>Âm thanh đang chọn</h3>
+            <label className="gs-row"><span>Âm thanh</span>
+              <select value={selSound.sound} onChange={(e) => { updateSound(soundSel, { sound: e.target.value }); preview({ ...selSound, sound: e.target.value }); }}>
+                {SOUND_GROUPS.map(([group, names]) => <optgroup key={group} label={group}>{names.map((n) => <option key={n} value={n}>{soundName(n)}</option>)}</optgroup>)}
+              </select>
+            </label>
+            {num('Thời điểm (0…1)', selSound.at, .01, (v) => updateSound(soundSel, { at: Math.min(1, Math.max(0, v)) }))}
+            {num('Độ lớn (0…2)', selSound.volume ?? .9, .05, (v) => updateSound(soundSel, { volume: Math.min(2, Math.max(0, v)) }))}
+            {num('Cao độ / tốc độ (×)', selSound.rate ?? 1, .05, (v) => updateSound(soundSel, { rate: Math.min(4, Math.max(.25, v)) }))}
+            <div className="gs-row">
+              <button className="btn" onClick={() => preview(selSound)}><Icon name="lucide:play" /> Nghe thử</button>
+              <button className="btn" onClick={() => { const at = Math.min(1, selSound.at + .05); setAnim({ ...anim, sounds: [...anim.sounds, { ...selSound, at }].sort((a, b) => a.at - b.at) }); }}><Icon name="lucide:copy" /> Nhân bản</button>
+              <button className="btn" onClick={() => { setAnim({ ...anim, sounds: anim.sounds.filter((_, j) => j !== soundSel) }); setSoundSel(null); }}><Icon name="lucide:trash-2" /> Xoá</button>
+            </div>
+          </>}
           <h3>Key đang chọn</h3>
           {!selKey && <p className="gs-hint">Chọn một key trên timeline (hoặc thêm key bằng nút ◇+ ở đầu track).</p>}
           {selKey && selTrack && sel && <>
@@ -650,12 +696,28 @@ const audioCache = new Map<string, HTMLAudioElement>();
 function playSounds(a: HandAnimation, from: number, to: number): void {
   for (const s of a.sounds) {
     const crossed = to >= from ? s.at > from && s.at <= to : s.at > from || s.at <= to;
-    if (!crossed) continue;
-    const url = (PART_SOUNDS as Record<string, string>)[s.sound];
-    if (!url) continue;
-    let el = audioCache.get(url);
-    if (!el) { el = new Audio(url); audioCache.set(url, el); }
-    el.currentTime = 0; el.volume = Math.min(1, s.volume ?? .9);
-    void el.play().catch(() => undefined);
+    if (crossed) preview(s);
   }
 }
+
+/** One sound as the game plays it (its volume and pitch). */
+function preview(s: { sound: string; volume?: number; rate?: number }): void {
+  const url = (SOUND_FILES as Record<string, string>)[s.sound];
+  if (!url) return;
+  // A fresh element each time: the same sound can overlap itself (a quick double click).
+  let el = audioCache.get(url);
+  if (!el || !el.paused) { el = new Audio(url); audioCache.set(url, el); }
+  el.currentTime = 0; el.volume = Math.min(1, s.volume ?? .9);
+  el.playbackRate = s.rate ?? 1; el.preservesPitch = false;
+  void el.play().catch(() => undefined);
+}
+
+/** Every game sound by kind: parts of guns first (what reloads are made of). */
+const SOUND_GROUPS: Array<[string, string[]]> = (() => {
+  const all = Object.keys(SOUND_FILES);
+  const part = all.filter((n) => n.startsWith('part'));
+  const gun = all.filter((n) => !n.startsWith('part') && /shot|reload|rack|pump|chamber|bolt|mag|gun|fire|empty|dry|equip|cock/i.test(n));
+  const rest = all.filter((n) => !part.includes(n) && !gun.includes(n));
+  return [['Bộ phận súng', part], ['Súng', gun], ['Khác', rest]];
+})();
+function soundName(n: string): string { return n.replace(/^part/, '').replace(/([a-z])([A-Z0-9])/g, '$1 $2'); }

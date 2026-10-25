@@ -73,7 +73,7 @@ export const handAnimationSchema = z.object({
   speed: z.number().min(.05).max(4).default(1),
   tracks: z.array(handTrackSchema).max(32),
   /** Sounds at fractions of the animation; empty: the weapon's own reload sounds play. */
-  sounds: z.array(z.object({ at: z.number().min(0).max(1), sound: z.string().max(40), volume: z.number().min(0).max(2).optional() })).max(48).default([]),
+  sounds: z.array(z.object({ at: z.number().min(0).max(1), sound: z.string().max(40), volume: z.number().min(0).max(2).optional(), rate: z.number().min(.25).max(4).optional() })).max(48).default([]),
 });
 export type HandAnimation = z.infer<typeof handAnimationSchema>;
 
