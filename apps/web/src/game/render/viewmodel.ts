@@ -290,6 +290,31 @@ export class ViewModel {
   }
 
 
+  private chargeSideOf = new Map<string, number>();
+  /** Which side of the gun its charging handle (or AK bolt) is on: 1 right, −1 left, 0 middle / none. */
+  private chargeSide(): number {
+    const key = this.current ?? '';
+    let side = this.chargeSideOf.get(key);
+    if (side === undefined) {
+      const model = this.current ? this.models.get(this.current) : undefined, mech = this.rig()?.mechanics;
+      const at = mech?.partWorld(/charging|cocking/, new Vector3(), true) ?? mech?.partWorld(/^bolt$/, new Vector3(), true);
+      // Display space: +X muzzle, +Y up, +Z the gun's right.
+      const z = at && model ? model.worldToLocal(at.clone()).z : 0;
+      side = z > .012 ? 1 : z < -.012 ? -1 : 0;
+      this.chargeSideOf.set(key, side);
+    }
+    return side;
+  }
+
+  /** How far into the charging-handle part of a reload (0 outside, 1 in the middle of it). */
+  private chargeWeight(): number {
+    if (this.reloadT < 0) return 0;
+    const keys = reloadScriptOf(this.rig()?.visual.itemId)?.hands.filter((k) => k.target === 'charge') ?? [];
+    if (!keys.length) return 0;
+    const a = keys[0]!.at - .08, b = keys[keys.length - 1]!.at + .06, r = this.reloadT / this.reloadDur;
+    return r <= a || r >= b ? 0 : Math.sin(Math.PI * (r - a) / (b - a));
+  }
+
   /** A shell-by-shell reload stopped (a shot): hands back on the gun. */
   stopReload(): void {
     this.reloadT = -1;
@@ -458,6 +483,10 @@ export class ViewModel {
     // Pin pulled: the grenade raised and drawn back, ready to throw.
     this.primeBlend += ((this.primed && this.throwT < 0 ? 1 : 0) - this.primeBlend) * (1 - Math.exp(-dt * 10));
     if (this.throwT < 0 && this.primeBlend > .001) { const k = ease(this.primeBlend); ax += .06 * k; ay += .2 * k; az += .16 * k; rx += 1.0 * k; rz -= .3 * k; }
+    // Working the charging handle in a reload: the gun comes up and rolls its handle's side up
+    // (handle on the right: tilted left; on the left: tilted right).
+    const charging = this.chargeWeight();
+    if (charging > 0) { const side = this.chargeSide() || -1; ay += .1 * charging; rx += .12 * charging; rz += side * .38 * charging; ax -= side * .03 * charging; }
     if (this.throwT >= 0) {
       this.throwT += dt;
       const t = this.throwT;
@@ -623,6 +652,7 @@ export class ViewModel {
           const at = (target: HandTarget): Vector3 => {
             switch (target) {
               case 'guard': return guard.center.clone();
+              case 'grip': return W(0, -.02, 0);
               case 'pouch': return cam(-.13, -.56, -.26);
               case 'mag': return part(/^(magazine|mag|ammo-box)$/) ?? W(reach.x * .3, -.1, 0);
               case 'magwell': return part(/^(magazine|mag|ammo-box)$/, true) ?? W(reach.x * .3, -.08, 0);
@@ -637,9 +667,19 @@ export class ViewModel {
               case 'muzzle': return model.getObjectByName('weapon-muzzle')?.getWorldPosition(new Vector3()) ?? W(.6, 0, 0);
             }
           };
+          // A charging handle on the right of the gun (AK) is worked by the right hand; the left
+          // one (and a central T-handle) by the left.
+          const rightCharge = this.chargeSide() > 0;
+          const hands = script.hands.map((k) => (k.target === 'charge' && rightCharge ? { ...k, side: 'R' as const } : k));
           const track = (side: 'L' | 'R') => {
-            const keys = script.hands.filter((k) => k.side === side);
-            if (!keys.length || (side === 'R' && r > keys[keys.length - 1]!.at)) return null;
+            const keys = hands.filter((k) => k.side === side);
+            if (!keys.length) return null;
+            if (side === 'R') {
+              // The right hand leaves the grip just for its moves and goes back to it.
+              const first = keys[0]!.at, last = keys[keys.length - 1]!.at;
+              if (r < first - .08 || r > last + .08) return null;
+              keys.unshift({ at: first - .08, side, target: 'grip', shape: 'fist' }); keys.push({ at: last + .08, side, target: 'grip', shape: 'fist' });
+            }
             if (side === 'L' && keys[keys.length - 1]!.at < 1) keys.push({ at: 1, side, target: 'guard', shape: 'ready' });
             if (keys[0]!.at > 0) keys.unshift({ at: 0, side, target: 'guard', shape: 'ready' });
             let i = 0;

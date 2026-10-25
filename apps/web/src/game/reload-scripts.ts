@@ -47,7 +47,7 @@ export const PART_SOUNDS = {
 export type PartSound = keyof typeof PART_SOUNDS;
 
 /** Where a hand goes: a part of the gun (followed while it moves), or a place by the body. */
-export type HandTarget = 'guard' | 'mag' | 'magwell' | 'pouch' | 'charge' | 'bolt' | 'slide' | 'pump' | 'breech' | 'cylinder' | 'port' | 'feed' | 'muzzle';
+export type HandTarget = 'grip' | 'guard' | 'mag' | 'magwell' | 'pouch' | 'charge' | 'bolt' | 'slide' | 'pump' | 'breech' | 'cylinder' | 'port' | 'feed' | 'muzzle';
 export type HandShape = 'ready' | 'fist' | 'pinch' | 'open';
 
 export interface ReloadSound { at: number; sound: PartSound; rate?: number; volume?: number }
