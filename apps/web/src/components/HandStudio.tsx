@@ -464,7 +464,7 @@ export function HandStudioPage() {
             <label className="gs-row"><span>Tên</span><input value={anim.name} onChange={(e) => setAnim({ ...anim, name: e.target.value.slice(0, 60) || anim.name })} /></label>
             <label className="gs-row"><span>Vũ khí</span><select value={anim.weapon} onChange={(e) => setAnim({ ...anim, weapon: e.target.value })}>{sortedWeapons.map((id) => <option key={id} value={id}>{weaponName(id)}</option>)}</select></label>
             <label className="gs-row"><span>Dùng trong game</span><select value={anim.action} onChange={(e) => setAnim({ ...anim, action: e.target.value as HandAnimation['action'] })}><option value="reload">Thay đạn (thay cho thao tác có sẵn)</option><option value="none">Không gán</option></select></label>
-            {num('Thời lượng xem thử (s)', anim.duration, .1, (v) => setAnim({ ...anim, duration: Math.min(20, Math.max(.1, v)) }))}
+            {num('Thời lượng (s)', anim.duration, .1, (v) => setAnim(retime(anim, Math.min(20, Math.max(.1, v)))))}
             {num('Tốc độ phát (×)', anim.speed, .05, (v) => setAnim({ ...anim, speed: Math.min(4, Math.max(.05, v)) }))}
             <p className="gs-hint">Trong game animation kéo dài đúng thời gian thay đạn của súng; âm thanh dưới đây (nếu có) phát theo tỉ lệ thời gian, không có thì dùng âm thanh thay đạn sẵn có của súng.</p>
             <h4>Âm thanh ({anim.sounds.length})</h4>
@@ -633,6 +633,15 @@ export function HandStudioPage() {
         </form></div></div>}
     </div>
   );
+}
+
+/**
+ * A new length: every key and sound keeps its time in seconds (the moves keep their speed); on the
+ * 0…1 timeline they draw closer together when it grows. Shortened past them, they gather at the end.
+ */
+function retime(a: HandAnimation, duration: number): HandAnimation {
+  const k = a.duration / duration, at = (t: number) => Math.round(Math.min(1, t * k) * 10000) / 10000;
+  return { ...a, duration, tracks: a.tracks.map((tr) => ({ ...tr, keys: tr.keys.map((key) => ({ ...key, t: at(key.t) })) })), sounds: a.sounds.map((s) => ({ ...s, at: at(s.at) })) };
 }
 
 function boneByName(hand: { fingers: Bone[][] }, name: string): Bone | null {
