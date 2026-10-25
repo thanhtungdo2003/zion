@@ -1,4 +1,4 @@
-import { Vector3, type Euler, type Object3D } from 'three';
+import { Box3, Matrix4, Vector3, type Euler, type Object3D } from 'three';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip } from './character-model';
 import type { WeaponVisual } from './weapons';
 import type { ReloadClip, ReloadScript } from '../reload-scripts';
@@ -8,7 +8,8 @@ const PX = 1 / BB_UNITS_PER_METER;
 const v3: [number, number, number] = [0, 0, 0];
 const r3: [number, number, number] = [0, 0, 0];
 
-interface Part { node: Object3D; restPos: Vector3; restRot: Euler; restScale: Vector3; restVisible: boolean }
+/** `unit`: the part's own units per metre of the gun (1 for Blockbench bones; a GLB's file units otherwise). */
+interface Part { node: Object3D; restPos: Vector3; restRot: Euler; restScale: Vector3; restVisible: boolean; unit: number }
 
 /**
  * Moving parts of one first-person gun: the slide / bolt carrier snapping back on each shot, the
@@ -38,14 +39,24 @@ export class WeaponMechanics {
 
   constructor(model: Object3D, private readonly visual: WeaponVisual, private readonly boltAction: boolean) {
     // Only the gun's own parts: not its markers, mounted attachments or the first-person arm.
+    const top = model.children[0] ?? model;
+    top.updateWorldMatrix(true, true);
+    const toTop = new Matrix4().copy(top.matrixWorld).invert();
+    // Moves are authored in Blockbench pixels of an AK-length gun (about 56 px). A GLB's parts sit in
+    // the file's own units: its moves are scaled to the same share of the gun's length.
+    const size = new Box3().setFromObject(top).applyMatrix4(toTop).getSize(new Vector3());
+    const unitOf = (c: Object3D) => {
+      const rel = new Vector3().setFromMatrixScale(toTop.clone().multiply(c.parent!.matrixWorld)).x;
+      return Math.abs(rel - 1) < 1e-3 ? 1 : Math.max(size.x, size.y, size.z) / rel / (56 * PX);
+    };
     const visit = (o: Object3D) => {
       for (const c of o.children) {
         if (c.name.startsWith('weapon-') || c.name.startsWith('attachment-') || c.name.startsWith('first-person')) continue;
-        if (c.name && !this.parts.has(c.name)) this.parts.set(c.name, { node: c, restPos: c.position.clone(), restRot: c.rotation.clone(), restScale: c.scale.clone(), restVisible: c.visible });
+        if (c.name && !this.parts.has(c.name)) this.parts.set(c.name, { node: c, restPos: c.position.clone(), restRot: c.rotation.clone(), restScale: c.scale.clone(), restVisible: c.visible, unit: unitOf(c) });
         visit(c);
       }
     };
-    visit(model.children[0] ?? model);
+    visit(top);
     const find = (re: RegExp) => [...this.parts.entries()].find(([name, p]) => re.test(name) && !p.node.type.includes('Mesh'))?.[1] ?? null;
     this.slide = find(/^slide$/i) ?? find(/slide/i);
     this.bolt = find(/^bolt$/i) ?? find(/bolt/i);
@@ -75,8 +86,12 @@ export class WeaponMechanics {
       const clip = c.clips.map((n) => this.visual.clips.get(n)).find(Boolean);
       if (clip) this.scripted.push({ clip, step: c, peak: clipPeak(clip) });
     }
+    // The hands' charging-handle moves: the procedural rack happens while they pull it.
+    const charge = script?.hands.filter((h) => h.target === 'charge') ?? [];
+    this.rackWindow = charge.length ? [charge[0]!.at, Math.max(charge[0]!.at + .06, charge[charge.length - 1]!.at)] : [.86, 1];
     this.cycleT = -1;
   }
+  private rackWindow: [number, number] = [.86, 1];
 
   /** The script's part clips playing in this reload. */
   private scripted: Array<{ clip: CharacterClip; step: ReloadClip; peak: number }> = [];
@@ -117,7 +132,7 @@ export class WeaponMechanics {
       this.fireT += dt;
       const t = this.fireT, back = t < .035 ? t / .035 : Math.max(0, 1 - (t - .035) / .07);
       const part = this.slide ?? (this.boltAction ? null : this.bolt);
-      if (part) part.node.position.addScaledVector(this.barrel, -back * (this.slide ? 2.2 : 2.6) * PX);
+      if (part) part.node.position.addScaledVector(this.barrel, -back * (this.slide ? 2.2 : 2.6) * PX * part.unit);
       if (t > .11) this.fireT = -1;
     }
     // Bolt action: lift, pull, push, lower — in step with the rechamber sound (starts at 0.22 s).
@@ -131,7 +146,7 @@ export class WeaponMechanics {
         const pull = k < .25 ? 0 : k < .45 ? (k - .25) / .2 : k < .6 ? 1 : k < .78 ? 1 - (k - .6) / .18 : 0;
         if (this.bolt) {
           this.bolt.node.rotateOnAxis(this.barrel, -lift * 70 * DEG);
-          this.bolt.node.position.addScaledVector(this.barrel, -pull * 5 * PX);
+          this.bolt.node.position.addScaledVector(this.barrel, -pull * 5 * PX * this.bolt.unit);
         }
         // The shooter rolls the rifle slightly to work the bolt, with or without a bolt part.
         this.cant = -lift * .18; this.lift = -lift * .015;
@@ -167,12 +182,14 @@ export class WeaponMechanics {
       } else if (this.magazine) {
         // Out (drops along "down"), away, back in, seated.
         const out = k < .12 ? 0 : k < .32 ? (k - .12) / .2 : k < .62 ? 1 : k < .82 ? 1 - (k - .62) / .2 : 0;
-        this.magazine.node.position.addScaledVector(this.up, -out * 9 * PX);
+        this.magazine.node.position.addScaledVector(this.up, -out * 9 * PX * this.magazine.unit);
         this.magazine.node.visible = !(k > .3 && k < .64);
         // Charging handle / slide racked at the end.
-        if (k > .86 && (this.slide || this.bolt)) {
-          const rack = Math.sin((k - .86) / .14 * Math.PI);
-          (this.slide ?? this.bolt)!.node.position.addScaledVector(this.barrel, -rack * 2.5 * PX);
+        const [r0, r1] = this.rackWindow;
+        if (k > r0 && k < r1 && (this.slide || this.bolt)) {
+          const rack = Math.sin((k - r0) / (r1 - r0) * Math.PI);
+          const part = (this.slide ?? this.bolt)!;
+          part.node.position.addScaledVector(this.barrel, -rack * 2.5 * PX * part.unit);
         }
       }
     }
