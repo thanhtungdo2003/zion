@@ -1808,7 +1808,8 @@ export class GameServer {
       if (pos) return pos;
     }
     const spot = spots[Math.floor(Math.random() * spots.length)]!;
-    return { x: spot.x, y: this.deps.world.generator.heightAt(spot.x, spot.z) + .05, z: spot.z };
+    // A point placed in 3D: on its floor even when nothing nearby checked out (never under the map).
+    return { x: spot.x, y: spot.y !== undefined ? spot.y + .05 : this.deps.world.generator.heightAt(spot.x, spot.z) + .05, z: spot.z };
   }
 
   /** A loaded player joins the battle or the infection round (once). */

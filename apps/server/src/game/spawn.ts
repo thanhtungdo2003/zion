@@ -95,7 +95,8 @@ export class SpawnService {
       }
       if (!this.controller.isFree(px, y, pz)) continue;
       // Never inside a building's shell: not boxed in on every side, not in a slot between walls.
-      if (this.trapped(px, y, pz)) continue;
+      // (A point placed on a floor in the Studio may well be indoors.)
+      if (floor === undefined && this.trapped(px, y, pz)) continue;
       if (requireOpen && this.collision.overlapsCapsule(px, y + 1.5, pz, px, y + 5, pz, 2.5, Layer.Static | Layer.Vegetation)) continue;
       return { x: px, y, z: pz };
     }

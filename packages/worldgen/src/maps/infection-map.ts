@@ -79,10 +79,11 @@ function rawHeight(p: Prepared, x: number, z: number): number {
   const { def, centre } = p, d = Math.max(Math.abs(x - centre), Math.abs(z - centre));
   // Under the Warehouse model the ground drops below its pits: the model's own floor is walked on.
   if (def.base === 'warehouse' && Math.abs(x - centre) < WAREHOUSE.halfX - .5 && Math.abs(z - centre) < WAREHOUSE.halfZ - .5) return INFECTION_GROUND - WAREHOUSE.sink - .6;
-  // An uploaded map model set below the ground: the ground drops under its footprint, below it.
-  if (def.base === 'model' && def.model && def.model.y < 0 && Math.hypot(x - centre, z - centre) < p.modelRadius) return INFECTION_GROUND + def.model.y - .6;
+  // An uploaded map model replaces the ground under it: the terrain drops just below the model's
+  // lowest point there, so its own floors are what is walked on (no gap, no old ground poking up).
+  if (def.base === 'model' && def.model && Math.hypot(x - centre, z - centre) < p.modelRadius) return INFECTION_GROUND + Math.min(0, def.model.y) - .6;
   let h = INFECTION_GROUND + smoothstep(def.half + 3, def.half + 24, d) * def.terrain.banks + smoothstep(def.half + 24, def.half + 80, d) * def.terrain.banks * .4;
-  if (def.terrain.hills > 0) {
+  if (def.terrain.hills > 0 && def.base !== 'model') {
     const town = def.base === 'friday13' ? 1 - smoothstep(F13.half - 6, F13.half + 6, d) : 0;
     const edge = 1 - smoothstep(def.half - 10, def.half - 1, d);
     h += (p.noise.noise(x * .012, z * .012) * 4.5 + p.noise.noise(x * .04 + 9, z * .04) * 1.2) * def.terrain.hills * edge * (1 - town);
@@ -131,7 +132,8 @@ export function infectionStructures(host: Host): Structure[] {
   // An uploaded map model, centred, its lowest point `y` above the map's ground.
   if (def.base === 'model' && def.model) sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND + def.model.y, yaw: 0, radius: Math.max(1, radiusOf(host, def.model.asset) * def.model.scale), parts: [{ asset: def.model.asset, x: 0, y: 0, z: 0, yaw: def.model.yaw, scale: def.model.scale, group: 0 }], gid: gid++ });
   // Perimeter wall: 4 m panels scaled up, all one fading group.
-  if (def.terrain.wall !== 'none') {
+  // (A map model is the whole map: no generated wall round it.)
+  if (def.terrain.wall !== 'none' && def.base !== 'model') {
     const parts: CampPart[] = [], step = 4 * def.terrain.wallScale, asset = WALL_ASSET[def.terrain.wall];
     for (let o = -def.half + step / 2; o <= def.half - step / 2 + .01; o += step) for (const side of [-1, 1]) {
       parts.push({ asset, x: o, y: 0, z: side * def.half, yaw: 0, scale: def.terrain.wallScale, group: 1 });
