@@ -14,13 +14,17 @@ vi.mock('./character-model', async original => {
     raw.textures = []; return mod.buildBBModel(raw);
   } };
 });
+// The transport plane is a textured GLB (no image decoding here): a stand-in group.
+vi.mock('./transport-plane', async () => {
+  const three = await import('three');
+  return { loadTransportPlane: async () => ({ root: new three.Group(), boneNames: [], clips: new Map() }) };
+});
 describe('Battle Royale animated models', () => {
-  it('plays supplied door clips, rotates all four propellers, inflates a canopy and cleans up on landing', async () => {
+  it('plays supplied door clips, inflates a canopy and cleans up on landing', async () => {
     const scene = new Scene(), renderer = new BattleFlightRenderer(scene); await renderer.load();
     const state = { t: 'door' as const, id: 1, x: 10, y: 0, z: 10, yaw: 0, open: false };
     renderer.door(state); renderer.update(.1, .05, 10, 10, { x: 20, y: 650, z: 20, yaw: 0, remainingMs: 1000 });
     expect(scene.getObjectByName('door')!.rotation.y).toBeCloseTo(0);
-    for (const name of ['left_propeller', 'right_propeller', 'left_outer_propeller', 'right_outer_propeller']) expect(scene.getObjectByName(name)!.rotation.z).toBeCloseTo(Math.PI / 2);
     renderer.door({ ...state, open: true }); renderer.update(.1, .1, 10, 10, undefined);
     expect(scene.getObjectByName('door')!.rotation.y).toBeCloseTo(-Math.PI / 2);
     renderer.door(state); renderer.update(.1, .1, 10, 10, undefined);

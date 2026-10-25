@@ -38,6 +38,7 @@ import { piecesOf } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { BB_UNITS_PER_METER, loadCharacterModel, sampleTrack, type CharacterTemplate } from './character-model';
 import type { DebrisSystem } from './debris';
+import { loadTransportPlane } from './transport-plane';
 
 const box = new BoxGeometry(1, 1, 1);
 
@@ -447,7 +448,7 @@ export class SupplyRenderer {
   private readonly canopyStripe = new MeshLambertMaterial({ color: '#d62b2b', side: DoubleSide });
   private readonly cord = new LineBasicMaterial({ color: '#d5d0ba' });
   constructor(private readonly scene: Scene, private readonly library: AssetLibrary) {
-    void Promise.all([loadCharacterModel('/models/dists/heavy-transport-plane.bbmodel'), loadCharacterModel('/models/dists/military-wooden-crate.bbmodel')])
+    void Promise.all([loadTransportPlane(), loadCharacterModel('/models/dists/military-wooden-crate.bbmodel')])
       .then(([plane, crate]) => { this.planeTemplate = plane; this.crateTemplate = crate; })
       .catch((err: unknown) => console.error('supply models failed', err));
   }

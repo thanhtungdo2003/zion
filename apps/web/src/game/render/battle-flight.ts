@@ -2,6 +2,7 @@ import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, LineSegment
 import { EntityFlags, type BattlePlane, type DoorStateEvent } from '@zion/shared';
 import { BB_UNITS_PER_METER, loadCharacterModel, sampleTrack, type CharacterTemplate } from './character-model';
 import { ResourceDisposer } from './resources';
+import { loadTransportPlane } from './transport-plane';
 
 interface DoorVisual { root: Group; state: DoorStateEvent; time: number }
 /** Authored bone animation is retained instead of flattening these models into instances. */
@@ -34,7 +35,7 @@ export class BattleFlightRenderer {
     setTimeout(() => { if (!this.disposed && this.warm) { scene.remove(warm); this.warm = null; warm.traverse(o => { o.frustumCulled = true; }); this.pool.push(warm); } }, 1500);
   }
   async load(): Promise<void> {
-    const templates = await Promise.all([loadCharacterModel('/models/dists/wooden-door.bbmodel'), loadCharacterModel('/models/dists/heavy-transport-plane.bbmodel')]);
+    const templates = await Promise.all([loadCharacterModel('/models/dists/wooden-door.bbmodel'), loadTransportPlane()]);
     [this.doorTemplate, this.planeTemplate] = templates;
     if (this.disposed) { this.dispose(); return; }
     this.plane = this.planeTemplate.root.clone(true); this.plane.scale.setScalar(BB_UNITS_PER_METER / 1.5); this.plane.visible = false; this.scene.add(this.plane);

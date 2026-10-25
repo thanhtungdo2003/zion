@@ -192,7 +192,8 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   baseball_bat: { url: '/models/weapons/baseball-bat.bbmodel', length: 0.85, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], support: [0, 1.4, 0], edge: [-1, 0, 0], strikePoint: [0, 26, 0], fpHip: [0.255, -0.215, -0.205], fpRot: [0.4538, 0] },
   crowbar: { url: '/models/weapons/crowbar.bbmodel', length: 0.7, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 4, 0], edge: [-1, 0, 0], strikePoint: [0, 23, 0], fpHip: [0.3359, -0.27, -0.25], fpRot: [0.3595, 0.1012] },
   katana: { url: '/models/weapons/katana.bbmodel', length: 1, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 5, 0], edge: [-1, 0, 0], strikePoint: [0, 32, 0], fpHip: [0.2988, -0.2559, -0.1437], fpRot: [0.3944, 0.2269] },
-  quam: { url: '/models/weapons/cay-quam.bbmodel', length: 1.9, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 18, 0], support: [0, 8, 0], edge: [1, 0, 0], strikePoint: [0, 56, 0], fpHip: [0.4088, -0.329, -0.25], fpRot: [0.4014, -0.199] },
+  // Polearm (Sketchfab GLB, shaft lying diagonally in the file): blade towards +barrel, its edge out along `edge`.
+  quam: { url: '/models/weapons/polearm.glb', length: 1.95, barrel: [0.9705, -0.211, 0.1164], up: [-0.2312, -0.6796, 0.6962], grip: [-0.3616, 0.0718, -0.0366], support: [-0.7498, 0.1562, -0.0832], edge: [-0.2312, -0.6796, 0.6962], strikePoint: [0.774, -0.1751, 0.0995], fpHip: [0.4088, -0.329, -0.25], fpRot: [0.4014, -0.199] },
   // Low-poly pirate shovel (Sketchfab, GLB units): handle end at −Z, blade towards +Z, blade face across Y.
   shovel: { url: '/models/tools/shovel.glb', length: 1.15, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -.01, -2.6], strikePoint: [0, -.05, 2.3], fpHip: [0.4115, -0.27, -0.25] },
   long_sledgehammer: { url: '/models/weapons/long-sledgehammer.bbmodel', length: 1.5, barrel: [0, 1, 0], up: [0, 0, 1], grip: [0, 7, 0], support: [0, 1.5, 0], edge: [1, 0, 0], strikePoint: [0, 43, 0] },

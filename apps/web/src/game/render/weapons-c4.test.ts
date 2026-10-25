@@ -108,9 +108,10 @@ describe('C4 supplied models', () => {
   it('leads every slash with the actual sharp edge or hammer face in both camera rigs', () => {
     for (const id of ['katana', 'quam', 'fire_axe', 'long_sledgehammer']) {
       const visual = weapons.get(id)!;
+      // (The quắm is now a GLB whose shaft lies diagonally: its blade point's own coordinate.)
       // Independent authored head/blade coordinates: measuring a point on the lower
       // handle can reverse the apparent swing direction of the actual axe head.
-      const headY = { katana: 32, quam: 56, fire_axe: 27, long_sledgehammer: 43 }[id]!;
+      const headY = { katana: 32, quam: -0.1751, fire_axe: 27, long_sledgehammer: 43 }[id]!;
       expect(visual.melee!.held.tip.y).toBeCloseTo(headY / BB_UNITS_PER_METER);
       const avatar = new Avatar(character, true);
       avatar.setStance('melee'); avatar.setWeapon(id, weapons);
