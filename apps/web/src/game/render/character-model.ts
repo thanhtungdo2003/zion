@@ -14,6 +14,7 @@ import {
   type Object3D,
 } from 'three';
 import { FACES, type FaceName } from './bbmodel-loader';
+import { surfaceMaterial, surfaceOf, type Surface } from './material-labels';
 import { cachedFetch } from '@/lib/preload';
 import { HUMAN_SCALE, fetchBinary, loadHumanAssets, type HumanAssets } from './human-rig';
 
@@ -282,24 +283,29 @@ export async function buildBBModel(model: RawModel): Promise<CharacterTemplate> 
     bone.userData.restPos = bone.position.clone();
     bone.userData.restRot = bone.rotation.clone();
     boneNames.push(g.name);
-    const buf = { pos: [] as number[], nrm: [] as number[], uv: [] as number[] };
+    // One mesh per surface label in the bone (unlabelled cubes: the plain material).
+    const bufs = new Map<Surface | null, { pos: number[]; nrm: number[]; uv: number[] }>();
     for (const child of g.children) {
       if (typeof child === 'string') {
         const cube = cubes.get(child);
-        if (cube && cube.visibility !== false) cubeQuads(cube, origin, texW, texH, buf);
+        if (!cube || cube.visibility === false) continue;
+        const surface = surfaceOf((cube as { name?: string }).name);
+        let buf = bufs.get(surface);
+        if (!buf) bufs.set(surface, (buf = { pos: [], nrm: [], uv: [] }));
+        cubeQuads(cube, origin, texW, texH, buf);
       } else if (child.visibility !== false) {
         bone.add(buildBone(child, origin));
       }
     }
-    if (buf.pos.length) {
+    for (const [surface, buf] of bufs) {
       const geo = new BufferGeometry();
       geo.setAttribute('position', new BufferAttribute(new Float32Array(buf.pos), 3));
       geo.setAttribute('normal', new BufferAttribute(new Float32Array(buf.nrm), 3));
       geo.setAttribute('uv', new BufferAttribute(new Float32Array(buf.uv), 2));
       geo.computeBoundingSphere();
-      const mesh = new Mesh(geo, material);
+      const mesh = new Mesh(geo, surface ? surfaceMaterial(material, surface) : material);
       mesh.castShadow = true;
-      mesh.name = `${g.name}_mesh`;
+      mesh.name = surface && bufs.has(null) ? `${g.name}_mesh#${surface}` : `${g.name}_mesh`;
       bone.add(mesh);
     }
     return bone;
