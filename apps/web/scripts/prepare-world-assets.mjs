@@ -13,7 +13,8 @@ const sourceOut = path.join(root, 'packages/assets/src/imported-assets.ts');
 const cacheFile = path.join(outDir, 'source-hash.txt');
 const jobs = [
   ['vehicles/lada_2109_base_template_free.glb', null, 'drive_car', 2300, 4.3],
-  ['vehicles/military_jeep__jeep_pixel_style.glb', null, 'drive_jeep', 2301, 4.2],
+  // The Willys is one mesh: its wheels are cut out of it by position (splitWheels).
+  ['vehicles/willys_mb_jeep.glb', null, 'drive_jeep', 2301, 3.36, { splitWheels: true }],
   ['vehicles/quad_bike.glb', null, 'drive_quad', 2302, 2.3],
   ['vehicles/grizzly_quad_bike_700.glb', null, 'drive_grizzly', 2303, 2.4],
   // The low-poly pack's houses are closed shells (doors and windows are painted on): they collide
@@ -219,6 +220,8 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     const id=dst.materials.length;dst.materials.push(mat);materialMap.set(index,id);return id;
   }
   const colliders=new Map(), allPoints=[], allTris=[];
+  const WHEELS={2300:[.703,.314,-1.305,1.338],2301:[.61,.35,-1.15,.89],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]};
+  const wheelPrims=[[],[],[],[]];
   for(const i of nodes) {
     const transform=base.clone().multiply(worlds[i]),normal=new Matrix3().getNormalMatrix(transform);
     const primitives=[],meshBounds=new Box3();
@@ -236,6 +239,18 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
         if(opts.uv&&primitive.attributes.TEXCOORD_0!==undefined){const uv=accessor(primitive.attributes.TEXCOORD_0).values,[u0,v0,u1,v1]=opts.uv,keep=[];
           for(let j=0;j+2<indices.length;j+=3){const t=indices.slice(j,j+3),u=(uv[t[0]*2]+uv[t[1]*2]+uv[t[2]*2])/3,v=(uv[t[0]*2+1]+uv[t[1]*2+1]+uv[t[2]*2+1])/3;if(u>=u0&&u<u1&&v>=v0&&v<v1)keep.push(...t);}
           indices=keep;}
+        if(opts.splitWheels){
+          // Triangles inside a wheel's cylinder (tyre and hub) become that wheel's own mesh.
+          const [wx,radius,front,rear]=WHEELS[numericId],own=[[],[],[],[]],body=[];
+          for(let j=0;j+2<indices.length;j+=3){
+            const t=indices.slice(j,j+3),v=t.map(k=>positions.slice(k*3,k*3+3));
+            const c=[0,1,2].map(n=>(v[0][n]+v[1][n]+v[2][n])/3),z=c[2]<0?front:rear;
+            const inside=v.every(q=>Math.abs(Math.abs(q[0])-wx)<.13&&Math.hypot(q[1]-radius,q[2]-z)<radius+.03);
+            (inside?own[(c[2]<0?0:2)+(c[0]<0?0:1)]:body).push(...t);
+          }
+          indices=body;
+          own.forEach((w,n)=>{if(w.length)wheelPrims[n].push({attributes:p.attributes,indices:addAccessor(w,a.a,1),material:primitive.material});});
+        }
         p.indices=addAccessor(indices,a.a,1);}
       for(let j=0;j+2<indices.length;j+=3)allTris.push(indices.slice(j,j+3).map(k=>positions.slice(k*3,k*3+3)));
       if(primitive.material!==undefined)p.material=await material(primitive.material);
@@ -273,8 +288,8 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
       }
     }
     const bakedNode={name:src.nodes[i].name,mesh:dst.meshes.length};
-    if(numericId<2400){
-      const wheelData={2300:[.703,.314,-1.305,1.338],2301:[1.11,.542,-1.27,1.27],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]}[numericId];
+    if(numericId<2400&&!opts.splitWheels){
+      const wheelData={2300:[.703,.314,-1.305,1.338],2301:[.61,.35,-1.15,.89],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]}[numericId];
       const c=meshBounds.getCenter(new Vector3()),d=meshBounds.getSize(new Vector3());
       let named=false;
       for(let ancestor=i;ancestor!==undefined;ancestor=parents[ancestor]){
@@ -292,6 +307,10 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
     }
     dst.scenes[0].nodes.push(dst.nodes.length);dst.nodes.push(bakedNode);dst.meshes.push({primitives});
   }
+  for(const [wheel,prims] of wheelPrims.entries()){if(!prims.length)continue;const [wx,radius,front,rear]=WHEELS[numericId];
+    for(const q of prims)if(q.material!==undefined)q.material=await material(q.material);
+    dst.scenes[0].nodes.push(dst.nodes.length);dst.nodes.push({name:'wheel'+wheel,mesh:dst.meshes.length,extras:{vehicleWheel:wheel,wheelCenter:[wheel%2?wx:-wx,radius,wheel<2?front:rear]}});
+    dst.meshes.push({primitives:prims.map(({attributes,indices,material})=>({attributes,indices,...(material!==undefined?{material}:{})}))});}
   const pad=(4-length%4)%4;if(pad){chunks.push(Buffer.alloc(pad));length+=pad;}dst.buffers[0].byteLength=length;
   let json=Buffer.from(JSON.stringify(dst));json=Buffer.concat([json,Buffer.alloc((4-json.length%4)%4,32)]);
   const header=Buffer.alloc(20);header.writeUInt32LE(0x46546c67);header.writeUInt32LE(2,4);header.writeUInt32LE(28+json.length+length,8);header.writeUInt32LE(json.length,12);header.writeUInt32LE(0x4e4f534a,16);

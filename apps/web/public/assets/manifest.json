@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-25T09:06:59.286Z",
+  "generatedAt": "2026-10-25T09:39:38.934Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1401,9 +1401,9 @@
       "kind": "glb"
     },
     "prepared/drive_jeep.glb": {
-      "url": "/assets/models/prepared_drive_jeep.e332a69b6d3c.glb",
-      "sha256": "e332a69b6d3c760456a1408b53967de49e3a31579539546e8619d681805695ad",
-      "bytes": 318928,
+      "url": "/assets/models/prepared_drive_jeep.751313572bcc.glb",
+      "sha256": "751313572bcc87745f3c1a22a8fdec2d29655fb369922e76e5b04e44f7e24c76",
+      "bytes": 904856,
       "kind": "glb"
     },
     "prepared/drive_quad.glb": {

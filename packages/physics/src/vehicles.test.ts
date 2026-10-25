@@ -65,7 +65,7 @@ describe('vehicle suspension and chassis',()=>{
     let crash=0;
     for(let i=0;i<90;i++){
       crash=Math.max(crash,stepVehicle(v,1,0,w,1/30,i*1000/30));
-      expect(v.z).toBeGreaterThan(153.8);
+      expect(v.z).toBeGreaterThan(152+VEHICLES[kind].halfZ*.6);
       expect(v.y).toBeGreaterThan(w.terrainHeight(v.x,v.z)-.5);
     }
     expect(crash).toBeGreaterThan(20);expect(v.health).toBeLessThan(VEHICLES[kind].health);
