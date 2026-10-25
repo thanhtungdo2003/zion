@@ -28,7 +28,7 @@ const resources = ['plank', 'plank', 'stone', 'stone', 'iron_ore', 'copper_ore',
 /** Battle royale: everything but the survival-only pieces (masks). */
 const battleArmor = ARMOR_SPECS.filter((a) => !a.survivalOnly).map((a) => a.item);
 const armor = ARMOR_SPECS.filter((a) => a.rarity === 'common' || a.rarity === 'uncommon').map((a) => a.item);
-const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'suppressor_sniper', 'compensator_rifle', 'remington700', 'm79', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
+const elite = ['awm', 'm4a1', 'aug', 'svd', 'scar_h', 'scar_l', 'm16', 'beryl', 'm762', 'kar98k', 'mini14', 'scope_4x', 'scope_8x', 'nv_scope_6x', 'suppressor_rifle', 'suppressor_sniper', 'compensator_rifle', 'remington700', 'm79', 'saiga12', 'grenade_launcher', 'rocket_launcher', 'flamethrower', 'nuclear_cell', ...ARMOR_SPECS.filter((a) => a.rarity === 'rare' || a.rarity === 'epic' || a.rarity === 'legendary').map((a) => a.item)];
 
 /** Per-slot odds: ammo 44%, resources 12%, supplies 26%, tools 13%, guns 2.9%, armor 1.9%, elite 0.2%. */
 export function rollChestItem(random: () => number = Math.random): string {
@@ -69,7 +69,7 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
     const mag = magazineOf(itemId); if (mag !== undefined) item.mag = mag;
     items.push(item);
   };
-  const gun = pick([...lootableCustomWeapons().filter((id) => ITEMS[id] && WEAPON_BY_ITEM[id] && ITEMS[id]!.category !== 'melee'), 'gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
+  const gun = pick([...lootableCustomWeapons().filter((id) => ITEMS[id] && WEAPON_BY_ITEM[id] && ITEMS[id]!.category !== 'melee'), 'gl18', 'mp5', 'uzi', 'vector', 'p90', 'deagle', 'scar_h', 'scar_l', 'm16', 'beryl', 'm762', 'kar98k', 'mini14', 'ak47', 'm4a1', 'aug', 'shotgun', 'saiga12', 'svd', 'awm', 'pkm', 'barrett', 'revolver']);
   add(gun);
   add(Object.values(ITEMS).find(item => item.ammo?.guns.includes(gun))!.id);
   add(pick(battleArmor));

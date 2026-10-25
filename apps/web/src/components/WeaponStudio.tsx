@@ -876,11 +876,10 @@ function HandStudio({ draft, onChange, hold, onHold }: { draft: Draft; onChange:
             {(Object.keys(SHAPE_LABELS) as HandPreset[]).map((p) => <option key={p} value={p}>{SHAPE_LABELS[p]}{p === k.shape ? ' (mặc định)' : ''}</option>)}
           </select>
         </label>
-        {open && <>
-          {slider('Trước / sau', off[0], -.08, .08, (v) => put(0, v))}
-          {slider('Lên / xuống', off[1], -.08, .08, (v) => put(1, v))}
-          {slider('Trái / phải', off[2], -.08, .08, (v) => put(2, v))}
-        </>}
+        {open && (['Trước / sau', 'Lên / xuống', 'Trái / phải'] as const).map((label, i) =>
+          <label key={label} className="set-slider"><span>{label} (m)</span>
+            <input type="number" step={.005} min={-1} max={1} value={+off[i]!.toFixed(4)} onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) put(i, Math.max(-1, Math.min(1, v))); }} />
+          </label>)}
       </div>;
     })}
     <h4>Kiểu dáng bàn tay: cấu trúc xương</h4>

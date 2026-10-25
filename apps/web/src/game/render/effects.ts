@@ -168,6 +168,9 @@ export class CombatEffects {
       case WeaponId.Vector: s.play('pistol9mmShot', { at, rate: 1.15, volume: 0.65, maxDistance: 60 }); break;
       case WeaponId.P90: s.play('pistol9mmShot', { at, rate: 1.25, volume: 0.7, maxDistance: 65 }); break;
       case WeaponId.ScarL: s.play('rifleShot', { at, rate: 1.04, volume: 0.9, maxDistance: 100 }); break;
+      case WeaponId.M16: s.play('rifleShot', { at, rate: 1.08, volume: 0.9, maxDistance: 100 }); break;
+      case WeaponId.Beryl: s.play('rifleShot', { at, rate: .98, volume: 0.9, maxDistance: 100 }); break;
+      case WeaponId.M762: s.play('rifleShot', { at, rate: .92, volume: 0.95, maxDistance: 105 }); break;
       case WeaponId.M4A1: s.play('rifleShot', { at, rate: 1.06, volume: 0.85, maxDistance: 100 }); break;
       case WeaponId.AUG: s.play('rifleShot', { at, rate: 1.03, volume: 0.85, maxDistance: 100 }); break;
       default: s.play('akShot', { at, volume: 0.9, maxDistance: 90 });

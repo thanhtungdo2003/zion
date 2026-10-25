@@ -44,9 +44,12 @@ export const WeaponId = {
   Pickaxe: 38,
   M79: 39,
   Remington700: 40,
+  M16: 41,
+  Beryl: 42,
+  M762: 43,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
-export const MAX_WEAPON_ID = 40;
+export const MAX_WEAPON_ID = 43;
 
 /** What a gun's trigger produces. */
 export type FireMode = 'ballistic' | 'projectile' | 'flame';
@@ -172,6 +175,9 @@ export const WEAPON_SPECS: Record<Exclude<WeaponId, 0>, WeaponSpec> = {
   [WeaponId.Vector]: { kind: 'gun', weight: 2.7, fireMs: 50, damage: 8, pellets: 1, spread: 0.04, range: 40, magazine: 25, reloadMs: 2300, auto: true },
   [WeaponId.P90]: { kind: 'gun', weight: 2.6, fireMs: 67, damage: 9, pellets: 1, spread: 0.035, range: 50, magazine: 50, reloadMs: 2600, auto: true },
   [WeaponId.ScarL]: { kind: 'gun', weight: 3.5, fireMs: 95, damage: 14, pellets: 1, spread: 0.019, range: 78, magazine: 30, reloadMs: 2300, auto: true },
+  [WeaponId.M16]: { kind: 'gun', weight: 3.4, fireMs: 80, damage: 14, pellets: 1, spread: 0.017, range: 80, magazine: 30, reloadMs: 2300, auto: true },
+  [WeaponId.Beryl]: { kind: 'gun', weight: 3.5, fireMs: 86, damage: 14, pellets: 1, spread: 0.02, range: 76, magazine: 30, reloadMs: 2400, auto: true },
+  [WeaponId.M762]: { kind: 'gun', weight: 3.7, fireMs: 86, damage: 17, pellets: 1, spread: 0.024, range: 72, magazine: 30, reloadMs: 2400, auto: true },
   [WeaponId.GrenadeLauncher]: {
     kind: 'gun', weight: 7, fire: 'projectile', fireMs: 900, damage: 0, pellets: 1, spread: 0, range: 45, magazine: 6, reloadMs: 3400, auto: false,
     projectile: { kind: 'grenade40', speed: 34, gravity: GRENADE_GRAVITY, lob: { elevation: 0.85, maxRange: 45 }, blast: { radius: 5.5, damage: 110 }, maxFlightSec: 6 },
@@ -325,6 +331,9 @@ export const WEAPON_BY_ITEM: Readonly<Record<string, WeaponId>> = {
   vector: WeaponId.Vector,
   p90: WeaponId.P90,
   scar_l: WeaponId.ScarL,
+  m16: WeaponId.M16,
+  beryl: WeaponId.Beryl,
+  m762: WeaponId.M762,
 };
 
 export const ITEM_BY_WEAPON: Readonly<Record<number, string>> = Object.fromEntries(Object.entries(WEAPON_BY_ITEM).map(([k, v]) => [v, k]));

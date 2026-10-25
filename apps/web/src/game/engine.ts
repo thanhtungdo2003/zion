@@ -3882,7 +3882,11 @@ function reloadSound(weapon: number): [SoundName, number] {
     case WeaponId.Mini14:
       return ['rifleReload', 1];
     case WeaponId.ScarL:
+    case WeaponId.M16:
       return ['rifleReload', 1];
+    case WeaponId.Beryl:
+    case WeaponId.M762:
+      return ['akReload', 1];
     case WeaponId.Vector:
       return ['rifleReload', 1.1];
     case WeaponId.P90:
