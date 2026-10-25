@@ -325,6 +325,30 @@ function preparedBody(body: BufferGeometry, encoded: string): BufferGeometry {
 }
 
 const ARM_BONE = /^(shoulder_|upper_arm|forearm|hand_|f_|thumb|palm)/;
+const HAND_BONE = /^(hand_|f_|thumb|palm)/;
+
+/** The skin without the hands (worn gloves cover them): triangles mostly weighted to hand / finger bones left out. */
+function withoutHands(body: BufferGeometry, names: string[]): BufferGeometry {
+  const si = body.getAttribute('skinIndex'), sw = body.getAttribute('skinWeight'), index = body.getIndex()!;
+  const hand = new Uint8Array(si.count);
+  for (let i = 0; i < si.count; i++) {
+    let best = 0, bone = 0;
+    for (let k = 0; k < 4; k++) { const w = comp(sw, i, k); if (w > best) { best = w; bone = comp(si, i, k); } }
+    hand[i] = HAND_BONE.test(names[bone] ?? '') ? 1 : 0;
+  }
+  const tris: number[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const a = index.getX(t), b = index.getX(t + 1), c = index.getX(t + 2);
+    if (!(hand[a] && hand[b] && hand[c])) tris.push(a, b, c);
+  }
+  const g = new BufferGeometry();
+  for (const [name, attr] of Object.entries(body.attributes)) g.setAttribute(name, attr);
+  g.morphAttributes = body.morphAttributes;
+  g.morphTargetsRelative = body.morphTargetsRelative;
+  g.boundingSphere = body.boundingSphere;
+  g.setIndex(tris);
+  return g;
+}
 
 /** The body's arms and hands (triangles whose every vertex is mostly weighted to them). */
 function armsOnly(body: BufferGeometry, names: string[]): BufferGeometry {
@@ -442,12 +466,16 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
   // The pistol draw's held one-handed frames play as their own layers (see avatars.ts).
   const draw = clipMap.get('pistol_draw');
   if (draw) { clipMap.set('pistol_hold', draw); clipMap.set('pistol_hip', draw); }
-  const bodies = preparedSkin ? { bare: preparedBody(body.geometry, preparedSkin.hidden.bare), top: preparedBody(body.geometry, preparedSkin.hidden.top) }
+  const skinPrepared = preparedSkin ? { bare: preparedBody(body.geometry, preparedSkin.hidden.bare), top: preparedBody(body.geometry, preparedSkin.hidden.top) }
     : { bare: bodyUnder(body.geometry, always), top: bodyUnder(body.geometry, top ? [...always, top] : always) };
+  // Gloves worn: the hands' skin under them is left out (it would show through as the fingers bend).
+  const gloved = parts.has('gloves');
+  const bodies = gloved ? { bare: withoutHands(skinPrepared.bare, names), top: withoutHands(skinPrepared.top, names) } : skinPrepared;
+  const skinArms = gloved ? withoutHands(armsOnly(body.geometry, names), names) : armsOnly(body.geometry, names);
   return {
     bones, index, inverses: skeleton.boneInverses.map((m) => m.clone()), parts,
     hair: hairPart ? haircuts(hairPart.geometry, body.geometry) : new Map(),
-    arms: armsOnly(body.geometry, names),
+    arms: skinArms,
     ...(shirt ? { sleeves: armsOnly(shirt.geometry, names), armsDressed: armsOnly(bodies.top, names) } : {}),
     bodies,
     restP, restQ,
@@ -645,7 +673,12 @@ export class HumanBody {
       this.meshes.set(slot, mesh);
     };
     // First person: the forearms and hands, in the shirt's sleeves when there is one.
-    if (options.armsOnly) { add('body', assets.armsDressed ?? assets.arms); if (assets.sleeves) add('top', assets.sleeves); }
+    if (options.armsOnly) {
+      add('body', assets.armsDressed ?? assets.arms);
+      if (assets.sleeves) add('top', assets.sleeves);
+      const gloves = assets.parts.get('gloves');
+      if (gloves) add('gloves', gloves.geometry);
+    }
     else for (const [slot, part] of assets.parts) add(slot, slot === 'hair' ? assets.hair.get('side_part') ?? part.geometry : slot === 'body' ? assets.bodies.top : part.geometry);
     this.setAppearance(DEFAULT_APPEARANCE);
   }

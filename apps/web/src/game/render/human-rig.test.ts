@@ -219,7 +219,7 @@ describe('survivor model', () => {
   });
   it('loads every part on one skeleton with the derived haircuts and first-person arms', () => {
     expect(assets.bones.length).toBe(162);
-    expect([...assets.parts.keys()].sort()).toEqual(['belt', 'body', 'eyes', 'feet', 'hair', 'infected', 'legs', 'top']);
+    expect([...assets.parts.keys()].sort()).toEqual(['belt', 'body', 'eyes', 'feet', 'gloves', 'hair', 'infected', 'legs', 'top']);
     expect([...assets.hair.keys()].sort()).toEqual(['buzz', 'crop', 'side_part', 'undercut']);
     expect(assets.arms.getIndex()!.count).toBeGreaterThan(3000);
     expect(assets.parts.get('body')!.geometry.morphAttributes.position).toHaveLength(3);
@@ -431,7 +431,7 @@ describe('survivor model', () => {
   it('shows both first-person hands: one round a grip, one resting in view', () => {
     const arms = new HumanBody(assets, { armsOnly: true });
     // The skin of the arms, and the shirt's sleeves over them (the skin under the sleeves left out).
-    expect(arms.meshList.map((m) => m.name).sort()).toEqual(assets.sleeves ? ['survivor-body', 'survivor-top'] : ['survivor-body']);
+    expect(arms.meshList.map((m) => m.name).sort()).toEqual(['survivor-body', ...(assets.parts.has('gloves') ? ['survivor-gloves'] : []), ...(assets.sleeves ? ['survivor-top'] : [])]);
     if (assets.sleeves) expect(arms.meshList.find((m) => m.name === 'survivor-body')!.geometry.getIndex()!.count).toBeLessThan(assets.arms.getIndex()!.count);
     const scene = new Scene(), camera = new PerspectiveCamera(75, 16 / 9, .02, 100);
     scene.add(camera);
