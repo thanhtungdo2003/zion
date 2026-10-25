@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-25T03:33:08.583Z",
+  "generatedAt": "2026-10-25T09:06:59.286Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1065,9 +1065,9 @@
       "kind": "bbmodel"
     },
     "mobs/zombie-dog.glb": {
-      "url": "/assets/models/mobs_zombie-dog.1dd219afa2b6.glb",
-      "sha256": "1dd219afa2b632f7240ab2fa92b53dd9c38f7db635e8d8be0367aaf98970914d",
-      "bytes": 904112,
+      "url": "/assets/models/mobs_zombie-dog.f3b0c1e40abe.glb",
+      "sha256": "f3b0c1e40abe52dcd4e23702542b2c6f27c2fd1104f6706e42ab3826e9f9d71d",
+      "bytes": 418376,
       "kind": "glb"
     },
     "mobs/zombie-hunter.glb": {

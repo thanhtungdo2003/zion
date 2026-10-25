@@ -127,7 +127,7 @@ for (let variant = 0; variant < rigs.length; variant++) {
 // Static models are skinned in metre space. Blend the nearest anatomical segments,
 // with separate limb regions to keep weights off the neighbouring leg or torso.
 for (const kind of ['dog', 'hunter']) {
-  const source = await read(kind === 'dog' ? 'low_poly_zombie_dog' : 'zombie_bind_hunter');
+  const source = await read(kind === 'dog' ? 'zombie_dog' : 'zombie_bind_hunter');
   const j = clone(source.j), frames = new Map();
   function walk(i, parent) {
     const n = j.nodes[i], local = n.matrix ? new Matrix4().fromArray(n.matrix) : new Matrix4().compose(new Vector3(...(n.translation ?? [0, 0, 0])), new Quaternion(...(n.rotation ?? [0, 0, 0, 1])), new Vector3(...(n.scale ?? [1, 1, 1])));
@@ -146,12 +146,13 @@ for (const kind of ['dog', 'hunter']) {
   for (const p of points) p.sub(center).multiplyScalar(factor);
   const B = (name, parent, p) => ({ name, parent, p: new Vector3(...p).multiplyScalar(height) });
   const bones = kind === 'dog' ? [
-    B('hips', -1, [0, .68, -.35]), B('body', 0, [0, .73, .2]), B('head', 1, [0, .71, .52]),
-    B('leg_left', 0, [.16, .63, -.44]), B('shin_left', 3, [.16, .31, -.51]), B('foot_left', 4, [.16, .05, -.53]),
-    B('leg_right', 0, [-.16, .63, -.44]), B('shin_right', 6, [-.16, .31, -.51]), B('foot_right', 7, [-.16, .05, -.53]),
-    B('arm_left', 1, [.16, .63, .21]), B('forearm_left', 9, [.16, .32, .25]), B('hand_left', 10, [.16, .04, .28]),
-    B('arm_right', 1, [-.16, .63, .21]), B('forearm_right', 12, [-.16, .32, .25]), B('hand_right', 13, [-.16, .04, .28]),
-    B('tail', 0, [0, .72, -.57]), B('tail_tip', 15, [0, .5, -.78]),
+    // Sketchfab "zombie dog": hind feet at x ±.137, z −.46; fore feet at x ±.072, z .2 (height units).
+    B('hips', -1, [0, .56, -.34]), B('body', 0, [0, .6, .2]), B('head', 1, [0, .8, .5]),
+    B('leg_left', 0, [.137, .5, -.33]), B('shin_left', 3, [.137, .26, -.43]), B('foot_left', 4, [.137, .04, -.46]),
+    B('leg_right', 0, [-.137, .5, -.33]), B('shin_right', 6, [-.137, .26, -.43]), B('foot_right', 7, [-.137, .04, -.46]),
+    B('arm_left', 1, [.072, .46, .2]), B('forearm_left', 9, [.072, .23, .2]), B('hand_left', 10, [.072, .03, .2]),
+    B('arm_right', 1, [-.072, .46, .2]), B('forearm_right', 12, [-.072, .23, .2]), B('hand_right', 13, [-.072, .03, .2]),
+    B('tail', 0, [0, .58, -.46]), B('tail_tip', 15, [0, .54, -.53]),
   ] : [
     B('hips', -1, [0, .48, 0]), B('body', 0, [0, .7, .01]), B('head', 1, [0, .86, .06]),
     B('leg_left', 0, [.1, .46, 0]), B('shin_left', 3, [.1, .24, .025]), B('foot_left', 4, [.1, .05, .05]),
@@ -172,7 +173,8 @@ for (const kind of ['dog', 'hunter']) {
   for (const p of points) {
     const h = p.y / height, x = p.x / height, z = p.z / height;
     let allowed;
-    if (kind === 'dog') allowed = z < -.55 ? [0, 15, 16] : z > .39 && h > .47 ? [1, 2] : h > .59 ? [0, 1] : z < -.12 ? (x > 0 ? [3, 4, 5] : [6, 7, 8]) : (x > 0 ? [9, 10, 11] : [12, 13, 14]);
+    // Each leg only below the belly round its own foot; the head forward and up; the rest the trunk.
+    if (kind === 'dog') allowed = z > .36 && h > .55 ? [1, 2] : z < -.47 && h > .45 ? [0, 15, 16] : Math.abs(z + .4) < .14 && h < .5 ? (x > 0 ? [3, 4, 5] : [6, 7, 8]) : Math.abs(z - .2) < .14 && h < .44 ? (x > 0 ? [9, 10, 11] : [12, 13, 14]) : [0, 1];
     else allowed = h > .84 ? [1, 2] : h < .46 ? (x > 0 ? [3, 4, 5] : [6, 7, 8]) : Math.abs(x) > .19 ? (x > 0 ? [9, 10, 11] : [12, 13, 14]) : [0, 1];
     const ranked = allowed.map(i => { const child = bones.find(b => b.parent === i); return [i, distance(p, bones[i].p, child?.p ?? bones[i].p)] }).sort((a, b) => a[1] - b[1]).slice(0, 2);
     const scores = ranked.map(a => 1 / Math.pow(a[1] + height * .035, 4)); const total = scores.reduce((a, b) => a + b, 0);
@@ -187,6 +189,6 @@ for (const kind of ['dog', 'hunter']) {
   const inverse = bones.flatMap(b => new Matrix4().makeTranslation(-b.p.x, -b.p.y, -b.p.z).toArray());
   j.skins = [{ joints: bones.map((_, i) => i), skeleton: 0, inverseBindMatrices: w.accessor(new Float32Array(inverse), 'MAT4') }];
   j.animations = [];
-  j.extras = { zion_zombie: { kind, height, aliases: Object.fromEntries(bones.map(b => [b.name, b.name])), source: kind === 'dog' ? 'low_poly_zombie_dog.glb' : 'zombie_bind_hunter.glb', sourceHash: source.sha, recorded: false } };
+  j.extras = { zion_zombie: { kind, height, aliases: Object.fromEntries(bones.map(b => [b.name, b.name])), source: kind === 'dog' ? 'zombie_dog.glb' : 'zombie_bind_hunter.glb', sourceHash: source.sha, recorded: false } };
   await write(`zombie-${kind}`, j, w.binary());
 }
