@@ -315,6 +315,39 @@ export class ViewModel {
     return r <= a || r >= b ? 0 : Math.sin(Math.PI * (r - a) / (b - a));
   }
 
+  /** The whole reload: the gun turns its handle side up at once and holds it (0 → 1 → 0). */
+  private reloadTilt(): number {
+    if (this.reloadT < 0) return 0;
+    const r = this.reloadT / this.reloadDur;
+    return ease(Math.min(1, r / .07, (1 - r) / .1));
+  }
+
+  /** Jolts of the gun as the hands work its parts (sprung, so it feels its weight). */
+  private jolt = { y: 0, z: 0, rx: 0, rz: 0, vy: 0, vz: 0, vrx: 0, vrz: 0 };
+  private kickParts(from: number, to: number): void {
+    const script = reloadScriptOf(this.rig()?.visual.itemId);
+    if (!script || to <= from) return;
+    const side = this.chargeSide() || -1, k = this.jolt;
+    for (const e of script.sounds) {
+      if (e.at <= from || e.at > to) continue;
+      const n = e.sound.toLowerCase(), w = e.volume ?? 1;
+      // Pulled out / racked back: the gun is dragged after the hand; pushed in / slapped / released:
+      // it is knocked up and forward, then settles back.
+      if (/casing|shelldrop|button|selector|aim|dry/.test(n)) continue;
+      if (/magout|shellout|open|eject|clipout/.test(n)) { k.vy -= .55 * w; k.vrx -= 1.6 * w; }
+      else if (/slap|magin|clipin|close|insert/.test(n)) { k.vy += .7 * w; k.vrx += 2.2 * w; k.vrz -= side * .8 * w; }
+      else if (/rack|pull|back/.test(n)) { k.vz += .6 * w; k.vrz += side * 1.4 * w; k.vrx += .6 * w; }
+      else if (/release|forward/.test(n)) { k.vz -= .7 * w; k.vrx -= 1.2 * w; }
+      else { k.vy += .2 * w; k.vrx += .5 * w; }
+    }
+  }
+  private stepKick(dt: number): void {
+    const k = this.jolt, h = Math.min(dt, .05);
+    // Heavy and a little underdamped: one overshoot, then still.
+    const spring = (x: 'y' | 'z' | 'rx' | 'rz', v: 'vy' | 'vz' | 'vrx' | 'vrz') => { k[v] += (-170 * k[x] - 16 * k[v]) * h; k[x] += k[v] * h; };
+    spring('y', 'vy'); spring('z', 'vz'); spring('rx', 'vrx'); spring('rz', 'vrz');
+  }
+
   /** A shell-by-shell reload stopped (a shot): hands back on the gun. */
   stopReload(): void {
     this.reloadT = -1;
@@ -407,7 +440,12 @@ export class ViewModel {
     this.rollBlend += ((s.rolling ? 1 : 0) - this.rollBlend) * (1 - Math.exp(-dt * 12));
     // Mantling: both hands come up onto the ledge and stay planted on it while the view rises.
     if (this.hands) this.hands.visible = s.visible;
-    if (this.reloadT >= 0 && (this.reloadT += dt) > this.reloadDur) this.reloadT = -1;
+    if (this.reloadT >= 0) {
+      const from = this.reloadT / this.reloadDur;
+      if ((this.reloadT += dt) > this.reloadDur) this.reloadT = -1;
+      this.kickParts(from, this.reloadT < 0 ? 1 : this.reloadT / this.reloadDur);
+    }
+    this.stepKick(dt);
     if (this.punchT >= 0 && (this.punchT += dt) > .36) this.punchT = -1;
     if (s.mantle && s.visible && this.hands) {
       this.root.visible = false;
@@ -483,10 +521,12 @@ export class ViewModel {
     // Pin pulled: the grenade raised and drawn back, ready to throw.
     this.primeBlend += ((this.primed && this.throwT < 0 ? 1 : 0) - this.primeBlend) * (1 - Math.exp(-dt * 10));
     if (this.throwT < 0 && this.primeBlend > .001) { const k = ease(this.primeBlend); ax += .06 * k; ay += .2 * k; az += .16 * k; rx += 1.0 * k; rz -= .3 * k; }
-    // Working the charging handle in a reload: the gun comes up and rolls its handle's side up
-    // (handle on the right: tilted left; on the left: tilted right).
-    const charging = this.chargeWeight();
-    if (charging > 0) { const side = this.chargeSide() || -1; ay += .1 * charging; rx += .12 * charging; rz += side * .38 * charging; ax -= side * .03 * charging; }
+    // Reloading: from the first moment the gun rolls its handle's side up (handle on the right:
+    // tilted left; on the left: tilted right), a little more and higher while the handle is worked;
+    // each part pulled, pushed or racked jolts it on its spring.
+    const tilt = this.reloadTilt(), charging = this.chargeWeight();
+    if (tilt > 0 || charging > 0) { const side = this.chargeSide() || -1; ay += .05 * tilt + .06 * charging; rx += .06 * tilt + .07 * charging; rz += side * (.3 * tilt + .1 * charging); ax -= side * .03 * tilt; }
+    { const k = this.jolt; ay += k.y * .05; az += k.z * .05; rx += k.rx * .05; rz += k.rz * .05; }
     if (this.throwT >= 0) {
       this.throwT += dt;
       const t = this.throwT;
