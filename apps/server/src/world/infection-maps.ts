@@ -1,5 +1,5 @@
 import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
-import type { AssetRegistry } from '@zion/assets';
+import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, uploadedMapAsset, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry } from '@zion/assets';
 import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, INFECTION_GROUND, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
@@ -14,8 +14,10 @@ export interface InfectionMapPreview {
   base: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
   wall: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
   nature: Array<{ asset: number; x: number; z: number; yaw: number; scale: number }>;
-  spawns: Array<{ x: number; z: number }>;
-  zombieSpawns: Array<{ x: number; z: number }>;
+  spawns: Array<{ x: number; z: number; y?: number }>;
+  zombieSpawns: Array<{ x: number; z: number; y?: number }>;
+  /** The map's ground height (models and spawn heights are relative to the world). */
+  ground: number;
 }
 
 const configOf = (def: InfectionMapDef) => ({ seed: normalizeSeed(def.seed), sizeChunks: INFECTION_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection' as const, infection: def });
@@ -25,8 +27,16 @@ const configOf = (def: InfectionMapDef) => ({ seed: normalizeSeed(def.seed), siz
  * world that new matches are played on. Matches already running keep the world they started on;
  * worlds nothing plays on any more are closed.
  */
+/** A map model uploaded in the Studio. */
+export interface InfectionMapModel { asset: number; name: string; version: number; def: AssetDefinitionInput }
+
+/** Largest map model accepted from the Studio. */
+export const MAX_MAP_MODEL_BYTES = 48 * 1024 * 1024;
+
 export class InfectionMapService {
   maps: InfectionMaps = structuredClone(DEFAULT_INFECTION_MAPS);
+  /** Uploaded map models by asset id (their files are read from the database on demand). */
+  readonly models = new Map<number, InfectionMapModel>();
   private current!: Built;
   private readonly built = new Map<string, Built>();
   /** Called after the active map changed (spare lobbies on the old map are replaced). */
@@ -35,6 +45,12 @@ export class InfectionMapService {
   constructor(private readonly db: Db, private readonly registry: AssetRegistry, private readonly cacheSize: number, private readonly log: Logger, private readonly workers = 1) {}
 
   async load(): Promise<void> {
+    try {
+      const { rows } = await this.db.query<{ asset: number; name: string; def: AssetDefinitionInput; updated_at: Date }>('SELECT asset, name, def, updated_at FROM infection_map_models');
+      for (const row of rows) this.addModel({ asset: row.asset, name: row.name, version: new Date(row.updated_at).getTime(), def: row.def });
+    } catch (err) {
+      this.log.error({ err }, 'failed to load uploaded infection map models');
+    }
     try {
       const row = (await this.db.query<{ value: unknown }>(`SELECT value FROM server_settings WHERE key = 'infection_maps'`)).rows[0];
       const parsed = row ? infectionMapsSchema.safeParse(row.value) : null;
@@ -54,6 +70,40 @@ export class InfectionMapService {
   atlas() { return this.current.atlas(); }
   tile(x: number, z: number) { return this.current.tiles(x, z); }
 
+  private addModel(model: InfectionMapModel): void {
+    try { this.registry.registerUploaded(model.def); this.models.set(model.asset, model); }
+    catch (err) { this.log.warn({ err, asset: model.asset }, 'uploaded map model skipped (invalid)'); }
+  }
+
+  /** Map models for the Studio list (with their definitions, for its 3D view). */
+  modelList(): Array<InfectionMapModel & { url: string }> {
+    return [...this.models.values()].map((m) => ({ ...m, url: uploadedMapUrl(m.asset, m.version) }));
+  }
+
+  /** Stores an uploaded map model: its collision is computed here, once. */
+  async uploadModel(name: string, glb: Buffer): Promise<InfectionMapModel & { url: string }> {
+    if (glb.length > MAX_MAP_MODEL_BYTES) throw new Error('File model quá lớn (tối đa 48 MB).');
+    let asset = UPLOADED_MAP_ASSET_MIN;
+    while (this.models.has(asset)) if (++asset > UPLOADED_MAP_ASSET_MAX) throw new Error('Đã hết chỗ cho model bản đồ mới (tối đa 100).');
+    const def = uploadedMapAsset(asset, name.slice(0, 60) || 'Bản đồ', new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength));
+    const { rows } = await this.db.query<{ updated_at: Date }>('INSERT INTO infection_map_models (asset, name, glb, def) VALUES ($1, $2, $3, $4::jsonb) RETURNING updated_at', [asset, def.name, glb, JSON.stringify(def)]);
+    const model = { asset, name: def.name, version: new Date(rows[0]!.updated_at).getTime(), def };
+    this.addModel(model);
+    return { ...model, url: uploadedMapUrl(asset, model.version) };
+  }
+
+  /** An uploaded map model's file. */
+  async modelFile(asset: number): Promise<Buffer | null> {
+    if (!this.models.has(asset)) return null;
+    return (await this.db.query<{ glb: Buffer }>('SELECT glb FROM infection_map_models WHERE asset = $1', [asset])).rows[0]?.glb ?? null;
+  }
+
+  /** The uploaded assets a map's world needs (workers and clients register them too). */
+  private extraAssets(def: InfectionMapDef): AssetDefinitionInput[] {
+    const model = def.base === 'model' && def.model ? this.models.get(def.model.asset) : undefined;
+    return model ? [model.def] : [];
+  }
+
   private async build(def: InfectionMapDef): Promise<Built> {
     // Only what shapes the world needs a new one: rules (round timings, time of day…) and the
     // name are applied to the world already built, in place, without regenerating anything.
@@ -64,7 +114,7 @@ export class InfectionMapService {
       if (live) { live.name = def.name; Object.assign(live.rules, def.rules); }
       return have;
     }
-    const world = new WorldService(configOf(def), this.registry, this.workers, this.cacheSize, this.log);
+    const world = new WorldService(configOf(def), this.registry, this.workers, this.cacheSize, this.log, this.extraAssets(def));
     await world.start();
     // Distinct per version of a map, so clients never reuse map tiles of an older version.
     const worldId = `${INFECTION_MAP.id}-${def.id}-${(hashString(key) >>> 0).toString(36)}`;
@@ -87,6 +137,7 @@ export class InfectionMapService {
 
   async save(input: unknown): Promise<InfectionMaps> {
     const def = infectionMapSchema.parse(input);
+    if (def.base === 'model' && (!def.model || !this.models.has(def.model.asset))) throw new Error('Chọn model bản đồ đã tải lên.');
     const maps = this.maps.maps.some((m) => m.id === def.id) ? this.maps.maps.map((m) => (m.id === def.id ? def : m)) : [...this.maps.maps, def];
     this.maps = infectionMapsSchema.parse({ ...this.maps, maps });
     await this.persist();
@@ -140,9 +191,10 @@ export class InfectionMapService {
       y: +((ground ? infectionHeight(gen, c + p.x, c + p.z) : 0) + (p.y ?? 0)).toFixed(2),
     }));
     const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z, y: s.y + p.y })))
-      : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, scale: 1 }] : [];
+      : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, scale: 1 }]
+      : def.base === 'model' && def.model ? [{ asset: def.model.asset, x: 0, z: 0, y: INFECTION_GROUND + def.model.y, yaw: def.model.yaw, scale: def.model.scale }] : [];
     const layers = infectionLayers(gen);
-    const toRel = (list: Array<{ x: number; z: number }>) => list.map((s) => ({ x: +(s.x - c).toFixed(2), z: +(s.z - c).toFixed(2) }));
-    return { half: def.half, step, size, origin: -ext, heights, grass, base: rel(base, false), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };
+    const toRel = (list: Array<{ x: number; z: number; y?: number }>) => list.map((s) => ({ x: +(s.x - c).toFixed(2), z: +(s.z - c).toFixed(2), ...(s.y !== undefined ? { y: s.y } : {}) }));
+    return { ground: INFECTION_GROUND, half: def.half, step, size, origin: -ext, heights, grass, base: rel(base, false), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };
   }
 }

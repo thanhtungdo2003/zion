@@ -159,4 +159,9 @@ export interface WorldInfo {
   cosmeticSeed: number;
   /** Survivor camp centre and half size (metres), if the world has one. */
   camp?: { x: number; z: number; halfSize: number } | null;
+  /**
+   * Assets uploaded in the Studio that this world uses (an Infection map model): their full
+   * definitions (model, colliders), registered by the client before the world streams in.
+   */
+  assets?: unknown[];
 }

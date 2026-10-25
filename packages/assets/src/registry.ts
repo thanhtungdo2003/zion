@@ -19,6 +19,8 @@ export class AssetRegistryError extends Error {
  * Central catalogue of placeable assets. Numeric ids are part of the network/world format and
  * MUST stay stable forever: never renumber or reuse an id; retire assets by tagging them instead.
  */
+import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN } from './uploaded-maps';
+
 export class AssetRegistry {
   private readonly byId = new Map<string, AssetDefinition>();
   private readonly byNumeric = new Map<number, AssetDefinition>();
@@ -56,6 +58,19 @@ export class AssetRegistry {
     }
     this.prefabs.set(def.id, def);
     return def;
+  }
+
+  /**
+   * A map model uploaded in the Studio (its reserved id range), also into a frozen registry;
+   * replaces an earlier upload under the same id.
+   */
+  registerUploaded(input: AssetDefinitionInput): AssetDefinition {
+    if (input.numericId < UPLOADED_MAP_ASSET_MIN || input.numericId > UPLOADED_MAP_ASSET_MAX) throw new AssetRegistryError(`uploaded asset id ${input.numericId} outside its range`);
+    const old = this.byNumeric.get(input.numericId);
+    if (old) { this.byNumeric.delete(old.numericId); this.byId.delete(old.id); }
+    const frozen = this.frozen;
+    this.frozen = false;
+    try { return this.register(input); } finally { this.frozen = frozen; }
   }
 
   /** Prevents further registration (call once bootstrapping is done). */

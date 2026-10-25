@@ -32,7 +32,8 @@ export const infectionRulesSchema = z.object({
 export type InfectionRules = z.infer<typeof infectionRulesSchema>;
 export const DEFAULT_INFECTION_RULES: InfectionRules = { ...INFECTION, maxPlayers: INFECTION_MAP.maxPlayers, botFill: INFECTION_MAP.botFill, dayCycleMinutes: 0 };
 
-const point = z.object({ x: z.number().finite().min(-400).max(400), z: z.number().finite().min(-400).max(400) }).strict();
+/** A spawn point (m from the map centre); `y`: the floor it stands on (world height), when placed in 3D. */
+const point = z.object({ x: z.number().finite().min(-400).max(400), z: z.number().finite().min(-400).max(400), y: z.number().finite().min(-50).max(300).optional() }).strict();
 /** A placed model, in metres from the map centre (y above the ground there). */
 export const infectionPartSchema = z.object({
   asset: z.number().int().min(0).max(0xffff),
@@ -51,9 +52,19 @@ export const infectionMapSchema = z.object({
   name: z.string().trim().min(1).max(60),
   /**
    * 'warehouse': the Warehouse map model; 'friday13': the old street town (The Street);
-   * 'empty': only what is placed.
+   * 'model': a map model uploaded in the Studio (`model`); 'empty': only what is placed.
    */
-  base: z.enum(['warehouse', 'friday13', 'empty']),
+  base: z.enum(['warehouse', 'friday13', 'model', 'empty']),
+  /**
+   * The uploaded map model (base 'model'): its asset id (uploads range), size, turn, and its
+   * lowest point's height relative to the map's ground.
+   */
+  model: z.object({
+    asset: z.number().int().min(2900).max(2999),
+    scale: z.number().min(.05).max(50),
+    yaw: z.number().finite(),
+    y: z.number().finite().min(-60).max(60),
+  }).strict().optional(),
   seed: z.string().trim().min(1).max(60),
   /** Half the width of the walled play area (m). */
   half: z.number().int().min(30).max(170),

@@ -380,8 +380,14 @@ export interface InfectionMapPreview {
   base: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
   wall: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
   nature: Array<{ asset: number; x: number; z: number; y: number; yaw: number; scale: number }>;
-  spawns: Array<{ x: number; z: number }>; zombieSpawns: Array<{ x: number; z: number }>;
+  spawns: Array<{ x: number; z: number; y?: number }>; zombieSpawns: Array<{ x: number; z: number; y?: number }>;
+  /** The map's ground height. */
+  ground?: number;
 }
+/** A map model uploaded for Infection maps: its asset id, name and full asset definition. */
+export interface InfectionMapModel { asset: number; name: string; version: number; url: string; def: Record<string, unknown> }
+export function studioInfectionModels(): Promise<{ models: InfectionMapModel[] }> { return studioRequest('/api/studio/infection-maps/models'); }
+export function studioUploadInfectionModel(name: string, glb: string): Promise<InfectionMapModel> { return studioRequest('/api/studio/infection-maps/models', { method: 'POST', body: JSON.stringify({ name, glb }) }); }
 export function studioInfectionMaps(): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps'); }
 export function studioSaveInfectionMap(map: InfectionMapDef): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps', { method: 'PUT', body: JSON.stringify(map) }); }
 export function studioActivateInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps/active', { method: 'POST', body: JSON.stringify({ id }) }); }

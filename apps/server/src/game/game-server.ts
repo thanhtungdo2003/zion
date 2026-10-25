@@ -1073,6 +1073,7 @@ export class GameServer {
       dayLengthSec: this.dayLengthMs / 1000,
       cosmeticSeed: gen.cosmeticSeed,
       camp: gen.camp ? { x: gen.camp.x, z: gen.camp.z, halfSize: CAMP_HALF_SIZE } : null,
+      ...(this.deps.world.extraAssets.length ? { assets: [...this.deps.world.extraAssets] } : {}),
     };
   }
 
@@ -1802,7 +1803,8 @@ export class GameServer {
     const gen = this.deps.world.generator, spots = zombie ? infectionZombieSpawns(gen) : infectionSpawns(gen);
     for (let i = 0; i < spots.length; i++) {
       const spot = spots[(this.infectionSpawnIndex++ * 7) % spots.length]!;
-      const pos = this.spawns.validateAt(spot.x + (Math.random() - .5) * 3, spot.z + (Math.random() - .5) * 3);
+      // A point placed in 3D (on a floor of the map model) spawns on that floor.
+      const pos = this.spawns.validateAt(spot.x + (Math.random() - .5) * (spot.y !== undefined ? 1 : 3), spot.z + (Math.random() - .5) * (spot.y !== undefined ? 1 : 3), false, spot.y);
       if (pos) return pos;
     }
     const spot = spots[Math.floor(Math.random() * spots.length)]!;

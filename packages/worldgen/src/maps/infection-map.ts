@@ -40,6 +40,8 @@ interface Prepared {
   sites: Structure[] | null;
   /** What the map adds besides the hand-placed parts (centre-relative), for the Studio preview. */
   layers: { wall: CampPart[]; nature: CampPart[] };
+  /** Footprint radius of an uploaded map model (m, scaled). */
+  modelRadius: number;
 }
 const cache = new WeakMap<object, Prepared>();
 const PAD_CELL = 32;
@@ -55,7 +57,7 @@ function prepared(host: Host): Prepared {
   let p = cache.get(host);
   if (p) return p;
   const def = infectionMapOf(host), seed = hashString(def.seed);
-  p = { def, centre: host.worldSize / 2, noise: new Simplex2(seed ^ 0x51ab), grassNoise: new Simplex2(seed ^ 0x9a55), pads: [], padGrid: new Map(), sites: null, layers: { wall: [], nature: [] } };
+  p = { def, centre: host.worldSize / 2, noise: new Simplex2(seed ^ 0x51ab), grassNoise: new Simplex2(seed ^ 0x9a55), pads: [], padGrid: new Map(), sites: null, layers: { wall: [], nature: [] }, modelRadius: def.base === 'model' && def.model ? radiusOf(host, def.model.asset) * def.model.scale * .9 : 0 };
   // Raw ground at the pad centres first, then the pads level it.
   for (const part of def.parts) {
     const r = radiusOf(host, part.asset) * part.scale;
@@ -77,6 +79,8 @@ function rawHeight(p: Prepared, x: number, z: number): number {
   const { def, centre } = p, d = Math.max(Math.abs(x - centre), Math.abs(z - centre));
   // Under the Warehouse model the ground drops below its pits: the model's own floor is walked on.
   if (def.base === 'warehouse' && Math.abs(x - centre) < WAREHOUSE.halfX - .5 && Math.abs(z - centre) < WAREHOUSE.halfZ - .5) return INFECTION_GROUND - WAREHOUSE.sink - .6;
+  // An uploaded map model set below the ground: the ground drops under its footprint, below it.
+  if (def.base === 'model' && def.model && def.model.y < 0 && Math.hypot(x - centre, z - centre) < p.modelRadius) return INFECTION_GROUND + def.model.y - .6;
   let h = INFECTION_GROUND + smoothstep(def.half + 3, def.half + 24, d) * def.terrain.banks + smoothstep(def.half + 24, def.half + 80, d) * def.terrain.banks * .4;
   if (def.terrain.hills > 0) {
     const town = def.base === 'friday13' ? 1 - smoothstep(F13.half - 6, F13.half + 6, d) : 0;
@@ -124,6 +128,8 @@ export function infectionStructures(host: Host): Structure[] {
   let gid = 1500;
   if (def.base === 'friday13') sites.push(...friday13Structures(host));
   if (def.base === 'warehouse') sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, radius: Math.hypot(WAREHOUSE.halfX, WAREHOUSE.halfZ), parts: [{ asset: WAREHOUSE.asset, x: 0, y: 0, z: 0, yaw: 0, scale: 1, group: 0 }], gid: gid++ });
+  // An uploaded map model, centred, its lowest point `y` above the map's ground.
+  if (def.base === 'model' && def.model) sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND + def.model.y, yaw: 0, radius: Math.max(1, radiusOf(host, def.model.asset) * def.model.scale), parts: [{ asset: def.model.asset, x: 0, y: 0, z: 0, yaw: def.model.yaw, scale: def.model.scale, group: 0 }], gid: gid++ });
   // Perimeter wall: 4 m panels scaled up, all one fading group.
   if (def.terrain.wall !== 'none') {
     const parts: CampPart[] = [], step = 4 * def.terrain.wallScale, asset = WALL_ASSET[def.terrain.wall];
@@ -142,6 +148,7 @@ export function infectionStructures(host: Host): Structure[] {
   // Seeded nature, clear of the streets, the placed parts and the spawn points.
   const rng = new Rng(hashString(`${def.seed}:nature`)), area = (2 * def.half - 8) ** 2 / 10_000;
   const taken = def.parts.map((part) => ({ x: centre + part.x, z: centre + part.z, r: radiusOf(host, part.asset) * part.scale + 1.5 }));
+  if (def.base === 'model') taken.push({ x: centre, z: centre, r: p.modelRadius });
   if (def.base === 'friday13') for (const s of sites) if (s.radius < 60) taken.push({ x: s.x, z: s.z, r: s.radius * .9 });
   const spawns = [...infectionSpawns(host), ...infectionZombieSpawns(host)];
   const nature: CampPart[] = [];
@@ -166,13 +173,13 @@ export function infectionStructures(host: Host): Structure[] {
   return p.sites = sites;
 }
 
-const toWorld = (host: Host, list: Array<{ x: number; z: number }>) => {
+const toWorld = (host: Host, list: Array<{ x: number; z: number; y?: number }>) => {
   const c = host.worldSize / 2;
-  return list.map((s) => ({ x: c + s.x, z: c + s.z }));
+  return list.map((s) => ({ x: c + s.x, z: c + s.z, ...(s.y !== undefined ? { y: s.y } : {}) }));
 };
 
 /** Human spawn points (world): as authored, else the town's, else a ring round the middle. */
-export function infectionSpawns(host: Host): Array<{ x: number; z: number }> {
+export function infectionSpawns(host: Host): Array<{ x: number; z: number; y?: number }> {
   const def = infectionMapOf(host);
   if (def.spawns.length) return toWorld(host, def.spawns);
   if (def.base === 'friday13') return friday13Spawns();
@@ -186,7 +193,7 @@ export function infectionSpawns(host: Host): Array<{ x: number; z: number }> {
 }
 
 /** Where zombies rise again (world): as authored, else the human spawns. */
-export function infectionZombieSpawns(host: Host): Array<{ x: number; z: number }> {
+export function infectionZombieSpawns(host: Host): Array<{ x: number; z: number; y?: number }> {
   const def = infectionMapOf(host);
   return def.zombieSpawns.length ? toWorld(host, def.zombieSpawns) : infectionSpawns(host);
 }

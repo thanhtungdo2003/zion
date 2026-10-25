@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads';
 import { deflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
 import { CHUNK_SIZE, PROPS_MAX_LOD, encodeChunkBody, type ChunkData } from '@zion/shared';
-import type { AssetRegistry } from '@zion/assets';
+import type { AssetRegistry, AssetDefinitionInput } from '@zion/assets';
 import { CAMP_HALF_SIZE, CAMP_LAYOUT, campChunkProps, WorldGenerator, type CampPart, type WorldConfig } from '@zion/worldgen';
 import type { Logger } from '../logger';
 import type { WorkerRequest, WorkerResponse } from './chunk-worker';
@@ -84,8 +84,11 @@ export class WorldService {
     private readonly workerCount: number,
     cacheSize: number,
     private readonly logger: Logger,
+    /** Studio-uploaded assets this world uses (registered in its workers too). */
+    readonly extraAssets: readonly AssetDefinitionInput[] = [],
   ) {
     const t0 = performance.now();
+    for (const def of extraAssets) if (!registry.byNumericId(def.numericId)) registry.registerUploaded(def);
     this.generator = new WorldGenerator(config, registry);
     logger.info(
       { ms: Math.round(performance.now() - t0), seed: config.seed, size: this.generator.worldSize, ...this.generator.hydrology.stats },
@@ -111,7 +114,7 @@ export class WorldService {
   private spawnWorker(index: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const worker = new Worker(this.workerEntry(), {
-        workerData: { config: this.config },
+        workerData: { config: this.config, extraAssets: this.extraAssets },
         name: `worldgen-${index}`,
         resourceLimits: { maxOldGenerationSizeMb: 512 },
       });

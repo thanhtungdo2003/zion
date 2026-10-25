@@ -275,6 +275,25 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   app.delete<{ Params: { id: string } }>('/api/studio/infection-maps/:id', { preHandler: guard }, async (req, reply) => {
     try { return await studio.deleteInfectionMap(req.params.id); } catch (err) { return fail(reply, err); }
   });
+  if (deps.infectionModels) {
+    const models = deps.infectionModels;
+    app.get('/api/studio/infection-maps/models', { preHandler: guard }, async () => ({ models: models.list() }));
+    // A whole map as one GLB (base64 in JSON): its collision is computed on upload.
+    app.post('/api/studio/infection-maps/models', { preHandler: guard, bodyLimit: 72 * 1024 * 1024, config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async (req, reply) => {
+      try {
+        const body = z.object({ name: z.string().trim().min(1).max(60), glb: z.string().min(16) }).strict().parse(req.body);
+        return await models.upload(body.name, Buffer.from(body.glb, 'base64'));
+      } catch (err) { return fail(reply, err); }
+    });
+    app.get<{ Params: { file: string } }>('/api/infection-maps/models/:file', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const m = /^(\d{4})\.glb$/.exec(req.params.file);
+      const file = m ? await models.file(Number(m[1])) : null;
+      if (!file) return reply.code(404).send({ error: 'not_found' });
+      // Versioned URLs (?v=): a file never changes under its version.
+      reply.header('content-type', 'model/gltf-binary').header('cache-control', (req.query as { v?: string }).v ? 'public, max-age=31536000, immutable' : 'public, max-age=60');
+      return reply.send(file);
+    });
+  }
   // Battle royale maps published from the World Studio (heightfield + buildings + flora: large bodies).
   if (deps.battleMaps) {
     app.post('/api/studio/battle-maps', { preHandler: guard, bodyLimit: 96 * 1024 * 1024, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {

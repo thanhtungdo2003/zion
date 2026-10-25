@@ -106,7 +106,7 @@ import {
   propTransform,
 } from '@zion/shared';
 import { DEFAULT_CHARACTER, characterEyeHeight, Mask, makeRayHit, raycastRig, zombieHitRig, PRONE_RIG } from '@zion/physics';
-import { CAMP_ASSET, createDefaultRegistry, type AssetRegistry } from '@zion/assets';
+import { CAMP_ASSET, createDefaultRegistry, type AssetDefinitionInput, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
 import { itemName, translateMsg, type Msg } from '@/lib/i18n';
 import type { InventoryStore } from './inventory/inventory';
@@ -1173,6 +1173,10 @@ export class GameEngine {
 
   private onWelcome(m: WelcomeMessage): void {
     this.welcome = m;
+    // A Studio-uploaded map model this world is built on: known before its chunks arrive.
+    for (const def of (m.world.assets ?? []) as AssetDefinitionInput[]) {
+      try { this.registry.registerUploaded(def); } catch (err) { console.error('uploaded asset rejected', err); }
+    }
     settingsStore.setGameMode(m.mode ?? 'survival');
     this.hud.set({ mode: m.mode ?? 'survival', battle: null, infection: null, tutorial: null });
     this.infectedIds.clear(); this.selfInfected = false;

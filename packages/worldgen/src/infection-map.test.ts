@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createDefaultRegistry } from '@zion/assets';
+import { readFile } from 'node:fs/promises';
+import { createDefaultRegistry, uploadedMapAsset, UPLOADED_MAP_ASSET_MIN } from '@zion/assets';
 import { BUILDING_ASSET } from '@zion/assets';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, upgradeInfectionMaps } from '@zion/shared';
 import { WorldGenerator } from './generator';
@@ -52,5 +53,19 @@ describe('studio infection maps', () => {
     // Chunks carry the parts.
     const chunk = gen.generateChunk(Math.floor(266 / 32), Math.floor(244 / 32), 0);
     expect(chunk.props.some((p) => p.asset === BUILDING_ASSET.house)).toBe(true);
+  });
+  it('stands an uploaded map model in the middle, at its height, with spawn points placed in 3D', async () => {
+    const glb = new Uint8Array(await readFile(new URL('../../../apps/web/public/models/dists/il-38.glb', import.meta.url)));
+    const own = createDefaultRegistry();
+    own.registerUploaded(uploadedMapAsset(UPLOADED_MAP_ASSET_MIN + 9, 'test map', glb));
+    const def = { ...blankInfectionMap('m', 'Model map', 'seed'), base: 'model' as const, model: { asset: UPLOADED_MAP_ASSET_MIN + 9, scale: 2, yaw: .5, y: -2 }, spawns: [{ x: 3, z: 4, y: 31.5 }] };
+    expect(infectionMapSchema.safeParse(def).success).toBe(true);
+    const gen = new WorldGenerator({ seed: 7, sizeChunks: 16, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection', infection: def }, own);
+    const site = infectionStructures(gen).find((s) => s.parts.some((p) => p.asset === UPLOADED_MAP_ASSET_MIN + 9))!;
+    expect(site.y).toBeCloseTo(28);
+    expect(site.parts[0]!.scale).toBe(2);
+    // Set below the ground: the ground drops under it.
+    expect(infectionHeight(gen, 256, 256)).toBeLessThan(28);
+    expect(infectionSpawns(gen)[0]).toEqual({ x: 259, z: 260, y: 31.5 });
   });
 });

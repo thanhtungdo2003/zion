@@ -187,6 +187,11 @@ async function main(): Promise<void> {
     progression,
     atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas() : survivalAtlas(),
     atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),
+    infectionModels: {
+      list: () => infectionMaps.modelList(),
+      upload: (name, glb) => infectionMaps.uploadModel(name, glb),
+      file: (asset) => infectionMaps.modelFile(asset),
+    },
     battleMaps: {
       list: () => [{ id: DEFAULT_BATTLE_MAP_ID, name: 'Đảo Hắc Sơn', thumbnail: null, builtin: true, players: battlePool.matches.reduce((n, m) => n + m.playerCount, 0), matches: battlePool.matches.length }, ...battleMaps.list()],
       publish: (input) => battleMaps.publish(input),

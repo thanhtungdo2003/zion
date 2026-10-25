@@ -71,7 +71,8 @@ export class SpawnService {
    * `requireOpen`, also demands a few metres of clearance from trunks, canopies and bushes so fresh
    * spawns get an unobstructed view.
    */
-  validateAt(x: number, z: number, requireOpen = false): ValidatedPosition | null {
+  /** `floor`: a floor height to stand on (spawn points placed in 3D), searched from just above it. */
+  validateAt(x: number, z: number, requireOpen = false, floor?: number): ValidatedPosition | null {
     const p = DEFAULT_CHARACTER;
     for (const [dx, dz] of NUDGES) {
       const px = x + dx;
@@ -89,7 +90,7 @@ export class SpawnService {
       // Infection maps built from one map model (the Warehouse) have their own floors above the
       // terrain: stand on the first surface below the map's ground level, never under it.
       if (this.gen.config.mode === 'infection') {
-        const top = INFECTION_GROUND + 2.5;
+        const top = floor !== undefined ? floor + 1.5 : INFECTION_GROUND + 2.5;
         if (top > ground && this.collision.raycast(px, top, pz, 0, -1, 0, top - ground + .1, Mask.CharacterMovement, this.shadeHit) && this.shadeHit.ny >= p.walkableNormalY) y = top - this.shadeHit.t + 0.02;
       }
       if (!this.controller.isFree(px, y, pz)) continue;

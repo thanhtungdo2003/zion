@@ -47,6 +47,8 @@ export interface HttpDeps {
   atlasTile?: (x: number, z: number, mode?: GameMode, map?: string) => Promise<AtlasTile>;
   /** Battle royale maps from the World Studio (map picker, publishing). */
   battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void> };
+  /** Map models uploaded for Infection maps (Studio list / upload, files for everyone). */
+  infectionModels?: { list(): unknown; upload(name: string, glb: Buffer): Promise<unknown>; file(asset: number): Promise<Buffer | null> };
   tokens: TokenService;
   kv: KeyValueStore;
   health: HealthProvider;

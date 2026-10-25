@@ -6,7 +6,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { deflateRawSync } from 'node:zlib';
 import { encodeChunkBody, type ChunkData } from '@zion/shared';
-import { createDefaultRegistry } from '@zion/assets';
+import { createDefaultRegistry, type AssetDefinitionInput } from '@zion/assets';
 import { WorldGenerator, type WorldConfig } from '@zion/worldgen';
 
 export interface WorkerRequest {
@@ -23,7 +23,10 @@ export type WorkerResponse =
 
 if (!parentPort) throw new Error('chunk-worker must run as a worker thread');
 const port = parentPort;
-const gen = new WorldGenerator((workerData as { config: WorldConfig }).config, createDefaultRegistry());
+const data = workerData as { config: WorldConfig; extraAssets?: AssetDefinitionInput[] };
+const registry = createDefaultRegistry();
+for (const def of data.extraAssets ?? []) registry.registerUploaded(def);
+const gen = new WorldGenerator(data.config, registry);
 port.postMessage({ id: -1, ok: true, ready: true } satisfies WorkerResponse);
 
 port.on('message', (req: WorkerRequest) => {

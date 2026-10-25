@@ -2,9 +2,9 @@
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createDefaultRegistry, LIGHT_SOURCE_ASSET, type AssetDefinition } from '@zion/assets';
+import { createDefaultRegistry, LIGHT_SOURCE_ASSET, type AssetDefinition, type AssetDefinitionInput } from '@zion/assets';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
-import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, type InfectionMapPreview } from '@/lib/api';
+import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
@@ -12,6 +12,7 @@ import { Spinner } from './Spinner';
 const registry = createDefaultRegistry();
 // WebGL viewer: client only, loaded when first shown.
 const ModelPreview = dynamic(() => import('./ModelPreview'), { ssr: false });
+const InfectionMap3D = dynamic(() => import('./InfectionMap3D'), { ssr: false });
 type Group = 'buildings' | 'materials' | 'nature';
 const GROUPS: Array<{ id: Group; label: string; icon: string }> = [
   { id: 'buildings', label: 'Công trình', icon: 'lucide:house' },
@@ -102,6 +103,27 @@ export default function InfectionStudio() {
     if (code === 401 || code === 403) setStatus('locked'); else { setStatus('error'); setError((e as Error).message); }
   }), [adopt]);
   useEffect(() => { void load(); }, [load]);
+  // Map models uploaded earlier: registered here so the plan and the 3D view can draw them.
+  const [models, setModels] = useState<InfectionMapModel[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const adoptModels = useCallback((list: InfectionMapModel[]) => {
+    for (const m of list) { try { registry.registerUploaded(m.def as AssetDefinitionInput); } catch { /* invalid entry */ } }
+    setModels(list);
+  }, []);
+  useEffect(() => { if (status === 'ready') void studioInfectionModels().then((r) => adoptModels(r.models)).catch(() => undefined); }, [status, adoptModels]);
+  const uploadModel = (file: File) => {
+    if (file.size > 48 * 1024 * 1024) { flash('File lớn hơn 48 MB.'); return; }
+    setUploading(true);
+    void file.arrayBuffer().then((buf) => {
+      let bin = ''; const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return studioUploadInfectionModel(file.name.replace(/\.glb$/i, '').slice(0, 60), btoa(bin));
+    }).then((m) => {
+      adoptModels([...models.filter((x) => x.asset !== m.asset), m]);
+      patch((d) => { d.base = 'model'; d.model = { asset: m.asset, scale: 1, yaw: 0, y: 0 }; });
+      flash(`Đã tải lên ${m.name}: kiểm tra kích thước so với nhân vật ở chế độ 3D.`);
+    }).catch((e: unknown) => flash((e as Error).message)).finally(() => setUploading(false));
+  };
 
   const dirty = !!draft && JSON.stringify(draft) !== saved;
   const valid = useMemo(() => (draft ? infectionMapSchema.safeParse(draft) : null), [draft]);
@@ -258,7 +280,7 @@ export default function InfectionStudio() {
     if (d?.kind === 'move' && sel) {
       const x = snap(d.ox + w.x - d.sx), z = snap(d.oz + w.z - d.sy);
       d.moved = true;
-      patch((m) => { const o = sel.kind === 'part' ? m.parts[sel.index] : sel.kind === 'spawn' ? m.spawns[sel.index] : m.zombieSpawns[sel.index]; if (o) { o.x = x; o.z = z; } });
+      patch((m) => { const o = sel.kind === 'part' ? m.parts[sel.index] : sel.kind === 'spawn' ? m.spawns[sel.index] : m.zombieSpawns[sel.index]; if (o) { o.x = x; o.z = z; if (sel.kind !== 'part') delete (o as { y?: number }).y; } });
       return;
     }
     if (tool.kind === 'place') draw();
@@ -406,8 +428,9 @@ export default function InfectionStudio() {
           <button className={`btn ix-view-toggle${view3d ? ' on' : ''}`} onClick={() => setView3d((v) => !v)} title="Xem toàn bộ bản đồ dạng 3D"><Icon name={view3d ? 'lucide:map' : 'lucide:box'} /> {view3d ? 'Mặt bằng' : '3D'}</button>
           {view3d && preview && (() => {
             // Rebuilt when the layout changes (not on every slider move).
-            const key = `${draft.id}:${draft.base}:${draft.parts.length}:${preview.base.length}:${preview.wall.length}:${preview.nature.length}:${preview.heights.length}`;
-            return <div className="ix-plan-3d"><ModelPreview key={key} model={{ key, build: () => import('@/studio/infection-map-scene').then((m) => m.buildInfectionMapScene(preview, draft)) }} title={draft.name} /></div>;
+            const key = `${draft.id}:${draft.base}:${JSON.stringify(draft.model ?? null)}:${draft.parts.length}:${preview.base.length}:${preview.wall.length}:${preview.nature.length}:${preview.heights.length}:${models.length}`;
+            return <InfectionMap3D preview={preview} draft={draft} registry={registry} buildKey={key} tool={tool.kind === 'spawn' || tool.kind === 'zombie' ? tool.kind : null}
+              onPoint={(kind, p, remove) => patch((d) => { const list = kind === 'spawn' ? d.spawns : d.zombieSpawns; if (remove >= 0) list.splice(remove, 1); else if (p) list.push(p); })} />;
           })()}
           <canvas ref={canvas} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => { mouse.current = null; draw(); }} onWheel={onWheel} onContextMenu={(e) => e.preventDefault()} />
           <div className="ix-legend">
@@ -448,8 +471,27 @@ export default function InfectionStudio() {
                 <option value="empty">Trống (chỉ những gì bạn đặt)</option>
                 <option value="warehouse">Warehouse</option>
                 <option value="friday13">The Street (cũ)</option>
+                <option value="model">Model tải lên (GLB)</option>
               </select>
             </label>
+            {draft.base === 'model' && <>
+              <label className="ix-field"><span>Model bản đồ</span>
+                <select value={draft.model?.asset ?? ''} onChange={(e) => patch((d) => { const asset = Number(e.target.value); d.model = asset ? { asset, scale: d.model?.scale ?? 1, yaw: d.model?.yaw ?? 0, y: d.model?.y ?? 0 } : undefined; })}>
+                  <option value="">— chọn model —</option>
+                  {models.map((m) => <option key={m.asset} value={m.asset}>{m.name}</option>)}
+                </select>
+              </label>
+              <label className={`btn${uploading ? ' disabled' : ''}`} title="Một file GLB chứa cả bản đồ; va chạm được tính khi tải lên">
+                {uploading ? <><Spinner /> Đang tải lên và tính va chạm…</> : <><Icon name="lucide:upload" /> Tải lên file GLB</>}
+                <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadModel(f); }} />
+              </label>
+              {draft.model && <>
+                {num('Tỉ lệ model', draft.model.scale, (v) => patch((d) => { d.model!.scale = v; }), .05, 20, .05, '×')}
+                {num('Xoay', Math.round(draft.model.yaw * 180 / Math.PI), (v) => patch((d) => { d.model!.yaw = v * Math.PI / 180; }), -180, 180, 1, '°')}
+                {num('Độ cao so với mặt đất', draft.model.y, (v) => patch((d) => { d.model!.y = v; }), -30, 30, .1, ' m')}
+                <p className="ix-hint">Bật 3D để so model với nhân vật (cao ~1,8 m) đứng ở các điểm xuất hiện. Đặt điểm trong 3D: chọn công cụ điểm người / zombie rồi nhấp lên sàn.</p>
+              </>}
+            </>}
             {num('Kích thước (nửa cạnh)', draft.half, (v) => patch((d) => { d.half = v; }), 30, 170, 1, ' m')}
           </section>
 

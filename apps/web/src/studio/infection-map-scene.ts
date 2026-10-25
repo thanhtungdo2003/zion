@@ -1,5 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshLambertMaterial, type Object3D } from 'three';
-import { createDefaultRegistry } from '@zion/assets';
+import { createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import type { InfectionMapDef } from '@zion/shared';
 import type { InfectionMapPreview } from '@/lib/api';
 import { AssetLibrary } from '@/game/render/asset-library';
@@ -9,7 +9,7 @@ import { AssetLibrary } from '@/game/render/asset-library';
  * (grass tinted), the base map (the Warehouse model or The Street), the wall, the seeded nature and
  * every hand-placed part, each with its real model at its real height.
  */
-export async function buildInfectionMapScene(preview: InfectionMapPreview, draft: InfectionMapDef): Promise<Object3D> {
+export async function buildInfectionMapScene(preview: InfectionMapPreview, draft: InfectionMapDef, registry: AssetRegistry = createDefaultRegistry()): Promise<Object3D> {
   const root = new Group();
   const { size, step, origin, heights, grass } = preview;
   const at = (x: number, z: number) => {
@@ -38,7 +38,7 @@ export async function buildInfectionMapScene(preview: InfectionMapPreview, draft
     ...preview.base, ...preview.wall, ...preview.nature,
     ...draft.parts.map((p) => ({ asset: p.asset, x: p.x, z: p.z, y: at(p.x, p.z) + p.y, yaw: p.yaw, scale: p.scale })),
   ];
-  const library = new AssetLibrary(createDefaultRegistry());
+  const library = new AssetLibrary(registry);
   const visuals = new Map(await Promise.all([...new Set(placed.map((p) => p.asset))].map(async (a) => [a, await library.load(a)?.catch(() => undefined)] as const)));
   for (const p of placed) {
     const v = visuals.get(p.asset);
