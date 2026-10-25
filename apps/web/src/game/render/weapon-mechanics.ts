@@ -101,6 +101,8 @@ export class WeaponMechanics {
   private driven = false;
 
   /** The gun's named parts and its own clips (Hand Studio: what a track can move or play). */
+  /** The magazine part (dropped as a copy when it leaves the gun in a reload). */
+  get magazineNode(): Object3D | null { return this.magazine?.node ?? null; }
   get partNames(): string[] { return [...this.parts.keys()].filter((n) => !/-mesh(_\d+)?$|_mesh$/.test(n)); }
   get clipNames(): string[] { return [...this.visual.clips.keys()]; }
 

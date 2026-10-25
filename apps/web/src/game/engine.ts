@@ -1716,7 +1716,10 @@ export class GameEngine {
           ? this.tmpB.set(m.ends[0]! - m.ox, m.ends[1]! - m.oy, m.ends[2]! - m.oz).normalize()
           : this.tmpB.set(-Math.sin(yaw), 0, -Math.cos(yaw));
         shooter?.weaponBore(muzzle, dir);
-        this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject: null, right: null, ends: m.ends, suppressed: m.sup === 1 });
+        // Their spent case from their gun's ejection port, out to its right.
+        const eject = shooter?.weaponPoint('eject', this.tmpC) ? this.tmpC : null;
+        const right = eject ? new Vector3(-dir.z, 0, dir.x).normalize() : null;
+        this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject, right, ends: m.ends, suppressed: m.sup === 1 });
         if (weaponSpec(m.w)?.kind === 'gun' && (weaponSpec(m.w) as { fire?: string }).fire !== 'flame') shooter?.kick(heavyKick(m.w) ? 0.35 : 0.12);
         break;
       }
@@ -3506,6 +3509,8 @@ export class GameEngine {
       // The camera must be in the scene for its children (the held weapon) to render.
       if (!this.camera.parent) this.scene.add(this.camera);
       this.viewModel = new ViewModel(this.camera);
+      // The old magazine let fall in a reload (a copy, physical: it drops and lies on the ground).
+      this.viewModel.onMagazineDrop = (magazine) => this.effects?.brass.dropMagazine(magazine);
       // The survivor's own skinned hands; the block character lends its arms instead.
       if (this.character?.human) this.viewModel.setBody(this.character.human, this.look);
       else this.viewModel.setSwimArms(this.character?.root.getObjectByName('arm_left') ?? null, this.character?.root.getObjectByName('arm_right') ?? null);

@@ -9,6 +9,7 @@ import {
   type Scene,
 } from 'three';
 import { GRENADE_GRAVITY, WeaponId, weaponSpec, advanceBallistic, type C4Pose, type ProjectileEvent } from '@zion/shared';
+import { SpentBrass } from './spent-brass';
 import { Mask, makeRayHit, stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
 import type { SoundBank } from '../audio';
 import { ParticleFX, ParticleSystem } from './particles';
@@ -97,6 +98,9 @@ export class CombatEffects {
     this.projectileModels = models;
   }
 
+  /** Spent cases and dropped magazines (pooled, a few per shooter). */
+  readonly brass: SpentBrass;
+
   constructor(
     private readonly scene: Scene,
     private readonly grenadeModel: Object3D | null,
@@ -104,6 +108,7 @@ export class CombatEffects {
     private readonly listener: () => Vector3,
   ) {
     this.particles = new ParticleSystem(scene);
+    this.brass = new SpentBrass(scene);
     this.smoke = new SmokeClouds(scene);
     this.bulletHoles = new BulletHoles(scene);
     this.bulletModel.add(this.bulletGlow);
@@ -128,7 +133,15 @@ export class CombatEffects {
     if (spec?.kind === 'gun' && spec.fire === 'projectile') return this.launchFlash(info.weapon, m, d);
     const heavy = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel || info.weapon === WeaponId.AWM || info.weapon === WeaponId.Barrett || info.weapon === WeaponId.SVD;
     if (!info.suppressed) ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, heavy);
-    if (info.eject && info.right) ParticleFX.shellEject(this.particles, info.eject.x, info.eject.y, info.eject.z, info.right.x, info.right.z);
+    // The spent case out of the port (a revolver keeps its cases, a break-action drops them on reloading).
+    if (info.eject && info.right && info.weapon !== WeaponId.Revolver && info.weapon !== WeaponId.DoubleBarrel) {
+      const shell = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12;
+      // Bolt and pump actions throw the case when the action is worked, just after the shot.
+      const late = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.AWM || info.weapon === WeaponId.Kar98k || info.weapon === WeaponId.Remington700;
+      const at = info.eject.clone(), right = info.right.clone(), dir = d.clone();
+      if (late) setTimeout(() => this.brass.eject(shooterId, at, right, dir, shell ? 'shell' : 'rifle'), 420);
+      else this.brass.eject(shooterId, at, right, dir, shell ? 'shell' : 'rifle');
+    }
     const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
     light.position.copy(m);
     light.intensity = info.suppressed ? 0 : heavy ? 14 : 9;
@@ -320,6 +333,7 @@ export class CombatEffects {
 
   update(dt: number, world: CollisionWorld | null | undefined): void {
     this.bulletHoles.update();
+    this.brass.update(dt, world);
 
     for (const l of this.flashLights) l.intensity = Math.max(0, l.intensity - dt * 220);
     for (const [id, h] of this.heat) {
@@ -399,6 +413,7 @@ export class CombatEffects {
     if (this.disposed) return;
     this.disposed = true;
     this.bulletHoles.dispose();
+    this.brass.dispose();
     for (const mesh of [this.bulletModel, this.bulletGlow, this.fallbackRound, this.fallbackGrenade]) { mesh.geometry.dispose(); mesh.material.dispose(); }
     for (const l of this.flashLights) this.scene.remove(l);
     for (const l of this.blastLights) this.scene.remove(l);

@@ -52,3 +52,37 @@ export class ReloadMagazine {
     this.held?.removeFromParent(); this.held = null; this.source = null; this.gun = null; this.attached = false;
   }
 }
+
+/**
+ * The fresh magazine taken from the pouch: a copy of the gun's magazine in the reloading hand,
+ * from the pouch to the magazine well (the gun's own magazine is hidden meanwhile).
+ */
+export class FreshMagazine {
+  private held: Object3D | null = null;
+  private source: Object3D | null = null;
+  private readonly centre = new Vector3();
+  update(gun: Object3D | null, source: Object3D | null, show: boolean, hand: Matrix4 | null): void {
+    if (!show || !gun?.parent || !source || !hand) { this.clear(); return; }
+    if (!this.held || this.source !== source) {
+      this.clear();
+      this.source = source;
+      this.held = source.clone(true); this.held.name = 'fresh-magazine-in-hand';
+      this.held.traverse((o) => { o.visible = true; o.frustumCulled = false; });
+      this.held.matrixAutoUpdate = false; gun.parent.add(this.held);
+      // Its middle in the palm.
+      this.held.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(this.held);
+      this.centre.copy(box.getCenter(new Vector3())).applyMatrix4(new Matrix4().copy(this.held.matrixWorld).invert());
+    }
+    // Upright as it sits in the gun, its middle at the palm.
+    source.parent?.updateWorldMatrix(true, false);
+    const rest = new Matrix4().multiplyMatrices(source.parent?.matrixWorld ?? new Matrix4(), source.matrix);
+    const p = new Vector3(), q = new Quaternion(), s = new Vector3(); rest.decompose(p, q, s);
+    const palm = new Vector3().setFromMatrixPosition(hand);
+    p.copy(palm).sub(this.centre.clone().multiply(s).applyQuaternion(q));
+    const world = new Matrix4().compose(p, q, s);
+    this.held.matrix.copy(this.held.parent!.matrixWorld).invert().multiply(world);
+    this.held.matrixWorldNeedsUpdate = true; this.held.updateWorldMatrix(false, true);
+  }
+  clear(): void { this.held?.removeFromParent(); this.held = null; this.source = null; }
+}

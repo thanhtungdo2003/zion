@@ -11,7 +11,7 @@ import type { Appearance } from '@zion/shared';
 import { FirstPersonHands, type FpHand } from './fp-hands';
 import type { Grasp, HumanAssets } from './human-rig';
 import { usesRifleReload } from './recorded-reload';
-import { ReloadMagazine } from './reload-magazine';
+import { FreshMagazine, ReloadMagazine } from './reload-magazine';
 import { handAnimationFor } from '../hand-studio';
 import { sampleClip, sampleHandPoint, samplePos, samplePose, sampleRot, sampleScale } from './hand-animation';
 import type { HandAnimation, HandKey } from '@zion/shared';
@@ -88,6 +88,11 @@ export class ViewModel {
   /** Reload in progress (seconds since it started, −1 idle) and its length. */
   private reloadT = -1;
   private readonly heldMagazine = new ReloadMagazine();
+  private readonly freshMagazine = new FreshMagazine();
+  /** The magazine was showing in the gun last frame (its leaving is when the old one drops). */
+  private magShown = true;
+  /** Called with the gun's magazine as it leaves the gun in a reload (the old one is let fall). */
+  onMagazineDrop: ((magazine: Object3D) => void) | null = null;
   private reloadDur = 1;
   /** Unarmed jab: seconds since it started, or −1. */
   private punchT = -1;
@@ -173,6 +178,7 @@ export class ViewModel {
     const key = itemId ? `${itemId}|${attachments?.optic ?? ''}|${attachments?.muzzle ?? ''}` : null;
     if (key === this.current) return;
     this.heldMagazine.clear();
+    this.freshMagazine.clear();
     this.reloadT = -1;
     this.rig()?.mechanics.cancel();
     this.adsSpeed = attachmentModifier(attachments, 'adsSpeed');
@@ -536,6 +542,12 @@ export class ViewModel {
     this.aimBlend += (aiming - this.aimBlend) * (1 - Math.exp(-dt * (aiming ? 14 * this.adsSpeed : 12)));
     const rig = this.rig();
     rig?.mechanics.update(dt);
+    // The old magazine leaves the gun: a copy of it is dropped to the ground.
+    const magazine = rig?.mechanics.magazineNode;
+    if (magazine) {
+      if (this.reloadT >= 0 && this.magShown && !magazine.visible && this.root.visible) this.onMagazineDrop?.(magazine);
+      this.magShown = magazine.visible;
+    }
     if (this.animOn && rig) {
       // The animation's part tracks: a part's own clip played to a point, or moved and turned.
       const gun = this.gunModel;
@@ -674,6 +686,10 @@ export class ViewModel {
       this.hands.setReload(rifleReload ? this.reloadT : -1, this.reloadDur);
       this.hands.request(() => (swimming ? this.swimHands() : this.heldHands(model ?? null, thrown, moving, phase, bob)), () => {
         this.heldMagazine.update(model ?? null, rifleReload && this.reloadT >= 0 ? this.reloadT / this.reloadDur : -1, this.hands!.palmMatrix('L'));
+        // A scripted magazine change: the fresh magazine in the hand from the pouch to the well.
+        const keys = !rifleReload && !this.animGame && this.reloadT >= 0 ? reloadScriptOf(this.rig()?.visual.itemId)?.hands.filter((k) => k.side === 'L') : undefined;
+        const from = keys?.find((k) => k.target === 'pouch')?.at, to = keys?.find((k) => k.target === 'magwell')?.at, r = this.reloadT / this.reloadDur;
+        this.freshMagazine.update(model ?? null, this.rig()?.mechanics.magazineNode ?? null, from !== undefined && to !== undefined && r >= from && r < to + .02, this.hands!.palmMatrix('L'));
       });
     }
   }
