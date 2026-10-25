@@ -1,13 +1,13 @@
 import { Group, Matrix4, Vector3, type Camera, type Object3D } from 'three';
 import type { Appearance } from '@zion/shared';
-import { HumanBody, MODEL_EYE_Y, type Grasp, type HandPreset, type HumanAssets, type MocapLayer, type Side } from './human-rig';
+import { HumanBody, MODEL_EYE_Y, type Grasp, type HandPreset, type HandShapeCurl, type HumanAssets, type MocapLayer, type Side } from './human-rig';
 import { rifleReloadLayer } from './recorded-reload';
 
 /** What one first-person hand does this frame: hold a handle, reach to a point, or nothing. */
 export type FpHand = { grasp: Grasp } | { palm: Vector3; preset: HandPreset } | { rifle: FpRifle } | null;
 
 /** A long gun held as recorded: the display model, grip at its origin, bore +X, top +Y. */
-export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number }
+export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number; /** Shift of the firing hand (display units). */ grip?: Vector3 }
 
 const SIDES = ['L', 'R'] as const;
 
@@ -53,6 +53,9 @@ export class FirstPersonHands {
 
   setLook(a: Appearance): void { this.body.setAppearance(a); }
 
+  /** The gun in hand's own hand shapes (Studio), or the standard ones. */
+  setShapes(shapes: Partial<Record<HandPreset, HandShapeCurl>> | null): void { this.body.shapeOverrides = shapes; }
+
   get visible(): boolean { return this.holder.visible; }
   set visible(v: boolean) { this.holder.visible = v; }
 
@@ -91,8 +94,9 @@ export class FirstPersonHands {
     r.model.updateWorldMatrix(true, false);
     const scale = new Vector3().setFromMatrixScale(r.model.matrixWorld).x;
     const fit = body.rifleFit({ key: r.key, barrel: new Vector3(1, 0, 0), up: new Vector3(0, 1, 0), grip: new Vector3(), scale, trigger: 'R', twoHanded: !!r.support, gripRadius: r.gripRadius });
+    const grip = r.grip ? r.model.localToWorld(r.grip.clone()).sub(r.model.localToWorld(new Vector3())) : null;
     const targets: Record<Side, Matrix4 | null> = {
-      R: r.model.matrixWorld.clone().multiply(fit.inHand.clone().invert()),
+      R: r.model.matrixWorld.clone().multiply(fit.inHand.clone().invert()).premultiply(new Matrix4().makeTranslation(grip?.x ?? 0, grip?.y ?? 0, grip?.z ?? 0)),
       L: r.support ? body.supportTarget('L', r.model.matrixWorld, fit, r.support, r.supportRadius ?? .021) : null,
     };
     // Cradled from below: the support hand sits lower, the guard resting on the palm and the

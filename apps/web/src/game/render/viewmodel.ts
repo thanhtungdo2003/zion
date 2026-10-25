@@ -417,6 +417,15 @@ export class ViewModel {
     this.pivot.quaternion.slerp(this.aimRotation, this.aimBlend);
   }
 
+  /** Studio: the reload frozen at a fraction of its length (hands at that action), or released. */
+  private reloadHold: number | null = null;
+  holdReload(at: number | null): void {
+    this.reloadHold = at;
+    if (at === null) { this.reloadT = -1; this.rig()?.mechanics.cancel(); return; }
+    if (this.reloadT < 0) this.reload(2.2);
+    this.reloadT = at * this.reloadDur;
+  }
+
   /** Studio preview: start a swing / a reload on demand. */
   preview(action: 'swing' | 'reload'): void {
     if (action === 'swing') this.swing(1);
@@ -440,7 +449,8 @@ export class ViewModel {
     this.rollBlend += ((s.rolling ? 1 : 0) - this.rollBlend) * (1 - Math.exp(-dt * 12));
     // Mantling: both hands come up onto the ledge and stay planted on it while the view rises.
     if (this.hands) this.hands.visible = s.visible;
-    if (this.reloadT >= 0) {
+    if (this.reloadHold !== null) this.reloadT = this.reloadHold * this.reloadDur;
+    else if (this.reloadT >= 0) {
       const from = this.reloadT / this.reloadDur;
       if ((this.reloadT += dt) > this.reloadDur) this.reloadT = -1;
       this.kickParts(from, this.reloadT < 0 ? 1 : this.reloadT / this.reloadDur);
@@ -658,7 +668,10 @@ export class ViewModel {
         const basis = !hold?.pistol ? this.hands?.rifleGripBasis('R') : null;
         const supportBasis = !hold?.pistol ? this.hands?.rifleGripBasis('L') : null;
         const handle = basis ? D(basis.axis.x, basis.axis.y, basis.axis.z) : D(.34, .94, 0);
-        const grip: Grasp = fitGripProfile(model, { center: W(0, 0, 0), axis: handle, approach: basis ? D(basis.approach.x, basis.approach.y, basis.approach.z) : D(.35, 0, -1).normalize(), radius: this.rig()?.visual.spec?.gripRadius ?? .017, trigger: true });
+        const fp = this.rig()?.visual.spec;
+        this.hands?.setShapes(fp?.fpHands?.shapes ?? null);
+        const shift = fp?.fpGrip ?? [0, 0, 0];
+        const grip: Grasp = fitGripProfile(model, { center: W(shift[0], shift[1], shift[2]), axis: handle, approach: basis ? D(basis.approach.x, basis.approach.y, basis.approach.z) : D(.35, 0, -1).normalize(), radius: this.rig()?.visual.spec?.gripRadius ?? .017, trigger: true });
         out.R = { grasp: grip };
         const guard: Grasp | null = hold?.pistol
           ? { center: W(-.004, -.032, -.032), axis: handle.clone(), approach: D(0, .25, 1).normalize(), radius: .03 }
@@ -672,7 +685,7 @@ export class ViewModel {
           // The support hand rides the pump's fore-end as it is racked.
           const shift = this.rig()?.mechanics.supportShift(new Vector3());
           const support = shift && shift.lengthSq() > 0 ? model.worldToLocal(model.localToWorld(hold.support.clone()).add(shift)) : hold.support.clone();
-          out.R = { rifle: { model, key: this.current ?? '', support, gripRadius: spec?.gripRadius, supportRadius: spec?.supportRadius } };
+          out.R = { rifle: { model, key: this.current ?? '', support, gripRadius: spec?.gripRadius, supportRadius: spec?.supportRadius, ...(spec?.fpGrip ? { grip: new Vector3(...spec.fpGrip) } : {}) } };
           // The support hand is placed with the arms; a non-recorded reload overrides it below.
           out.L = null;
         }
@@ -689,7 +702,13 @@ export class ViewModel {
           const reach = hold?.support ?? new Vector3(.2, -.03, 0);
           const mech = this.rig()?.mechanics;
           const part = (re: RegExp, rest = false) => mech?.partWorld(re, new Vector3(), rest) ?? null;
+          // Studio: each action's hand shift (model metres) and shape.
+          const actions = fp?.fpHands?.actions;
           const at = (target: HandTarget): Vector3 => {
+            const p = place(target), off = actions?.[target]?.offset;
+            return off ? model.localToWorld(model.worldToLocal(p).add(new Vector3(...off))) : p;
+          };
+          const place = (target: HandTarget): Vector3 => {
             switch (target) {
               case 'guard': return guard.center.clone();
               case 'grip': return W(0, -.02, 0);
@@ -726,7 +745,8 @@ export class ViewModel {
             while (i < keys.length - 2 && r > keys[i + 1]!.at) i++;
             const k0 = keys[i]!, k1 = keys[i + 1] ?? k0;
             const u = k1 === k0 ? 1 : ease(Math.min(1, Math.max(0, (r - k0.at) / Math.max(1e-3, k1.at - k0.at))));
-            return { palm: at(k0.target).lerp(at(k1.target), u), preset: (u < .5 ? k0.shape : k1.shape) as 'fist' | 'open' | 'pinch' | 'ready' };
+            const k = u < .5 ? k0 : k1;
+            return { palm: at(k0.target).lerp(at(k1.target), u), preset: actions?.[k.target]?.shape ?? k.shape };
           };
           const left = track('L'), right = track('R');
           if (right) { out.R = right; out.L = left ?? { grasp: fitGripProfile(model, guard) }; }

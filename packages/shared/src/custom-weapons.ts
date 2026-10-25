@@ -104,6 +104,16 @@ export const customWeaponSchema = z.object({
     fpEyeRelief: z.number().min(.1).max(.8).optional(),
     /** First-person view: shift of the support (left) hand from where it holds (metres; x forward, y up, z right). */
     fpSupport: vec3.optional(),
+    /** First-person view: shift of the firing (right) hand on the grip (metres; x forward, y up, z right). */
+    fpGrip: vec3.optional(),
+    /**
+     * First-person hand studio: finger curls (rad) of each hand shape on this gun, and per
+     * reload action (a hand target: mag, charge, bolt…) the hand's shift (model metres) and shape.
+     */
+    fpHands: z.object({
+      shapes: z.record(z.string().max(12), z.object({ finger: z.tuple([z.number(), z.number(), z.number()]), thumb: z.tuple([z.number(), z.number(), z.number()]) })).optional(),
+      actions: z.record(z.string().max(12), z.object({ offset: vec3.optional(), shape: z.enum(['relaxed', 'fist', 'open', 'ready', 'pinch']).optional() })).optional(),
+    }).optional(),
     /** First-person view: hip tilt, pitch (up/down) and yaw (left/right), radians. */
     /** Size of mounted optics / muzzle devices on this gun (1 = default). */
     opticScale: z.number().min(.3).max(3).optional(),

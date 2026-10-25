@@ -10,9 +10,16 @@ import { ARMOR_SPECS, EntityFlags } from '@zion/shared';
 import { ITEMS, type Stance } from '../inventory/items';
 import { Avatar } from './avatars';
 import type { StrikeAxes } from './melee-edge';
+import type { HandPreset, HandShapeCurl } from './human-rig';
 import { BB_UNITS_PER_METER, buildBBModel, fetchWithProgress, type CharacterTemplate, type RawModel } from './character-model';
 
 type Vec3 = [number, number, number];
+
+/** First-person hand studio of one gun: hand shapes, and per reload action the hand's shift and shape. */
+export interface FpHandsSpec {
+  shapes?: Record<string, HandShapeCurl>;
+  actions?: Record<string, { offset?: Vec3; shape?: HandPreset }>;
+}
 
 /**
  * How each weapon model is authored and how it should sit in the hand. Axes/points are in the
@@ -75,6 +82,10 @@ export interface WeaponSpec {
   fpEyeRelief?: number;
   /** First-person view: shift of the support (left) hand from its grip point (display metres). */
   fpSupport?: Vec3;
+  /** First-person view: shift of the firing (right) hand on its grip (display metres). */
+  fpGrip?: Vec3;
+  /** First-person hand studio: hand shapes and per-action hand shifts / shapes (see custom-weapons). */
+  fpHands?: FpHandsSpec;
   /** First-person view: hip tilt, pitch and yaw (radians). */
   fpRot?: [number, number];
   /** First-person view only: size of the gun in view (1 = real size), about its grip. */

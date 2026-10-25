@@ -13,6 +13,8 @@ import { builtinWeaponVisual, fittedSpec, heldWeaponVisual, loadWeaponModel, loa
 import { Avatar } from '@/game/render/avatars';
 import { ViewModel } from '@/game/render/viewmodel';
 import { scopeFov } from '@/game/scope';
+import { reloadScriptOf, type HandTarget } from '@/game/reload-scripts';
+import { HAND_SHAPES, type HandPreset, type HandShapeCurl } from '@/game/render/human-rig';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
@@ -95,7 +97,7 @@ function builtinEntries(saved: Map<string, StudioWeapon>): Entry[] {
       ...(v.support ? { support: v.support } : {}), ...(v.muzzle ? { muzzle: v.muzzle } : {}), ...(v.eject ? { eject: v.eject } : {}),
       ...(v.sight ? { sight: v.sight } : {}), ...(v.rail ? { rail: v.rail } : {}), ...(v.edge ? { edge: v.edge } : {}), ...(v.strikePoint ? { strikePoint: v.strikePoint } : {}),
       ...(v.fpHip ? { fpHip: v.fpHip } : {}), ...(v.fpEyeRelief ? { fpEyeRelief: v.fpEyeRelief } : {}),
-      ...(v.fpSupport ? { fpSupport: v.fpSupport } : {}), ...(v.fpRot ? { fpRot: v.fpRot } : {}), ...(v.opticScale ? { opticScale: v.opticScale } : {}), ...(v.muzzleScale ? { muzzleScale: v.muzzleScale } : {}), ...(v.attachmentScale ? { attachmentScale: v.attachmentScale } : {}), ...(v.attachmentOffset ? { attachmentOffset: v.attachmentOffset } : {}),
+      ...(v.fpSupport ? { fpSupport: v.fpSupport } : {}), ...(v.fpGrip ? { fpGrip: v.fpGrip } : {}), ...(v.fpHands ? { fpHands: v.fpHands } : {}), ...(v.fpRot ? { fpRot: v.fpRot } : {}), ...(v.opticScale ? { opticScale: v.opticScale } : {}), ...(v.muzzleScale ? { muzzleScale: v.muzzleScale } : {}), ...(v.attachmentScale ? { attachmentScale: v.attachmentScale } : {}), ...(v.attachmentOffset ? { attachmentOffset: v.attachmentOffset } : {}),
     };
     const format = v.url.split('?')[0]!.endsWith('.glb') ? 'glb' : 'bbmodel';
     const shipped = builtinWeaponDraft(id, model, format, builtinRecoilDegrees(WEAPON_BY_ITEM[id] ?? 0));
@@ -280,7 +282,7 @@ function visualSpec(d: Draft, url: string): WeaponSpec {
     ...(m.support ? { support: m.support } : {}), ...(m.muzzle ? { muzzle: m.muzzle } : {}), ...(m.eject ? { eject: m.eject } : {}),
     ...(m.sight ? { sight: m.sight } : {}), ...(m.rail ? { rail: m.rail } : {}), ...(m.edge ? { edge: m.edge } : {}), ...(m.strikePoint ? { strikePoint: m.strikePoint } : {}),
     ...(m.size ? { size: m.size } : {}),
-    ...(m.fpHip ? { fpHip: m.fpHip } : {}), ...(m.fpSupport ? { fpSupport: m.fpSupport } : {}), ...(m.fpRot ? { fpRot: m.fpRot } : {}), ...(m.fpScale ? { fpScale: m.fpScale } : {}), ...(m.opticScale ? { opticScale: m.opticScale } : {}), ...(m.muzzleScale ? { muzzleScale: m.muzzleScale } : {}), ...(m.attachmentScale ? { attachmentScale: m.attachmentScale } : {}), ...(m.attachmentOffset ? { attachmentOffset: m.attachmentOffset } : {}),
+    ...(m.fpHip ? { fpHip: m.fpHip } : {}), ...(m.fpSupport ? { fpSupport: m.fpSupport } : {}), ...(m.fpGrip ? { fpGrip: m.fpGrip } : {}), ...(m.fpHands ? { fpHands: m.fpHands } : {}), ...(m.fpRot ? { fpRot: m.fpRot } : {}), ...(m.fpScale ? { fpScale: m.fpScale } : {}), ...(m.opticScale ? { opticScale: m.opticScale } : {}), ...(m.muzzleScale ? { muzzleScale: m.muzzleScale } : {}), ...(m.attachmentScale ? { attachmentScale: m.attachmentScale } : {}), ...(m.attachmentOffset ? { attachmentOffset: m.attachmentOffset } : {}),
     // The preview has no item entry: give handguns their usual longer eye relief explicitly.
     fpEyeRelief: m.fpEyeRelief ?? (d.item.category === 'pistol' ? .4 : .3),
   };
@@ -729,6 +731,10 @@ function FirstPersonEditor({ url, draft, onChange, attachments }: { url: string;
   const relief = draft.model.fpEyeRelief ?? (draft.item.category === 'pistol' ? .4 : .3);
   const support = draft.model.fpSupport ?? [0, 0, 0];
   const rot = draft.model.fpRot ?? [0, 0];
+  const grip = draft.model.fpGrip ?? [0, 0, 0];
+  // Hand studio: the reload frozen at one action (kept across rebuilds of the view).
+  const [hold, setHold] = useState<number | null>(null);
+  const holdRef = useRef(hold); holdRef.current = hold;
   // Scene and model load once per file; the view model is rebuilt whenever the settings change.
   const attachKey = `${attachments.optic ?? ''}|${attachments.muzzle ?? ''}`;
   const stage = useRef<{ camera: PerspectiveCamera; root: Group | null; built?: CharacterTemplate; character?: CharacterTemplate; lib?: WeaponLibrary; view: ViewModel | null } | null>(null);
@@ -788,6 +794,7 @@ function FirstPersonEditor({ url, draft, onChange, attachments }: { url: string;
     lib.set(id, st.built && st.character ? heldWeaponVisual(id, fittedSpec({ ...spec, studio: true }, st.built), st.built, st.character) : standaloneVisual(id, spec, st.root, st.character));
     view.set(id, lib, attachments);
     st.view = view;
+    if (holdRef.current !== null) view.holdReload(holdRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `attachKey` stands for the attachments.
   }, [spec, loaded, draft.id, attachKey]);
   const slider = (label: string, value: number, min: number, max: number, on: (v: number) => void) =>
@@ -804,6 +811,10 @@ function FirstPersonEditor({ url, draft, onChange, attachments }: { url: string;
       {slider('Xa / gần', hip[2], -.6, -.1, (v) => onChange({ fpHip: [hip[0], hip[1], v] }))}
       {slider('Xoay dọc (độ)', rot[0] * 180 / Math.PI, -40, 40, (v) => onChange({ fpRot: [v * Math.PI / 180, rot[1]] }))}
       {slider('Xoay ngang (độ)', rot[1] * 180 / Math.PI, -40, 40, (v) => onChange({ fpRot: [rot[0], v * Math.PI / 180] }))}
+      <h4>Tay phải</h4>
+      {slider('Trước / sau', grip[0], -.1, .1, (v) => onChange({ fpGrip: [v, grip[1], grip[2]] }))}
+      {slider('Lên / xuống', grip[1], -.1, .1, (v) => onChange({ fpGrip: [grip[0], v, grip[2]] }))}
+      {slider('Trái / phải', grip[2], -.1, .1, (v) => onChange({ fpGrip: [grip[0], grip[1], v] }))}
       <h4>Tay trái</h4>
       {!draft.model.support && !(draft.gun && draft.item.category === 'pistol') && <p className="studio-muted">Đặt điểm “Tay đỡ (tay trái)” ở tab Model để hiện tay trái{draft.gun ? '' : ' (vũ khí hai tay)'}.</p>}
       {slider('Trước / sau', support[0], -.2, .2, (v) => onChange({ fpSupport: [v, support[1], support[2]] }))}
@@ -814,7 +825,71 @@ function FirstPersonEditor({ url, draft, onChange, attachments }: { url: string;
         {slider('Khoảng cách mắt – thước ngắm (m)', relief, .1, .8, (v) => onChange({ fpEyeRelief: v }))}
         {!draft.model.sight && <p className="studio-muted">Đặt “Thước ngắm sau / trước” ở tab Model để súng ngắm đúng tâm.</p>}
       </>}
-      <button type="button" className="btn" onClick={() => onChange({ fpHip: undefined, fpEyeRelief: undefined, fpSupport: undefined, fpRot: undefined, fpScale: undefined })}>Về mặc định</button>
+      {draft.gun && <HandStudio draft={draft} onChange={onChange} hold={hold} onHold={(at) => { setHold(at); stage.current?.view?.holdReload(at); }} />}
+      <button type="button" className="btn" onClick={() => onChange({ fpHip: undefined, fpEyeRelief: undefined, fpSupport: undefined, fpRot: undefined, fpScale: undefined, fpGrip: undefined, fpHands: undefined })}>Về mặc định</button>
     </aside>
+  </>;
+}
+
+const TARGET_LABELS: Record<HandTarget, string> = {
+  grip: 'Về tay cầm', guard: 'Đỡ ốp lót tay', mag: 'Nắm băng đạn', magwell: 'Lắp băng đạn', pouch: 'Lấy đạn ở túi', charge: 'Kéo tay kéo', bolt: 'Kéo khóa nòng',
+  slide: 'Kéo bệ khóa', pump: 'Bơm ốp trượt', breech: 'Mở khóa nòng', cylinder: 'Ổ xoay', port: 'Nhét đạn vào ổ', feed: 'Nắp tiếp đạn', muzzle: 'Đầu nòng',
+};
+const SHAPE_LABELS: Record<HandPreset, string> = { relaxed: 'Thả lỏng', ready: 'Chờ (khum)', fist: 'Nắm chặt', pinch: 'Kẹp (cái + trỏ)', open: 'Xòe' };
+const JOINTS = ['gốc', 'đốt giữa', 'đầu'] as const;
+
+/**
+ * Hand studio: every action the hands do in this gun's reload (its hand shape and a shift of the
+ * hand), and the finger bones of each hand shape. "Xem" freezes the reload at that action.
+ */
+function HandStudio({ draft, onChange, hold, onHold }: { draft: Draft; onChange: (p: Partial<Draft['model']>) => void; hold: number | null; onHold: (at: number | null) => void }) {
+  const script = reloadScriptOf(draft.id);
+  const hands = draft.model.fpHands ?? {};
+  const [shape, setShape] = useState<HandPreset>('fist');
+  const set = (next: NonNullable<Draft['model']['fpHands']>) => onChange({ fpHands: Object.keys(next.shapes ?? {}).length || Object.keys(next.actions ?? {}).length ? next : undefined });
+  // One row per action: the first moment the script sends a hand there.
+  const actions = [...new Map((script?.hands ?? []).filter((k) => k.target !== 'guard' && k.target !== 'grip').map((k) => [k.target, k] as const)).values()];
+  const setAction = (t: HandTarget, a: { offset?: Vec3; shape?: HandPreset }) => {
+    const all = { ...(hands.actions ?? {}) };
+    if (!a.offset && !a.shape) delete all[t]; else all[t] = a;
+    set({ ...hands, actions: all });
+  };
+  const curl: HandShapeCurl = hands.shapes?.[shape] ?? HAND_SHAPES[shape];
+  const setCurl = (c: HandShapeCurl | null) => { const all = { ...(hands.shapes ?? {}) }; if (c) all[shape] = c; else delete all[shape]; set({ ...hands, shapes: all }); };
+  const slider = (label: string, value: number, min: number, max: number, on: (v: number) => void, text = value.toFixed(3)) =>
+    <label key={label} className="set-slider"><span>{label} <b>{text}</b></span><input type="range" min={min} max={max} step={(max - min) / 400} value={value} onChange={(e) => on(Number(e.target.value))} /></label>;
+  const angle = (label: string, value: number, max: number, on: (v: number) => void) => slider(label, value * 180 / Math.PI, -20, max, (v) => on(v * Math.PI / 180), `${Math.round(value * 180 / Math.PI)}°`);
+  return <>
+    <h4>Studio bàn tay: thao tác thay đạn</h4>
+    {!script && <p className="studio-muted">Súng này chưa có kịch bản thay đạn riêng.</p>}
+    {hold !== null && <button type="button" className="btn" onClick={() => onHold(null)}>■ Thả (chạy tiếp)</button>}
+    {actions.map((k) => {
+      const a = hands.actions?.[k.target] ?? {}, off = a.offset ?? [0, 0, 0], open = hold !== null && Math.abs(hold - k.at) < 1e-3;
+      const put = (i: number, v: number) => { const o = [...off] as Vec3; o[i] = v; setAction(k.target, { ...a, offset: o.every((x) => Math.abs(x) < 1e-4) ? undefined : o }); };
+      return <div key={k.target} style={{ borderTop: '1px solid #ffffff22', paddingTop: 6 }}>
+        <div className="ws-tabs">
+          <b style={{ flex: 1 }}>{TARGET_LABELS[k.target]} <span className="studio-muted">({k.side === 'L' ? 'tay trái' : 'tay phải'})</span></b>
+          <button type="button" className={`btn${open ? ' btn-primary' : ''}`} onClick={() => onHold(open ? null : k.at)}>{open ? 'Đang xem' : 'Xem'}</button>
+        </div>
+        <label className="set-slider"><span>Kiểu bàn tay</span>
+          <select value={a.shape ?? k.shape} onChange={(e) => setAction(k.target, { ...a, shape: e.target.value === k.shape ? undefined : e.target.value as HandPreset })}>
+            {(Object.keys(SHAPE_LABELS) as HandPreset[]).map((p) => <option key={p} value={p}>{SHAPE_LABELS[p]}{p === k.shape ? ' (mặc định)' : ''}</option>)}
+          </select>
+        </label>
+        {open && <>
+          {slider('Trước / sau', off[0], -.08, .08, (v) => put(0, v))}
+          {slider('Lên / xuống', off[1], -.08, .08, (v) => put(1, v))}
+          {slider('Trái / phải', off[2], -.08, .08, (v) => put(2, v))}
+        </>}
+      </div>;
+    })}
+    <h4>Kiểu dáng bàn tay: cấu trúc xương</h4>
+    <div className="ws-tabs" style={{ flexWrap: 'wrap' }}>
+      {(Object.keys(SHAPE_LABELS) as HandPreset[]).map((p) => <button key={p} type="button" className={`btn${p === shape ? ' btn-primary' : ''}`} onClick={() => setShape(p)}>{SHAPE_LABELS[p]}{hands.shapes?.[p] ? ' •' : ''}</button>)}
+    </div>
+    <p className="studio-muted">Độ gập của từng đốt. Bấm “Xem” ở một thao tác dùng kiểu này để thấy ngay.</p>
+    {JOINTS.map((j, i) => angle(`4 ngón: ${j}`, curl.finger[i]!, 110, (v) => { const f = [...curl.finger] as Vec3; f[i] = v; setCurl({ ...curl, finger: f }); }))}
+    {JOINTS.map((j, i) => angle(`Ngón cái: ${j}`, curl.thumb[i]!, 90, (v) => { const t = [...curl.thumb] as Vec3; t[i] = v; setCurl({ ...curl, thumb: t }); }))}
+    {hands.shapes?.[shape] && <button type="button" className="btn" onClick={() => setCurl(null)}>Kiểu này về mặc định</button>}
   </>;
 }

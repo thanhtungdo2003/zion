@@ -505,8 +505,10 @@ function partMaterial(part: HumanPart, target: string | null, key: string): Mesh
 /* ---------------------------------------------------------------------------------------------- */
 
 const FINGERS = ['f_index', 'f_middle', 'f_ring', 'f_pinky', 'thumb'] as const;
+/** Curl (rad) of a hand shape: the three finger joints (knuckle, middle, end) and the thumb's three. */
+export interface HandShapeCurl { finger: [number, number, number]; thumb: [number, number, number] }
 /** Extra curl (rad) of the three finger joints and the thumb for each hand shape. */
-const PRESETS: Record<HandPreset, { finger: [number, number, number]; thumb: [number, number, number] }> = {
+const PRESETS: Record<HandPreset, HandShapeCurl> = {
   open: { finger: [-.05, -.05, 0], thumb: [0, 0, 0] },
   relaxed: { finger: [.22, .38, .28], thumb: [.1, .18, .12] },
   ready: { finger: [.7, .9, .6], thumb: [.35, .4, .3] },
@@ -514,6 +516,7 @@ const PRESETS: Record<HandPreset, { finger: [number, number, number]; thumb: [nu
   fist: { finger: [1.25, 1.3, .85], thumb: [.5, .6, .55] },
   pinch: { finger: [.45, .55, .35], thumb: [.45, .5, .4] },
 };
+export const HAND_SHAPES: Readonly<Record<HandPreset, HandShapeCurl>> = PRESETS;
 const TRIGGER_CURL: [number, number, number] = [.42, .52, .3];
 /** Most each joint may curl round a handle (rad): knuckle, middle and end joint; thumb. */
 const MAX_CURL: [number, number, number] = [1.55, 1.75, 1.25];
@@ -579,6 +582,8 @@ export class HumanBody {
   private appearance: Appearance = DEFAULT_APPEARANCE;
   get look(): Appearance { return this.appearance; }
   private tinted = false;
+  /** Hand shapes of the gun in hand (Studio), in place of the standard ones. */
+  shapeOverrides: Partial<Record<HandPreset, HandShapeCurl>> | null = null;
   private readonly fingerCache: Record<Side, { key: string; angles: number[] }> = { L: { key: '', angles: [] }, R: { key: '', angles: [] } };
   private readonly gripBasisCache = new Map<string, { axis: Vector3; approach: Vector3 }>();
   private readonly upperPoseWorld = new Map<number, Quaternion>();
@@ -1390,7 +1395,7 @@ export class HumanBody {
   }
 
   private shapeFingers(s: Side, preset: HandPreset, trigger = false): void {
-    const S = this.side[s], P = PRESETS[preset];
+    const S = this.side[s], P = this.shapeOverrides?.[preset] ?? PRESETS[preset];
     S.fingers.forEach((chain, f) => {
       const curl = f === 4 ? P.thumb : f === 0 && trigger ? TRIGGER_CURL : P.finger;
       chain.forEach((i, k) => this.setLocal(i, tmpQ[1]!.copy(this.assets.bones[i]!.quaternion).multiply(tmpQ[2]!.setFromAxisAngle(X_AXIS, curl[k]!))));
