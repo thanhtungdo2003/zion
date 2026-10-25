@@ -50,6 +50,8 @@ export const MAP_SHADOW = { x: -MAP_SUN.x / Math.cos(.42) / Math.tan(.42), z: -M
  * Each chunk is rasterised once into a tiny cached canvas with hillshading.
  */
 export class Minimap {
+  /** The player's arrow drawn on the map (off when the map itself turns with the view and the arrow is fixed above it). */
+  showPlayer = true;
   private readonly cache = new Map<ChunkData, { cv: HTMLCanvasElement; at: number; complete: boolean }>();
   /** Average colour of each model (null while its model loads). */
   private readonly colours = new Map<number, string | null>();
@@ -331,6 +333,7 @@ export class Minimap {
       ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(8, 4); ctx.lineTo(0, 1); ctx.lineTo(-8, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
+    if (this.showPlayer) {
     ctx.save();
     ctx.translate(W / 2, W / 2);
     // Still inside the map's rotation (world frame): yaw 0 faces −Z and positive yaw turns left
@@ -348,6 +351,7 @@ export class Minimap {
     ctx.fill();
     ctx.stroke();
     ctx.restore();
+    }
     ctx.restore();
     if (spawn && !locations) this.drawSpawn(ctx, W, (spawn.x - px) * scale, (spawn.z - pz) * scale, upYaw);
     if (battle?.phase === 'running') {

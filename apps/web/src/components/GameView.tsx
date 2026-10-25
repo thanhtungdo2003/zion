@@ -120,6 +120,9 @@ export default function GameView() {
   const attachMinimap = useCallback((canvas: HTMLCanvasElement | null) => {
     engineRef.current?.attachMinimap(canvas);
   }, []);
+  const attachCompass = useCallback((canvas: HTMLCanvasElement | null) => {
+    engineRef.current?.attachCompass(canvas);
+  }, []);
 
   return (
     <div className={`game-root${touchControls ? ' touch-mode' : ''}`} onMouseDownCapture={onClickCapture}>
@@ -128,6 +131,7 @@ export default function GameView() {
       <Hud
         state={hud}
         onMinimap={attachMinimap}
+        onCompass={attachCompass}
         onOpenMap={() => engineRef.current?.setMapOpen(true)}
         onChatOpen={(open) => { setChatOpen(open); engineRef.current?.setChatOpen(open); }}
         chatRequest={chatRequest}

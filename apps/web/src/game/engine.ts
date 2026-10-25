@@ -19,6 +19,7 @@ import { ScopeLens } from './render/scope-lens';
 import { AimSway } from './aim-sway';
 import { ThrowArc, type ArcLaunch } from './render/throw-arc';
 import { reloadScriptOf, type PartSound } from './reload-scripts';
+import { Compass, type CompassMark } from './render/compass';
 import { handAnimationFor } from './hand-studio';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -894,6 +895,32 @@ export class GameEngine {
   attachMinimap(canvas: HTMLCanvasElement | null): void {
     this.minimapCanvas = canvas;
     this.minimap = canvas && this.welcome ? new Minimap(canvas, this.welcome.world.seaLevel, this.registry, this.library) : null;
+    if (this.minimap) this.minimap.showPlayer = false;
+    this.minimapTurn = NaN;
+  }
+
+  /** The compass strip across the top of the view. */
+  attachCompass(canvas: HTMLCanvasElement | null): void { this.compass = canvas ? new Compass(canvas) : null; }
+  private compass: Compass | null = null;
+  private minimapTurn = NaN;
+  private lastCompass = 0;
+
+  /**
+   * Every frame: the minimap turns with the view (it is drawn a few times a second, turned here
+   * smoothly, the player's arrow fixed pointing up over it), and the compass follows the heading.
+   */
+  private updateHeadingHud(now: number, px: number, pz: number): void {
+    const yaw = this.input.yaw;
+    if (this.minimapCanvas) {
+      const turn = yaw - CAM_YAW;
+      if (!(Math.abs(turn - this.minimapTurn) < 1e-4)) { this.minimapTurn = turn; this.minimapCanvas.style.transform = `rotate(${turn}rad)`; }
+    }
+    if (this.compass && now - this.lastCompass > 16) {
+      this.lastCompass = now;
+      const marks: CompassMark[] = this.worldMap.get().locations.filter((l) => l.guide || !l.fixed || l.quest).map((l) => ({ x: l.x, z: l.z, color: l.quest ? '#ffb000' : l.fixed ? '#ffd96b' : '#4fc3ff' }));
+      for (const m of this.hud.get().team?.members ?? []) if (m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined) marks.push({ x: m.x, z: m.z, color: '#7ce38b' });
+      this.compass.draw(yaw, px, pz, marks);
+    }
   }
 
   setTutorialBlocked(blocked: boolean): void {
@@ -1226,7 +1253,7 @@ export class GameEngine {
       const def = this.registry.byNumericId(asset);
       return def && def.collisionLayer !== 'none' ? def.bounds.radius : 0;
     });
-    if (this.minimapCanvas) this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry, this.library);
+    if (this.minimapCanvas) { this.minimap = new Minimap(this.minimapCanvas, world.seaLevel, this.registry, this.library); this.minimap.showPlayer = false; }
     this.localAvatar = new Avatar(this.character!, true);
     this.localAvatar.setAppearance(this.look);
     this.localAvatar.ground = (x, z) => this.groundY(x, z);
@@ -2211,6 +2238,7 @@ export class GameEngine {
       this.lastPing = now;
       this.conn.sendPing();
     }
+    this.updateHeadingHud(now, px, pz);
     if (now - this.lastMinimap > 330 && this.minimap) {
       this.lastMinimap = now;
       const teamIds = new Set(this.hud.get().team?.members.map((m) => m.entityId));

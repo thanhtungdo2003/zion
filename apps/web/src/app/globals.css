@@ -3468,3 +3468,29 @@ kbd {
 .hs-key { position: absolute; top: 4px; width: 12px; height: 12px; transform: translateX(-6px) rotate(45deg); background: #8fe3ff; border: 1px solid #0b1116; padding: 0; cursor: ew-resize; }
 .hs-key.posed { background: #ffd23f; }
 .hs-key.on { background: #ff5a36; }
+
+/* Gameplay HUD: see-through panels; a round minimap turning with the view, its edge fading out;
+   health and stamina as matching flat bars side by side; the compass strip on top. */
+.hud .hud-panel, .hud .hud-health, .hud .hud-alert, .hud .hud-ammo { background: transparent; border-color: transparent; box-shadow: none; }
+.hud .hud-panel, .hud .hud-health, .hud .hud-ammo, .hud .hud-clock { text-shadow: 0 1px 2px rgba(0, 0, 0, .9); }
+.hud .hud-panel.chat { background: transparent; }
+.hud-minimap { overflow: visible; }
+.hud .hud-minimap canvas { border: 0; transform-origin: 50% 50%; will-change: transform; }
+.hud-minimap-open { width: 160px; height: 160px; overflow: hidden; border-radius: 50%;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 55%, rgba(0, 0, 0, .55) 64%, transparent 71%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 55%, rgba(0, 0, 0, .55) 64%, transparent 71%); }
+.hud-minimap-open > span { display: none; }
+.hud-minimap-me { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: translate(-50%, -60%);
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 14px solid #fff; filter: drop-shadow(0 0 1.5px #000); pointer-events: none; }
+.hud .hud-health { width: 360px; padding: 6px 0; border-left: 0; }
+.hud .health-bar, .hud .stamina-bar { height: 7px; border-radius: 0; background: rgba(255, 255, 255, .14); }
+.hud .health-bar > div { background: rgba(236, 240, 232, .82); border-radius: 0; }
+.hud .stamina-fill { background: rgba(140, 196, 245, .78); border-radius: 0; }
+.hud .hud-health.low .health-bar > div { background: rgba(255, 120, 110, .85); }
+.hud .hud-stamina-row { margin-top: 2px; }
+.hud .hud-health-row, .hud .hud-stamina-row { gap: 8px; }
+.hud .hud-health-num { min-width: 36px; font-size: 13px; text-align: right; }
+.hud .hud-stamina-icon { width: 36px; height: 13px; }
+.hud .hud-stamina-num { min-width: 36px; text-align: right; color: rgba(160, 205, 245, .95); }
+.hud-compass { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: min(560px, 70vw); height: 64px; pointer-events: none; }
+.hud .hud-health-row::after { content: ''; min-width: 36px; }

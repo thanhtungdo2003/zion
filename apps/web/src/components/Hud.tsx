@@ -18,6 +18,7 @@ import type { TKey } from '@/lib/i18n';
 interface Props {
   state: HudState;
   onMinimap: (canvas: HTMLCanvasElement | null) => void;
+  onCompass?: (canvas: HTMLCanvasElement | null) => void;
   onOpenMap: () => void;
   onChatOpen: (open: boolean) => void;
   onChat: (text: string, channel: 'world' | 'team') => void;
@@ -61,7 +62,7 @@ function MouseRight() {
   );
 }
 
-export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
+export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
   // Match modes: the server sends everyone back when the match ends; "reconnect" finds a new one.
   const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over;
@@ -77,6 +78,10 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
   useEffect(() => {
     onMinimap(showWorld ? minimap.current : null);
   }, [showWorld, onMinimap]);
+  const compass = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    onCompass?.(showWorld ? compass.current : null);
+  }, [showWorld, onCompass]);
 
   // Latest values for the key handler, which is registered once: re-registering on every render
   // would drop it mid-dispatch (the game's own Enter handler re-renders the HUD synchronously).
@@ -161,8 +166,9 @@ export function Hud({ state, onMinimap, onOpenMap, onChatOpen, onChat, onRespawn
       {state.hitMarkAt > 0 && <div key={state.hitMarkAt} className={`hud-hitmark${state.hitMarkHead ? ' head' : ''}`} aria-hidden><i /><i /><i /><i /></div>}
       {showWorld && (
         <>
+          <canvas ref={compass} className="hud-compass" aria-label="La bàn" />
           <div className="hud-panel hud-minimap">
-            <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><span><Icon name="lucide:expand" /> M</span></button>
+            <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><i className="hud-minimap-me" aria-hidden /></button>
             {state.mode === 'survival' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
               <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
             </button>}
