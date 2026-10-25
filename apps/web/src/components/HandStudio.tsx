@@ -15,6 +15,7 @@ import { loadPlayerCharacter } from '@/game/render/character-model';
 import { loadWeapons, type WeaponLibrary } from '@/game/render/weapons';
 import { ViewModel } from '@/game/render/viewmodel';
 import { SOUND_FILES } from '@/game/audio';
+import { cachedFetch } from '@/lib/preload';
 import { Icon } from './Icon';
 
 /**
@@ -153,10 +154,12 @@ export function HandStudioPage() {
         // Playback.
         const a = L.data.animations.find((x) => x.id === L.animId) ?? null;
         if (L.tab === 'anim' && a && L.playing) {
-          let t = L.time + dt * a.speed / a.duration;
+          const from = L.time;
+          let t = from + dt * a.speed / a.duration;
           if (t > 1) { if (L.loop) t %= 1; else { t = 1; setPlaying(false); } }
           live.current.time = t; setTime(t);
-          playSounds(a, L.time, t);
+          // Every sound the play head passed this frame.
+          playSounds(a, from, t);
         }
         st.view.previewAnimation(L.tab === 'anim' ? a : null, live.current.time);
         if (hands) { hands.poseOverride.L = null; hands.poseOverride.R = null; if (L.tab === 'pose') hands.poseOverride[L.side] = L.poseId; }
@@ -701,7 +704,6 @@ function frustumHelper(cam: PerspectiveCamera): Group {
 }
 
 /** Sounds of an animation crossed between two play times (Studio preview). */
-const audioCache = new Map<string, HTMLAudioElement>();
 function playSounds(a: HandAnimation, from: number, to: number): void {
   for (const s of a.sounds) {
     const crossed = to >= from ? s.at > from && s.at <= to : s.at > from || s.at <= to;
@@ -709,16 +711,25 @@ function playSounds(a: HandAnimation, from: number, to: number): void {
   }
 }
 
-/** One sound as the game plays it (its volume and pitch). */
+/**
+ * One sound as the game plays it (its volume and pitch), through Web Audio from the same files the
+ * game loads (by their hashed names), so several can overlap.
+ */
+let audio: AudioContext | null = null;
+const buffers = new Map<string, Promise<AudioBuffer | null>>();
 function preview(s: { sound: string; volume?: number; rate?: number }): void {
   const url = (SOUND_FILES as Record<string, string>)[s.sound];
   if (!url) return;
-  // A fresh element each time: the same sound can overlap itself (a quick double click).
-  let el = audioCache.get(url);
-  if (!el || !el.paused) { el = new Audio(url); audioCache.set(url, el); }
-  el.currentTime = 0; el.volume = Math.min(1, s.volume ?? .9);
-  el.playbackRate = s.rate ?? 1; el.preservesPitch = false;
-  void el.play().catch(() => undefined);
+  audio ??= new AudioContext();
+  if (audio.state === 'suspended') void audio.resume();
+  const ctx = audio;
+  if (!buffers.has(url)) buffers.set(url, cachedFetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status))))).then((b) => ctx.decodeAudioData(b)).catch(() => null));
+  void buffers.get(url)!.then((buffer) => {
+    if (!buffer) return;
+    const src = ctx.createBufferSource(), gain = ctx.createGain();
+    src.buffer = buffer; src.playbackRate.value = s.rate ?? 1; gain.gain.value = s.volume ?? .9;
+    src.connect(gain).connect(ctx.destination); src.start();
+  });
 }
 
 /** Every game sound by kind: parts of guns first (what reloads are made of). */
