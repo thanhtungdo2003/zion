@@ -2,7 +2,9 @@
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createDefaultRegistry, LIGHT_SOURCE_ASSET, type AssetDefinition, type AssetDefinitionInput } from '@zion/assets';
+import { createDefaultRegistry, LIGHT_SOURCE_ASSET, uploadedMapFit, type AssetDefinition, type AssetDefinitionInput, type UploadedMapFit } from '@zion/assets';
+import { Vector3, type Mesh } from 'three';
+import { gltfLoader } from '@/game/render/gltf-loader';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
 import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -10,6 +12,25 @@ import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
 const registry = createDefaultRegistry();
+
+/** Centring and collision of a map model, from its triangles as three.js decodes them. */
+async function mapFitOf(buf: ArrayBuffer): Promise<UploadedMapFit> {
+  const gltf = await gltfLoader().parseAsync(buf, '');
+  gltf.scene.updateMatrixWorld(true);
+  const tris: Array<Array<[number, number, number]>> = [], a = new Vector3(), b = new Vector3(), c = new Vector3();
+  gltf.scene.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.getAttribute('position'), index = mesh.geometry.getIndex();
+    if (!pos) return;
+    const n = index ? index.count : pos.count, at = (k: number) => (index ? index.getX(k) : k);
+    for (let k = 0; k + 2 < n; k += 3) {
+      a.fromBufferAttribute(pos, at(k)).applyMatrix4(mesh.matrixWorld); b.fromBufferAttribute(pos, at(k + 1)).applyMatrix4(mesh.matrixWorld); c.fromBufferAttribute(pos, at(k + 2)).applyMatrix4(mesh.matrixWorld);
+      tris.push([a.toArray(), b.toArray(), c.toArray()]);
+    }
+  });
+  return uploadedMapFit(tris);
+}
 // WebGL viewer: client only, loaded when first shown.
 const ModelPreview = dynamic(() => import('./ModelPreview'), { ssr: false });
 const InfectionMap3D = dynamic(() => import('./InfectionMap3D'), { ssr: false });
@@ -114,15 +135,21 @@ export default function InfectionStudio() {
   const uploadModel = (file: File) => {
     if (file.size > 48 * 1024 * 1024) { flash('File lớn hơn 48 MB.'); return; }
     setUploading(true);
-    void file.arrayBuffer().then((buf) => {
+    void file.arrayBuffer().then(async (buf) => {
+      // Decoded here (compressed models too): its triangles give the centring and the collision.
+      const fit = await mapFitOf(buf);
       let bin = ''; const bytes = new Uint8Array(buf);
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return studioUploadInfectionModel(file.name.replace(/\.glb$/i, '').slice(0, 60), btoa(bin));
+      return studioUploadInfectionModel(file.name.replace(/\.glb$/i, '').slice(0, 60), btoa(bin), fit);
     }).then((m) => {
       adoptModels([...models.filter((x) => x.asset !== m.asset), m]);
-      patch((d) => { d.base = 'model'; d.model = { asset: m.asset, scale: 1, yaw: 0, y: 0 }; });
-      flash(`Đã tải lên ${m.name}: kiểm tra kích thước so với nhân vật ở chế độ 3D.`);
-    }).catch((e: unknown) => flash((e as Error).message)).finally(() => setUploading(false));
+      // Models made in centimetres (hundreds of "metres" tall) start at 1/100.
+      const height = (m.def as { bounds?: { height?: number } }).bounds?.height ?? 10;
+      const scale = height > 300 ? .01 : height < .3 ? 100 : 1;
+      patch((d) => { d.base = 'model'; d.model = { asset: m.asset, scale, yaw: 0, y: 0 }; });
+      setView3d(true);
+      flash(`Đã tải lên ${m.name}: so kích thước với nhân vật trong 3D và chỉnh "Tỉ lệ model".`);
+    }).catch((e: unknown) => flash(`Không tải lên được: ${(e as Error).message}`)).finally(() => setUploading(false));
   };
 
   const dirty = !!draft && JSON.stringify(draft) !== saved;
@@ -486,7 +513,13 @@ export default function InfectionStudio() {
                 <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadModel(f); }} />
               </label>
               {draft.model && <>
-                {num('Tỉ lệ model', draft.model.scale, (v) => patch((d) => { d.model!.scale = v; }), .05, 20, .05, '×')}
+                {(() => {
+                  const b = registry.byNumericId(draft.model.asset)?.bounds;
+                  return b ? <p className="ix-hint">Kích thước sau tỉ lệ: rộng ~{(b.radius * 2 * draft.model.scale).toFixed(1)} m · cao {(b.height * draft.model.scale).toFixed(1)} m (nhân vật cao ~1,8 m)</p> : <p className="ix-hint">Model chưa tải được trong Studio.</p>;
+                })()}
+                <label className="ix-field"><span>Tỉ lệ model<b>{draft.model.scale}×</b></span>
+                  <input type="number" min={.001} max={1000} step="any" value={draft.model.scale} onChange={(e) => { const v = Number(e.target.value); if (v > 0) patch((d) => { d.model!.scale = Math.min(1000, Math.max(.001, v)); }); }} /></label>
+                {num('Tỉ lệ (kéo nhanh)', draft.model.scale, (v) => patch((d) => { d.model!.scale = v; }), .01, 10, .01, '×')}
                 {num('Xoay', Math.round(draft.model.yaw * 180 / Math.PI), (v) => patch((d) => { d.model!.yaw = v * Math.PI / 180; }), -180, 180, 1, '°')}
                 {num('Độ cao so với mặt đất', draft.model.y, (v) => patch((d) => { d.model!.y = v; }), -30, 30, .1, ' m')}
                 <p className="ix-hint">Bật 3D để so model với nhân vật (cao ~1,8 m) đứng ở các điểm xuất hiện. Đặt điểm trong 3D: chọn công cụ điểm người / zombie rồi nhấp lên sàn.</p>

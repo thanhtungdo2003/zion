@@ -61,7 +61,8 @@ export const infectionMapSchema = z.object({
    */
   model: z.object({
     asset: z.number().int().min(2900).max(2999),
-    scale: z.number().min(.05).max(50),
+    /** Models made in centimetres or kilometres need far scales. */
+    scale: z.number().min(.001).max(1000),
     yaw: z.number().finite(),
     y: z.number().finite().min(-60).max(60),
   }).strict().optional(),

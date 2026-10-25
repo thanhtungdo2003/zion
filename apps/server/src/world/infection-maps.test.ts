@@ -35,4 +35,23 @@ describe('infection map service', () => {
       expect(query).toHaveBeenCalledWith(expect.stringContaining('infection_maps'), expect.any(Array));
     } finally { await service.close(); }
   }, 60_000);
+  it('takes an uploaded map model: registered, previewed at the centre, a map on it saved and built', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const glb = await readFile(new URL('../../../web/public/models/dists/il-38.glb', import.meta.url));
+    const query = vi.fn(async (sql: string) => ({ rows: sql.startsWith('INSERT INTO infection_map_models') ? [{ updated_at: new Date() }] : [] }));
+    const registry = createDefaultRegistry();
+    const service = new InfectionMapService({ query } as unknown as Db, registry, 64, createLogger('silent', false), 0);
+    await service.load();
+    try {
+      const model = await service.uploadModel('Plane yard', glb);
+      expect(registry.byNumericId(model.asset)?.colliders.length).toBeGreaterThan(10);
+      expect(service.modelList()[0]!.url).toContain(`/api/infection-maps/models/${model.asset}.glb`);
+      const map = { ...blankInfectionMap('yard', 'Yard', 'y1'), base: 'model' as const, model: { asset: model.asset, scale: 2, yaw: 0, y: 0 } };
+      const preview = service.preview(map);
+      expect(preview.base).toEqual([expect.objectContaining({ asset: model.asset, x: 0, z: 0, scale: 2 })]);
+      await service.save(map);
+      await service.activate('yard');
+      expect(service.world.extraAssets.map((a) => a.numericId)).toEqual([model.asset]);
+    } finally { await service.close(); }
+  }, 60_000);
 });

@@ -29,6 +29,7 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
   const [loading, setLoading] = useState(true);
   const live = useRef({ tool, onPoint, draft, preview }); live.current = { tool, onPoint, draft, preview };
   const [ready, setReady] = useState(0);
+  const [failed, setFailed] = useState<string[]>([]);
 
   // Renderer, camera and controls: once.
   useEffect(() => {
@@ -85,6 +86,7 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
     void buildInfectionMapScene(preview, draft, registry).then((root: Object3D) => {
       if (stale || !stage.current) return;
       st.map.clear(); st.map.add(root);
+      setFailed((root.userData.failed as string[] | undefined) ?? []);
       setLoading(false);
     }).catch(() => setLoading(false));
     return () => { stale = true; };
@@ -134,6 +136,7 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
 
   return <div className="ix-plan-3d" ref={host} style={{ cursor: tool ? 'crosshair' : 'grab' }}>
     {loading && <div className="ws-viewer-state"><Spinner /> Đang dựng bản đồ…</div>}
+    {!loading && failed.length > 0 && <div className="ws-viewer-state" style={{ color: '#ff8a80' }}>Không tải được model: {failed.join(' · ')}</div>}
     <div className="ws-viewer-hint" style={{ top: 'auto', bottom: 10 }}>
       {tool ? `Nhấp lên bề mặt bản đồ để đặt điểm ${tool === 'spawn' ? 'người chơi' : 'zombie'} · nhấp lại điểm cũ để xóa` : 'Kéo để xoay · chuột phải kéo để dời · lăn để thu phóng · chọn công cụ điểm xuất hiện để đặt trong 3D'} · nhân vật cao ~1,8 m
     </div>

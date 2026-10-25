@@ -1,5 +1,5 @@
 import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
-import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, uploadedMapAsset, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry } from '@zion/assets';
+import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, createDefaultRegistry, uploadedMapAsset, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, INFECTION_GROUND, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
@@ -81,11 +81,14 @@ export class InfectionMapService {
   }
 
   /** Stores an uploaded map model: its collision is computed here, once. */
-  async uploadModel(name: string, glb: Buffer): Promise<InfectionMapModel & { url: string }> {
+  /** `fit`: centring and collision computed by the Studio (it decodes compressed models); else here. */
+  async uploadModel(name: string, glb: Buffer, fit?: UploadedMapFit): Promise<InfectionMapModel & { url: string }> {
     if (glb.length > MAX_MAP_MODEL_BYTES) throw new Error('File model quá lớn (tối đa 48 MB).');
     let asset = UPLOADED_MAP_ASSET_MIN;
     while (this.models.has(asset)) if (++asset > UPLOADED_MAP_ASSET_MAX) throw new Error('Đã hết chỗ cho model bản đồ mới (tối đa 100).');
-    const def = uploadedMapAsset(asset, name.slice(0, 60) || 'Bản đồ', new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength));
+    const def = uploadedMapAsset(asset, name.slice(0, 60) || 'Bản đồ', new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength), fit);
+    // Checked the way every server and client will register it.
+    createDefaultRegistry().registerUploaded(def);
     const { rows } = await this.db.query<{ updated_at: Date }>('INSERT INTO infection_map_models (asset, name, glb, def) VALUES ($1, $2, $3, $4::jsonb) RETURNING updated_at', [asset, def.name, glb, JSON.stringify(def)]);
     const model = { asset, name: def.name, version: new Date(rows[0]!.updated_at).getTime(), def };
     this.addModel(model);

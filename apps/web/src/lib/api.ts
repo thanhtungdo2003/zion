@@ -387,7 +387,7 @@ export interface InfectionMapPreview {
 /** A map model uploaded for Infection maps: its asset id, name and full asset definition. */
 export interface InfectionMapModel { asset: number; name: string; version: number; url: string; def: Record<string, unknown> }
 export function studioInfectionModels(): Promise<{ models: InfectionMapModel[] }> { return studioRequest('/api/studio/infection-maps/models'); }
-export function studioUploadInfectionModel(name: string, glb: string): Promise<InfectionMapModel> { return studioRequest('/api/studio/infection-maps/models', { method: 'POST', body: JSON.stringify({ name, glb }) }); }
+export function studioUploadInfectionModel(name: string, glb: string, fit?: unknown): Promise<InfectionMapModel> { return studioRequest('/api/studio/infection-maps/models', { method: 'POST', body: JSON.stringify({ name, glb, ...(fit ? { fit } : {}) }) }); }
 export function studioInfectionMaps(): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps'); }
 export function studioSaveInfectionMap(map: InfectionMapDef): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps', { method: 'PUT', body: JSON.stringify(map) }); }
 export function studioActivateInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps/active', { method: 'POST', body: JSON.stringify({ id }) }); }

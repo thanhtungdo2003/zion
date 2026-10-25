@@ -39,7 +39,10 @@ export async function buildInfectionMapScene(preview: InfectionMapPreview, draft
     ...draft.parts.map((p) => ({ asset: p.asset, x: p.x, z: p.z, y: at(p.x, p.z) + p.y, yaw: p.yaw, scale: p.scale })),
   ];
   const library = new AssetLibrary(registry);
-  const visuals = new Map(await Promise.all([...new Set(placed.map((p) => p.asset))].map(async (a) => [a, await library.load(a)?.catch(() => undefined)] as const)));
+  const failed: string[] = [];
+  const visuals = new Map(await Promise.all([...new Set(placed.map((p) => p.asset))].map(async (a) => [a, await library.load(a)?.catch((err: unknown) => { failed.push(`${registry.byNumericId(a)?.name ?? a}: ${(err as Error).message}`); return undefined; })] as const)));
+  // Models that could not be drawn (shown by the Studio).
+  root.userData.failed = failed;
   for (const p of placed) {
     const v = visuals.get(p.asset);
     if (!v) continue;

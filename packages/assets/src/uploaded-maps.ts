@@ -122,29 +122,38 @@ export function voxelColliders(tris: Vec3[][], cell: number, maxBoxes = 16384): 
   return out;
 }
 
+/** Collision and placement of an uploaded map model, from its triangles (scene space). */
+export interface UploadedMapFit { offset: Vec3; colliders: ColliderDefinition[]; bounds: { radius: number; height: number } }
+
 /**
- * The asset definition of an uploaded map model: centred on its footprint, its lowest point at 0,
- * voxel colliders (coarser for big maps, to stay within the collider limit).
+ * Centres the model on its footprint with its lowest point at 0 and computes its voxel colliders
+ * (the grid cell follows the model's size, so models in centimetres or kilometres work too).
  */
-export function uploadedMapAsset(asset: number, name: string, glb: Uint8Array): AssetDefinitionInput {
-  const raw = glbTriangles(glb);
+export function uploadedMapFit(raw: Vec3[][]): UploadedMapFit {
   if (!raw.length) throw new Error('the model has no triangles');
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const t of raw) for (const p of t) for (let c = 0; c < 3; c++) { min[c] = Math.min(min[c]!, p[c]!); max[c] = Math.max(max[c]!, p[c]!); }
   const offset: Vec3 = [-(min[0] + max[0]) / 2, -min[1], -(min[2] + max[2]) / 2];
   const tris = raw.map((t) => t.map((p) => [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]] as Vec3));
-  const span = Math.max(max[0] - min[0], max[2] - min[2]);
+  const span = Math.max(max[0] - min[0], max[2] - min[2], max[1] - min[1], 1e-6);
   let colliders: ColliderDefinition[] | null = null;
-  for (const cell of [.25, .35, .5, .75, 1, 1.5]) {
-    if (span / cell > 1200) continue;
+  for (let cell = Math.max(span / 1200, .25 * Math.min(1, span / 20)); cell <= span / 8; cell *= 1.5) {
     try { colliders = voxelColliders(tris, cell); break; } catch { /* coarser */ }
   }
-  if (!colliders) throw new Error('map model too large or detailed for collision');
+  if (!colliders) throw new Error('map model too detailed for collision');
+  return {
+    offset: offset.map(r3) as Vec3, colliders,
+    bounds: { radius: Math.max(.001, r3(Math.hypot(max[0] - min[0], max[2] - min[2]) / 2)), height: Math.max(.001, r3(max[1] - min[1])) },
+  };
+}
+
+/** The asset definition of an uploaded map model (its fit computed from the file when not given). */
+export function uploadedMapAsset(asset: number, name: string, glb: Uint8Array, fit?: UploadedMapFit): AssetDefinitionInput {
+  const f = fit ?? uploadedMapFit(glbTriangles(glb));
   return {
     id: `uploaded.infection_map_${asset}`, numericId: asset, name, category: 'structure',
-    model: { kind: 'glb', path: uploadedMapPath(asset), scale: 1, offset: offset.map(r3) as Vec3 },
-    colliders, collisionLayer: 'static',
-    bounds: { radius: Math.max(.5, r3(Math.hypot(max[0] - min[0], max[2] - min[2]) / 2)), height: Math.max(.5, r3(max[1] - min[1])) },
+    model: { kind: 'glb', path: uploadedMapPath(asset), scale: 1, offset: f.offset },
+    colliders: f.colliders, collisionLayer: 'static', bounds: f.bounds,
     render: { maxDistance: 1000 }, tags: ['infection-map'],
   } as AssetDefinitionInput;
 }

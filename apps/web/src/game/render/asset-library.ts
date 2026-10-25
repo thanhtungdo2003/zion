@@ -10,7 +10,6 @@ import {
   type Material,
   type Object3D,
 } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   ASSET_MANIFEST_URL,
@@ -23,6 +22,7 @@ import { loadBBModel, type ModelPart } from './bbmodel-loader';
 import { applyOcclusionFade } from './occlusion-fade';
 import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
+import { gltfLoader } from './gltf-loader';
 import { API_URL } from '@/lib/api';
 import { naturalMaterial } from './natural-material';
 import { ResourceDisposer } from './resources';
@@ -114,7 +114,7 @@ export class AssetLibrary {
   private manifestLoading: Promise<AssetManifest> | null = null;
   private readonly visuals = new Map<number, AssetVisual>();
   private readonly loading = new Map<number, Promise<AssetVisual>>();
-  private readonly gltf = new GLTFLoader();
+  private readonly gltf = gltfLoader();
   private disposed = false;
   private readonly resources = new ResourceDisposer();
   readonly errors: string[] = [];

@@ -1,7 +1,7 @@
 import type { LifeWorld } from './game/base-life';
 import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
-import { createDefaultRegistry } from '@zion/assets';
+import { createDefaultRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
 import { loadConfig } from './config';
 import { defaultMigrationsDir, migrate } from './db/migrate';
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
-      upload: (name, glb) => infectionMaps.uploadModel(name, glb),
+      upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
       file: (asset) => infectionMaps.modelFile(asset),
     },
     battleMaps: {
