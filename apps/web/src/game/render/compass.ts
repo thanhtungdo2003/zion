@@ -6,7 +6,7 @@
  */
 
 /** Degrees either side of the centre the strip shows. */
-const SPAN = 60;
+const SPAN = 50;
 const CARDINALS: Record<number, string> = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
 
 export interface CompassMark { x: number; z: number; color: string; label?: string }
@@ -33,7 +33,7 @@ export class Compass {
     const key = `${heading.toFixed(1)}|${Math.round(px)}|${Math.round(pz)}|${marks.length}`;
     if (key === this.last) return;
     this.last = key;
-    const dpr = Math.min(2, window.devicePixelRatio || 1), cw = this.canvas.clientWidth || 520, ch = this.canvas.clientHeight || 52;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), cw = this.canvas.clientWidth || 380, ch = this.canvas.clientHeight || 56;
     if (this.canvas.width !== Math.round(cw * dpr) || this.canvas.height !== Math.round(ch * dpr)) { this.canvas.width = Math.round(cw * dpr); this.canvas.height = Math.round(ch * dpr); }
     const ctx = this.ctx, W = cw, H = ch, perDeg = W / (SPAN * 2), base = 24;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

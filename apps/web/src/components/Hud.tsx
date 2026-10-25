@@ -186,10 +186,6 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           </div>
           <div className="hud-left-stack">
             <div className={`hud-health ${state.downed !== null ? 'dying' : state.health <= 30 ? 'low' : ''}`}>
-              <div className="hud-health-head">
-                <span className="hud-health-name" style={state.pvpEnabled ? { color: '#ff4949' } : undefined}>{state.username}</span>
-                {state.swimming && <span className="hud-health-tag">{t('hud.swimming')}</span>}
-              </div>
               <div className="hud-health-row">
                 <span className="hud-health-num">{state.downed !== null ? Math.ceil(state.downed) : state.health}</span>
                 <div className="health-bar">
@@ -206,12 +202,6 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
                   <span className="hud-stamina-num">{Math.round(state.life.stamina)}</span>
                 </div>
               )}
-              <div className={`hud-roll ${state.rollCd > 0 ? 'cooling' : ''}`} title={t('hud.roll', { key: rollKeyLabel(rollKey) })}>
-                <kbd>{rollKeyLabel(rollKey)}</kbd>
-                <div className="hud-roll-bar">
-                  <div style={{ width: `${(1 - state.rollCd) * 100}%` }} />
-                </div>
-              </div>
             </div>
             {state.life && (() => {
               const st = state.life.config.stamina;

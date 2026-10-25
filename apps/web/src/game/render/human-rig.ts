@@ -326,6 +326,41 @@ function preparedBody(body: BufferGeometry, encoded: string): BufferGeometry {
 
 const ARM_BONE = /^(shoulder_|upper_arm|forearm|hand_|f_|thumb|palm)/;
 const HAND_BONE = /^(hand_|f_|thumb|palm)/;
+// (also matched against bone names with a side suffix: hand_L, f_index_01_R…)
+
+/** Tactical gloves made from the hands' skin: pushed out along its normals, over the wrist at the cuff. */
+function gloveGeometry(body: BufferGeometry, names: string[]): BufferGeometry {
+  const si = body.getAttribute('skinIndex'), sw = body.getAttribute('skinWeight'), index = body.getIndex()!;
+  const pos = body.getAttribute('position'), nrm = body.getAttribute('normal');
+  const weightOn = (i: number, re: RegExp) => { let w = 0; for (let k = 0; k < 4; k++) if (re.test(names[comp(si, i, k)] ?? '')) w += comp(sw, i, k); return w; };
+  const hand = new Float32Array(si.count);
+  for (let i = 0; i < si.count; i++) hand[i] = weightOn(i, HAND_BONE);
+  const tris: number[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const a = index.getX(t), b = index.getX(t + 1), c = index.getX(t + 2);
+    // The hand and a short cuff over the wrist (any part of the triangle on the hand).
+    if (Math.max(hand[a]!, hand[b]!, hand[c]!) > .5 && Math.min(hand[a]!, hand[b]!, hand[c]!) > .15) tris.push(a, b, c);
+  }
+  const out = new Float32Array(pos.count * 3), n = new Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.fromBufferAttribute(nrm, i).normalize();
+    // Thin over the fingers, thicker on the back of the hand and at the cuff.
+    const d = hand[i]! > .95 ? .0022 : .0032;
+    out[i * 3] = pos.getX(i) + n.x * d; out[i * 3 + 1] = pos.getY(i) + n.y * d; out[i * 3 + 2] = pos.getZ(i) + n.z * d;
+  }
+  const g = new BufferGeometry();
+  for (const [name, attr] of Object.entries(body.attributes)) if (name !== 'position' && name !== 'color' && name !== 'uv') g.setAttribute(name, attr);
+  g.setAttribute('position', new Float32BufferAttribute(out, 3));
+  // Dark olive-black synthetic leather, a shade lighter over the knuckles' back.
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) { col[i * 3] = .042; col[i * 3 + 1] = .045; col[i * 3 + 2] = .038; }
+  g.setAttribute('color', new Float32BufferAttribute(col, 3));
+  g.morphAttributes = body.morphAttributes;
+  g.morphTargetsRelative = body.morphTargetsRelative;
+  g.setIndex(tris);
+  g.computeBoundingSphere();
+  return g;
+}
 
 /** The skin without the hands (worn gloves cover them): triangles mostly weighted to hand / finger bones left out. */
 function withoutHands(body: BufferGeometry, names: string[]): BufferGeometry {
@@ -469,6 +504,9 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
   const skinPrepared = preparedSkin ? { bare: preparedBody(body.geometry, preparedSkin.hidden.bare), top: preparedBody(body.geometry, preparedSkin.hidden.top) }
     : { bare: bodyUnder(body.geometry, always), top: bodyUnder(body.geometry, top ? [...always, top] : always) };
   // Gloves worn: the hands' skin under them is left out (it would show through as the fingers bend).
+  // Gloves: the hands' own skin a few millimetres out (the cuff a little more over the wrist),
+  // skinned exactly like the hands, so they follow every finger.
+  if (!parts.has('gloves')) parts.set('gloves', { geometry: gloveGeometry(body.geometry, names), slot: 'gloves', roughness: .82, metalness: 0, mean: new Color(.035, .037, .032) });
   const gloved = parts.has('gloves');
   const bodies = gloved ? { bare: withoutHands(skinPrepared.bare, names), top: withoutHands(skinPrepared.top, names) } : skinPrepared;
   const skinArms = gloved ? withoutHands(armsOnly(body.geometry, names), names) : armsOnly(body.geometry, names);

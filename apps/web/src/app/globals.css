@@ -3494,3 +3494,13 @@ kbd {
 .hud .hud-stamina-num { min-width: 36px; text-align: right; color: rgba(160, 205, 245, .95); }
 .hud-compass { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: min(560px, 70vw); height: 64px; pointer-events: none; }
 .hud .hud-health-row::after { content: ''; min-width: 36px; }
+
+/* Health and stamina: two taller bars touching, the armour boxes to their right. */
+.hud .hud-health { width: 340px; padding: 0; }
+.hud .health-bar, .hud .stamina-bar { height: 11px; }
+.hud .hud-stamina-row { margin-top: 0; }
+.hud .hud-health-num { font-size: 12px; line-height: 11px; }
+.hud .hud-stamina-icon { height: 11px; }
+.hud .hud-stamina-num { font-size: 11px; line-height: 11px; }
+.armor-hud { left: 372px; }
+.hud-compass { width: min(380px, 46vw); height: 56px; }
