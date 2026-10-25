@@ -15,7 +15,7 @@ import { activeMatch } from '@/lib/rejoin';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, IS_DESKTOP, startDesktopSignIn, pollDesktopSignIn, approveDesktopSignIn, type DesktopSignIn, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
-import { getTeamLobby, teamAction } from '@/lib/api';
+import { getTeamLobby, listInfectionMaps, teamAction } from '@/lib/api';
 import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
@@ -38,7 +38,9 @@ const GAME_MODES = [
 /** Where "Play" goes for a mode (squads only exist in battle royale). */
 const BR_MAP_KEY = 'zion.br.map';
 const chosenMap = () => { try { return localStorage.getItem(BR_MAP_KEY) ?? 'hac-son'; } catch { return 'hac-son'; } };
-const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}`;
+const INF_MAP_KEY = 'zion.inf.map';
+const chosenInfectionMap = () => { try { return localStorage.getItem(INF_MAP_KEY) ?? ''; } catch { return ''; } };
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -57,8 +59,13 @@ export default function MainMenu() {
   const [modeOpen, setModeOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [brMap, setBrMap] = useState<{ id: string; name: string }>({ id: 'hac-son', name: 'Đảo Hắc Sơn' });
+  // Infection: '' = the map set active in the Studio.
+  const [infMap, setInfMap] = useState<{ id: string; name: string }>({ id: '', name: 'Bản đồ mặc định' });
+  const [infMapOpen, setInfMapOpen] = useState(false);
+  useEffect(() => { try { const id = localStorage.getItem(INF_MAP_KEY); const name = localStorage.getItem(`${INF_MAP_KEY}.name`); if (id) setInfMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   useEffect(() => { try { const id = localStorage.getItem(BR_MAP_KEY); const name = localStorage.getItem(`${BR_MAP_KEY}.name`); if (id) setBrMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   const closeMaps = useCallback(() => setMapOpen(false), []);
+  const closeInfMaps = useCallback(() => setInfMapOpen(false), []);
   const closeModes = useCallback(() => setModeOpen(false), []);
   // A match was left by accident (tab closed, crash) a moment ago: go straight back into it.
   useEffect(() => {
@@ -459,6 +466,13 @@ export default function MainMenu() {
         </a>
         {modeOpen && <ModeModal modes={GAME_MODES} current={gameMode} onPick={(m) => setGameMode(m as (typeof GAME_MODES)[number]['id'])} onClose={closeModes} />}
         {mapOpen && <MapPicker current={brMap.id} fallbackImage={GAME_MODES.find((m) => m.id === 'battle-royale')!.image} onPick={(id, name) => { setBrMap({ id, name }); try { localStorage.setItem(BR_MAP_KEY, id); localStorage.setItem(`${BR_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeMaps} />}
+        {infMapOpen && <MapPicker current={infMap.id} load={listInfectionMaps} fallbackImage={GAME_MODES.find((m) => m.id === 'infection')!.image} onPick={(id, name) => { setInfMap({ id, name }); try { localStorage.setItem(INF_MAP_KEY, id); localStorage.setItem(`${INF_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeInfMaps} />}
+        {gameMode === 'infection' && <button className="menu-mode menu-map" onClick={() => setInfMapOpen(true)} aria-haspopup="dialog" aria-expanded={infMapOpen}>
+          <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === 'infection')!.image})` }} />
+          <small>Bản đồ</small>
+          <b>{infMap.name}</b>
+          <span className="menu-mode-caret"><Icon name="lucide:map" /></span>
+        </button>}
         {battleMode && <button className="menu-mode menu-map" onClick={() => setMapOpen(true)} aria-haspopup="dialog" aria-expanded={mapOpen}>
           <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === 'battle-royale')!.image})` }} />
           <small>Bản đồ</small>

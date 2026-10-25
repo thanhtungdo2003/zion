@@ -23,6 +23,8 @@ const HEARTBEAT_MS = 10_000;
 export class GameGateway {
   /** Pools of the published battle royale maps, by map id. */
   battleMaps: ((id: string) => MatchPool | undefined) | null = null;
+  /** Pools of the Infection maps picked in the menu, by map id. */
+  infectionMaps: ((id: string) => MatchPool | undefined) | null = null;
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
   private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
@@ -100,9 +102,14 @@ export class GameGateway {
     if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection') return this.reject(socket, 400, 'mode');
     let pool = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
     // A battle royale map chosen in the mode menu (the built-in island when absent).
-    const mapId = mode === 'battle-royale' ? query.get('map') : null;
-    if (mapId && mapId !== 'hac-son') {
+    const mapId = mode === 'battle-royale' || mode === 'infection' ? query.get('map') : null;
+    if (mode === 'battle-royale' && mapId && mapId !== 'hac-son') {
       pool = this.battleMaps?.(mapId);
+      if (!pool) return this.reject(socket, 404, 'map');
+    }
+    // An Infection map picked in the menu (the active map when absent).
+    if (mode === 'infection' && mapId) {
+      pool = this.infectionMaps?.(mapId);
       if (!pool) return this.reject(socket, 404, 'map');
     }
     if ((mode === 'battle-royale' || mode === 'infection') && !pool) return this.reject(socket, 503, 'mode_unavailable');

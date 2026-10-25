@@ -136,7 +136,27 @@ async function main(): Promise<void> {
   await infectionMaps.load();
   const infectionPool = new MatchPool(() => new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: infectionMaps.world, registry, playerStates, worlds, worldId: infectionMaps.worldId, initialWorldTimeMs: 0, mode: 'infection' }), logger.child({ module: 'infection-matches' }));
   infectionMaps.onSwitch = () => { void infectionPool.retireIdle(); };
-  setInterval(() => { void infectionMaps.sweep(new Set(infectionPool.matches.map((m) => m.worldService))); }, 60_000).unref();
+  // A map picked in the menu (not the active one): its own pool of matches on its own world.
+  const infectionPools = new Map<string, MatchPool>();
+  const infectionPoolFor = (id: string): MatchPool | undefined => {
+    if (id === infectionMaps.maps.active) return infectionPool;
+    if (!infectionMaps.builtFor(id)) return undefined;
+    let pool = infectionPools.get(id);
+    if (!pool) {
+      pool = new MatchPool(() => {
+        const b = infectionMaps.builtFor(id) ?? { world: infectionMaps.world, worldId: infectionMaps.worldId };
+        return new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'infection' });
+      }, logger.child({ module: 'infection-matches', map: id }), 4);
+      pool.start();
+      infectionPools.set(id, pool);
+    }
+    return pool;
+  };
+  infectionMaps.onMapChanged = (id) => { void infectionPools.get(id)?.retireIdle(); };
+  setInterval(() => {
+    for (const [id, pool] of infectionPools) if (!infectionMaps.maps.maps.some((m) => m.id === id)) { void pool.stop(); infectionPools.delete(id); }
+    void infectionMaps.sweep(new Set([infectionPool, ...infectionPools.values()].flatMap((p) => p.matches.map((m) => m.worldService))));
+  }, 60_000).unref();
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
   const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
@@ -185,13 +205,18 @@ async function main(): Promise<void> {
     customWeapons,
     gearFit,
     progression,
-    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas() : survivalAtlas(),
-    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas(map) : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
       file: (asset) => infectionMaps.modelFile(asset),
     },
+    infectionMapList: () => infectionMaps.list().map((m) => {
+      const pool = m.active ? infectionPool : infectionPools.get(m.id);
+      const matches = pool?.matches ?? [];
+      return { ...m, players: matches.reduce((n, g) => n + g.playerCount, 0) };
+    }),
     battleMaps: {
       list: () => [{ id: DEFAULT_BATTLE_MAP_ID, name: 'Đảo Hắc Sơn', thumbnail: null, builtin: true, players: battlePool.matches.reduce((n, m) => n + m.playerCount, 0), matches: battlePool.matches.length }, ...battleMaps.list()],
       publish: (input) => battleMaps.publish(input),
@@ -315,6 +340,7 @@ async function main(): Promise<void> {
 
   gateway = new GameGateway(config, logger, metrics, auth, game, audit, { 'battle-royale': battlePool, infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
   gateway.battleMaps = (id) => battleMaps.pool(id);
+  gateway.infectionMaps = infectionPoolFor;
   gateway.attach(app.server);
   game.start();
   battlePool.start();

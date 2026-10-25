@@ -25,7 +25,7 @@ export function playedBattleMap(): string | null {
 }
 const atlasQuery = (mode?: GameMode) => {
   if (!mode || mode === 'survival') return '';
-  const map = mode === 'battle-royale' ? playedBattleMap() : null;
+  const map = mode === 'battle-royale' || mode === 'infection' ? playedBattleMap() : null;
   return `?mode=${mode}${map ? `&map=${map}` : ''}`;
 };
 
@@ -41,6 +41,10 @@ export async function getAtlasTile(x: number, z: number, mode?: GameMode): Promi
 
 export interface BattleMapInfo { id: string; name: string; thumbnail: string | null; players: number; matches: number; builtin?: boolean }
 /** Battle royale maps (the island first) with their live player counts. */
+/** Infection maps for the menu's picker (ids and names; no thumbnails). */
+export async function listInfectionMaps(): Promise<BattleMapInfo[]> {
+  return (await request<{ maps: Array<{ id: string; name: string; players: number; ready: boolean }> }>('/api/infection/maps')).maps.filter((m) => m.ready).map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: m.players, matches: 0 }));
+}
 export async function listBattleMaps(): Promise<BattleMapInfo[]> {
   return (await request<{ maps: BattleMapInfo[] }>('/api/battle/maps')).maps;
 }

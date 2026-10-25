@@ -41,6 +41,8 @@ export class InfectionMapService {
   private readonly built = new Map<string, Built>();
   /** Called after the active map changed (spare lobbies on the old map are replaced). */
   onSwitch: (() => void) | null = null;
+  /** Called once a saved map's new world is built (its own lobbies are replaced). */
+  onMapChanged: ((id: string) => void) | null = null;
 
   constructor(private readonly db: Db, private readonly registry: AssetRegistry, private readonly cacheSize: number, private readonly log: Logger, private readonly workers = 1) {}
 
@@ -62,13 +64,35 @@ export class InfectionMapService {
     // Same key order as every later save, so an unchanged map never rebuilds its world.
     this.maps = infectionMapsSchema.parse(this.maps);
     this.current = await this.build(this.active);
+    // Every other map too: players pick any map in the menu.
+    void this.buildAll();
+  }
+
+  private building: Promise<void> | null = null;
+  /** Builds the world of every map not built yet (in the background, one at a time). */
+  private buildAll(): Promise<void> {
+    this.building ??= (async () => {
+      for (const def of this.maps.maps) await this.build(def).catch((err: unknown) => this.log.error({ err, map: def.id }, 'infection map build failed'));
+    })().finally(() => { this.building = null; });
+    return this.building;
+  }
+
+  /** A map's world as built now (undefined while it is still being built). */
+  builtFor(id: string): Built | undefined {
+    const def = this.maps.maps.find((m) => m.id === id);
+    return def ? this.built.get(JSON.stringify({ ...def, name: '', rules: null })) : undefined;
+  }
+
+  /** For the menu's map picker. */
+  list(): Array<{ id: string; name: string; ready: boolean; active: boolean }> {
+    return this.maps.maps.map((m) => ({ id: m.id, name: m.name, ready: !!this.builtFor(m.id), active: m.id === this.maps.active }));
   }
 
   get active(): InfectionMapDef { return this.maps.maps.find((m) => m.id === this.maps.active)!; }
   get world(): WorldService { return this.current.world; }
   get worldId(): string { return this.current.worldId; }
-  atlas() { return this.current.atlas(); }
-  tile(x: number, z: number) { return this.current.tiles(x, z); }
+  atlas(map?: string | null) { return (map && this.builtFor(map) || this.current).atlas(); }
+  tile(x: number, z: number, map?: string | null) { return (map && this.builtFor(map) || this.current).tiles(x, z); }
 
   private addModel(model: InfectionMapModel): void {
     try { this.registry.registerUploaded(model.def); this.models.set(model.asset, model); }
@@ -107,7 +131,18 @@ export class InfectionMapService {
     return model ? [model.def] : [];
   }
 
-  private async build(def: InfectionMapDef): Promise<Built> {
+  /** Builds in progress by key: a map asked for twice at once (menu, activation) gets one world. */
+  private readonly pending = new Map<string, Promise<Built>>();
+  private build(def: InfectionMapDef): Promise<Built> {
+    const key = JSON.stringify({ ...def, name: '', rules: null });
+    const running = this.pending.get(key);
+    if (running && !this.built.has(key)) return running;
+    const p = this.buildNow(def).finally(() => this.pending.delete(key));
+    this.pending.set(key, p);
+    return p;
+  }
+
+  private async buildNow(def: InfectionMapDef): Promise<Built> {
     // Only what shapes the world needs a new one: rules (round timings, time of day…) and the
     // name are applied to the world already built, in place, without regenerating anything.
     const key = JSON.stringify({ ...def, name: '', rules: null }), have = this.built.get(key);
@@ -145,7 +180,7 @@ export class InfectionMapService {
     this.maps = infectionMapsSchema.parse({ ...this.maps, maps });
     await this.persist();
     // A changed layout is generated in the background: the save answers at once.
-    void this.refresh().catch((err: unknown) => this.log.error({ err }, 'infection map rebuild failed'));
+    void this.refresh().then(() => this.buildAll()).then(() => this.onMapChanged?.(def.id)).catch((err: unknown) => this.log.error({ err }, 'infection map rebuild failed'));
     return this.maps;
   }
 
@@ -166,7 +201,8 @@ export class InfectionMapService {
   /** Closes the worlds of old map versions that no match plays on any more. */
   async sweep(inUse: ReadonlySet<WorldService>): Promise<void> {
     for (const [key, b] of this.built) {
-      if (b === this.current || inUse.has(b.world)) continue;
+      // The current version of every map stays (any map can be picked).
+      if (b === this.current || inUse.has(b.world) || this.maps.maps.some((m) => JSON.stringify({ ...m, name: '', rules: null }) === key)) continue;
       this.built.delete(key);
       await b.world.close().catch((err: unknown) => this.log.error({ err }, 'infection world close failed'));
     }

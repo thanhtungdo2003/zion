@@ -7,20 +7,20 @@ import { Icon } from './Icon';
  * Battle royale map picker: a large panel, a 3 × 3 grid of maps (paged when there are more), each
  * tile showing the map itself as its background and how many people are playing on it right now.
  */
-export function MapPicker({ current, fallbackImage, onPick, onClose }: { current: string; fallbackImage: string; onPick: (id: string, name: string) => void; onClose: () => void }) {
+export function MapPicker({ current, fallbackImage, onPick, onClose, load = listBattleMaps }: { current: string; fallbackImage: string; onPick: (id: string, name: string) => void; onClose: () => void; load?: () => Promise<BattleMapInfo[]> }) {
   const [maps, setMaps] = useState<BattleMapInfo[] | null>(null);
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let alive = true;
-    const load = () => listBattleMaps().then((m) => { if (alive) { setMaps(m); setError(null); } }).catch((e: unknown) => { if (alive) setError((e as Error).message); });
-    void load();
-    const t = window.setInterval(() => { void load(); }, 8000);
+    const refresh = () => load().then((m) => { if (alive) { setMaps(m); setError(null); } }).catch((e: unknown) => { if (alive) setError((e as Error).message); });
+    void refresh();
+    const t = window.setInterval(() => { void refresh(); }, 8000);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => { alive = false; window.clearInterval(t); window.removeEventListener('keydown', onKey); };
-  }, [onClose]);
+  }, [onClose, load]);
   const list = maps ?? [], pages = Math.max(1, Math.ceil(list.length / 9)), shown = list.slice(page * 9, page * 9 + 9);
   return (
     <div className="mode-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>

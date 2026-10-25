@@ -57,7 +57,12 @@ export class GameConnection {
     }
     if (this.closedByUser) return;
     const url = new URL(t.wsUrl);
-    if (this.mode === 'infection') url.searchParams.set('mode', this.mode);
+    if (this.mode === 'infection') {
+      url.searchParams.set('mode', this.mode);
+      // The Infection map chosen in the menu (the active map when absent).
+      const map = playedBattleMap();
+      if (map) url.searchParams.set('map', map);
+    }
     if (this.mode === 'battle-royale') {
       url.searchParams.set('mode', this.mode);
       // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.
