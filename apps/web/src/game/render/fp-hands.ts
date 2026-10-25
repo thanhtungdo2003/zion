@@ -178,8 +178,12 @@ export class FirstPersonHands {
     this.body.applyHandPose(s, hand.preset, hand.to, hand.u ?? 0);
   }
 
+  private lastFinish = 0;
   private finish(): void {
     for (const s of SIDES) { const p = this.poseOverride[s]; if (p) this.body.applyHandPose(s, p); }
+    // Fingers ease into their new shape (about a tenth of a second), never snap.
+    const now = performance.now(), dt = Math.min(.1, Math.max(0, (now - this.lastFinish) / 1000)); this.lastFinish = now;
+    this.body.easeFingers(this.poseOverride.L || this.poseOverride.R ? 1 : 1 - Math.exp(-dt * 16));
     this.afterEachPose?.();
   }
 

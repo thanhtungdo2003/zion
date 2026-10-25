@@ -1508,6 +1508,20 @@ export class HumanBody {
   private readonly turnsA: Quaternion[] = [];
   private readonly turnsB: Quaternion[] = [];
 
+  private readonly fingerPrev = new Map<number, Quaternion>();
+  /**
+   * First person: each finger eased from where it was last frame toward this frame's pose (`k`
+   * the share of the way, from the frame time), so a hand opening or closing round a grip moves
+   * smoothly instead of snapping.
+   */
+  easeFingers(k: number): void {
+    for (const s of ['L', 'R'] as const) for (const chain of this.side[s].fingers) for (const i of chain) {
+      const now = this.bones[i]!.quaternion, prev = this.fingerPrev.get(i);
+      if (prev && k < 1) this.setLocal(i, prev.slerp(now, k).clone());
+      if (prev) prev.copy(this.bones[i]!.quaternion); else this.fingerPrev.set(i, this.bones[i]!.quaternion.clone());
+    }
+  }
+
   /** The finger bones of a hand (index, middle, ring, pinky, thumb; base to tip) and the hand bone. */
   handBones(s: Side): { hand: Bone; fingers: Bone[][] } {
     const S = this.side[s];
