@@ -1890,14 +1890,16 @@ export class HumanBody {
    * Moves a hand to a world transform (wrist pose) with two-bone IK, keeping the recorded elbow
    * plane and the fingers as recorded; `weight` blends from the recorded arm.
    */
-  placeHand(s: Side, target: Matrix4, weight = 1, maxBend = WRIST_BEND_MAX): void {
+  placeHand(s: Side, target: Matrix4, weight = 1, maxBend = WRIST_BEND_MAX, swing = 0): void {
     if (weight < .001) return;
     const S = this.side[s], A = this.assets;
     const chain = [S.upperArm, S.upperArm1, S.forearm, S.forearm1, S.hand];
     const before = chain.map((i) => this.bones[i]!.quaternion.clone());
     const wrist = new Vector3(), rotation = new Quaternion();
     target.decompose(wrist, rotation, tmpV[1]!);
+    // Where the elbow points: as the arm already bends, swung round the shoulder–wrist line by `swing` (Hand Studio).
     const pole = this.pos(S.forearm, new Vector3()).sub(this.pos(S.upperArm, tmpV[2]!).lerp(this.pos(S.hand, tmpV[3]!), .5));
+    if (swing) pole.applyAxisAngle(wrist.clone().sub(this.pos(S.upperArm, tmpV[2]!)).normalize(), swing);
     // The palm contact stays put; a wrist bent past its comfortable range turns about it
     // towards the forearm, and the arm is solved again for the new wrist position.
     const palmLocal = A.hands[s].palm.clone().multiplyScalar(this.worldScale);

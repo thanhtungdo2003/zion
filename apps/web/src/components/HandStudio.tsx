@@ -630,7 +630,10 @@ export function HandStudioPage() {
                 </div>
               </div>
               {vec('Vị trí trên súng (m): tới nòng, lên, phải', selKey.pos, .005, (v) => updateKey(selTrack.id, sel.key, { pos: v }))}
-              {vec('Góc bàn tay (độ) — bỏ trống: chỉ với tới', selKey.rot, 1, (v) => updateKey(selTrack.id, sel.key, { rot: v }))}
+              {vec('Cổ tay — góc bàn tay trên súng (độ); bỏ trống: chỉ với tới', selKey.rot, 1, (v) => updateKey(selTrack.id, sel.key, { rot: v }))}
+              <h4>Khuỷu tay</h4>
+              {num('Xoay khuỷu (độ): + ra ngoài, lên', selKey.elbow ?? 0, 2, (v) => updateKey(selTrack.id, sel.key, { elbow: Math.abs(v) < .01 ? undefined : Math.min(180, Math.max(-180, v)) }))}
+              {vec('Vai — dời (m): phải, lên, lùi', selKey.shoulder, .005, (v) => updateKey(selTrack.id, sel.key, { shoulder: v }))}
             </>}
             {selTrack.kind === 'gun' && <>
               {vec('Dời súng (m): phải, lên, lùi', selKey.pos, .005, (v) => updateKey(selTrack.id, sel.key, { pos: v }))}

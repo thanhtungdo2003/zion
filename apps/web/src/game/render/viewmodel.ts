@@ -13,7 +13,7 @@ import type { Grasp, HumanAssets } from './human-rig';
 import { usesRifleReload } from './recorded-reload';
 import { FreshMagazine, ReloadMagazine } from './reload-magazine';
 import { handAnimationFor } from '../hand-studio';
-import { sampleClip, sampleHandPoint, samplePos, samplePose, sampleRot, sampleScale } from './hand-animation';
+import { sampleClip, sampleElbow, sampleHandPoint, samplePos, samplePose, sampleRot, sampleScale, sampleShoulder } from './hand-animation';
 import type { HandAnimation, HandKey } from '@zion/shared';
 
 /**
@@ -717,8 +717,9 @@ export class ViewModel {
       if (!tr) continue;
       const at = sampleHandPoint(tr, t, place), turn = sampleRot(tr, t), pose = samplePose(tr, t);
       if (!at) continue;
-      const preset = pose?.a ?? 'relaxed', to = pose?.b, u = pose?.u ?? 0;
-      out[side] = turn ? { target: new Matrix4().compose(at, gunQ.clone().multiply(turn), new Vector3(1, 1, 1)), preset, to, u } : { palm: at, preset, to, u };
+      const elbow = sampleElbow(tr, t) ?? undefined, shoulder = sampleShoulder(tr, t) ?? undefined;
+      const shaping = { preset: pose?.a ?? 'relaxed', to: pose?.b, u: pose?.u ?? 0, ...(elbow ? { elbow } : {}), ...(shoulder ? { shoulder } : {}) };
+      out[side] = turn ? { target: new Matrix4().compose(at, gunQ.clone().multiply(turn), new Vector3(1, 1, 1)), ...shaping } : { palm: at, ...shaping };
       animated[side] = true;
     }
     const R = out.R;

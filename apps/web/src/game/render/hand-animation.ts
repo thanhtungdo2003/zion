@@ -35,6 +35,22 @@ export function sampleRot(track: HandTrack, t: number): Quaternion | null {
   return keyQuat(a).slerp(keyQuat(b, new Quaternion()), s.u);
 }
 
+/** A hand key's shoulder shift (camera metres) at `t`. */
+export function sampleShoulder(track: HandTrack, t: number): Vector3 | null {
+  const s = handKeysAt(track.keys, t);
+  if (!s) return null;
+  const [a, b] = pick(s.a, s.b, (k) => k.shoulder);
+  return a && b ? new Vector3(...a).lerp(new Vector3(...b), s.u) : null;
+}
+
+/** A hand key's elbow swing (degrees) at `t`. */
+export function sampleElbow(track: HandTrack, t: number): number | null {
+  const s = handKeysAt(track.keys, t);
+  if (!s) return null;
+  const [a, b] = pick(s.a, s.b, (k) => k.elbow);
+  return a === undefined || b === undefined ? null : a + (b - a) * s.u;
+}
+
 export function sampleScale(track: HandTrack, t: number): number | null {
   const s = handKeysAt(track.keys, t);
   if (!s) return null;

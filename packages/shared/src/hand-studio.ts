@@ -36,7 +36,9 @@ export type HandEase = (typeof HAND_EASES)[number];
  *  - gun: `pos` (camera metres: x right, y up, z back), `rot` (degrees: pitch, yaw, roll), `scale`.
  *  - hand: `pos` (gun metres: x toward the muzzle, y up, z right) — relative to the gun part named
  *    by `part` when set, so the hand follows it —, `rot` (degrees, the hand's turn on the gun;
- *    without it the hand only reaches there), `pose` (a hand pose id).
+ *    without it the hand only reaches there), `pose` (a hand pose id), `elbow` (degrees the elbow
+ *    swings round the shoulder–wrist line: + out and up), `shoulder` (camera metres the shoulder
+ *    moves: x right, y up, z back).
  *  - part: `clip` (0…1 through the part's own model clip, when the track names one), or `pos`
  *    (gun metres) / `rot` (degrees) moved from where the part rests.
  */
@@ -49,6 +51,8 @@ export const handKeySchema = z.object({
   pose: z.string().max(40).optional(),
   part: z.string().max(60).optional(),
   clip: z.number().min(0).max(1).optional(),
+  elbow: z.number().min(-180).max(180).optional(),
+  shoulder: vec3.optional(),
 });
 export type HandKey = z.infer<typeof handKeySchema>;
 

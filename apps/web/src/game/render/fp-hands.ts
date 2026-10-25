@@ -9,7 +9,9 @@ import { rifleReloadLayer } from './recorded-reload';
  * (`target`: the hand bone's world matrix, from a Hand Studio animation), or nothing. A hand shape
  * may be on its way to another (`to`, `u` 0…1: the fingers turn between them).
  */
-export type FpHand = { grasp: Grasp } | { palm: Vector3; preset: HandPreset; to?: HandPreset; u?: number } | { target: Matrix4; preset: HandPreset; to?: HandPreset; u?: number } | { rifle: FpRifle } | null;
+export type FpHand = { grasp: Grasp } | ({ palm: Vector3 } & HandShaping) | ({ target: Matrix4 } & HandShaping) | { rifle: FpRifle } | null;
+/** A placed hand's shape, and the arm's (Hand Studio): the elbow swung round (degrees), the shoulder moved (camera metres). */
+export interface HandShaping { preset: HandPreset; to?: HandPreset; u?: number; elbow?: number; shoulder?: Vector3 }
 
 /** A long gun held as recorded: the display model, grip at its origin, bore +X, top +Y. */
 export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number; /** Shift of the firing hand (display units). */ grip?: Vector3 }
@@ -174,8 +176,17 @@ export class FirstPersonHands {
 
   /** A hand reaching to a point, or placed exactly; its fingers in a shape (or between two). */
   private reachHand(s: Side, hand: Extract<FpHand, { preset: HandPreset }>, pole: Vector3): void {
-    if ('target' in hand) this.body.placeHand(s, hand.target);
-    else this.body.reachWith(s, hand.palm, pole, hand.preset, false);
+    const shoulder = this.shoulders[s].clone().add(hand.shoulder ?? new Vector3());
+    if (hand.shoulder) this.body.placeShoulder(s, this.holder.localToWorld(shoulder.clone()));
+    // The elbow swung round the line from the shoulder to the hand.
+    let swing: Vector3 | undefined;
+    if (hand.elbow) {
+      const at = 'target' in hand ? new Vector3().setFromMatrixPosition(hand.target) : hand.palm;
+      const axis = at.clone().sub(this.holder.localToWorld(shoulder.clone())).normalize();
+      swing = pole.clone().applyAxisAngle(axis, (s === 'L' ? -1 : 1) * hand.elbow * Math.PI / 180);
+    }
+    if ('target' in hand) this.body.placeHand(s, hand.target, 1, undefined, (s === 'L' ? -1 : 1) * (hand.elbow ?? 0) * Math.PI / 180);
+    else this.body.reachWith(s, hand.palm, swing ?? pole, hand.preset, false);
     this.body.applyHandPose(s, hand.preset, hand.to, hand.u ?? 0);
   }
 
