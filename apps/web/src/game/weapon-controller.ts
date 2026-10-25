@@ -95,7 +95,7 @@ export class WeaponController {
         this.serverDuringReload = null;
       }
     }
-    if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; } // swapping cancels
+    if (this.reloadWeapon && this.reloadWeapon !== weapon) { this.reloadWeapon = 0; this.serverDuringReload = null; this.onReloadCancel?.(weapon); } // swapping cancels
     if (weapon === WeaponId.C4) {
       this.primed = false;
       if (!canAct) return 'none';

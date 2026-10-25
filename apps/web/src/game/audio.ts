@@ -1,3 +1,4 @@
+import { PART_SOUNDS } from './reload-scripts';
 import type { Vector3 } from 'three';
 import { bindVolume } from '@/lib/settings';
 import { cachedFetch } from '@/lib/preload';
@@ -75,6 +76,8 @@ export const SOUND_FILES = {
   aimOut: '/sounds/fx/aim-out.ogg',
   // World sounds every nearby player hears (positional).
   footsteps: '/sounds/footsteps-in-soft-material.mp3',
+  // Gun parts: magazines, bolts, slides, breeches… (reload scripts).
+  ...PART_SOUNDS,
 } as const;
 
 /** Sounds from files, plus those synthesised here (a blunt weapon's whoosh). */

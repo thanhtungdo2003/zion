@@ -1,7 +1,8 @@
 import { Box3, BufferGeometry, CircleGeometry, DoubleSide, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Raycaster, Vector3, type Camera, type Material, type Object3D } from 'three';
-import { ITEMS, WEAPON_BY_ITEM, weaponSpec, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
+import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
 import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
+import { reloadScriptOf, type HandTarget } from '../reload-scripts';
 import { fitGripProfile } from './grip-profile';
 import { RecoilSpring } from '../first-person-recoil';
 import { MeleeEdge, type StrikeAxes } from './melee-edge';
@@ -288,11 +289,6 @@ export class ViewModel {
     this.rig()?.mechanics.fire();
   }
 
-  /** The gun in hand loads shell by shell (a pump shotgun's tube). */
-  private shellLoading(): boolean {
-    const spec = weaponSpec(WEAPON_BY_ITEM[this.rig()?.visual.itemId ?? ''] ?? 0);
-    return spec?.kind === 'gun' && !!spec.shellReload;
-  }
 
   /** A shell-by-shell reload stopped (a shot): hands back on the gun. */
   stopReload(): void {
@@ -302,7 +298,7 @@ export class ViewModel {
 
   /** A reload began: magazine / clip animation over its whole length. */
   reload(seconds: number): void {
-    this.rig()?.mechanics.reload(seconds);
+    this.rig()?.mechanics.reload(seconds, reloadScriptOf(this.rig()?.visual.itemId));
     this.reloadT = 0;
     this.reloadDur = Math.max(.3, seconds);
   }
@@ -525,7 +521,8 @@ export class ViewModel {
     if (this.hands && s.visible) {
       const swimming = swim > .5, moving = s.moving, phase = this.bobPhase, bob = this.bobAmount;
       const thrown = hidden;
-      const rifleReload = !!model && !swimming && !thrown && usesRifleReload(this.rig()?.visual.itemId);
+      // Guns with their own reload script move the hands by it (not the recorded rifle reload).
+      const rifleReload = !!model && !swimming && !thrown && usesRifleReload(this.rig()?.visual.itemId) && !reloadScriptOf(this.rig()?.visual.itemId);
       this.hands.setReload(rifleReload ? this.reloadT : -1, this.reloadDur);
       this.hands.request(() => (swimming ? this.swimHands() : this.heldHands(model ?? null, thrown, moving, phase, bob)), () => {
         this.heldMagazine.update(model ?? null, rifleReload && this.reloadT >= 0 ? this.reloadT / this.reloadDur : -1, this.hands!.palmMatrix('L'));
@@ -610,16 +607,50 @@ export class ViewModel {
           // The support hand is placed with the arms; a non-recorded reload overrides it below.
           out.L = null;
         }
-        if (guard && !recordedReload && r > .04 && r < .97) {
+        const script = reloadScriptOf(this.rig()?.visual.itemId);
+        if (guard && !recordedReload && script && r > .01 && r < .99) {
+          // The gun's own reload: each hand goes to the part it works (followed while that part
+          // moves), a pouch below the view, or back to the handguard.
+          const reach = hold?.support ?? new Vector3(.2, -.03, 0);
+          const mech = this.rig()?.mechanics;
+          const part = (re: RegExp, rest = false) => mech?.partWorld(re, new Vector3(), rest) ?? null;
+          const at = (target: HandTarget): Vector3 => {
+            switch (target) {
+              case 'guard': return guard.center.clone();
+              case 'pouch': return cam(-.13, -.56, -.26);
+              case 'mag': return part(/^(magazine|mag|ammo-box)$/) ?? W(reach.x * .3, -.1, 0);
+              case 'magwell': return part(/^(magazine|mag|ammo-box)$/, true) ?? W(reach.x * .3, -.08, 0);
+              case 'charge': return part(/charging|cocking/) ?? part(/^bolt$/) ?? W(.03, .045, .045);
+              case 'bolt': return part(/bolt-handle/) ?? part(/^bolt$|bolt-carriage/) ?? W(-.02, .03, .045);
+              case 'slide': return part(/slide/) ?? W(-.03, .04, 0);
+              case 'pump': return part(/pump/) ?? guard.center.clone();
+              case 'breech': return part(/barrels?__pivot|breech|hammer/) ?? W(.02, .02, 0);
+              case 'cylinder': return part(/^cylinder$/) ?? W(.04, .01, 0);
+              case 'port': return part(/^(magazine|mag)$/, true) ?? W(reach.x * .3, -.05, 0);
+              case 'feed': return part(/feed-cover/) ?? W(.05, .06, 0);
+              case 'muzzle': return model.getObjectByName('weapon-muzzle')?.getWorldPosition(new Vector3()) ?? W(.6, 0, 0);
+            }
+          };
+          const track = (side: 'L' | 'R') => {
+            const keys = script.hands.filter((k) => k.side === side);
+            if (!keys.length || (side === 'R' && r > keys[keys.length - 1]!.at)) return null;
+            if (side === 'L' && keys[keys.length - 1]!.at < 1) keys.push({ at: 1, side, target: 'guard', shape: 'ready' });
+            if (keys[0]!.at > 0) keys.unshift({ at: 0, side, target: 'guard', shape: 'ready' });
+            let i = 0;
+            while (i < keys.length - 2 && r > keys[i + 1]!.at) i++;
+            const k0 = keys[i]!, k1 = keys[i + 1] ?? k0;
+            const u = k1 === k0 ? 1 : ease(Math.min(1, Math.max(0, (r - k0.at) / Math.max(1e-3, k1.at - k0.at))));
+            return { palm: at(k0.target).lerp(at(k1.target), u), preset: (u < .5 ? k0.shape : k1.shape) as 'fist' | 'open' | 'pinch' | 'ready' };
+          };
+          const left = track('L'), right = track('R');
+          if (right) { out.R = right; out.L = left ?? { grasp: fitGripProfile(model, guard) }; }
+          else if (left) out.L = left;
+        } else if (guard && !recordedReload && r > .04 && r < .97) {
           // Magazine change: down to the magazine, pull it, a fresh one from below the view, in,
           // a slap, then the charging handle, and back to the handguard.
           const reach = hold?.support ?? new Vector3(.2, -.03, 0);
           const mag = W(reach.x * .3, -.08, 0), out1 = cam(-.14, -.62, -.2), rack = W(.03, .045, .045);
-          // A tube-fed shotgun: one shell from below into the loading port under the receiver.
-          const port = W(reach.x * .3, -.05, 0), pouch = cam(-.12, -.5, -.3);
-          const keys: Array<[number, Vector3, 'fist' | 'open' | 'pinch' | 'ready']> = this.shellLoading() ? [
-            [0, guard.center, 'ready'], [.3, pouch, 'pinch'], [.55, port.clone().add(D(0, -.05, 0)), 'pinch'], [.72, port, 'pinch'], [.8, port, 'open'], [1, guard.center, 'ready'],
-          ] : [
+          const keys: Array<[number, Vector3, 'fist' | 'open' | 'pinch' | 'ready']> = [
             [0, guard.center, 'ready'], [.12, mag, 'fist'], [.26, mag.clone().add(D(0, -.14, 0)), 'fist'], [.42, out1, 'fist'], [.5, out1, 'fist'],
             [.64, mag.clone().add(D(0, -.13, 0)), 'fist'], [.72, mag, 'fist'], [.76, mag.clone().add(D(0, .014, 0)), 'open'],
             [.84, rack, 'pinch'], [.9, rack.clone().add(D(-.07, 0, 0)), 'pinch'], [.95, rack, 'pinch'], [1, guard.center, 'ready'],

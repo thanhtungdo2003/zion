@@ -18,6 +18,7 @@ import { scopeFov } from './scope';
 import { ScopeLens } from './render/scope-lens';
 import { AimSway } from './aim-sway';
 import { ThrowArc, type ArcLaunch } from './render/throw-arc';
+import { reloadScriptOf } from './reload-scripts';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
 import { ViewModel } from './render/viewmodel';
@@ -767,14 +768,9 @@ export class GameEngine {
       }, () => (this.mouseLook ? this.input.yaw : CAM_YAW));
       await this.sounds.load((p) => this.hud.set({ loadProgress: 0.85 + p * 0.15 }));
       if (this.disposed) return;
-      // Reloads last exactly as long as their sound.
-      this.weaponCtl.setReloadMs(WeaponId.AK47, this.sounds.duration('akReload') * 1000);
-      this.weaponCtl.setReloadMs(WeaponId.Shotgun, this.sounds.duration('shotgunReload') * 1000);
-      this.weaponCtl.setReloadMs(WeaponId.GL18, this.sounds.duration('glockReload') * 1000);
-      this.weaponCtl.setReloadMs(WeaponId.DoubleBarrel, this.sounds.duration('doubleBarrelReload') * 1000);
-      this.weaponCtl.setReloadMs(WeaponId.RocketLauncher, this.sounds.duration('rocketReload') * 1000);
+      // Reload sounds and hands follow each gun's reload script (reload-scripts.ts).
       this.weaponCtl.onReload = (weapon, ms) => this.onReload(weapon, ms);
-      this.weaponCtl.onReloadCancel = () => { this.viewModel?.stopReload(); this.localAvatar?.stopReload(); };
+      this.weaponCtl.onReloadCancel = () => { this.stopReloadSounds(); this.viewModel?.stopReload(); this.localAvatar?.stopReload(); };
       this.weaponCtl.onEmpty = (weapon) => this.onOutOfAmmo(weapon);
       this.hud.set({ statusDetail: { key: 'status.preparing' }, loadProgress: 1 });
       const preview = new Avatar(this.character, true);
@@ -2386,7 +2382,7 @@ export class GameEngine {
     // Magnified optics take over the view; iron sights and red dots aim through the gun itself.
     this.scoped = this.aiming && equippedSpec?.kind === 'gun' && (this.currentOptic()?.magnification ?? 1) > 1;
     // Raising and lowering the sights: a short cloth-and-metal shuffle.
-    if (this.aiming !== this.wasAiming) { this.sounds?.play(this.aiming ? 'aimIn' : 'aimOut', { volume: .35 }); this.wasAiming = this.aiming; }
+    if (this.aiming !== this.wasAiming) { this.sounds?.play(this.aiming ? 'partGunAim' : 'aimOut', { volume: this.aiming ? .45 : .35 }); this.wasAiming = this.aiming; }
     let moveX = mx;
     let moveZ = mz;
     if (this.aiming) { buttons |= Buttons.Aim; buttons &= ~Buttons.Sprint; }
@@ -2421,6 +2417,9 @@ export class GameEngine {
     const action = this.weaponCtl.tick(actionTime, weapon, trigger && gunUp, canAffordAttack && !local.dead && !local.state.swimming && local.state.rollTicks === 0 && !(isGun && airborne), this.input.touchEnabled && !this.mouseLook,
       (weapon !== WeaponId.C4 || this.inventory.equippedItemId() === 'c4') && c4Throw);
     if (this.weaponCtl.primed) buttons |= Buttons.Prime;
+    // The pin pulled as the grenade comes up; the spoon flies off as it leaves the hand.
+    if (this.weaponCtl.primed && !this.wasPrimed) this.sounds?.play('partPinPull', { volume: .8 });
+    this.wasPrimed = this.weaponCtl.primed;
     if (this.viewModel) this.viewModel.primed = this.weaponCtl.primed;
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
     if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
@@ -2450,9 +2449,11 @@ export class GameEngine {
       // Empty hands: a jab.
       this.viewModel?.punch();
     } else if (action === 'detonate') {
+      this.sounds?.play('partDetonator', { volume: .8 });
       this.viewModel?.kick(.15);
     } else if (action === 'throw') {
       this.viewModel?.throw();
+      if (weapon !== WeaponId.C4) this.sounds?.play('partSpoon', { volume: .7 });
       // Along the aim like a shot (top-down: pitched to come down on the cursor).
       if (this.throwPlan) ({ yaw, pitch } = this.throwPlan);
       this.localAvatar?.playOnce('grenade_throw');
@@ -2857,6 +2858,8 @@ export class GameEngine {
 
   private onOutOfAmmo(weapon: number): void {
     const now = performance.now();
+    // The trigger falls on an empty chamber.
+    this.sounds?.play('partDryFire', { volume: .7 });
     if (now - this.emptyToastAt < 2000) return;
     this.emptyToastAt = now;
     const box = ammoItemFor(ITEM_BY_WEAPON[weapon] ?? '');
@@ -3188,14 +3191,26 @@ export class GameEngine {
     this.laser.visible = true;
   }
 
+  private wasPrimed = false;
+  private reloadTimers: number[] = [];
+  private stopReloadSounds(): void { for (const t of this.reloadTimers) window.clearTimeout(t); this.reloadTimers = []; }
+
   private onReload(weapon: number, ms: number): void {
     this.conn.sendReload();
     const local = this.local;
     const at = local ? { x: local.state.x, y: local.state.y + 1.2, z: local.state.z } : undefined;
-    const [sound, rate] = reloadSound(weapon);
-    // Shell by shell: a short click per shell (each shell is its own reload step).
-    const shells = (weaponSpec(weapon) as { shellReload?: unknown } | undefined)?.shellReload;
-    this.sounds?.play(shells ? 'pistolReload' : sound, shells ? { at, rate: 1.7, volume: .6 } : { at, rate });
+    // Each part heard as it moves (the gun's reload script), else the gun's whole reload sound.
+    this.stopReloadSounds();
+    const script = reloadScriptOf(ITEM_BY_WEAPON[weapon]);
+    if (script) {
+      for (const step of script.sounds) this.reloadTimers.push(window.setTimeout(() => {
+        const p = this.local?.state;
+        this.sounds?.play(step.sound, { at: p ? { x: p.x, y: p.y + 1.2, z: p.z } : at, rate: step.rate, volume: step.volume ?? .9, maxDistance: 35 });
+      }, step.at * ms));
+    } else {
+      const [sound, rate] = reloadSound(weapon);
+      this.sounds?.play(sound, { at, rate });
+    }
     const visual = this.weapons?.get(ITEM_BY_WEAPON[weapon] ?? '');
     if (visual?.reloadClip) this.localAvatar?.playWeaponAnim(visual.reloadClip, ms / 1000);
     this.localAvatar?.startReload(ms / 1000);

@@ -1,6 +1,7 @@
 import { Vector3, type Euler, type Object3D } from 'three';
 import { BB_UNITS_PER_METER, sampleTrack, type CharacterClip } from './character-model';
 import type { WeaponVisual } from './weapons';
+import type { ReloadClip, ReloadScript } from '../reload-scripts';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -64,11 +65,31 @@ export class WeaponMechanics {
   }
 
   /** A reload started; `seconds` is its full length (animations end with it). */
-  reload(seconds: number): void {
+  reload(seconds: number, script?: ReloadScript | null): void {
     this.reloadT = 0;
     this.reloadLength = Math.max(.3, seconds);
     this.clip = this.visual.reloadClip ? this.visual.clips.get(this.visual.reloadClip) ?? null : null;
+    // The script's part clips this model has (the first name it knows of each).
+    this.scripted = [];
+    for (const c of script?.clips ?? []) {
+      const clip = c.clips.map((n) => this.visual.clips.get(n)).find(Boolean);
+      if (clip) this.scripted.push({ clip, step: c, peak: clipPeak(clip) });
+    }
     this.cycleT = -1;
+  }
+
+  /** The script's part clips playing in this reload. */
+  private scripted: Array<{ clip: CharacterClip; step: ReloadClip; peak: number }> = [];
+
+  /** A named part's place in the world (`rest`: where it sits when not moved), if the model has one. */
+  partWorld(re: RegExp, out: Vector3, rest = false): Vector3 | null {
+    const part = [...this.parts.entries()].find(([name]) => re.test(name))?.[1];
+    const parent = part?.node.parent;
+    if (!part || !parent) return null;
+    parent.updateWorldMatrix(true, false);
+    if (rest) return out.copy(part.restPos).applyMatrix4(parent.matrixWorld);
+    part.node.updateWorldMatrix(false, false);
+    return out.setFromMatrixPosition(part.node.matrixWorld);
   }
 
   cancel(): void {
@@ -126,7 +147,22 @@ export class WeaponMechanics {
       const k = this.reloadT / this.reloadLength;
       if (k >= 1) { this.reloadT = -1; this.clip = null; this.reset(); return; }
       if (this.clip) this.playClip(this.clip, k * this.clip.length);
-      else if (this.magazine) {
+      else if (this.scripted.length) {
+        // Each part's own clip: forward while opening, held, backwards while closing.
+        // A clip that goes out and comes back (most do) opens up to its furthest frame and closes
+        // over the rest; one that only goes out is played back for the close.
+        for (const { clip, step, peak } of this.scripted) {
+          if (k < step.at || k > step.until) continue;
+          const open = Math.min(1, (k - step.at) / Math.max(1e-3, step.open));
+          const close = step.close ? Math.min(1, Math.max(0, (k - (step.until - step.close)) / step.close)) : 0;
+          const roundTrip = peak < clip.length * .85;
+          this.playClip(clip, close > 0 ? (roundTrip ? peak + close * (clip.length - peak) : (1 - close) * clip.length) : open * (roundTrip ? peak : clip.length));
+          // A swapped part (the old magazine) is gone while out; the new one comes up in its place.
+          if (step.swap && open >= 1 && close <= 0 && k > step.at + step.open + .04 && k < step.until - (step.close ?? 0) - .02) {
+            for (const name of clip.bones.keys()) { const part = this.parts.get(name); if (part) part.node.visible = false; }
+          }
+        }
+      } else if (this.magazine) {
         // Out (drops along "down"), away, back in, seated.
         const out = k < .12 ? 0 : k < .32 ? (k - .12) / .2 : k < .62 ? 1 : k < .82 ? 1 - (k - .62) / .2 : 0;
         this.magazine.node.position.addScaledVector(this.up, -out * 9 * PX);
@@ -159,4 +195,19 @@ export class WeaponMechanics {
       p.node.visible = p.restVisible;
     }
   }
+}
+
+/** The time a clip moves its parts furthest from rest (where an opening move ends). */
+function clipPeak(clip: CharacterClip): number {
+  let best = clip.length, most = -1;
+  for (let i = 0; i <= 24; i++) {
+    const t = clip.length * i / 24;
+    let d = 0;
+    for (const tracks of clip.bones.values()) {
+      if (tracks.position) { sampleTrack(tracks.position, t, v3); d += Math.hypot(v3[0], v3[1], v3[2]) / 16; }
+      if (tracks.rotation) { sampleTrack(tracks.rotation, t, r3); d += Math.hypot(r3[0], r3[1], r3[2]) * DEG; }
+    }
+    if (d > most + 1e-6) { most = d; best = t; }
+  }
+  return best;
 }
