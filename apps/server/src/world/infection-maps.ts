@@ -84,8 +84,8 @@ export class InfectionMapService {
   }
 
   /** For the menu's map picker. */
-  list(): Array<{ id: string; name: string; ready: boolean; active: boolean }> {
-    return this.maps.maps.map((m) => ({ id: m.id, name: m.name, ready: !!this.builtFor(m.id), active: m.id === this.maps.active }));
+  list(): Array<{ id: string; name: string; ready: boolean; active: boolean; published: boolean }> {
+    return this.maps.maps.map((m) => ({ id: m.id, name: m.name, ready: !!this.builtFor(m.id), active: m.id === this.maps.active, published: m.id === this.maps.active || m.published }));
   }
 
   get active(): InfectionMapDef { return this.maps.maps.find((m) => m.id === this.maps.active)!; }

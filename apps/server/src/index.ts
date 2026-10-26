@@ -143,6 +143,8 @@ async function main(): Promise<void> {
   const infectionPools = new Map<string, MatchPool>();
   const infectionPoolFor = (id: string): MatchPool | undefined => {
     if (id === infectionMaps.maps.active) return infectionPool;
+    // Only published maps are played (drafts stay in the Studio).
+    if (!infectionMaps.maps.maps.find((m) => m.id === id)?.published) return undefined;
     if (!infectionMaps.builtFor(id)) return undefined;
     let pool = infectionPools.get(id);
     if (!pool) {
@@ -216,7 +218,7 @@ async function main(): Promise<void> {
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
       file: (asset) => infectionMaps.modelFile(asset),
     },
-    infectionMapList: () => infectionMaps.list().map((m) => {
+    infectionMapList: () => infectionMaps.list().filter((m) => m.published).map((m) => {
       const pool = m.active ? infectionPool : infectionPools.get(m.id);
       const matches = pool?.matches ?? [];
       return { ...m, players: matches.reduce((n, g) => n + g.playerCount, 0) };

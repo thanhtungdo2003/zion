@@ -28,7 +28,10 @@ describe('studio infection maps', () => {
     const street = { ...structuredClone(DEFAULT_INFECTION_MAP), id: 'friday-13', name: 'The Street', base: 'friday13' as const };
     const custom = blankInfectionMap('mine', 'Mine', 'x');
     expect(upgradeInfectionMaps({ active: 'friday-13', maps: [street, custom] })).toMatchObject({ active: 'warehouse', maps: [{ id: 'warehouse' }, { id: 'mine' }] });
-    expect(upgradeInfectionMaps({ active: 'mine', maps: [street, custom] }).active).toBe('mine');
+    // The map that was in use stays playable (published); the Warehouse is the default.
+    const upgraded = upgradeInfectionMaps({ active: 'mine', maps: [street, custom] });
+    expect(upgraded.active).toBe('warehouse');
+    expect(upgraded.maps.find((m) => m.id === 'mine')!.published).toBe(true);
   });
 
   it('builds a map from its seed, size, nature density, placed parts and spawn points', () => {

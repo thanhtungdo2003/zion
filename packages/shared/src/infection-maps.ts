@@ -93,6 +93,8 @@ export const infectionMapSchema = z.object({
     ground: z.enum(INFECTION_SURFACES),
   }).strict(),
   parts: z.array(infectionPartSchema).max(4000),
+  /** Published: players see it in the menu and can play it. Drafts stay in the Studio. */
+  published: z.boolean().default(false),
   /** Where humans (and, when listed, zombies) appear. Empty: spread automatically. */
   spawns: z.array(point).max(200),
   zombieSpawns: z.array(point).max(200),
@@ -112,7 +114,7 @@ export const DEFAULT_INFECTION_MAP: InfectionMapDef = {
   id: INFECTION_MAP.id, name: INFECTION_MAP.name, base: 'warehouse', seed: INFECTION_MAP.seed, half: 42,
   terrain: { hills: 0, banks: 34, wall: 'none', wallScale: 1 },
   environment: { grass: 0, trees: 0, bushes: 0, rocks: 0, deadTrees: 1, ground: 'asphalt' },
-  parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES },
+  parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES }, published: true,
 };
 
 /** A new, empty map with the default rules. */
@@ -121,7 +123,19 @@ export function blankInfectionMap(id: string, name: string, seed: string): Infec
     id, name, base: 'empty', seed, half: 80,
     terrain: { hills: .35, banks: 40, wall: 'concrete', wallScale: 1.5 },
     environment: { grass: .6, trees: 8, bushes: 12, rocks: 6, deadTrees: .3, ground: 'dirt' },
-    parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES },
+    parts: [], spawns: [], zombieSpawns: [], rules: { ...DEFAULT_INFECTION_RULES }, published: false,
+  };
+}
+
+/**
+ * A new map on an imported model: the model is the whole map, so nothing is grown from a seed —
+ * no hills, banks, wall, grass, trees, bushes or rocks.
+ */
+export function modelInfectionMap(id: string, name: string, asset: number, scale = 1): InfectionMapDef {
+  return {
+    ...blankInfectionMap(id, name, `model-${asset}`), base: 'model', model: { asset, scale, yaw: 0, y: 0 },
+    terrain: { hills: 0, banks: 0, wall: 'none', wallScale: 1 },
+    environment: { grass: 0, trees: 0, bushes: 0, rocks: 0, deadTrees: 0, ground: 'asphalt' },
   };
 }
 
@@ -133,6 +147,8 @@ export const RETIRED_INFECTION_MAP_ID = 'friday-13';
 /** Stored maps with the retired built-in replaced by the Warehouse (made active if The Street was). */
 export function upgradeInfectionMaps(maps: InfectionMaps): InfectionMaps {
   const list = maps.maps.filter((m) => !(m.id === RETIRED_INFECTION_MAP_ID && m.base === 'friday13') && m.id !== DEFAULT_INFECTION_MAP.id);
-  const active = maps.active === RETIRED_INFECTION_MAP_ID || !list.some((m) => m.id === maps.active) ? DEFAULT_INFECTION_MAP.id : maps.active;
-  return { active, maps: [structuredClone(DEFAULT_INFECTION_MAP), ...list] };
+  // A map that was the one in use before publishing existed stays playable.
+  for (const m of list) if (m.id === maps.active) m.published = true;
+  // The Warehouse is always the default map (matches without a chosen map play on it).
+  return { active: DEFAULT_INFECTION_MAP.id, maps: [structuredClone(DEFAULT_INFECTION_MAP), ...list] };
 }

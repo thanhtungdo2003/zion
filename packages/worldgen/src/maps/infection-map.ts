@@ -82,7 +82,9 @@ function rawHeight(p: Prepared, x: number, z: number): number {
   // An uploaded map model replaces the ground under it: the terrain drops just below the model's
   // lowest point there, so its own floors are what is walked on (no gap, no old ground poking up).
   if (def.base === 'model' && def.model && Math.hypot(x - centre, z - centre) < p.modelRadius) return INFECTION_GROUND + Math.min(0, def.model.y) - .6;
-  let h = INFECTION_GROUND + smoothstep(def.half + 3, def.half + 24, d) * def.terrain.banks + smoothstep(def.half + 24, def.half + 80, d) * def.terrain.banks * .4;
+  // A map on an imported model grows nothing from its seed: flat ground under the model.
+  const banks = def.base === 'model' ? 0 : def.terrain.banks;
+  let h = INFECTION_GROUND + smoothstep(def.half + 3, def.half + 24, d) * banks + smoothstep(def.half + 24, def.half + 80, d) * banks * .4;
   if (def.terrain.hills > 0 && def.base !== 'model') {
     const town = def.base === 'friday13' ? 1 - smoothstep(F13.half - 6, F13.half + 6, d) : 0;
     const edge = 1 - smoothstep(def.half - 10, def.half - 1, d);
@@ -114,7 +116,7 @@ export function infectionSurface(host: Host, x: number, z: number, slope: number
   if (!infectionInside(host, x, z)) return slope > .9 ? Surface.Rock : Surface.DryGrass;
   if (def.base === 'friday13' && friday13Street(x, z)) return Surface.BrokenAsphalt;
   const g = (p.grassNoise.noise(x * .05, z * .05) + 1) / 2;
-  if (g < def.environment.grass) return Surface.Grass;
+  if (g < def.environment.grass && def.base !== 'model') return Surface.Grass;
   if (def.base === 'friday13' && def.environment.ground === 'dirt') return (x * 7 + z * 13) % 11 < 3 ? Surface.Mud : Surface.Dirt;
   return SURFACE[def.environment.ground];
 }
@@ -166,7 +168,7 @@ export function infectionStructures(host: Host): Structure[] {
     }
   };
   const one = <T>(list: readonly T[]) => list[Math.floor(rng.next() * list.length)]!;
-  const env = def.environment;
+  const env = def.base === 'model' ? { ...def.environment, trees: 0, bushes: 0, rocks: 0 } : def.environment;
   scatter(Math.round(env.trees * area), () => rng.next() < env.deadTrees ? one([ISLAND_ASSET.deadTree, ISLAND_ASSET.deadPine]) : one([...ISLAND_ASSET.treeSmall, ...ISLAND_ASSET.treeBig, ISLAND_ASSET.pineMedium, ISLAND_ASSET.conifer]), () => .8 + rng.next() * .5, 3);
   scatter(Math.round(env.bushes * area), () => one(ISLAND_ASSET.bush), () => .7 + rng.next() * .6, 1.2);
   scatter(Math.round(env.rocks * area), () => one([...ISLAND_ASSET.stone, ...ISLAND_ASSET.rockMedium]), () => .6 + rng.next() * .8, 1.5);

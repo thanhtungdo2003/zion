@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDefaultRegistry, LIGHT_SOURCE_ASSET, uploadedMapFit, type AssetDefinition, type AssetDefinitionInput, type UploadedMapFit } from '@zion/assets';
 import { Vector3, type Material, type Mesh, type MeshStandardMaterial } from 'three';
 import { gltfLoader } from '@/game/render/gltf-loader';
-import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
-import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
+import { DEFAULT_INFECTION_MAP, blankInfectionMap, modelInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
+import { studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
@@ -159,7 +159,8 @@ export default function InfectionStudio() {
       // Models made in centimetres (hundreds of "metres" tall) start at 1/100.
       const height = (m.def as { bounds?: { height?: number } }).bounds?.height ?? 10;
       const scale = height > 300 ? .01 : height < .3 ? 100 : 1;
-      patch((d) => { d.base = 'model'; d.model = { asset: m.asset, scale, yaw: 0, y: 0 }; });
+      // The model is the whole map: nothing grown from the seed (no hills, wall, grass, trees, rocks).
+      patch((d) => { const clean = modelInfectionMap(d.id, d.name, m.asset, scale); d.base = 'model'; d.model = clean.model; d.terrain = clean.terrain; d.environment = clean.environment; });
       setView3d(true);
       flash(`Đã tải lên ${m.name}: so kích thước với nhân vật trong 3D và chỉnh "Tỉ lệ model".`);
     }).catch((e: unknown) => flash(`Không tải lên được: ${(e as Error).message}`)).finally(() => setUploading(false));
@@ -419,14 +420,15 @@ export default function InfectionStudio() {
   const save = async () => {
     if (!draft || !valid?.success) return;
     setBusy(true);
-    try { adopt(await studioSaveInfectionMap(draft), draft.id); flash(maps?.active === draft.id ? 'Đã lưu · các trận mới dùng bản đồ này ngay' : 'Đã lưu bản đồ'); }
+    try { adopt(await studioSaveInfectionMap(draft), draft.id); flash(draft.published ? 'Đã lưu · trận mới trên bản đồ này dùng bản mới' : 'Đã lưu bản nháp (chưa publish)'); }
     catch (e) { flash((e as Error).message); }
     finally { setBusy(false); }
   };
-  const activate = async () => {
-    if (!draft) return;
+  /** Publish (players see and play it) or take it back to a draft; saved at once with the edits. */
+  const publish = async (on: boolean) => {
+    if (!draft || !valid?.success) return;
     setBusy(true);
-    try { if (dirty) await studioSaveInfectionMap(draft); adopt(await studioActivateInfectionMap(draft.id), draft.id); flash('Các trận Lây nhiễm mới sẽ chơi bản đồ này'); }
+    try { const next = { ...draft, published: on }; adopt(await studioSaveInfectionMap(next), draft.id); flash(on ? `Đã publish “${draft.name}”: người chơi chọn được ở menu chính` : `Đã gỡ “${draft.name}” khỏi game (còn trong Studio)`); }
     catch (e) { flash((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -472,10 +474,14 @@ export default function InfectionStudio() {
         <Link href="/studio" className="studio-back" title="Về Xưởng căn cứ"><Icon name="lucide:arrow-left" /></Link>
         <h1>Xưởng Lây nhiễm</h1>
         <select className="ix-map-select" value={draft.id} onChange={(e) => switchTo(e.target.value)} disabled={dirty} title={dirty ? 'Lưu hoặc hủy thay đổi trước khi đổi bản đồ' : undefined}>
-          {maps.maps.map((m) => <option key={m.id} value={m.id}>{m.name}{m.id === maps.active ? ' · đang dùng' : ''}</option>)}
+          {maps.maps.map((m) => <option key={m.id} value={m.id}>{m.name}{m.id === maps.active ? ' · mặc định' : m.published ? ' · đã publish' : ' · nháp'}</option>)}
         </select>
         <button className="btn" onClick={() => setCreating(true)} disabled={dirty}><Icon name="lucide:plus" /> Tạo map mới</button>
-        {isActive ? <span className="studio-badge custom">Đang dùng cho trận mới</span> : <button className="btn" onClick={() => void activate()} disabled={busy || !valid?.success}><Icon name="lucide:play" /> Dùng cho trận</button>}
+        <span className="studio-badge ix-managing" title={draft.id}>Đang quản lý: <b>{draft.name}</b> · {draft.base === 'model' ? 'từ GLB' : draft.base === 'warehouse' ? 'Warehouse' : 'sinh từ seed'}{isActive ? ' · mặc định' : ''}</span>
+        {isActive ? <span className="studio-badge custom">Map mặc định · luôn publish</span>
+          : draft.published ? <button className="btn" onClick={() => void publish(false)} disabled={busy}><Icon name="lucide:eye-off" /> Gỡ khỏi game</button>
+            : <button className="btn btn-primary" onClick={() => void publish(true)} disabled={busy || !valid?.success}><Icon name="lucide:send" /> Publish</button>}
+        {!isActive && <span className={`studio-badge${draft.published ? ' custom' : ''}`}>{draft.published ? 'Đã publish' : 'Bản nháp'}</span>}
         {dirty && <span className="studio-badge unsaved">Chưa lưu</span>}
         <div className="studio-spacer" />
         {previewing && <Spinner />}
@@ -611,7 +617,8 @@ export default function InfectionStudio() {
             {num('Kích thước (nửa cạnh)', draft.half, (v) => patch((d) => { d.half = v; }), 30, 170, 1, ' m')}
           </section>
 
-          <section className="ix-section">
+          {draft.base === 'model' && <p className="ix-hint">Bản đồ từ model GLB: không sinh địa hình, cỏ, cây hay đá từ seed — model là toàn bộ bản đồ.</p>}
+          {draft.base !== 'model' && <section className="ix-section">
             <h3>Địa hình</h3>
             {num('Đồi núi trong sân', draft.terrain.hills, (v) => patch((d) => { d.terrain.hills = v; }), 0, 1, .05)}
             {num('Dốc bao quanh', draft.terrain.banks, (v) => patch((d) => { d.terrain.banks = v; }), 0, 80, 1, ' m')}
@@ -621,9 +628,9 @@ export default function InfectionStudio() {
               </select>
             </label>
             {draft.terrain.wall !== 'none' && num('Độ cao tường', draft.terrain.wallScale, (v) => patch((d) => { d.terrain.wallScale = v; }), .5, 3, .1, '×')}
-          </section>
+          </section>}
 
-          <section className="ix-section">
+          {draft.base !== 'model' && <section className="ix-section">
             <h3>Môi trường</h3>
             <label className="ix-field"><span>Mặt đất</span>
               <select value={draft.environment.ground} onChange={(e) => patch((d) => { d.environment.ground = e.target.value as InfectionMapDef['environment']['ground']; })}>
@@ -635,7 +642,7 @@ export default function InfectionStudio() {
             {num('Bụi rậm / ha', draft.environment.bushes, (v) => patch((d) => { d.environment.bushes = v; }), 0, 300, 1)}
             {num('Đá / ha', draft.environment.rocks, (v) => patch((d) => { d.environment.rocks = v; }), 0, 200, 1)}
             {num('Tỉ lệ cây chết', draft.environment.deadTrees, (v) => patch((d) => { d.environment.deadTrees = v; }), 0, 1, .05)}
-          </section>
+          </section>}
 
           <section className="ix-section">
             <h3>Ngày & đêm</h3>
