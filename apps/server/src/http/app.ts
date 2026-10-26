@@ -27,6 +27,7 @@ import type { CustomWeaponStore } from '../repositories/custom-weapons';
 import type { GearFitStore } from '../repositories/gear-fit';
 import type { HandStudioStore } from '../repositories/hand-studio';
 import { registerGearFitRoutes } from './routes/gear-fit';
+import { registerDesktopRoutes } from './routes/desktop';
 import type { AppearanceStore } from '../repositories/accounts';
 
 export interface HttpDeps {
@@ -152,6 +153,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerLibraryRoutes(app, deps);
   registerWeaponRoutes(app, deps);
   registerGearFitRoutes(app, deps);
+  registerDesktopRoutes(app, config.DESKTOP_UPDATE_DIR);
   if (deps.handStudio) {
     const store = deps.handStudio;
     // The Studio's hand poses and animations for game clients (read-only; saved under /api/studio).

@@ -7,10 +7,16 @@
  *
  * Without the variables, config.json keeps the values of the previous build (or localhost).
  * Flags: --skip-web reuses the last web build; --no-zip leaves only the folder.
+ *
+ * Content updates: the bundled client is described by resources/web-manifest.json (path → sha256),
+ * and release/update/ receives the same manifest plus every file as blobs/<sha256>. Copy that
+ * folder to the server's DESKTOP_UPDATE_DIR (blobs accumulate; old ones may be deleted once every
+ * app has updated): installed apps then download only the files that changed.
  */
 import { execSync } from 'node:child_process';
-import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { copyFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,13 +54,45 @@ await mkdir(appDir, { recursive: true });
 const pkg = JSON.parse(await readFile(path.join(desktop, 'package.json'), 'utf8'));
 await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'zion', productName: 'ZION', version: pkg.version, main: 'main.cjs' }, null, 2));
 await cp(path.join(desktop, 'main.cjs'), path.join(appDir, 'main.cjs'));
+await cp(path.join(desktop, 'updater.cjs'), path.join(appDir, 'updater.cjs'));
 // The Studios stay on the website: their pages are left out of the app.
 const studioPage = (src) => /^studio([/.]|$)/.test(path.relative(exported, src));
 await cp(exported, path.join(out, 'resources/web'), { recursive: true, dereference: true, filter: (src) => !studioPage(src) });
 
+// 3b. The content manifest (bundled) and the update folder for the server.
+step('Writing the content manifest and update blobs');
+const webDir = path.join(out, 'resources/web');
+const sha256 = (file) => new Promise((resolve, reject) => {
+  const h = createHash('sha256');
+  createReadStream(file).on('data', (c) => h.update(c)).on('error', reject).on('end', () => resolve(h.digest('hex')));
+});
+const files = {};
+const walk = async (dir) => {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) await walk(full);
+    else files[path.relative(webDir, full).split(path.sep).join('/')] = [await sha256(full), (await stat(full)).size];
+  }
+};
+await walk(webDir);
+let rev = 'local';
+try { rev = execSync('git rev-parse --short HEAD', { cwd: root }).toString().trim(); } catch { /* not a checkout */ }
+const builtAt = Date.now();
+const manifest = { version: `${new Date(builtAt).toISOString().slice(0, 16).replace(/[-:T]/g, '')}-${rev}`, builtAt, files };
+await writeFile(path.join(out, 'resources/web-manifest.json'), JSON.stringify(manifest));
+const update = path.join(desktop, 'release', 'update');
+await mkdir(path.join(update, 'blobs'), { recursive: true });
+let added = 0;
+for (const [rel, [hash]] of Object.entries(files)) {
+  const blob = path.join(update, 'blobs', hash);
+  if (!existsSync(blob)) { await copyFile(path.join(webDir, ...rel.split('/')), blob); added++; }
+}
+await writeFile(path.join(update, 'manifest.json'), JSON.stringify(manifest));
+step(`Content ${manifest.version}: ${Object.keys(files).length} files, ${added} new blobs in ${path.relative(root, update)}`);
+
 // 4. config.json beside the exe: which online server the game plays on (players may edit it).
 const prev = path.join(desktop, 'config.json');
-let config = { apiUrl: 'http://localhost:4000', webOrigin: 'http://localhost:3000' };
+let config = { apiUrl: 'http://localhost:4000', webOrigin: 'http://localhost:3000', autoUpdate: true };
 try { config = { ...config, ...JSON.parse(await readFile(prev, 'utf8')) }; } catch { /* first build */ }
 if (process.env.ZION_API_URL) config.apiUrl = process.env.ZION_API_URL;
 if (process.env.ZION_WEB_ORIGIN) config.webOrigin = process.env.ZION_WEB_ORIGIN;

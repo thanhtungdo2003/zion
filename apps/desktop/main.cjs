@@ -4,12 +4,16 @@
  * a game window. One local origin serves everything: pages and assets from the bundle, and
  * /api plus the game WebSocket proxied to the online server (named in config.json beside the exe),
  * so cookies are first-party and the server sees the website's own Origin.
+ *
+ * The game content updates itself (updater.cjs): at start, and every few minutes while running,
+ * the app asks the server for the newest content and downloads only the files that changed.
  */
 const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
+const { ContentStore } = require('./updater.cjs');
 
 const RES = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'build');
 /** Fixed ports keep the page's origin (and so its saved settings and login) the same every launch. */
@@ -35,6 +39,9 @@ const listen = (server, port) => new Promise((resolve) => {
 });
 
 const WEB_ROOT = path.join(RES, 'web');
+/** Minutes between update checks while the game runs. */
+const CHECK_EVERY_MIN = 10;
+let store = null;
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml',
@@ -48,18 +55,21 @@ const TYPES = {
 function serveFile(req, res) {
   let rel;
   try { rel = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400); res.end(); return; }
-  const base = path.normalize(path.join(WEB_ROOT, rel));
-  if (!base.startsWith(WEB_ROOT)) { res.writeHead(403); res.end(); return; }
-  const candidates = [base, `${base}.html`, path.join(base, 'index.html')];
-  const file = candidates.find((f) => { try { return fs.statSync(f).isFile(); } catch { return false; } });
+  // Manifest paths: no leading slash, forward slashes; /play → play, play.html or play/index.html.
+  const key = rel.replace(/^\/+/, '').replace(/\/+$/, '');
+  if (key.split('/').includes('..')) { res.writeHead(403); res.end(); return; }
+  const candidates = key ? [key, `${key}.html`, `${key}/index.html`] : ['index.html'];
+  let file = null, name = '';
+  for (const c of candidates) { file = store.resolve(c); if (file) { name = c; break; } }
   if (!file) {
-    const notFound = path.join(WEB_ROOT, '404.html');
+    const notFound = store.resolve('404.html');
     res.writeHead(404, { 'content-type': TYPES['.html'] });
-    if (fs.existsSync(notFound)) fs.createReadStream(notFound).pipe(res); else res.end('Not found');
+    if (notFound) fs.createReadStream(notFound).pipe(res); else res.end('Not found');
     return;
   }
-  const stat = fs.statSync(file), type = TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream';
-  const headers = { 'content-type': type, 'content-length': String(stat.size), 'cache-control': file.endsWith('.html') || file.endsWith('sw.js') ? 'no-cache' : 'public, max-age=3600' };
+  // Blobs have no extension: the type comes from the path asked for.
+  const stat = fs.statSync(file), type = TYPES[path.extname(name).toLowerCase()] || 'application/octet-stream';
+  const headers = { 'content-type': type, 'content-length': String(stat.size), 'cache-control': name.endsWith('.html') || name.endsWith('sw.js') ? 'no-cache' : 'public, max-age=3600' };
   if (req.method === 'HEAD') { res.writeHead(200, headers); res.end(); return; }
   // Ranges (audio seeking).
   const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
@@ -148,7 +158,7 @@ function proxySocket(req, socket, head) {
 }
 
 async function startServer() {
-  if (!fs.existsSync(path.join(WEB_ROOT, 'index.html'))) throw new Error(`Thiếu bản web đóng gói: ${WEB_ROOT}`);
+  if (!store.resolve('index.html')) throw new Error(`Thiếu bản web đóng gói: ${WEB_ROOT}`);
   let localPort = 0;
   const server = http.createServer((req, res) => {
     // The Studios are for the website only: the app just plays the game.
@@ -183,6 +193,50 @@ function createWindow(port) {
     if (input.key === 'F12' && input.control && input.shift) win.webContents.toggleDevTools();
   });
   void win.loadURL(`${home}/`);
+  return win;
+}
+
+/** A small window showing the update's progress before the game opens. */
+function splash() {
+  const w = new BrowserWindow({ width: 420, height: 150, frame: false, resizable: false, backgroundColor: '#05070a', show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+  const html = `<body style="margin:0;font:14px system-ui;color:#d8dde3;background:#05070a;display:flex;flex-direction:column;justify-content:center;height:100vh;padding:0 28px;box-sizing:border-box">
+    <b style="font-size:18px;letter-spacing:.1em">ZION</b><div id="t" style="margin:10px 0 8px">Đang kiểm tra cập nhật…</div>
+    <div style="height:6px;background:#1b222b;border-radius:3px"><div id="b" style="height:6px;width:0;background:#e0a33a;border-radius:3px"></div></div></body>`;
+  void w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  w.once('ready-to-show', () => w.show());
+  const set = (text, k) => { if (!w.isDestroyed()) void w.webContents.executeJavaScript(`document.getElementById('t').textContent=${JSON.stringify(text)};document.getElementById('b').style.width='${Math.round(k * 100)}%'`).catch(() => {}); };
+  return { set, close: () => { if (!w.isDestroyed()) w.close(); } };
+}
+
+const mb = (n) => (n / 1048576).toFixed(1);
+
+/** Before the game opens: fetch and apply whatever changed (offline: play the content on disk). */
+async function updateAtStart() {
+  if (config.autoUpdate === false) return;
+  const ui = splash();
+  try {
+    const r = await store.check((done, total) => ui.set(`Đang tải bản cập nhật… ${mb(done)} / ${mb(total)} MB`, total ? done / total : 1));
+    if (r.state === 'ready') { store.activate(); store.gc(); }
+  } finally { ui.close(); }
+}
+
+/** While playing: download in the background, then offer to reload into the new content. */
+function watchUpdates(win) {
+  if (config.autoUpdate === false) return;
+  let busy = false;
+  setInterval(async () => {
+    if (busy || win.isDestroyed()) return;
+    busy = true;
+    try {
+      const r = await store.check();
+      if (r.state !== 'ready' || win.isDestroyed()) return;
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'info', title: 'ZION', buttons: ['Tải lại ngay', 'Để sau'], defaultId: 0, cancelId: 1,
+        message: 'Đã tải xong bản cập nhật mới.', detail: `Phiên bản ${r.version}. Tải lại để dùng (sẽ thoát trận đang chơi); chọn "Để sau" thì bản mới dùng từ lần mở game sau.`,
+      });
+      if (response === 0) { store.activate(); win.reload(); }
+    } finally { busy = false; }
+  }, CHECK_EVERY_MIN * 60_000);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -193,7 +247,10 @@ else {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
     try {
-      createWindow(await startServer());
+      store = new ContentStore({ bundledDir: WEB_ROOT, bundledManifest: path.join(RES, 'web-manifest.json'), dataDir: app.getPath('userData'), apiOrigin: API.origin });
+      store.load();
+      await updateAtStart();
+      watchUpdates(createWindow(await startServer()));
     } catch (err) {
       dialog.showErrorBox('ZION', String(err && err.message || err));
       app.quit();

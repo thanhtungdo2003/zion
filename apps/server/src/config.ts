@@ -42,6 +42,8 @@ const envSchema = z
     METRICS_TOKEN: z.string().min(16).optional(),
     /** Camp Studio password; unset = studio only for admin/moderator accounts. */
     STUDIO_PASSWORD: z.string().min(1).max(200).optional(),
+    /** Folder with the desktop app's content updates (apps/desktop/release/update); unset = none. */
+    DESKTOP_UPDATE_DIR: z.string().min(1).optional(),
 
     WORLD_ID: z.string().regex(/^[a-z0-9_-]{1,32}$/).default('main'),
     WORLD_SEED: z.string().max(128).optional(),

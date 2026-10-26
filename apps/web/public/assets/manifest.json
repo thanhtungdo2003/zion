@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-25T09:39:38.934Z",
+  "generatedAt": "2026-10-26T16:34:26.140Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -2011,6 +2011,24 @@
       "sha256": "5b7a1b543c38eb087e5425fa4bc7cb3adffea9d5aee1a5936466c6212c70f97c",
       "bytes": 12792,
       "kind": "bbmodel"
+    },
+    "sources/guns/low-poly_fb_beryl.glb": {
+      "url": "/assets/models/sources_guns_low-poly_fb_beryl.e1bbf2a8fff9.glb",
+      "sha256": "e1bbf2a8fff9e2c352bea5b105713a1ff759209a39575c5f1544ab4f90716d35",
+      "bytes": 1253524,
+      "kind": "glb"
+    },
+    "sources/guns/low-poly_m16.glb": {
+      "url": "/assets/models/sources_guns_low-poly_m16.8e0ac68e8b2b.glb",
+      "sha256": "8e0ac68e8b2bbb3241fa3a5e0e09e449353ee0a7ffe5e2affcfa820a473a75f3",
+      "bytes": 995632,
+      "kind": "glb"
+    },
+    "sources/guns/m762_assault_rifle.glb": {
+      "url": "/assets/models/sources_guns_m762_assault_rifle.e47a5a56f324.glb",
+      "sha256": "e47a5a56f3240f7914d34009e10f4afbeca365b2f79b2a79f5689e342d2473d0",
+      "bytes": 824988,
+      "kind": "glb"
     },
     "specials/cattail_girl-plants_vs_zombies.glb": {
       "url": "/assets/models/specials_cattail_girl-plants_vs_zombies.694ad3b3473e.glb",
