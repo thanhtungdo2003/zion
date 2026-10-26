@@ -130,3 +130,18 @@ export function handKeysAt(keys: readonly HandKey[], t: number): { a: HandKey; b
   const last = sorted[sorted.length - 1]!;
   return { a: last, b: last, u: 0 };
 }
+
+/**
+ * How long a weapon's reload takes when a Hand Studio animation plays it: the animation's own
+ * length (at its speed). Server and clients register the saved studio; weapons without one keep
+ * their fixed reload time.
+ */
+const animatedReloads = new Map<string, number>();
+export function registerHandStudioReloads(studio: HandStudio): void {
+  animatedReloads.clear();
+  for (const a of studio.animations) if (a.action === 'reload' && a.weapon !== '*') animatedReloads.set(a.weapon, Math.round(a.duration / a.speed * 1000));
+}
+/** The reload time (ms) of a weapon: its animation's when it has one, else `fixedMs`. */
+export function reloadMsFor(itemId: string | null | undefined, fixedMs: number): number {
+  return (itemId && animatedReloads.get(itemId)) || fixedMs;
+}

@@ -1,4 +1,4 @@
-import { DEFAULT_HAND_STUDIO, handStudioSchema, type HandStudio } from '@zion/shared';
+import { DEFAULT_HAND_STUDIO, handStudioSchema, registerHandStudioReloads, type HandStudio } from '@zion/shared';
 import type { Db } from '../db/pool';
 
 /** The Studio's hand poses and animations (one row), kept in memory for the public endpoint. */
@@ -12,6 +12,8 @@ export class HandStudioStore {
     const { rows } = await this.db.query<{ data: unknown; updated_at: Date }>('SELECT data, updated_at FROM hand_studio WHERE id = 1');
     const parsed = rows[0] ? handStudioSchema.safeParse(rows[0].data) : null;
     if (parsed?.success) { this.data = parsed.data; this.version = rows[0]!.updated_at.getTime(); }
+    // Animated reloads last as long as their animation.
+    registerHandStudioReloads(this.data);
   }
 
   get(): { studio: HandStudio; version: number } { return { studio: this.data, version: this.version }; }
@@ -24,6 +26,7 @@ export class HandStudioStore {
       [JSON.stringify(data), accountId],
     );
     this.data = data; this.version = rows[0]!.updated_at.getTime();
+    registerHandStudioReloads(data);
     return this.get();
   }
 }

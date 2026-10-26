@@ -1,4 +1,4 @@
-import { DEFAULT_HAND_STUDIO, handStudioSchema, type HandAnimation, type HandPose, type HandStudio } from '@zion/shared';
+import { DEFAULT_HAND_STUDIO, handStudioSchema, registerHandStudioReloads, type HandAnimation, type HandPose, type HandStudio } from '@zion/shared';
 import { API_URL } from '@/lib/api';
 
 /**
@@ -32,6 +32,7 @@ export function loadHandStudio(): Promise<HandStudio> {
 export function setHandStudio(next: HandStudio): void {
   studio = next;
   poses = new Map(next.poses.map((p) => [p.id, p]));
+  registerHandStudioReloads(next);
   for (const f of listeners) f();
 }
 export function onHandStudio(f: () => void): () => void { listeners.add(f); return () => listeners.delete(f); }

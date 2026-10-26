@@ -1,4 +1,4 @@
-import { BLADE_COMBO_WEAPONS, WEAPON_SPECS, WeaponId, bladeStepTiming, gunBlocksSprint, meleeSwing, nextBladeStep, type GunSpec } from '@zion/shared';
+import { BLADE_COMBO_WEAPONS, ITEM_BY_WEAPON, WEAPON_SPECS, reloadMsFor, WeaponId, bladeStepTiming, gunBlocksSprint, meleeSwing, nextBladeStep, type GunSpec } from '@zion/shared';
 
 export type WeaponAction = 'none' | 'shot' | 'throw' | 'melee' | 'detonate';
 
@@ -187,7 +187,8 @@ export class WeaponController {
     this.reloadWeapon = weapon;
     this.serverDuringReload = null;
     this.reloadStart = now;
-    const ms = spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : this.reloadMs.get(weapon) ?? spec.reloadMs;
+    // A Hand Studio animation for this weapon's reload: it lasts as long as the animation.
+    const ms = spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : reloadMsFor(ITEM_BY_WEAPON[weapon], this.reloadMs.get(weapon) ?? spec.reloadMs);
     this.reloadEnd = now + ms;
     this.onReload?.(weapon, ms);
   }

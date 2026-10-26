@@ -1,7 +1,7 @@
 import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
-import { packGear } from '@zion/shared';
+import { packGear, reloadMsFor } from '@zion/shared';
 import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, LONG_LUNGE_CLIP, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
@@ -3496,7 +3496,8 @@ export class GameServer {
     if ((gun.mag ?? 0) >= spec.magazine || (!this.infection && p.inv.ammoFor(gun.itemId) <= 0)) return;
     p.reloadUid = gun.uid;
     // Lenient: clients time reloads to their sound, so the server only enforces half the time.
-    p.reloadAt = this.serverTime + (spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : spec.reloadMs) * 0.5;
+    // A Hand Studio animation sets the reload's length for its weapon.
+    p.reloadAt = this.serverTime + (spec.shellReload ? spec.shellReload.firstMs + spec.shellReload.shellMs : reloadMsFor(gun.itemId, spec.reloadMs)) * 0.5;
   }
 
   private stepReloads(now: number): void {
