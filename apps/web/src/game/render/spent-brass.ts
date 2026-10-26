@@ -39,6 +39,9 @@ export class SpentBrass {
   private readonly dq = new Quaternion();
   private serial = 0;
 
+  /** A case hitting the ground (where, how hard 0…1): its clink is played by the owner. */
+  onClink: ((at: Vector3, strength: number) => void) | null = null;
+
   constructor(private readonly scene: Scene) {}
 
   private get meshes(): [InstancedMesh, InstancedMesh] {
@@ -137,19 +140,25 @@ export class SpentBrass {
         const n = new Vector3(this.hit.nx, this.hit.ny, this.hit.nz);
         b.pos.set(this.hit.x, this.hit.y, this.hit.z).addScaledVector(n, b.radius);
         const vn = b.vel.dot(n);
-        // Bounce off (a little), sliding along slowed by friction.
-        b.vel.addScaledVector(n, -vn * 1.32).multiplyScalar(.62);
-        b.spin.multiplyScalar(.55);
+        // A small bounce off the surface; brass on the ground grips: most of the sliding is lost
+        // in the hit (and the rest to friction below), so it settles near where it fell.
+        const tangent = b.vel.clone().addScaledVector(n, -vn);
+        b.vel.copy(tangent.multiplyScalar(n.y > .55 ? .3 : .6)).addScaledVector(n, -vn * .32);
+        b.spin.multiplyScalar(.45);
         landed = n.y > .55;
+        // The clink of brass on the ground (only a real hit, not the resting contact).
+        if (vn < -.6 && 'owner' in b) this.onClink?.(b.pos, Math.min(1, -vn / 4));
       } else b.pos.add(move);
     } else b.pos.add(move);
     // Never through the ground below (lost rays, no world).
     if (world && !landed && world.raycast(b.pos.x, b.pos.y + .3, b.pos.z, 0, -1, 0, .3 + b.radius, Mask.CharacterMovement, this.hit) && this.hit.y > b.pos.y - b.radius) {
       b.pos.y = this.hit.y + b.radius; if (b.vel.y < 0) b.vel.y *= -.25; landed = true;
     }
+    // Lying on the ground: sliding and spinning die away quickly.
+    if (landed) { const k = Math.max(0, 1 - 9 * dt); b.vel.x *= k; b.vel.z *= k; b.spin.multiplyScalar(Math.max(0, 1 - 6 * dt)); if (Math.abs(b.vel.y) < .6) b.vel.y = 0; }
     const w = b.spin.length();
     if (w > 1e-4) b.q.premultiply(this.dq.setFromAxisAngle(this.s.copy(b.spin).divideScalar(w), w * dt)).normalize();
-    if (landed && b.vel.lengthSq() < .09) {
+    if (landed && b.vel.lengthSq() < .04) {
       // Still: on its side (its thin axis up), kept turned as it fell about the vertical.
       b.asleep = true; b.vel.set(0, 0, 0); b.spin.set(0, 0, 0);
       const axisNow = b.restAxis.clone().applyQuaternion(b.q);

@@ -10,6 +10,9 @@ export const SOUND_FILES = {
   doorClose: '/sounds/close-door.mp3',
   transportPlane: '/sounds/prop-plane.mp3',
   akShot: '/sounds/ak47-shot.mp3',
+  // Spent cases landing on the ground (two takes, picked at random).
+  casingDrop1: '/sounds/casing-drop-1.mp3',
+  casingDrop2: '/sounds/casing-drop-2.mp3',
   // Range recordings (OpenGameArt, CC0; see public/sounds/weapons/LICENSE.txt).
   pistolShot: '/sounds/weapons/pistol-shot.wav',
   rifleShot: '/sounds/weapons/rifle-shot.wav',

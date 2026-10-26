@@ -25,13 +25,18 @@ describe('spent cases and dropped magazines', () => {
 
   it('a case flies out to the right, falls and comes to rest on the ground', () => {
     const scene = new Scene(), brass = new SpentBrass(scene);
+    let clinks = 0;
+    brass.onClink = () => { clinks++; };
     brass.eject(1, new Vector3(0, 1.4, 0), new Vector3(1, 0, 0), new Vector3(0, 0, -1));
     for (let i = 0; i < 300; i++) brass.update(1 / 60, ground);
+    expect(clinks).toBeGreaterThan(0);
     const mesh = scene.children.find((o) => o.name === 'spent-cases') as InstancedMesh;
     const m = new Matrix4(), p = new Vector3();
     mesh.getMatrixAt(0, m);
     p.setFromMatrixPosition(m);
     expect(p.x).toBeGreaterThan(.3);
+    // It grips the ground: no long slide past where it lands (about 1.5 m out from the port).
+    expect(p.x).toBeLessThan(2.4);
     expect(p.y).toBeGreaterThan(0); expect(p.y).toBeLessThan(.02);
   });
 

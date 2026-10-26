@@ -100,6 +100,7 @@ export class CombatEffects {
 
   /** Spent cases and dropped magazines (pooled, a few per shooter). */
   readonly brass: SpentBrass;
+  private lastClink = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -109,6 +110,13 @@ export class CombatEffects {
   ) {
     this.particles = new ParticleSystem(scene);
     this.brass = new SpentBrass(scene);
+    // Each case that lands clinks (a few at most at once: a burst is a patter, not a wall of sound).
+    this.brass.onClink = (at, strength) => {
+      const now = performance.now();
+      if (now - this.lastClink < 35) return;
+      this.lastClink = now;
+      this.sounds?.play(Math.random() < .5 ? 'casingDrop1' : 'casingDrop2', { at: { x: at.x, y: at.y, z: at.z }, volume: .25 + .55 * strength, rate: .92 + Math.random() * .16, maxDistance: 18 });
+    };
     this.smoke = new SmokeClouds(scene);
     this.bulletHoles = new BulletHoles(scene);
     this.bulletModel.add(this.bulletGlow);
