@@ -130,7 +130,7 @@ export function infectionStructures(host: Host): Structure[] {
   if (def.base === 'friday13') sites.push(...friday13Structures(host));
   if (def.base === 'warehouse') sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, radius: Math.hypot(WAREHOUSE.halfX, WAREHOUSE.halfZ), parts: [{ asset: WAREHOUSE.asset, x: 0, y: 0, z: 0, yaw: 0, scale: 1, group: 0 }], gid: gid++ });
   // An uploaded map model, centred, its lowest point `y` above the map's ground.
-  if (def.base === 'model' && def.model) sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND + def.model.y, yaw: 0, radius: Math.max(1, radiusOf(host, def.model.asset) * def.model.scale), parts: [{ asset: def.model.asset, x: 0, y: 0, z: 0, yaw: def.model.yaw, scale: def.model.scale, group: 0 }], gid: gid++ });
+  if (def.base === 'model' && def.model) sites.push({ kind: 'ruined_camp', x: centre, z: centre, y: INFECTION_GROUND + def.model.y, yaw: 0, radius: Math.max(1, radiusOf(host, def.model.asset) * def.model.scale), parts: [{ asset: def.model.asset, x: def.model.x ?? 0, y: 0, z: def.model.z ?? 0, yaw: def.model.yaw, scale: def.model.scale, group: 0 }], gid: gid++ });
   // Perimeter wall: 4 m panels scaled up, all one fading group.
   // (A map model is the whole map: no generated wall round it.)
   if (def.terrain.wall !== 'none' && def.base !== 'model') {

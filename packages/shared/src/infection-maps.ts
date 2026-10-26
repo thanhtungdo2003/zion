@@ -65,6 +65,9 @@ export const infectionMapSchema = z.object({
     scale: z.number().min(.001).max(1000),
     yaw: z.number().finite(),
     y: z.number().finite().min(-60).max(60),
+    /** Where the model sits (m): the part of it chosen as the play area is centred on the map. */
+    x: z.number().finite().min(-5000).max(5000).optional(),
+    z: z.number().finite().min(-5000).max(5000).optional(),
   }).strict().optional(),
   seed: z.string().trim().min(1).max(60),
   /** Half the width of the walled play area (m). */

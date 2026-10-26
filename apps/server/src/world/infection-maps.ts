@@ -231,7 +231,7 @@ export class InfectionMapService {
     }));
     const base = def.base === 'friday13' ? friday13Structures(gen).flatMap((s) => s.parts.map((p) => ({ ...p, x: s.x - c + p.x, z: s.z - c + p.z, y: s.y + p.y })))
       : def.base === 'warehouse' ? [{ asset: WAREHOUSE.asset, x: 0, z: 0, y: INFECTION_GROUND - WAREHOUSE.sink, yaw: 0, scale: 1 }]
-      : def.base === 'model' && def.model ? [{ asset: def.model.asset, x: 0, z: 0, y: INFECTION_GROUND + def.model.y, yaw: def.model.yaw, scale: def.model.scale }] : [];
+      : def.base === 'model' && def.model ? [{ asset: def.model.asset, x: def.model.x ?? 0, z: def.model.z ?? 0, y: INFECTION_GROUND + def.model.y, yaw: def.model.yaw, scale: def.model.scale }] : [];
     const layers = infectionLayers(gen);
     const toRel = (list: Array<{ x: number; z: number; y?: number }>) => list.map((s) => ({ x: +(s.x - c).toFixed(2), z: +(s.z - c).toFixed(2), ...(s.y !== undefined ? { y: s.y } : {}) }));
     return { ground: INFECTION_GROUND, half: def.half, step, size, origin: -ext, heights, grass, base: rel(base, false), wall: rel(layers.wall), nature: rel(layers.nature), spawns: toRel(infectionSpawns(gen)), zombieSpawns: toRel(infectionZombieSpawns(gen)) };

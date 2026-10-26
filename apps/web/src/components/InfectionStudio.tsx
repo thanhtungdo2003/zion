@@ -57,7 +57,11 @@ function groupOf(def: AssetDefinition): Group | null {
 }
 const CATALOG = registry.all().flatMap((def) => { const g = groupOf(def); return g ? [{ def, group: g }] : []; });
 
-type Tool = { kind: 'select' } | { kind: 'place'; asset: number } | { kind: 'spawn' } | { kind: 'zombie' };
+type Tool = { kind: 'select' } | { kind: 'place'; asset: number } | { kind: 'spawn' } | { kind: 'zombie' } | { kind: 'area' };
+/** A region dragged out on the plan (world metres): the part of the map to play on. */
+type Area = { x0: number; z0: number; x1: number; z1: number };
+type AreaSide = 'x0' | 'x1' | 'z0' | 'z1' | 'all';
+const norm = (a: Area): Area => ({ x0: Math.min(a.x0, a.x1), x1: Math.max(a.x0, a.x1), z0: Math.min(a.z0, a.z1), z1: Math.max(a.z0, a.z1) });
 type Sel = { kind: 'part'; index: number } | { kind: 'spawn'; index: number } | { kind: 'zombie'; index: number } | null;
 
 const RULES: Array<{ key: keyof InfectionRules; label: string; min: number; max: number; step: number; scale?: number; unit?: string }> = [
@@ -184,6 +188,9 @@ export default function InfectionStudio() {
   const [, redraw] = useState(0);
   const mouse = useRef<{ x: number; z: number } | null>(null);
   const drag = useRef<{ kind: 'pan' | 'move'; sx: number; sy: number; ox: number; oz: number; moved: boolean } | null>(null);
+  const [area, setArea] = useState<Area | null>(null);
+  /** Dragging a new region, one of its sides (resizing it across or along), or all of it. */
+  const areaDrag = useRef<{ side: AreaSide; sx: number; sz: number; from: Area } | null>(null);
 
   const toScreen = (x: number, z: number, w: number, h: number) => ({ x: w / 2 + (x - view.current.cx) * view.current.zoom, y: h / 2 + (z - view.current.cz) * view.current.zoom });
   const toWorld = (sx: number, sy: number) => {
@@ -259,7 +266,19 @@ export default function InfectionStudio() {
     draft.zombieSpawns.forEach((s, i) => marker(s.x, s.z, '#ff3b30', sel?.kind === 'zombie' && sel.index === i));
     // Placement ghost.
     if (tool.kind === 'place' && mouse.current) shape(tool.asset, mouse.current.x, mouse.current.z, ghostYaw, 1, 'rgba(255,255,255,.25)', '#fff');
-  }, [draft, preview, sel, tool, ghostYaw]);
+    // The region chosen for the map: its two medians cross at its centre (the new map centre).
+    if (area) {
+      const r = norm(area), p0 = toScreen(r.x0, r.z0, w, h), p1 = toScreen(r.x1, r.z1, w, h), c = toScreen((r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, w, h);
+      g.fillStyle = 'rgba(79,195,255,.12)'; g.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      g.strokeStyle = '#4fc3ff'; g.lineWidth = 2; g.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      g.setLineDash([5, 5]); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(c.x, p0.y); g.lineTo(c.x, p1.y); g.moveTo(p0.x, c.y); g.lineTo(p1.x, c.y); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#4fc3ff'; g.beginPath(); g.arc(c.x, c.y, 5, 0, Math.PI * 2); g.fill();
+      for (const [x, y] of [[c.x, p0.y], [c.x, p1.y], [p0.x, c.y], [p1.x, c.y]] as const) g.fillRect(x - 5, y - 5, 10, 10);
+      g.font = '12px monospace'; g.fillStyle = '#bfe9ff';
+      g.fillText(`${(r.x1 - r.x0).toFixed(1)} × ${(r.z1 - r.z0).toFixed(1)} m · tâm ${((r.x0 + r.x1) / 2).toFixed(1)}, ${((r.z0 + r.z1) / 2).toFixed(1)}`, p0.x + 4, p0.y - 6);
+    }
+  }, [draft, preview, sel, tool, ghostYaw, area]);
   useEffect(() => { draw(); });
   useEffect(() => {
     const onResize = () => draw();
@@ -287,6 +306,20 @@ export default function InfectionStudio() {
     (e.target as Element).setPointerCapture(e.pointerId);
     const w = toWorld(e.clientX, e.clientY);
     if (e.button === 1 || e.button === 2 || e.shiftKey) { drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.current.cx, oz: view.current.cz, moved: false }; return; }
+    if (tool.kind === 'area') {
+      // A side's handle (or its edge): resize across / along; inside: move it; elsewhere: a new region.
+      const r = area ? norm(area) : null, tol = 8 / view.current.zoom;
+      let side: AreaSide | null = null;
+      if (r) {
+        const inZ = w.z > r.z0 - tol && w.z < r.z1 + tol, inX = w.x > r.x0 - tol && w.x < r.x1 + tol;
+        if (inZ && Math.abs(w.x - r.x0) < tol) side = 'x0'; else if (inZ && Math.abs(w.x - r.x1) < tol) side = 'x1';
+        else if (inX && Math.abs(w.z - r.z0) < tol) side = 'z0'; else if (inX && Math.abs(w.z - r.z1) < tol) side = 'z1';
+        else if (w.x > r.x0 && w.x < r.x1 && w.z > r.z0 && w.z < r.z1) side = 'all';
+      }
+      if (side && r) areaDrag.current = { side, sx: w.x, sz: w.z, from: r };
+      else { const a = { x0: w.x, z0: w.z, x1: w.x, z1: w.z }; setArea(a); areaDrag.current = { side: 'x1', sx: w.x, sz: w.z, from: a }; newArea.current = true; }
+      return;
+    }
     if (tool.kind === 'place') {
       patch((d) => { d.parts.push({ asset: tool.asset, x: snap(w.x), y: 0, z: snap(w.z), yaw: ghostYaw, scale: 1 }); });
       setSel({ kind: 'part', index: draft.parts.length });
@@ -308,6 +341,14 @@ export default function InfectionStudio() {
   const onMove = (e: React.PointerEvent) => {
     const w = toWorld(e.clientX, e.clientY);
     mouse.current = w;
+    const ad = areaDrag.current;
+    if (ad) {
+      const dx = w.x - ad.sx, dz = w.z - ad.sz, f = ad.from;
+      if (newArea.current) setArea({ x0: f.x0, z0: f.z0, x1: w.x, z1: w.z });
+      else if (ad.side === 'all') setArea({ x0: f.x0 + dx, x1: f.x1 + dx, z0: f.z0 + dz, z1: f.z1 + dz });
+      else setArea({ ...f, [ad.side]: f[ad.side] + (ad.side[0] === 'x' ? dx : dz) });
+      return;
+    }
     const d = drag.current;
     if (d?.kind === 'pan') {
       view.current.cx = d.ox - (e.clientX - d.sx) / view.current.zoom; view.current.cz = d.oz - (e.clientY - d.sy) / view.current.zoom;
@@ -321,7 +362,26 @@ export default function InfectionStudio() {
     }
     if (tool.kind === 'place') draw();
   };
-  const onUp = () => { drag.current = null; };
+  const onUp = () => { drag.current = null; areaDrag.current = null; newArea.current = false; if (area) setArea(norm(area)); };
+  const newArea = useRef(false);
+  /**
+   * The region becomes the map: its centre (where its medians cross) moves to the map centre — the
+   * model, placed parts and spawn points all shifted by it — and the walled play area covers it.
+   */
+  const applyArea = () => {
+    if (!area || !draft) return;
+    const r = norm(area), cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
+    const half = Math.round(Math.min(170, Math.max(30, Math.max(r.x1 - r.x0, r.z1 - r.z0) / 2)));
+    patch((d) => {
+      if (d.model) { d.model.x = Math.round(((d.model.x ?? 0) - cx) * 100) / 100; d.model.z = Math.round(((d.model.z ?? 0) - cz) * 100) / 100; }
+      for (const p of d.parts) { p.x = snap(p.x - cx); p.z = snap(p.z - cz); }
+      for (const s of [...d.spawns, ...d.zombieSpawns]) { s.x = snap(s.x - cx); s.z = snap(s.z - cz); }
+      d.half = half;
+    });
+    setArea(null); setTool({ kind: 'select' });
+    view.current = { cx: 0, cz: 0, zoom: view.current.zoom };
+    flash(`Đã lấy vùng ${(r.x1 - r.x0).toFixed(0)} × ${(r.z1 - r.z0).toFixed(0)} m làm map (khu chơi ${half * 2} m vuông, tâm ở giữa vùng).`);
+  };
   const onWheel = (e: React.WheelEvent) => {
     const before = toWorld(e.clientX, e.clientY);
     view.current.zoom = Math.max(.6, Math.min(20, view.current.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
@@ -446,7 +506,17 @@ export default function InfectionStudio() {
             <button className={tool.kind === 'select' ? 'on' : ''} onClick={() => setTool({ kind: 'select' })} title="Chọn / kéo (Esc)"><Icon name="lucide:mouse-pointer-2" /></button>
             <button className={tool.kind === 'spawn' ? 'on' : ''} onClick={() => setTool({ kind: 'spawn' })} title="Điểm xuất hiện của người (bấm lại để xóa)"><Icon name="lucide:user-round-plus" /></button>
             <button className={tool.kind === 'zombie' ? 'on zombie' : 'zombie'} onClick={() => setTool({ kind: 'zombie' })} title="Điểm hồi sinh zombie (bấm lại để xóa)"><Icon name="game-icons:shambling-zombie" /></button>
+            <button className={tool.kind === 'area' ? 'on' : ''} onClick={() => setTool({ kind: 'area' })} title="Kéo chọn vùng làm map: kéo cạnh để chỉnh chiều ngang / dọc, kéo bên trong để dời"><Icon name="lucide:scan" /></button>
           </div>
+          {tool.kind === 'area' && (
+            <div className="ix-area">
+              {area ? <>
+                <p className="ix-hint">Vùng {Math.abs(area.x1 - area.x0).toFixed(1)} × {Math.abs(area.z1 - area.z0).toFixed(1)} m. Kéo các ô vuông ở cạnh để chỉnh ngang / dọc, kéo bên trong để dời.</p>
+                <button className="btn btn-primary" onClick={applyArea}><Icon name="lucide:crosshair" /> Dùng vùng này làm map</button>
+                <button className="btn" onClick={() => setArea(null)}>Bỏ chọn</button>
+              </> : <p className="ix-hint">Kéo trên bản đồ để chọn vùng làm map.</p>}
+            </div>
+          )}
           <div className="ix-groups">{GROUPS.map((g) => <button key={g.id} className={group === g.id ? 'on' : ''} onClick={() => setGroup(g.id)}><Icon name={g.icon} />{g.label}</button>)}</div>
           {(() => {
             // 3D look at the model being placed (or the part selected): drag to turn, wheel to zoom.
