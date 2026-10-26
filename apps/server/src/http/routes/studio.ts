@@ -1,3 +1,4 @@
+import { MAX_MAP_BOXES } from '@zion/assets';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -295,7 +296,7 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     // A whole map as one GLB (base64 in JSON): its collision is computed on upload.
     app.post('/api/studio/infection-maps/models', { preHandler: guard, bodyLimit: 72 * 1024 * 1024, config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async (req, reply) => {
       try {
-        const body = z.object({ name: z.string().trim().min(1).max(60), glb: z.string().min(16), fit: z.object({ offset: z.tuple([z.number(), z.number(), z.number()]), colliders: z.array(z.unknown()).max(16384), bounds: z.object({ radius: z.number().positive(), height: z.number().positive() }) }).optional() }).strict().parse(req.body);
+        const body = z.object({ name: z.string().trim().min(1).max(60), glb: z.string().min(16), fit: z.object({ offset: z.tuple([z.number(), z.number(), z.number()]), colliders: z.array(z.unknown()).max(MAX_MAP_BOXES), bounds: z.object({ radius: z.number().positive(), height: z.number().positive() }) }).optional() }).strict().parse(req.body);
         return await models.upload(body.name, Buffer.from(body.glb, 'base64'), body.fit);
       } catch (err) { return fail(reply, err); }
     });

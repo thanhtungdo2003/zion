@@ -3,7 +3,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDefaultRegistry, LIGHT_SOURCE_ASSET, uploadedMapFit, type AssetDefinition, type AssetDefinitionInput, type UploadedMapFit } from '@zion/assets';
-import { Vector3, type Mesh } from 'three';
+import { Vector3, type Material, type Mesh, type MeshStandardMaterial } from 'three';
 import { gltfLoader } from '@/game/render/gltf-loader';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
 import { studioActivateInfectionMap, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
@@ -18,13 +18,22 @@ async function mapFitOf(buf: ArrayBuffer): Promise<UploadedMapFit> {
   const gltf = await gltfLoader().parseAsync(buf, '');
   gltf.scene.updateMatrixWorld(true);
   const tris: Array<Array<[number, number, number]>> = [], a = new Vector3(), b = new Vector3(), c = new Vector3();
+  // Only what a player bumps into: textured, opaque surfaces (not see-through leaves, glass,
+  // helper or untextured meshes); everything when the model has none such.
+  const solid = (m: Material | undefined) => !!m && !!(m as MeshStandardMaterial).map && !m.transparent && !(m.alphaTest > 0) && m.visible;
+  let any = false;
+  gltf.scene.traverse((o) => { const m = o as Mesh; if (m.isMesh && (Array.isArray(m.material) ? m.material : [m.material]).some(solid)) any = true; });
   gltf.scene.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh || !mesh.visible) return;
     const pos = mesh.geometry.getAttribute('position'), index = mesh.geometry.getIndex();
     if (!pos) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const n = index ? index.count : pos.count, at = (k: number) => (index ? index.getX(k) : k);
+    const groups = mesh.geometry.groups.length ? mesh.geometry.groups : [{ start: 0, count: n, materialIndex: 0 }];
+    const keep = (k: number) => !any || solid(mats[groups.find((g) => k >= g.start && k < g.start + g.count)?.materialIndex ?? 0]);
     for (let k = 0; k + 2 < n; k += 3) {
+      if (!keep(k)) continue;
       a.fromBufferAttribute(pos, at(k)).applyMatrix4(mesh.matrixWorld); b.fromBufferAttribute(pos, at(k + 1)).applyMatrix4(mesh.matrixWorld); c.fromBufferAttribute(pos, at(k + 2)).applyMatrix4(mesh.matrixWorld);
       tris.push([a.toArray(), b.toArray(), c.toArray()]);
     }
