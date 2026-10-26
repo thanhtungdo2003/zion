@@ -14,7 +14,27 @@ import { Spinner } from './Spinner';
 const registry = createDefaultRegistry();
 
 /** Centring and collision of a map model, from its triangles as three.js decodes them. */
+/**
+ * A map model's centring and collision: worked out in a worker for plain GLBs (the page stays
+ * responsive with a big map), on the page for compressed ones (three.js decodes them).
+ */
 async function mapFitOf(buf: ArrayBuffer): Promise<UploadedMapFit> {
+  const json = (() => { try { const v = new DataView(buf); return JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 20, v.getUint32(12, true)))) as { extensionsRequired?: string[] }; } catch { return null; } })();
+  const compressed = (json?.extensionsRequired ?? []).some((e) => /draco|meshopt/i.test(e));
+  if (!compressed) {
+    const worker = new Worker(new URL('../studio/map-fit.worker.ts', import.meta.url), { type: 'module', name: 'zion-map-fit' });
+    try {
+      return await new Promise<UploadedMapFit>((ok, fail) => {
+        worker.onmessage = (e: MessageEvent<{ fit?: UploadedMapFit; error?: string }>) => (e.data.fit ? ok(e.data.fit) : fail(new Error(e.data.error ?? 'collision failed')));
+        worker.onerror = (e) => fail(new Error(e.message));
+        worker.postMessage(buf.slice(0));
+      });
+    } finally { worker.terminate(); }
+  }
+  return mapFitOnPage(buf);
+}
+
+async function mapFitOnPage(buf: ArrayBuffer): Promise<UploadedMapFit> {
   const gltf = await gltfLoader().parseAsync(buf, '');
   gltf.scene.updateMatrixWorld(true);
   const tris: Array<Array<[number, number, number]>> = [], a = new Vector3(), b = new Vector3(), c = new Vector3();
@@ -150,14 +170,12 @@ export default function InfectionStudio() {
   useEffect(() => { if (status === 'ready') void studioInfectionModels().then((r) => adoptModels(r.models)).catch(() => undefined); }, [status, adoptModels]);
   /** `asNew`: a new map is made on the model once it is uploaded (never a seed map in between). */
   const uploadModel = (file: File, asNew = false) => {
-    if (file.size > 48 * 1024 * 1024) { flash('File lớn hơn 48 MB.'); return; }
+    if (file.size > 80 * 1024 * 1024) { flash('File lớn hơn 80 MB.'); return; }
     setUploading(true);
     void file.arrayBuffer().then(async (buf) => {
       // Decoded here (compressed models too): its triangles give the centring and the collision.
       const fit = await mapFitOf(buf);
-      let bin = ''; const bytes = new Uint8Array(buf);
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return studioUploadInfectionModel(file.name.replace(/\.glb$/i, '').slice(0, 60), btoa(bin), fit);
+      return studioUploadInfectionModel(file.name.replace(/\.glb$/i, '').slice(0, 60), buf, fit);
     }).then((m) => {
       adoptModels([...models.filter((x) => x.asset !== m.asset), m]);
       // Models made in centimetres (hundreds of "metres" tall) start at 1/100.
@@ -183,9 +201,7 @@ export default function InfectionStudio() {
   const saveEditedModel = async (glb: ArrayBuffer) => {
     const old = models.find((m) => m.asset === draft?.model?.asset);
     const fit = await mapFitOf(glb);
-    let bin = ''; const bytes = new Uint8Array(glb);
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    const m = await studioUploadInfectionModel(`${(old?.name ?? 'Model').replace(/ \(sửa \d+\)$/, '')} (sửa ${new Date().toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' })})`.slice(0, 60), btoa(bin), fit);
+    const m = await studioUploadInfectionModel(`${(old?.name ?? 'Model').replace(/ \(sửa \d+\)$/, '')} (sửa ${new Date().toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' })})`.slice(0, 60), glb, fit);
     adoptModels([...models.filter((x) => x.asset !== m.asset), m]);
     patch((d) => { if (d.model) d.model.asset = m.asset; });
     flash('Đã lưu model đã chỉnh: bấm Lưu (và Publish) để game dùng nó.');

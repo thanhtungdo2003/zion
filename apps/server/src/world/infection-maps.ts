@@ -31,7 +31,7 @@ const configOf = (def: InfectionMapDef) => ({ seed: normalizeSeed(def.seed), siz
 export interface InfectionMapModel { asset: number; name: string; version: number; def: AssetDefinitionInput }
 
 /** Largest map model accepted from the Studio. */
-export const MAX_MAP_MODEL_BYTES = 48 * 1024 * 1024;
+export const MAX_MAP_MODEL_BYTES = 80 * 1024 * 1024;
 
 export class InfectionMapService {
   maps: InfectionMaps = structuredClone(DEFAULT_INFECTION_MAPS);
@@ -107,7 +107,7 @@ export class InfectionMapService {
   /** Stores an uploaded map model: its collision is computed here, once. */
   /** `fit`: centring and collision computed by the Studio (it decodes compressed models); else here. */
   async uploadModel(name: string, glb: Buffer, fit?: UploadedMapFit): Promise<InfectionMapModel & { url: string }> {
-    if (glb.length > MAX_MAP_MODEL_BYTES) throw new Error('File model quá lớn (tối đa 48 MB).');
+    if (glb.length > MAX_MAP_MODEL_BYTES) throw new Error('File model quá lớn (tối đa 80 MB).');
     let asset = UPLOADED_MAP_ASSET_MIN;
     while (this.models.has(asset)) if (++asset > UPLOADED_MAP_ASSET_MAX) throw new Error('Đã hết chỗ cho model bản đồ mới (tối đa 100).');
     const def = uploadedMapAsset(asset, name.slice(0, 60) || 'Bản đồ', new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength), fit);

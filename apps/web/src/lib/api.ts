@@ -112,7 +112,7 @@ function hasHint(): boolean {
 
 async function request<T>(path: string, init: RequestInit & { auth?: boolean; csrf?: boolean } = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set('content-type', 'application/json');
+  if (init.body !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
   if (init.auth && accessToken) headers.set('authorization', `Bearer ${accessToken}`);
   if (init.csrf) headers.set('x-zion-csrf', '1');
   let res: Response;
@@ -396,7 +396,14 @@ export interface InfectionMapPreview {
 /** A map model uploaded for Infection maps: its asset id, name and full asset definition. */
 export interface InfectionMapModel { asset: number; name: string; version: number; url: string; def: Record<string, unknown> }
 export function studioInfectionModels(): Promise<{ models: InfectionMapModel[] }> { return studioRequest('/api/studio/infection-maps/models'); }
-export function studioUploadInfectionModel(name: string, glb: string, fit?: unknown): Promise<InfectionMapModel> { return studioRequest('/api/studio/infection-maps/models', { method: 'POST', body: JSON.stringify({ name, glb, ...(fit ? { fit } : {}) }) }); }
+/**
+ * A map model: its file sent as it is (binary, no base64), then registered with its name and
+ * collision. Large maps (tens of MB) go up without the page or the request doubling them.
+ */
+export async function studioUploadInfectionModel(name: string, glb: ArrayBuffer, fit?: unknown): Promise<InfectionMapModel> {
+  const { upload } = await studioRequest<{ upload: string }>('/api/studio/infection-maps/models/file', { method: 'POST', body: glb, headers: { 'content-type': 'application/octet-stream' } });
+  return studioRequest('/api/studio/infection-maps/models', { method: 'POST', body: JSON.stringify({ name, upload, ...(fit ? { fit } : {}) }) });
+}
 export function studioInfectionMaps(): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps'); }
 export function studioSaveInfectionMap(map: InfectionMapDef): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps', { method: 'PUT', body: JSON.stringify(map) }); }
 export function studioActivateInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest('/api/studio/infection-maps/active', { method: 'POST', body: JSON.stringify({ id }) }); }

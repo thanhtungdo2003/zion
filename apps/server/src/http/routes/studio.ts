@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { MAX_MAP_MODEL_BYTES } from '../../world/infection-maps';
 import { MAX_MAP_BOXES } from '@zion/assets';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -293,11 +295,26 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   if (deps.infectionModels) {
     const models = deps.infectionModels;
     app.get('/api/studio/infection-maps/models', { preHandler: guard }, async () => ({ models: models.list() }));
-    // A whole map as one GLB (base64 in JSON): its collision is computed on upload.
-    app.post('/api/studio/infection-maps/models', { preHandler: guard, bodyLimit: 72 * 1024 * 1024, config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async (req, reply) => {
+    // The file first, as raw bytes (held a few minutes for the registration that follows).
+    const pendingFiles = new Map<string, { glb: Buffer; at: number }>();
+    app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: MAX_MAP_MODEL_BYTES + 1024 }, (_req, body, done) => done(null, body));
+    app.post('/api/studio/infection-maps/models/file', { preHandler: guard, bodyLimit: MAX_MAP_MODEL_BYTES + 1024, config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const glb = req.body as Buffer;
+      if (!Buffer.isBuffer(glb) || glb.length < 20) return reply.code(400).send({ error: 'invalid', message: 'Không nhận được file GLB.' });
+      const now = Date.now();
+      for (const [k, v] of pendingFiles) if (now - v.at > 10 * 60_000) pendingFiles.delete(k);
+      const upload = randomUUID();
+      pendingFiles.set(upload, { glb, at: now });
+      return { upload };
+    });
+    // A whole map as one GLB (sent before as raw bytes, or base64 in JSON): its collision is computed on upload.
+    app.post('/api/studio/infection-maps/models', { preHandler: guard, bodyLimit: 96 * 1024 * 1024, config: { rateLimit: { max: 6, timeWindow: '1 minute' } } }, async (req, reply) => {
       try {
-        const body = z.object({ name: z.string().trim().min(1).max(60), glb: z.string().min(16), fit: z.object({ offset: z.tuple([z.number(), z.number(), z.number()]), colliders: z.array(z.unknown()).max(MAX_MAP_BOXES), bounds: z.object({ radius: z.number().positive(), height: z.number().positive() }) }).optional() }).strict().parse(req.body);
-        return await models.upload(body.name, Buffer.from(body.glb, 'base64'), body.fit);
+        const body = z.object({ name: z.string().trim().min(1).max(60), upload: z.string().uuid().optional(), glb: z.string().min(16).optional(), fit: z.object({ offset: z.tuple([z.number(), z.number(), z.number()]), colliders: z.array(z.unknown()).max(MAX_MAP_BOXES), bounds: z.object({ radius: z.number().positive(), height: z.number().positive() }) }).optional() }).strict().parse(req.body);
+        const file = body.upload ? pendingFiles.get(body.upload)?.glb : body.glb ? Buffer.from(body.glb, 'base64') : undefined;
+        if (!file) return reply.code(400).send({ error: 'invalid', message: 'File GLB đã hết hạn, hãy tải lên lại.' });
+        if (body.upload) pendingFiles.delete(body.upload);
+        return await models.upload(body.name, file, body.fit);
       } catch (err) { return fail(reply, err); }
     });
     app.get<{ Params: { file: string } }>('/api/infection-maps/models/:file', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {

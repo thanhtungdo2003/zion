@@ -350,6 +350,7 @@ export default function MainMenu() {
         <div className="menu-top-actions">
           <InstallAppButton />
           <LibraryNav />
+          <button className="menu-account menu-leaderboard" aria-label="Phòng tập" title="Phòng tập: tập bắn với mọi loại súng" onClick={() => router.push('/range')}><Icon name="lucide:crosshair" /><span>Phòng tập</span></button>
           <button className="menu-account menu-leaderboard" aria-label="Bảng xếp hạng" title="Bảng xếp hạng" onClick={() => setLeaderboardOpen(true)}><Icon name="lucide:trophy" /><span>Bảng xếp hạng</span></button>
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden focusable="false">
@@ -479,12 +480,6 @@ export default function MainMenu() {
           <b>{brMap.name}</b>
           <span className="menu-mode-caret"><Icon name="lucide:map" /></span>
         </button>}
-        <button className="menu-mode menu-range" onClick={() => router.push('/range')} title="Tập bắn với mọi loại súng, bia di động">
-          <span className="menu-mode-thumb range-thumb"><Icon name="lucide:crosshair" /></span>
-          <small>Luyện tập</small>
-          <b>Phòng tập</b>
-          <span className="menu-mode-caret"><Icon name="lucide:target" /></span>
-        </button>
         <button className="menu-mode" onClick={() => setModeOpen(true)} aria-haspopup="dialog" aria-expanded={modeOpen}>
           <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === gameMode)!.image})` }} />
           <small>{t('menu.mode')}</small>
