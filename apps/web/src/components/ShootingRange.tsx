@@ -44,7 +44,7 @@ const MOTIONS: Array<{ id: Motion; label: string }> = [
 ];
 
 /** A paper target; `hits` so far, and once broken (BREAK_AT hits) how far it has fallen. */
-interface Target { node: Object3D; paper: Mesh; x: number; phase: number; size: { w: number; h: number; cx: number; cy: number }; hits: number; fall: { drop: number; vy: number; tilt: number } | null }
+interface Target { node: Object3D; paper: Mesh; x: number; phase: number; size: { w: number; h: number; cx: number; cy: number }; hits: number; fall: { drop: number; vy: number; tilt: number; x?: number; z?: number } | null }
 const BREAK_AT = 30;
 
 function guns(lib: WeaponLibrary): string[] {
@@ -297,6 +297,9 @@ export function ShootingRange() {
         w.y += up;
         // A broken target drops to the floor, tipping over as it goes.
         if (t.fall) {
+          // It lies where it broke off: no more sliding across or to and fro, no popping up.
+          t.fall.x ??= w.x; t.fall.z ??= w.z;
+          w.x = t.fall.x; w.z = t.fall.z; w.y = base.y;
           const floor = -(base.y - .05);
           t.fall.vy -= 9.8 * dt; t.fall.drop = Math.max(floor, t.fall.drop + t.fall.vy * dt);
           if (t.fall.drop === floor) t.fall.vy = 0;
