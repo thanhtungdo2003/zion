@@ -11,6 +11,7 @@ import { battleTower as guardTower, modularBuilding } from '../battle-map';
 import { FLORA_ASSET, fromStand, standValue } from '../flora';
 import { constructionSite, masonryBuilding } from '../masonry';
 import { CIVIC_ASSET, ROAD_ASSET, SIGN_ASSET, type SignKind } from '@zion/assets';
+import { BedrockRelief } from '../geology';
 
 export const ISLAND_ASSET = {
   // The TVA pack (2431) holds a row of pylon variants, not one pylon; poles use the camp utility pole.
@@ -33,7 +34,7 @@ export interface MapArea { id: string; name: string; kind: MapZone['kind']; x: n
 
 interface RoadProbe { roadDistance: number; roadHeight: number; roadAlong: number; roadHalfWidth?: number }
 interface Host {
-  readonly config?: { battleIsland?: AuthoredMap };
+  readonly config?: { battleIsland?: AuthoredMap; generatorVersion?: number };
   readonly worldSize: number; readonly seaLevel: number; readonly seed: number; heightAt(x: number, z: number): number;
   readonly roads?: { query(x: number, z: number, out: RoadProbe): void } | null;
 }
@@ -48,6 +49,7 @@ type GroundStructure = Structure & { ground?: Surface; decal?: boolean };
 export class AuthoredWorld {
   private readonly noise: Simplex2;
   private readonly forestNoise: Simplex2;
+  private readonly bedrock: BedrockRelief;
   private sites: GroundStructure[] | null = null;
   private readonly grid = new Map<string, GroundStructure[]>();
   private pylonList: Pylon[] | null = null;
@@ -98,6 +100,7 @@ export class AuthoredWorld {
     this.surfaceGrid = map.surfaceGrid ? new Uint8Array(Buffer.from(map.surfaceGrid, 'base64')) : null;
     this.moistureGrid = map.moistureGrid ? new Uint8Array(Buffer.from(map.moistureGrid, 'base64')) : null;
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
+    this.bedrock = new BedrockRelief(host.seed);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
     // Routed roads find their own way between their waypoints (switchbacks round the slopes).
     if (map.roads.some((r) => r.route)) this.map = { ...map, roads: map.roads.map((r) => (r.route ? { ...r, points: this.routeRoad(r.points) } : r)) };
@@ -211,6 +214,10 @@ export class AuthoredWorld {
     h += ridge * ridge * 38 * smoothstep(sea + 60, sea + 150, h);
     // Rolling detail grows away from the beaches.
     h += (this.noise.noise(x * .004, z * .004) * 7 + this.noise.noise(x * .013, z * .013) * 2.4 + this.noise.noise(x * .05, z * .05) * .6) * smoothstep(20, 400, d);
+    if ((this.host.config?.generatorVersion ?? 0) >= 8) {
+      const exposure = smoothstep(38, 95, h - sea) * smoothstep(80, 250, d);
+      h += this.bedrock.displacement(x, z, h, exposure, this.map.climate === 'desert' || this.map.climate === 'arid' ? 1 : 0);
+    }
     return h;
   }
 

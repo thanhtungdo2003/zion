@@ -23,6 +23,7 @@ import { SkinSurface, bindGarment } from './skin-surface';
 import { settingsStore, type TextureQuality } from '@/lib/settings';
 import { handPose } from '../hand-studio';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
+import { addLocomotionClips, closeMocapLoop } from './locomotion';
 
 /**
  * The survivor model: a skinned body on a 162-bone Rigify skeleton (hands with three-jointed
@@ -497,6 +498,8 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
     const stride = (extras.stride ?? 2) * (WORLD_STRIDES.has(clip.name) ? 1 : HUMAN_SCALE);
     return [clip.name, { name: clip.name, loop: !!extras.loop, duration: clip.duration, frames, stride, bones, hipsY: extras.hipsY ?? [] }] as const;
   }));
+  for (const clip of clipMap.values()) closeMocapLoop(clip);
+  addLocomotionClips(clipMap, bones, index);
   clipMap.set(STAND_CLIP, standPose(bones, index, restQ, restP));
   // The pistol draw's held one-handed frames play as their own layers (see avatars.ts).
   const draw = clipMap.get('pistol_draw');

@@ -16,7 +16,7 @@ beforeAll(async () => {
   template = survivorTemplate(mirrorCharacter(await buildBBModel(raw)), assets);
 });
 
-describe('locomotion without world-space foot locks', () => {
+describe.each([30, 60, 144])('locomotion without world-space foot locks at %s FPS', (fps) => {
   it.each([
     ['forward', 0, -2, 0], ['slow', 0, -.25, 0], ['strafe', 2, 0, 0],
     // Backpedalling while aiming (moving freely, the body turns into its travel instead).
@@ -28,11 +28,12 @@ describe('locomotion without world-space foot locks', () => {
     const lengths: Partial<Record<'L' | 'R', number[]>> = {};
     const previous: Partial<Record<'L' | 'R', Vector3>> = {};
     let travel = 0;
-    for (let frame = 0; frame < 150; frame++) {
+    for (let frame = 0; frame < fps * 2.5; frame++) {
       // Accelerate into a faster gait, then decelerate without releasing an anchor.
-      const ramp = frame < 90 ? Math.min(1, frame / 30) : Math.max(.1, (150 - frame) / 60);
-      travel += ramp / 60;
-      avatar.update(vx * travel, 0, vz * travel, 0, EntityFlags.Grounded | posture, 1 / 60, frame / 60);
+      const time = frame / fps;
+      const ramp = time < 1.5 ? Math.min(1, time * 2) : Math.max(.1, 2.5 - time);
+      travel += ramp / fps;
+      avatar.update(vx * travel, 0, vz * travel, 0, EntityFlags.Grounded | posture, 1 / fps, time);
       avatar.root.updateMatrixWorld(true);
       for (const side of ['L', 'R'] as const) {
         const hip = pos(`thigh_${side}`), knee = pos(`shin_${side}`), ankle = pos(`foot_${side}`);
@@ -41,7 +42,7 @@ describe('locomotion without world-space foot locks', () => {
         current.forEach((length, i) => expect(length).toBeCloseTo(lengths[side]![i]!, 5));
         const local = avatar.root.worldToLocal(ankle.clone());
         expect(local.toArray().every(Number.isFinite)).toBe(true);
-        if (frame > 30 && previous[side]) expect(local.distanceTo(previous[side]!)).toBeLessThan(.3);
+        if (time > .5 && previous[side]) expect(local.distanceTo(previous[side]!), `frame ${frame}, foot ${side}`).toBeLessThan(.3 * 60 / fps);
         previous[side] = local;
       }
     }

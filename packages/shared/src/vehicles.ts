@@ -7,6 +7,8 @@ export interface VehicleState {
   motion?: VehicleMotion;
   /** Authoritative controls and physical contact events, separate from bullet/blast damage. */
   braking?: boolean;
+  /** Driver's forward/reverse control, independent of ground contact and chassis speed. */
+  throttle?: number;
   impact?: { time: number; speed: number };
   /** Flat tyres, bit i = wheel i (0 front-left, 1 front-right, 2 rear-left, 3 rear-right). */
   flats?: number;

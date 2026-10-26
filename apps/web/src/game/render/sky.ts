@@ -32,17 +32,11 @@ const skyFragment = /* glsl */ `
   uniform vec3 uSunColor;
   uniform float uNight;
   uniform float uTime;
-  uniform float uCloudTime;
-  uniform float uCloudSeed;
-  uniform sampler2D uSkyImage;
-  uniform float uSkyReady;
   uniform sampler2D uNightImage;
   uniform float uNightReady;
   uniform vec3 uPole;
   uniform float uSkyTurn;
   varying vec3 vDir;
-
-  ${cloudShader}
 
   float hash(vec3 p) {
     p = fract(p * 0.3183099 + 0.1);
@@ -69,10 +63,9 @@ const skyFragment = /* glsl */ `
     float starLum = dot(nightPhoto, vec3(0.2126, 0.7152, 0.0722));
     vec3 night = uTop * 0.55 + min(nightPhoto, vec3(0.5)) * vec3(0.07, 0.085, 0.13) + vec3(0.85, 0.9, 1.0) * smoothstep(0.55, 0.9, starLum) * 0.7;
     col = mix(col, night, uNight * uNightReady * smoothstep(0.04, 0.22, h) * 0.92);
-    float cloudAlpha = 0.0;
     float sd = max(dot(d, uSunDir), 0.0);
     col += uSunColor * (pow(sd, 6.0) * 0.25 + pow(sd, 64.0) * 0.35);
-    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0 * (1.0 - cloudAlpha);
+    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0;
     vec3 moonDir = -uSunDir;
     float md = max(dot(d, moonDir), 0.0);
     col += vec3(0.75, 0.8, 0.95) * smoothstep(0.9990, 0.9994, md) * uNight * 1.5;
@@ -81,7 +74,7 @@ const skyFragment = /* glsl */ `
       vec3 cell = floor(d * 380.0);
       float s = hash(cell);
       float twinkle = 0.6 + 0.4 * sin(uTime * 3.0 + s * 50.0);
-      col += vec3(step(0.9975, s) * twinkle * uNight * smoothstep(0.0, 0.2, h) * (1.0 - cloudAlpha));
+      col += vec3(step(0.9975, s) * twinkle * uNight * smoothstep(0.0, 0.2, h));
     }
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
@@ -98,28 +91,20 @@ const cloudFragment = /* glsl */ `
   uniform float uTime; uniform float uSeed; uniform float uNight; uniform float uCover;
   uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uTop; uniform vec3 uHorizon;
   varying vec3 vDir;
-  float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float cNoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(cHash(i), cHash(i + vec2(1.0, 0.0)), f.x), mix(cHash(i + vec2(0.0, 1.0)), cHash(i + vec2(1.0)), f.x), f.y);
-  }
-  float cFbm(vec2 p) {
-    float n = 0.0, w = 0.5;
-    for (int i = 0; i < 5; i++) { n += cNoise(p) * w; p = mat2(1.6, -1.2, 1.2, 1.6) * p + 3.1; w *= 0.5; }
-    return n;
-  }
+  ${cloudShader}
   void main() {
     vec3 d = normalize(vDir);
     if (d.y < 0.015) discard;
     vec2 p = d.xz / (d.y + 0.12) * 1.25 + vec2(uSeed * 0.37, uSeed * 0.11) - vec2(0.006, 0.0025) * uTime;
-    vec2 q = vec2(cFbm(p), cFbm(p + vec2(5.2, 1.3)));
+    // Two cheap warp samples plus two four-octave fields (10 noise evaluations, formerly 20).
+    vec2 q = vec2(cloudNoise(p * 0.7), cloudNoise(p * 0.7 + vec2(5.2, 1.3)));
     vec2 w = p + 1.5 * q;
-    float n = cFbm(w);
+    float n = cloudField(w);
     float density = smoothstep(uCover, uCover + 0.28, n);
     if (density < 0.004) discard;
     // Toward the sun across the sky: denser there means this side is in its shadow.
     vec2 toSun = normalize(uSunDir.xz + vec2(1e-4)) * 0.22;
-    float ahead = cFbm(w + toSun);
+    float ahead = cloudField(w + toSun);
     float lit = clamp(0.62 + (n - ahead) * 3.2, 0.0, 1.0);
     float sunUp = smoothstep(-0.1, 0.25, uSunDir.y);
     vec3 shadow = mix(uHorizon * 0.55 + uTop * 0.25, uTop * 0.25 + vec3(0.02, 0.025, 0.04), uNight);
@@ -225,10 +210,6 @@ export class SkySystem {
         uPole: { value: new Vector3(0, -Math.sin(LATITUDE), Math.cos(LATITUDE)) },
         uSkyTurn: { value: 0 },
         uTime: { value: 0 },
-        uCloudTime: { value: 0 },
-        uCloudSeed: { value: (cosmeticSeed >>> 0) % 10000 },
-        uSkyImage: { value: null },
-        uSkyReady: { value: 0 },
         uNightImage: { value: null },
         uNightReady: { value: 0 },
       },
@@ -270,8 +251,8 @@ export class SkySystem {
     cam.bottom = -70;
     cam.near = 1;
     cam.far = 600;
-    this.light.shadow.bias = -0.0004;
-    this.light.shadow.normalBias = 0.5;
+    this.light.shadow.bias = -0.00015;
+    this.light.shadow.normalBias = 0.12;
     scene.add(this.light, this.light.target);
 
     this.hemi = new HemisphereLight(0xbcd4ff, 0x3a3326, 0.6);
@@ -326,7 +307,6 @@ export class SkySystem {
     // Turned with the sun: as authored at midnight.
     this.material.uniforms.uSkyTurn!.value = -(angle + Math.PI / 2);
     this.material.uniforms.uTime!.value = elapsed;
-    this.material.uniforms.uCloudTime!.value = serverSeconds;
     const c = this.cloudMaterial.uniforms;
     c.uTime!.value = serverSeconds; c.uNight!.value = this.night;
     (c.uSunDir!.value as Vector3).copy(usingSun ? this.sunDir : dir);

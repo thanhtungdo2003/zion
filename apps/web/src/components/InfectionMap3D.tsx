@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { AmbientLight, Color, CylinderGeometry, DirectionalLight, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Scene, SRGBColorSpace, Vector2, Vector3, WebGLRenderer, type Object3D } from 'three';
+import { AmbientLight, Box3, Color, CylinderGeometry, DirectionalLight, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Raycaster, Scene, SRGBColorSpace, Vector2, Vector3, WebGLRenderer, type Object3D } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { AssetRegistry } from '@zion/assets';
 import { EntityFlags, type InfectionMapDef } from '@zion/shared';
@@ -25,7 +25,8 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
   tool: 'spawn' | 'zombie' | null; onPoint: (kind: 'spawn' | 'zombie', p: { x: number; y: number; z: number } | null, remove: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const stage = useRef<{ scene: Scene; map: Group; markers: Group; camera: PerspectiveCamera; renderer: WebGLRenderer; character: CharacterTemplate | null; avatars: Avatar[] } | null>(null);
+  const stage = useRef<{ scene: Scene; map: Group; markers: Group; camera: PerspectiveCamera; controls: OrbitControls; renderer: WebGLRenderer; character: CharacterTemplate | null; avatars: Avatar[] } | null>(null);
+  const framedModel = useRef('');
   const [loading, setLoading] = useState(true);
   const live = useRef({ tool, onPoint, draft, preview }); live.current = { tool, onPoint, draft, preview };
   const [ready, setReady] = useState(0);
@@ -46,7 +47,7 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
     camera.position.set(0, 60, 90);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0); controls.update();
-    stage.current = { scene, map, markers, camera, renderer, character: null, avatars: [] };
+    stage.current = { scene, map, markers, camera, controls, renderer, character: null, avatars: [] };
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
     const loop = () => { if (disposed) return; renderer.render(scene, camera); frame = requestAnimationFrame(loop); };
@@ -86,12 +87,30 @@ export default function InfectionMap3D({ preview, draft, registry, buildKey, too
     void buildInfectionMapScene(preview, draft, registry).then((root: Object3D) => {
       if (stale || !stage.current) return;
       st.map.clear(); st.map.add(root);
+      const model = draft.base === 'model' ? draft.model : undefined;
+      const frameKey = model ? `${draft.id}:${JSON.stringify(model)}` : '';
+      const visual = model ? root.children.find((o) => o.userData.asset === model.asset) : undefined;
+      if (!model) framedModel.current = '';
+      if (visual && frameKey !== framedModel.current) {
+        const bounds = new Box3().setFromObject(visual);
+        if (!bounds.isEmpty()) {
+          const center = bounds.getCenter(new Vector3()), radius = bounds.getSize(new Vector3()).length() / 2;
+          const fov = st.camera.fov * Math.PI / 180;
+          const angle = Math.min(fov, 2 * Math.atan(Math.tan(fov / 2) * st.camera.aspect));
+          const distance = Math.max(5, radius / Math.sin(angle / 2) * 1.15);
+          st.controls.target.copy(center);
+          st.camera.position.copy(center).add(new Vector3(0, .65, 1).normalize().multiplyScalar(distance));
+          st.camera.far = Math.max(3000, distance + radius * 2);
+          st.camera.updateProjectionMatrix(); st.controls.update();
+          framedModel.current = frameKey;
+        }
+      }
       setFailed((root.userData.failed as string[] | undefined) ?? []);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((e: unknown) => { if (!stale) { setFailed([(e as Error).message]); setLoading(false); } });
     return () => { stale = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `buildKey` stands for the layout.
-  }, [buildKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `buildKey` stands for the draft layout; preview must also trigger rebuilding when its data arrives.
+  }, [buildKey, preview, registry]);
 
   // Survivors at the spawn points (zombie points tinted red): rebuilt when the points change.
   const pointsKey = JSON.stringify([draft.spawns, draft.zombieSpawns, preview.spawns.length, ready]);

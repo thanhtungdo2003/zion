@@ -39,7 +39,7 @@ export class VehicleRenderer {
   nearest(x:number,y:number,z:number):VehicleState|undefined{
     return [...this.views.values()].map(v=>v.target).filter(v=>vehicleFreeSeat(v)>=0&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
   }
-  update(dt:number,now:number,localId:number,x:number,y:number,z:number,enabled:boolean,serverTime=now):void{
+  update(dt:number,now:number,localId:number,x:number,y:number,z:number,enabled:boolean,serverTime=now,localThrottle?:number):void{
     const target=serverTime-VEHICLE_RENDER_DELAY_MS;
     if(this.playback===undefined||Math.abs(target-this.playback)>400)this.playback=target;
     else this.playback+=dt*1000+(target-this.playback)*Math.min(1,dt*1.5);
@@ -56,7 +56,11 @@ export class VehicleRenderer {
       // Flat tyres: the body sits low on that corner (latest state, not the interpolated pose).
       const tyres=tyreHandling(v);
       view.root.position.set(origin.x,origin.y-tyres.drop,origin.z);view.root.rotation.set((p.motion?.pitch??0)-tyres.pitch,p.yaw,(p.motion?.roll??0)-tyres.lean,'YXZ');
-      view.travel+=p.speed*dt;
+      const throttle=v.health>0&&!v.exploded&&v.driver!==null
+        ? (v.driver===localId&&localThrottle!==undefined?localThrottle:(v.throttle??0)) : 0;
+      // Spin under power even while stuck or airborne; rolling without input follows road speed.
+      const wheelSpeed=Math.abs(throttle)>.01?Math.sign(throttle)*Math.max(Math.abs(p.speed),4*Math.abs(throttle)):p.speed;
+      view.travel+=wheelSpeed*dt;
       for(const wheel of view.wheels){
         wheel.mount.position.set(...wheel.center);
         wheel.mount.position.y+=(def.spring-(p.motion?.suspension[wheel.index]??def.spring))/def.scale;

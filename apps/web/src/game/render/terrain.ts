@@ -26,6 +26,8 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
   const pos = new Float32Array(total * 3);
   const nrm = new Float32Array(total * 3);
   const col = new Float32Array(total * 3);
+  // Humidity, temperature, terrain cavity and curvature; 4 bytes/vertex, shared by all materials.
+  const detail = new Uint8Array(total * 4);
   // Ground material layer weights (3 × vec4, 0…255): see ground-textures.ts.
   const layers = [new Uint8Array(total * 4), new Uint8Array(total * 4), new Uint8Array(total * 4)];
   const H = (i: number, j: number) => dequantizeHeight(chunk.heights[heightIndex(n, i, j)]!);
@@ -57,7 +59,13 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
       const waterTop = wq ? Math.max(dequantizeHeight(wq), seaLevel) : seaLevel;
       applyUnderwater(color, waterTop - h);
       const slopeShade = 0.82 + 0.18 * ny * inv;
-      const b = (1 + jitter(ox + i * step, oz + j * step)) * slopeShade;
+      const hollow = Math.max(0, (H(i - 1, j) + H(i + 1, j) + H(i, j - 1) + H(i, j + 1)) / 4 - h);
+      const cavity = Math.min(1, hollow / (step * .8));
+      const b = (1 + jitter(ox + i * step, oz + j * step)) * slopeShade * (1 - cavity * .24);
+      detail[v * 4] = chunk.humidity[v]!;
+      detail[v * 4 + 1] = chunk.temperature[v]!;
+      detail[v * 4 + 2] = Math.round(cavity * 255);
+      detail[v * 4 + 3] = Math.round(Math.min(1, Math.abs((H(i - 1, j) + H(i + 1, j) + H(i, j - 1) + H(i, j + 1)) / 4 - h) / step) * 255);
       col[v * 3] = color.r * b;
       col[v * 3 + 1] = color.g * b;
       col[v * 3 + 2] = color.b * b;
@@ -87,6 +95,7 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
       col[dst * 3 + c] = col[src * 3 + c]! * 0.8;
     }
     for (const l of layers) for (let c = 0; c < 4; c++) l[dst * 4 + c] = l[src * 4 + c]!;
+    for (let c = 0; c < 4; c++) detail[dst * 4 + c] = detail[src * 4 + c]!;
   }
 
   const cells = (n - 1) * (n - 1);
@@ -125,6 +134,7 @@ export function buildTerrainGeometry(chunk: ChunkData, seaLevel: number, cosmeti
   g.setAttribute('groundA', new BufferAttribute(layers[0]!, 4, true));
   g.setAttribute('groundB', new BufferAttribute(layers[1]!, 4, true));
   g.setAttribute('groundC', new BufferAttribute(layers[2]!, 4, true));
+  g.setAttribute('terrainDetail', new BufferAttribute(detail, 4, true));
   g.setIndex(new BufferAttribute(index.subarray(0, o), 1));
   g.computeBoundingSphere();
   g.computeBoundingBox();

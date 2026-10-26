@@ -11,6 +11,7 @@ coverage/
 .tmp-*/
 .tmp-*.mjs
 /tmp/research/
+/tmp/e2e/render-upgrade/
 .DS_Store
 /packages/worldgen/preview/
 /apps/web/public/assets/models/

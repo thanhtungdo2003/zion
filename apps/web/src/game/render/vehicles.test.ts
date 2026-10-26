@@ -8,6 +8,28 @@ import { VehicleRenderer } from './vehicles';
 vi.mock('../vehicle-audio',()=>({VehicleAudio:class {update=vi.fn();dispose=vi.fn();}}));
 afterEach(()=>vi.restoreAllMocks());
 describe('vehicle graphics and camera collision',()=>{
+  it.each([1,-1])('spins stationary airborne wheels from local throttle %s and stops on release',async(throttle)=>{
+    const scene=new Scene(),world=new CollisionWorld({worldSize:192,seaLevel:20});
+    const geometry=new BoxGeometry(),material=new MeshLambertMaterial();
+    const library={load:vi.fn(async()=>({parts:[{geometry,material,wheel:0,wheelCenter:[0,0,0]}]}))} as unknown as AssetLibrary;
+    const renderer=new VehicleRenderer(scene,library,world);
+    const v:VehicleState={id:1,kind:'car',x:50,y:100,z:80,yaw:0,speed:0,health:600,driver:1,explodeAt:0,exploded:false,motion:createVehicleMotion('car'),throttle:-throttle};
+    try{
+      renderer.sync({t:'vehicles',time:1000,vehicles:[v]});
+      renderer.update(1/60,1000,1,50,100,80,false,1000,throttle);
+      await Promise.resolve();
+      renderer.update(1/60,1017,1,50,100,80,false,1017,throttle);
+      const root=scene.children.find(o=>o instanceof Group)!;
+      const spin=root.children[0]!.children[0]!.children[0]!;
+      expect(Math.sign(spin.rotation.x)).toBe(-throttle);
+      const angle=spin.rotation.x;
+      renderer.update(1/60,1034,1,50,100,80,false,1034,0);
+      expect(spin.rotation.x).toBe(angle);
+      // A remote observer uses the server's control, even with zero road speed.
+      renderer.update(1/60,1051,2,50,100,80,false,1051);
+      expect(Math.sign(spin.rotation.x-angle)).toBe(throttle);
+    }finally{renderer.dispose();geometry.dispose();material.dispose();}
+  });
   it('keeps the body, driver and collision on one timeline while animating wheel suspension',async()=>{
     const scene=new Scene(),world=new CollisionWorld({worldSize:192,seaLevel:20});
     const install=vi.spyOn(world,'setOwnerColliders');

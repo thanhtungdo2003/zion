@@ -93,13 +93,12 @@ export class MeleeFeel {
   /** The combo's finisher (a lunge and a full cut): the screen shakes hard as the blow lands at `at` (ms). */
   finisher(at: number): void { this.finisherAt = at; }
 
-  /** Our blow killed: a longer freeze, a heavier thud. */
+  /** Our blow killed: a longer freeze and heavier camera movement. */
   kill(now: number): void {
     this.stopUntil = Math.max(this.stopUntil, now + 140);
     this.fov.v += -30;
     this.roll.v += -this.dir * 1.6;
     this.shake = Math.max(this.shake, .09);
-    this.play('knockdown', .7, .85);
   }
 
   update(dtSec: number, now: number): MeleeFeelFrame {

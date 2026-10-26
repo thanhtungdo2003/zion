@@ -57,6 +57,7 @@ export class VehicleTimeline {
     }
     p.driver=latest.state.driver;p.health=latest.state.health;p.explodeAt=latest.state.explodeAt;p.exploded=latest.state.exploded;
     p.braking=latest.state.braking;p.impact=latest.state.impact;
+    p.throttle=latest.state.throttle;
     return p;
   }
 }

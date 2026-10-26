@@ -17,6 +17,22 @@ function player(id=1):Player{return {id,vehicleId:0,state:createCharacterState(4
 function system(w:CollisionWorld){return new Vehicles(w,{config:{mode:'survival'},roads:null} as unknown as WorldGenerator);}
 
 describe('authoritative vehicles',()=>{
+  it('replicates forward/reverse input in the air and clears it when controls expire',()=>{
+    const w=world(),s=system(w),v=vehicle(),a=player();
+    s.states.set(v.id,v);s.toggle(a,v.id,1000);
+    v.y=100;
+    const players=new Map([[a.id,a]]);
+    try{
+      for(const throttle of [1,-1]){
+        s.control(a,throttle,0,1100);
+        s.step(1100,1/30,players,vi.fn(),vi.fn());
+        expect(v.motion!.grounded).toBe(false);
+        expect(v.throttle).toBe(throttle);
+      }
+      s.step(1400,1/30,players,vi.fn(),vi.fn());
+      expect(v.throttle).toBe(0);
+    }finally{s.dispose();}
+  });
   it('damages the actual chassis only for strong bullets, and still takes blast damage',()=>{
     const s=system(world()),v=vehicle();s.states.set(v.id,v);
     s.hitAt(v.x,v.y+.4,v.z,12,1000,50001);expect(v.health).toBe(600);

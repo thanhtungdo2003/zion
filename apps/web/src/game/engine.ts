@@ -1716,12 +1716,11 @@ export class GameEngine {
         // Our own death: remember who did it (solo battle royale follows them).
         if (m.playerId === this.welcome?.playerId) this.killerId = m.killerId !== m.playerId ? m.killerId ?? null : null;
         if (m.killerId === this.welcome?.playerId && m.playerId !== m.killerId) {
-          // Kill confirmation: sound, banner and a streak that keeps counting for a few seconds.
+          // Kill confirmation: banner and a streak that keeps counting for a few seconds.
           const now = performance.now(), hud = this.hud.get();
           const name = isZombieId(m.playerId) ? 'Zombie' : this.names.get(m.playerId) ?? 'Đối thủ';
           this.hud.set({ killAt: now, killName: name, killStreak: now - hud.killAt < 6000 ? hud.killStreak + 1 : 1 });
           if (weaponSpec(this.equippedWeapon())?.kind === 'melee' && now - this.meleeFeel.lastSwing < 1200) this.meleeFeel.kill(now);
-          this.sounds?.play(isZombieId(m.playerId) ? 'knockdown' : 'killConfirm', { volume: .8 });
         }
         if (!isZombieId(m.playerId)) {
           // Players go limp and are thrown back by the killing hit.
@@ -1935,7 +1934,7 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
-    this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now());
+    this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now(),this.input.axes().mz);
     // Aboard a vehicle: the driver steers it; a passenger rides along and can shoot.
     const aboard = this.vehicles?.rider(this.welcome!.playerId);
     this.passenger = !!aboard && (this.vehicles?.seatIndex(this.welcome!.playerId) ?? 0) > 0;
@@ -2117,7 +2116,7 @@ export class GameEngine {
       this.localAvatar.attackIntent = (this.input.buttons() & (Buttons.Attack | Buttons.ThrowC4)) !== 0 && !local.state.swimming && !this.building?.planning;
     }
     this.feel = this.meleeFeel.update(dt, performance.now());
-    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state);
+    this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state, dt);
     { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
     this.localAvatar?.posePlan(!!this.building?.planning);
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the

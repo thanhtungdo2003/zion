@@ -381,7 +381,7 @@ describe('survivor model', () => {
   });
 
   it('carries the recorded clips and plays them while running, sprinting and jumping', () => {
-    expect([...assets.clips.keys()].sort()).toEqual(['climb_down', 'climb_up', 'crouch_backward', 'crouch_forward', 'crouch_left', 'crouch_right', 'crouch_to_prone', 'fast_run', 'hammer', 'hang_to_crouch', 'jump', 'long_melee_slash', 'long_melee_slash_2', 'melee_walk', 'pistol_draw', 'pistol_hip', 'pistol_hold', 'pistol_shoot', 'prone_forward', 'prone_rifle', 'prone_turn_left', 'prone_turn_right', 'punch_1', 'punch_2', 'punch_hook', 'rifle_aim_idle', 'rifle_idle', 'rifle_kneel_idle', 'rifle_reload', 'rifle_run', 'rifle_sprint_backward', 'rifle_sprint_forward', 'rifle_start_run', 'roll', 'roll_armed', 'run_left', 'run_right', 'stand', 'stand_to_crouch', 'sword_combo', 'sword_slash', 'sword_thrust_slash', 'turn_left', 'turn_right']);
+    expect([...assets.clips.keys()].sort()).toEqual(['climb_down', 'climb_up', 'crouch_backward', 'crouch_forward', 'crouch_left', 'crouch_right', 'crouch_to_prone', 'fast_run', 'hammer', 'hang_to_crouch', 'jog_forward', 'jump', 'long_melee_slash', 'long_melee_slash_2', 'melee_walk', 'pistol_draw', 'pistol_hip', 'pistol_hold', 'pistol_shoot', 'prone_forward', 'prone_rifle', 'prone_turn_left', 'prone_turn_right', 'punch_1', 'punch_2', 'punch_hook', 'rifle_aim_idle', 'rifle_idle', 'rifle_kneel_idle', 'rifle_reload', 'rifle_run', 'rifle_sprint_backward', 'rifle_sprint_forward', 'rifle_start_run', 'roll', 'roll_armed', 'run_left', 'run_right', 'stand', 'stand_to_crouch', 'sword_combo', 'sword_slash', 'sword_thrust_slash', 'turn_left', 'turn_right', 'walk_backward', 'walk_forward', 'walk_left', 'walk_right']);
     const avatar = new Avatar(template, true);
     const mocap = () => (avatar as unknown as { mocap: { clip: string; weight: number } | null }).mocap;
     const run = (z0: number, step: number, flags: number, n = 40) => { for (let i = 0; i < n; i++) { avatar.update(0, 0, z0 + i * step, 0, flags, 1 / 30, i / 30); avatar.root.updateMatrixWorld(); } };
@@ -426,6 +426,50 @@ describe('survivor model', () => {
     }
     expect((roller as unknown as { mocap: { clip: string } | null }).mocap?.clip).toBe('roll');
     expect(lowest).toBeLessThan(.6);
+  });
+
+  it.each([30, 60, 144])('keeps walking phase continuous and body/feet synchronized at %s FPS', (fps) => {
+    const avatar = new Avatar(template, true);
+    stand(avatar);
+    let z = 0, lastPhase = -Infinity;
+    for (let i = 0; i < fps * 2; i++) {
+      z -= 3.4 / fps;
+      avatar.update(0, 0, z, 0, EntityFlags.Grounded, 1 / fps, i / fps);
+      avatar.root.updateMatrixWorld(true);
+      const pose = (avatar as unknown as { mocap: MocapPose }).mocap;
+      expect(pose.clip).toBe('walk_forward');
+      const legs = pose.legs!.find((l) => l.clip === pose.clip)!;
+      expect(pose.time).toBe(legs.time);
+      expect(pose.time).toBeGreaterThan(lastPhase);
+      lastPhase = pose.time;
+      expect(Number.isFinite(bone(avatar, 'toe_L').y)).toBe(true);
+    }
+    const duration = assets.clips.get('walk_forward')!.duration;
+    const stride = assets.clips.get('walk_forward')!.stride;
+    // Startup filtering contributes at most 15 cm; no cadence clamp or frame-rate-dependent drift.
+    expect(lastPhase / duration * stride).toBeCloseTo(6.8, 0);
+    avatar.update(1000, 0, 1000, 0, EntityFlags.Grounded, 1 / fps, 3);
+    expect((avatar as unknown as { frame: { speed: number } }).frame.speed).toBe(0);
+  });
+
+  it('advances the same locomotion clocks while hidden and resumes the current phase on reveal', () => {
+    const shown = new Avatar(template, true), hidden = new Avatar(template, true);
+    stand(shown); stand(hidden);
+    hidden.root.visible = false;
+    for (let i = 1; i <= 120; i++) for (const avatar of [shown, hidden]) {
+      avatar.update(0, 0, -i * 3.4 / 60, 0, EntityFlags.Grounded, 1 / 60, i / 60);
+      avatar.root.updateMatrixWorld(true);
+    }
+    const pose = (a: Avatar) => (a as unknown as { mocap: MocapPose }).mocap;
+    expect(pose(hidden).time).toBe(pose(shown).time);
+    expect(pose(hidden).legs).toEqual(pose(shown).legs);
+    hidden.root.visible = true;
+    for (const avatar of [shown, hidden]) {
+      avatar.update(0, 0, -121 * 3.4 / 60, 0, EntityFlags.Grounded, 1 / 60, 121 / 60);
+      avatar.root.updateMatrixWorld(true);
+    }
+    expect(pose(hidden).time).toBe(pose(shown).time);
+    const scene = new Scene(); shown.dispose(scene); hidden.dispose(scene);
   });
 
   it('shows both first-person hands: one round a grip, one resting in view', () => {
@@ -548,9 +592,9 @@ describe('survivor model', () => {
         avatar.update(0, 0, z, 0, EntityFlags.Grounded | EntityFlags.Aiming, 1 / 60, i / 60);
         avatar.root.updateMatrixWorld(true);
       }
-      expect(state().clip).toBe(step < 0 ? 'rifle_run' : 'rifle_sprint_backward');
+      expect(state().clip).toBe(step < 0 ? 'walk_forward' : 'walk_backward');
       const uppers = (state() as unknown as { uppers: Array<{ clip: string; weight: number }> }).uppers;
-      expect(uppers.find((l) => l.clip === 'rifle_run')?.weight).toBeGreaterThan(.99);
+      expect(uppers.find((l) => l.clip === 'rifle_aim_idle')?.weight).toBeGreaterThan(.99);
     }
   });
 
@@ -593,8 +637,8 @@ describe('survivor model', () => {
       }
     };
     const A = EntityFlags.Aiming, C = EntityFlags.Crouching, P = EntityFlags.Prone;
-    move(-3, 0, A); expect(state().clip).toBe('run_left');
-    move(3, 0, A); expect(state().clip).toBe('run_right');
+    move(-3, 0, A); expect(state().clip).toBe('walk_left');
+    move(3, 0, A); expect(state().clip).toBe('walk_right');
     move(0, 0, C | A, 200); expect(state().clip).toBe('rifle_kneel_idle');
     expect(bone(avatar, 'spine_006').y).toBeGreaterThan(.7); expect(bone(avatar, 'spine_006').y).toBeLessThan(1.5);
     // Aiming keeps facing the camera, so the directional recordings play...
@@ -677,8 +721,8 @@ describe('survivor model', () => {
 
   it('steps immediately on departure, including slow steps and moving out of an unfinished stance change', () => {
     for (const [flags, vx, vz, leg] of [
-      [0, 0, -4, 'rifle_run'], [EntityFlags.Sprinting, 0, -4, 'rifle_sprint_forward'], [EntityFlags.Aiming, 0, -.1, 'rifle_run'],
-      [EntityFlags.Aiming, -3, 0, 'run_left'], [0, 0, 2, 'rifle_sprint_backward'],
+      [0, 0, -4, 'walk_forward'], [EntityFlags.Sprinting, 0, -4, 'walk_forward'], [EntityFlags.Aiming, 0, -.1, 'walk_forward'],
+      [EntityFlags.Aiming, -3, 0, 'walk_left'], [0, 0, 2, 'walk_backward'],
       [EntityFlags.Crouching, 0, -1, 'crouch_forward'], [EntityFlags.Prone, 0, -.5, 'prone_forward'],
     ] as const) {
       const avatar = new Avatar(template, true);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BoxGeometry, MeshLambertMaterial, Scene, type InstancedMesh } from 'three';
-import { Surface, quantizeHeight, quantizeLocal, quantizeScale, type ChunkData, type VegetationMessage } from '@zion/shared';
+import { Surface, heightIndex, quantizeHeight, quantizeLocal, quantizeScale, type ChunkData, type VegetationMessage } from '@zion/shared';
 import { ALL_COVER_ASSETS, COVER_ASSETS, VegetationRenderer } from './vegetation';
 import type { AssetVisual } from './asset-library';
 
@@ -56,6 +56,22 @@ describe('ground cover', () => {
     const withTree = await fixture(chunkOf(Surface.Grass, [tree]), (a) => (a === 2445 ? 2 : 0));
     expect(count(withTree.meshes, COVER_ASSETS.lush)).toBeGreaterThan(count(bare.meshes, COVER_ASSETS.lush));
     bare.renderer.dispose(); withTree.renderer.dispose();
+  });
+
+  it('seeds tall cover at damp terrain cliffs without props, keeping dry and frozen rock bare', async () => {
+    const cliff = chunkOf(Surface.Rock);
+    for (let j = -1; j <= 33; j++) for (let i = -1; i <= 33; i++) {
+      cliff.heights[heightIndex(33, i, j)] = quantizeHeight(i % 8 < 4 ? 0 : 3);
+    }
+    const damp = await fixture(cliff), repeat = await fixture(cliff);
+    expect(count(damp.meshes, [...COVER_ASSETS.lush, ...COVER_ASSETS.ferns])).toBeGreaterThan(0);
+    expect(damp.meshes.map((m) => [m.name, m.count, Array.from(m.instanceMatrix.array)]))
+      .toEqual(repeat.meshes.map((m) => [m.name, m.count, Array.from(m.instanceMatrix.array)]));
+    const dry = await fixture({ ...cliff, humidity: new Uint8Array(33 * 33).fill(20) });
+    const frozen = await fixture({ ...cliff, temperature: new Uint8Array(33 * 33).fill(10) });
+    expect(dry.renderer.instanceCount).toBe(0);
+    expect(frozen.renderer.instanceCount).toBe(0);
+    for (const f of [damp, repeat, dry, frozen]) f.renderer.dispose();
   });
 
   it('hides burnt plants and restores their exact transforms', async () => {

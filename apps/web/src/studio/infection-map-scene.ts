@@ -40,13 +40,19 @@ export async function buildInfectionMapScene(preview: InfectionMapPreview, draft
   ];
   const library = new AssetLibrary(registry);
   const failed: string[] = [];
-  const visuals = new Map(await Promise.all([...new Set(placed.map((p) => p.asset))].map(async (a) => [a, await library.load(a)?.catch((err: unknown) => { failed.push(`${registry.byNumericId(a)?.name ?? a}: ${(err as Error).message}`); return undefined; })] as const)));
+  const visuals = new Map(await Promise.all([...new Set(placed.map((p) => p.asset))].map(async (a) => {
+    const visual = await library.load(a)?.catch((err: unknown) => { failed.push(`${registry.byNumericId(a)?.name ?? a}: ${(err as Error).message}`); return undefined; });
+    if (!visual && !registry.byNumericId(a)) failed.push(`Model #${a} chưa được tải vào Studio.`);
+    return [a, visual] as const;
+  })));
+  failed.push(...library.errors);
   // Models that could not be drawn (shown by the Studio).
   root.userData.failed = failed;
   for (const p of placed) {
     const v = visuals.get(p.asset);
     if (!v) continue;
     const g = new Group();
+    g.userData.asset = p.asset;
     for (const part of v.parts) g.add(new Mesh(part.geometry, part.material));
     g.position.set(p.x, p.y, p.z);
     g.rotation.y = p.yaw;

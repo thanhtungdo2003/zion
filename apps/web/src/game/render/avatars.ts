@@ -19,6 +19,7 @@ import { BackpackInstance } from './backpack-model';
 import { HumanBody, STAND_CLIP, armorAnchors, SURVIVOR_SIZE, type RifleFit, type HumanAssets, type Mocap, type MocapPose, type MocapLayer, type DriverRig, type Grasp, type HandPreset, type Side } from './human-rig';
 import { PostureMotion, type Posture } from './posture-motion';
 import { ReloadMagazine } from './reload-magazine';
+import { locomotionClip, locomotionGait, type Gait } from './locomotion';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -99,11 +100,6 @@ const SWORD_GRIP_TILT = .7;
 /** Standing turn: starts once the view is this far off the body, ends this close (rad). */
 const TURN_START = 30 * DEG;
 const TURN_STOP = 8 * DEG;
-/** Locomotion plays between these multiples of its recorded cadence. */
-const CADENCE_MIN = .7;
-const CADENCE_MAX = 1.15;
-/** Above this speed (m/s) empty hands jog (the run recording) instead of walking. */
-const UNARMED_RUN = 2.2;
 const PUNCH_CLIPS = ['punch_1', 'punch_2', 'punch_hook'] as const;
 const SLASH_CLIPS = ['sword_slash_vertical', 'sword_slash_horizontal', 'sword_slash_diagonal'] as const;
 /** Slung weapons are drawn a bit larger than real size, like held ones (stylised character). */
@@ -171,9 +167,7 @@ function easeWeight(w: number): number {
  * times over reads as frantic pumping; feet may slide a little instead).
  */
 function cadence(clip: Mocap, speed: number): number {
-  const loops = speed / Math.max(.3, clip.stride), natural = 1 / clip.duration;
-  if (clip.name === 'prone_forward') return loops * clip.duration;
-  return Math.min(CADENCE_MAX * natural, Math.max(speed > .05 ? CADENCE_MIN * natural : 0, loops)) * clip.duration;
+  return speed / Math.max(.3, clip.stride) * clip.duration;
 }
 
 /**
@@ -301,7 +295,10 @@ export class Avatar {
   private fade = 1;
   private label: Sprite | null = null;
   private labelText = '';
-  private lastX = 0;
+  private lastX = Number.NaN;
+  private gait: Gait = 'idle';
+  private motionSpeed = 0;
+  private stepPhase = 0;
   private lastY = 0;
   private lastZ = 0;
   private rollYaw = 0;
@@ -459,8 +456,12 @@ export class Avatar {
       const update = this.root.updateMatrixWorld.bind(this.root);
       this.root.updateMatrixWorld = (force?: boolean) => {
         update(force);
-        if (this.poseDirty && this.root.visible && !this.humanRagdoll) {
-          this.poseDirty = false; this.finishPose();
+        if (this.poseDirty && !this.humanRagdoll) {
+          this.poseDirty = false;
+          // Hidden actors still advance their inexpensive clip clocks. Returning to third
+          // person or revealing a remote player must not resume a stale foot/upper-body pose.
+          if (!this.root.visible) { this.stepRecordedMotion(); return; }
+          this.finishPose();
           // The pack swings from the posed shoulders (and its strap ends from the pack).
           const hook = this.carryHooks.get('back_center');
           if (this.backpack && hook) this.backpack.update(hook, this.frame.dt);
@@ -930,7 +931,7 @@ export class Avatar {
     this.ragdoll = Ragdoll.start(this.model, (n) => this.bones.get(n)?.node, PX, ground, kx, kz, force);
   }
 
-  update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number, rollState?: { rollTicks: number; rollYaw: number }): void {
+  update(x: number, y: number, z: number, yaw: number, flags: number, dt: number, _elapsed: number, rollState?: { rollTicks: number; rollYaw: number }, motionDt = dt): void {
     const prone = (flags & EntityFlags.Prone) !== 0;
     this.proneShotFor = Math.max(0, this.proneShotFor - dt);
     this.poseDirty = true;
@@ -974,11 +975,16 @@ export class Avatar {
       if (this.humanRagdoll) { for (const b of this.humanRagdoll.bones) b.matrixAutoUpdate = true; this.humanRagdoll = null; }
     }
     this.root.position.set(x, y, z);
-    const inv = 1 / Math.max(dt, 1e-3);
-    const dx = x - this.lastX;
-    const dz = z - this.lastZ;
-    const speed = Math.hypot(dx, dz) * inv;
-    const vy = (y - this.lastY) * inv;
+    const inv = 1 / Math.max(motionDt, 1e-3);
+    const reset = !Number.isFinite(this.lastX) || Math.hypot(x - this.lastX, z - this.lastZ) > Math.max(4, motionDt * 20);
+    const dx = reset ? 0 : x - this.lastX;
+    const dz = reset ? 0 : z - this.lastZ;
+    const measured = Math.hypot(dx, dz) * inv;
+    if (reset) { this.motionSpeed = 0; this.bodyYaw = yaw; }
+    // Filter the motion signal, not the rendered position or the gait's accumulated phase.
+    this.motionSpeed += (measured - this.motionSpeed) * (1 - Math.exp(-Math.max(0, motionDt) * 24));
+    const speed = this.motionSpeed;
+    const vy = reset ? 0 : (y - this.lastY) * inv;
     this.frame.speed = speed; this.frame.vy = vy; this.frame.dx = dx; this.frame.dz = dz;
     const wasRolling = this.cur.clip?.name === 'roll';
     // Local simulation owns the end of the action; never keep tumbling after steering resumes.
@@ -1208,7 +1214,7 @@ export class Avatar {
       tuck = smooth(.03, .18, p) * (1 - smooth(.6, .85, p));
     } else if (airborne && this.cur.clip?.name === 'jump') tuck = .12 + .3 * (1 - smooth(.5, 4, Math.abs(vy)));
     const scaleClips = !!this.template.human?.clips.has('climb_up');
-    const recorded = this.pickMocap(held, recordedRoll ? Math.min(1, this.cur.time / this.cur.clip!.length) : null, limp || swimming || (rolling && !recordedRoll) || ((climbing || !!this.mantleGrip) && !scaleClips) || this.planning || this.drivingActive || this.flightActive, airborne, fwd);
+    const recorded = this.stepRecordedMotion();
     const scaling = scaleClips && (climbing || !!this.mantleGrip) && !!recorded;
     // A recorded jump already tucks and absorbs the landing.
     if (recorded?.clip === 'jump') tuck = 0;
@@ -1682,6 +1688,20 @@ export class Avatar {
    * feet keep pace with the speed); the jump follows the vertical speed (take-off, top, landing).
    * Fades in and out, and from one clip to the next.
    */
+  private stepRecordedMotion(): AvatarMocap | null {
+    const flags = this.frame.flags;
+    const swimming = (flags & EntityFlags.Swimming) !== 0, climbing = (flags & EntityFlags.Climbing) !== 0;
+    const limp = !!this.ragdoll || (flags & (EntityFlags.Dead | EntityFlags.Downed | EntityFlags.Knocked)) !== 0;
+    const rolling = this.cur.clip?.name === 'roll', recordedRoll = rolling && !!this.template.human?.clips.has('roll');
+    const scaleClips = !!this.template.human?.clips.has('climb_up');
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
+    const fwd = new Vector3(0, 0, -1).applyQuaternion(this.root.getWorldQuaternion(new Quaternion()));
+    fwd.y = 0; fwd.normalize();
+    return this.pickMocap(held, recordedRoll ? Math.min(1, this.cur.time / this.cur.clip!.length) : null,
+      limp || swimming || (rolling && !recordedRoll) || ((climbing || !!this.mantleGrip) && !scaleClips) || this.planning || this.drivingActive || this.flightActive,
+      !(flags & EntityFlags.Grounded) && !swimming && !climbing, fwd);
+  }
+
   private pickMocap(held: { visual: WeaponVisual } | undefined, roll: number | null, busy: boolean, airborne: boolean, fwd: Vector3): AvatarMocap | null {
     const clips = this.template.human?.clips;
     if (!clips) return null;
@@ -1707,9 +1727,11 @@ export class Avatar {
     const ahead = (dx * fwd.x + dz * fwd.z) / Math.max(1e-6, distance);
     const sideways = (-dx * fwd.z + dz * fwd.x) / Math.max(1e-6, distance);
     const strafe = Math.abs(sideways) > Math.abs(ahead) + .1;
-    const direction = strafe ? sideways > 0 ? 'right' : 'left' : ahead < 0 ? 'backward' : 'forward';
+    const direction = this.facingTravel ? 'forward' : strafe ? sideways > 0 ? 'right' : 'left' : ahead < 0 ? 'backward' : 'forward';
+    this.gait = locomotionGait(speed, (flags & EntityFlags.Sprinting) !== 0, this.gait);
+    const standingMove = locomotionClip(this.gait, direction, gun);
     const legId = !moving || roll !== null ? null : posture === 2 ? 'prone_forward' : posture === 1 ? `crouch_${direction}`
-      : strafe ? `run_${direction}` : direction === 'backward' ? 'rifle_sprint_backward' : gun ? ready ? 'rifle_run' : 'rifle_sprint_forward' : speed > UNARMED_RUN ? 'fast_run' : 'melee_walk';
+      : standingMove;
     // Crawl is one coordinated hand/hip/knee cycle; a separate leg clock breaks that contact.
     // Turning on the spot: the feet step round with the recorded turns (about a quarter turn each).
     this.stepTurnRate += (this.bodyTurnRate - this.stepTurnRate) * (1 - Math.exp(-dt * 8));
@@ -1736,10 +1758,7 @@ export class Avatar {
       else if (posture === 2) want = moving ? 'prone_forward' : Math.abs(this.bodyTurnRate) > .18 ? this.bodyTurnRate > 0 ? 'prone_turn_left' : 'prone_turn_right' : 'prone_rifle';
       else if (posture === 1) want = moving ? `crouch_${direction}` : 'rifle_kneel_idle';
       else if (moving) {
-        if (strafe) want = `run_${direction}`;
-        else if (gun) want = direction === 'backward' ? 'rifle_sprint_backward' : ready ? 'rifle_run' : this.startRunTime !== null ? 'rifle_start_run' : 'rifle_sprint_forward';
-        else if (speed > UNARMED_RUN) want = 'fast_run';
-        else want = 'melee_walk';
+        want = standingMove;
       } else if (gun) want = ready ? 'rifle_aim_idle' : this.mocapIdle ?? 'rifle_idle';
       // A grenade, tool or detonator: the relaxed recorded stance; the hand carries the item.
       else if (held && !melee) want = this.mocapIdle ?? 'rifle_idle';
@@ -1752,12 +1771,14 @@ export class Avatar {
     const cur = this.mocap;
     // Ease the carried rifle back from a run without snapping the firing wrist on arrival.
     // Departures answer quickly (the torso must not lag behind the first step); settling is softer.
-    const blendRate = isRoll(want) || want === 'jump' || isRoll(cur?.clip) || want === this.recAction?.clip ? 16 : moving ? 14 : !moving && gun && !transition && posture === 0 ? 6 : 10;
+    const blendRate = isRoll(want) || want === 'jump' || isRoll(cur?.clip) || want === this.recAction?.clip ? 16 : moving ? 14 : !moving && gun && !transition && posture === 0 ? 4.5 : 10;
     const k = 1 - Math.exp(-Math.max(dt, 0) * blendRate);
     // Each outgoing layer retains its own playback direction. Interrupted blends never collapse
     // to a single source clip; that would pop the arms/hips on quick direction or stance changes.
     for (const layer of this.mocapLayers) {
-      layer.time += dt * (layer.rate ?? 1);
+      const stepping = legs.find((l) => l.clip === layer.clip);
+      if (stepping) layer.time = stepping.time;
+      else layer.time += dt * (layer.rate ?? 1);
       layer.weight *= 1 - k;
     }
     if (!want || !clip) {
@@ -1802,6 +1823,9 @@ export class Avatar {
     }
     // Undo the generic time step and apply the current locomotion rate, including reverse crawl.
     if (!acting && want !== NEUTRAL_IDLE && !climbingNow && !mantlingNow && !transition && want !== 'jump' && !isRoll(want) && want !== 'rifle_start_run' && !(want === 'prone_rifle' && rate === 0)) time += dt * (rate - advancedRate);
+    // Torso and feet sample the same phase, including during walk/run/direction crossfades.
+    const step = moving && want === legId ? legs.find((l) => l.clip === want) : undefined;
+    if (step) { time = step.time; rate = step.rate ?? rate; }
     layer.time = time; layer.rate = rate;
     this.mocapLayers = this.mocapLayers.filter((l) => l === layer || l.weight > .0005);
     const weight = this.mocapLayers.reduce((s, l) => s + l.weight, 0);
@@ -1812,7 +1836,7 @@ export class Avatar {
     const sighted = (flags & EntityFlags.Aiming) !== 0;
     const upperId = pistol
       ? this.pistolDraw >= 0 && this.pistolDraw < PISTOL_DRAWN ? 'pistol_draw' : sighted ? 'pistol_shoot' : this.sinceShot < .6 ? 'pistol_hip' : 'pistol_hold'
-      : ready ? moving && !airborne ? 'rifle_run' : 'rifle_aim_idle' : 'rifle_idle';
+      : ready ? moving && !airborne && this.gait !== 'walk' ? 'rifle_run' : 'rifle_aim_idle' : 'rifle_idle';
     // The upper-body overlay crossfades like the base (a hard switch, e.g. on stopping,
     // pops the arms and gun in one frame).
     const activeUpper = standingAim && clips.has(upperId) ? upperId : null;
@@ -1870,18 +1894,26 @@ export class Avatar {
    * playing Start Run. Idle breathing phase must never choose a random phase for the first step. */
   private stepLegs(id: string | null, dt: number, speed: number, reverse: boolean, turnRate?: number): MocapLayer[] {
     const clips = this.template.human!.clips;
-    const decay = Math.exp(-Math.max(0, dt) * 36);
     const previous = this.legLayers.reduce<MocapLayer | null>((best, l) => !best || l.weight > best.weight ? l : best, null);
+    // Departures answer on the first frame; changing an established gait gives the outgoing
+    // foot time to release instead of pulling it across the body in one or two frames.
+    const changingGait = this.legLayers.some((l) => l.clip !== id && l.weight > .0005);
+    const decay = Math.exp(-Math.max(0, dt) * (changingGait ? 18 : 36));
     let active = this.legLayers.find((l) => l.clip === id);
     if (id && !active && clips.has(id)) {
       const phase = previous && clips.has(previous.clip) ? previous.time / clips.get(previous.clip)!.duration % 1 : 0;
       active = { clip: id, time: phase * clips.get(id)!.duration, weight: 0 };
       this.legLayers.push(active);
     }
+    const reference = active ?? previous;
+    if (reference && turnRate === undefined) {
+      this.stepPhase += speed * dt / Math.max(.3, clips.get(reference.clip)!.stride) * (reverse ? -1 : 1);
+    }
     for (const layer of this.legLayers) {
       const clip = clips.get(layer.clip)!;
       const rate = layer === active && turnRate !== undefined ? turnRate : cadence(clip, speed) * (reverse ? -1 : 1);
-      layer.time += dt * rate;
+      if (turnRate === undefined) layer.time = this.stepPhase * clip.duration;
+      else layer.time += dt * rate;
       // One-shot turns repeat while the turn goes on.
       if (!clip.loop) layer.time %= clip.duration;
       layer.rate = rate;

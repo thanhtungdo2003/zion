@@ -193,7 +193,9 @@ export class Vehicles {
     // One Jolt step for every vehicle together, so they also collide with each other.
     const impacts = this.physics.step(this.states.values(), (v) => {
       const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) : undefined;
-      return p && input && now - input.at < 250 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
+      const control = p && input && now - input.at < 250 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
+      v.throttle = control?.throttle ?? 0;
+      return control;
     }, dt, now);
     for (const [id, speed] of impacts) {
       const v = this.states.get(id)!;
@@ -203,11 +205,13 @@ export class Vehicles {
   }
   private stepLegacy(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
     for (const v of this.states.values()) {
+      v.throttle = 0;
       if (v.exploded) continue;
       const p = v.driver ? players.get(v.driver) : undefined;
       if (!v.driver && Math.abs(v.speed) < .01 && Math.abs(v.motion?.lateral ?? 0) < .01 && v.motion?.grounded && Math.abs(v.motion.vy) < .03) continue;
       this.world.removeOwnerColliders(vehicleOwner(v.id));
       const input = this.controls.get(v.id), fresh = p && input && now - input.at < 250;
+      v.throttle = fresh && v.health > 0 ? input.throttle : 0;
       const speed = stepVehicle(v, fresh ? input.throttle : 0, fresh ? input.steer : 0, this.world, dt, now, (id) => {
         const other = this.states.get(id);
         return other && !other.exploded ? other : undefined;

@@ -1,75 +1,25 @@
-# Yêu cầu nâng cấp Weapon & Hand Animation Studio
+## Nâng cấp địa hình và bầu trời bản đồ game
 
-## 1. Hand Pose Studio — Quản lý tư thế bàn tay
+Nâng cấp hệ thống render map từ seed hiện tại, tập trung vào **địa hình chân thực, chiều sâu không gian và tối ưu hiệu năng**, đồng thời giữ nguyên cấu trúc tổng thể và cơ chế sinh map hiện có.
 
-Tạo một tab riêng để quản lý và chỉnh sửa các tư thế bàn tay trong game.
+- **Địa hình đá và đất:** Cải thiện cấu trúc địa hình theo từng biome. Ở núi đá, vách dốc và khu vực cao, tạo các cụm đá tảng lồi lõm, hình khối bất quy tắc, cạnh sắc và bề mặt nứt vỡ như đá tự nhiên. Sử dụng texture pack chân thực, tránh địa hình quá trơn, tròn hoặc đơn giản.
+- **Chi tiết theo biome:** Với biome xanh tốt, bổ sung rêu trên đá, cỏ mọc quanh chân đá, cỏ dại và các bụi cỏ dài hơn bình thường. Đảm bảo chi tiết hòa hợp với môi trường và được phân bố tự nhiên theo seed.
+- **Chiều sâu và ánh sáng:** Các khe, rãnh, vết nứt và bề mặt gồ ghề phải có độ sâu hình học, bóng đổ và hiệu ứng ánh sáng phù hợp, tạo cảm giác địa hình thực sự có khối thay vì chỉ là texture phẳng.
+- **Hệ thống bầu trời hai lớp:** Tách riêng lớp màu nền bầu trời và lớp mây. Lớp mây có thể sử dụng PNG trong suốt, billboard hoặc giải pháp procedural phù hợp với công nghệ hiện tại, ưu tiên chuyển động tự nhiên và chi phí render thấp. Ban đêm cũng áp dụng kiến trúc tương tự nhưng giữ nguyên ảnh nền bầu trời đêm hiện có.
 
-- Hiển thị danh sách các tư thế tay đã có; cho phép tạo mới, nhân bản (Duplicate), chỉnh sửa và lưu thành tư thế riêng.
-- Ở giữa màn hình là viewport 3D hiển thị model bàn tay cùng bộ xương (Skeleton/Rig) bên trong.
-- Cho phép chọn, kéo và xoay từng khớp hoặc đốt xương. Giữ cố định chiều dài xương để tránh làm biến dạng bàn tay; áp dụng giới hạn góc xoay hợp lý cho các khớp.
-- Hỗ trợ hiển thị model súng và các loại vũ khí để tạo tư thế tay cầm, đỡ, nắm hoặc tương tác với từng bộ phận của vũ khí.
-- Mặc định hiển thị theo góc nhìn thứ nhất (FPS). Admin có thể xoay camera editor tự do để quan sát và chỉnh sửa từ nhiều hướng mà không làm thay đổi góc nhìn FPS.
-- Hiển thị camera frustum dưới dạng hình hộp nón cụt, có mặt phẳng hình chữ nhật đại diện cho màn hình người chơi, giúp kiểm tra vị trí và bố cục tay, súng trong tầm nhìn.
-- Hỗ trợ tạo nhiều tư thế phức tạp như cầm súng, nắm tay cầm, giữ vật thể, đặt ngón tay lên cò hoặc thao tác với các bộ phận của vũ khí; không giới hạn ở các tư thế cơ bản như xòe tay và nắm chặt.
-- Các tư thế được lưu phải có thể tái sử dụng trực tiếp trong Animation Studio và hiển thị nhất quán trong game.
+**Yêu cầu quan trọng:** Tham khảo các ảnh mẫu để định hướng chất liệu và hình thái địa hình. Ưu tiên giải pháp phù hợp với kiến trúc render hiện tại, đảm bảo tính ngẫu nhiên theo seed, sự nhất quán giữa các biome và hiệu năng ổn định. Không chỉ thay texture bề mặt; cần cải thiện cả hình học, ánh sáng và cảm giác chiều sâu của địa hình.
 
-## 2. Weapon & Hand Animation Studio — Quản lý animation thao tác tay và vũ khí
+**Đá phải là một phần cấu trúc hình học của địa hình (terrain geometry), không phải các model đá rời được đặt lên bề mặt.** Hãy biến đổi trực tiếp mesh địa hình tại các khu vực núi đá, vách dốc và sườn núi để tạo thành các khối đá lớn nhô lên, các lớp đá phân tầng, cạnh sắc, vết nứt và bề mặt lồi lõm tự nhiên. Các cấu trúc này phải liên kết liền mạch với địa hình xung quanh, có độ cao, hình khối và bóng đổ thực tế, đồng thời được sinh procedural theo seed. Texture chỉ đóng vai trò bổ trợ vật liệu, không thay thế hình học thực. Tuyệt đối tránh cách tạo địa hình phẳng rồi rải các model đá lên trên. Ưu tiên giải pháp tối ưu mesh và LOD để duy trì hiệu năng.
 
-Tạo một tab riêng với viewport 3D tương tự Hand Pose Studio, dùng để tạo và chỉnh sửa các animation tương tác giữa bàn tay, cánh tay và các bộ phận của vũ khí.
 
-### Giao diện và timeline
+### Nâng cấp hệ thống animation nhân vật chuẩn AAA
 
-- Có thanh điều khiển animation gồm Play, Pause, Stop, tua tới/lui và điều chỉnh tốc độ phát.
-- Phía dưới viewport là timeline chứa nhiều track và keyframe.
-- Mỗi keyframe có thể lưu vị trí, góc xoay, tỷ lệ kích thước (Scale) của súng, các bộ phận vũ khí và tay; đồng thời lưu tư thế tay được chọn từ Hand Pose Studio.
-- Cho phép thêm, xóa, di chuyển và chỉnh sửa keyframe để tạo các chuyển động phức tạp.
-- Hỗ trợ nội suy mượt mà giữa các keyframe. Ví dụ: nếu tay chuyển từ tư thế nắm chặt sang xòe tay, các ngón tay phải mở dần theo thời gian, không chuyển trạng thái đột ngột.
-- Cho phép điều chỉnh thời lượng, tốc độ và đường cong chuyển động để kiểm soát cảm giác nhanh, chậm, tăng tốc hoặc giảm tốc.
+Hiện tại, nhân vật đang sử dụng sai animation: **đi bộ nhưng lại phát animation chạy**, đồng thời các chuyển động thường xuyên bị khựng, giật và thiếu tự nhiên. Cần kiểm tra và nâng cấp toàn bộ hệ thống animation, không chỉ sửa từng lỗi riêng lẻ.
 
-### Animation tương tác với từng bộ phận vũ khí
+- **Đúng trạng thái, đúng animation:** Phân biệt rõ idle, walk, jog, sprint và các trạng thái di chuyển khác. Tốc độ di chuyển thực tế phải khớp với animation; tuyệt đối không dùng animation chạy cho trạng thái đi bộ.
+- **Chuyển động liên tục:** Loại bỏ hiện tượng giật khung hình, khựng giữa các bước chân, animation bị reset hoặc chuyển động không đều. Kiểm tra animation update loop, delta time, tick rate, nội suy và đồng bộ giữa logic di chuyển với render.
+- **Blend animation mượt mà:** Sử dụng blend tree hoặc cơ chế tương đương để chuyển tiếp tự nhiên giữa đứng yên, đi bộ, chạy, đổi hướng, tăng tốc và giảm tốc. Tránh chuyển trạng thái đột ngột hoặc trộn animation sai cách.
+- **Đồng bộ chuyển động:** Đảm bảo hướng nhìn, hướng di chuyển, tốc độ nhân vật và chuyển động chân tay nhất quán; hạn chế trượt chân (foot sliding), giật vị trí và sai lệch giữa animation với vị trí thực tế.
+- **Kiểm tra toàn diện:** Rà soát state machine, điều kiện chuyển trạng thái, nguồn animation, thời gian phát, nội suy và đồng bộ client-server nếu có. Xác định nguyên nhân gốc trước khi sửa, không dùng các giải pháp tạm thời để che giấu lỗi.
 
-- Cho phép chọn một bộ phận cụ thể của súng, chẳng hạn núm kéo khóa nòng, băng đạn hoặc các bộ phận có thể tương tác khác.
-- Gán animation chuyển động có sẵn cho bộ phận đó, đồng thời chọn tư thế tay tương ứng từ Hand Pose Studio.
-- Khi animation phát, cả bàn tay và bộ phận vũ khí phải chuyển động đồng bộ. Ví dụ: tay chuyển sang tư thế nắm núm kéo khóa nòng, kéo bộ phận đó về sau rồi thả ra; các chuyển động phải khớp với nhau qua từng keyframe.
-- Cho phép kết hợp nhiều track để tay, cánh tay, súng và các bộ phận của súng có thể chuyển động đồng thời.
-- Hỗ trợ xem trước toàn bộ animation trong viewport FPS và lưu để sử dụng trực tiếp trong game.
-
-### Tương thích với hệ thống hiện có
-
-- Súng đã có sẵn các animation chuyển động và hệ thống âm thanh tương ứng. Hãy tận dụng lại những tài nguyên này, tránh tạo trùng lặp hoặc phá vỡ hệ thống hiện tại.
-- Animation Studio tập trung vào việc điều phối chuyển động của tay, lựa chọn tư thế tay và đồng bộ với animation của súng hoặc từng bộ phận.
-- Các sự kiện âm thanh hiện có phải tiếp tục hoạt động đúng thời điểm khi animation được phát trong game.
-
-## 3. Vật lý vỏ đạn và băng đạn
-
-### Vỏ đạn
-
-- Tạo model vỏ đạn dạng hình trụ nhỏ, màu vàng đồng.
-- Khi súng bắn, vỏ đạn được tạo tại đúng vị trí khe nhả vỏ trên model súng, sau đó bật ra với vận tốc ban đầu và chịu tác động của trọng lực, va chạm với môi trường.
-- Giới hạn số lượng vỏ đạn tồn tại đồng thời cho mỗi người chơi để tránh giảm hiệu năng. Khi vượt giới hạn, ưu tiên loại bỏ vỏ đạn cũ nhất trước khi tạo vỏ mới.
-- Sử dụng object pooling hoặc cơ chế tương đương để giảm chi phí tạo và hủy vật thể liên tục.
-
-### Băng đạn
-
-- Băng đạn là model riêng, có vị trí gắn chính xác trên súng.
-- Khi thay đạn, băng cũ được tháo khỏi súng và thả xuống đất, chịu tác động của trọng lực và va chạm.
-- Nhân vật lấy băng mới từ túi trang bị và đưa vào súng theo animation hiện có.
-- Đồng bộ thời điểm tháo, thả và lắp băng với animation; cập nhật trạng thái đạn theo gameplay logic.
-- Giới hạn số lượng băng đạn rơi tồn tại đồng thời và thu hồi các vật thể cũ để tránh ảnh hưởng hiệu năng.
-
-## 4. Bổ sung tay áo cho model FPS
-
-Kiểm tra và chỉnh sửa model cánh tay trong góc nhìn thứ nhất hiện đang thiếu tay áo.
-
-- Bổ sung model tay áo phù hợp với trang phục nhân vật và bộ giáp hiện tại.
-- Đảm bảo tay áo được rig và chuyển động đồng bộ với cánh tay, không xuyên mesh hoặc biến dạng bất thường khi thao tác vũ khí.
-- Kiểm tra trong các trạng thái cầm súng, ngắm bắn, thay đạn, chạy và tương tác với vũ khí.
-
-## 5. Yêu cầu kỹ thuật chung
-
-- Tách biệt dữ liệu tư thế tay, animation, model vũ khí và vật thể vật lý; cho phép tái sử dụng giữa nhiều loại súng.
-- Ưu tiên tương thích với hệ thống hiện có, không viết lại những chức năng đã hoạt động tốt.
-- Tối ưu viewport editor và runtime game; giới hạn vật thể vật lý, tái sử dụng tài nguyên và tránh tạo quá nhiều đối tượng liên tục.
-- Đảm bảo dữ liệu lưu từ Studio có thể được nạp lại chính xác và sử dụng trong game.
-- Thực hiện theo từng giai đoạn: Hand Pose Studio → Animation Studio → Vật lý vỏ đạn/băng đạn → Hoàn thiện model tay áo và tối ưu hiệu năng.
-- Kiểm thử cả trong Studio và runtime để đảm bảo animation mượt, các bộ phận chuyển động đồng bộ, âm thanh hiện có không bị lỗi và hiệu năng không suy giảm đáng kể.
+**Mục tiêu:** Đạt chất lượng chuyển động tiệm cận game FPS AAA: mượt, liền mạch, phản hồi nhanh, đúng ngữ cảnh và ổn định ở nhiều mức FPS. Ưu tiên sửa tận gốc kiến trúc animation hiện tại, tái sử dụng hệ thống sẵn có khi phù hợp và kiểm thử thực tế sau mỗi thay đổi. Không chấp nhận việc nhân vật vẫn giật, khựng hoặc phát sai animation sau khi hoàn thành.

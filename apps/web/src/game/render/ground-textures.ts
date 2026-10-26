@@ -64,11 +64,14 @@ export function slopeToRock(surface: Surface, upness: number, w: Float32Array): 
 
 const VERTEX_DECL = `
 attribute vec4 groundA; attribute vec4 groundB; attribute vec4 groundC;
+attribute vec4 terrainDetail;
+varying vec4 vTerrainDetail;
 varying vec4 vGroundA; varying vec4 vGroundB; varying vec4 vGroundC; varying vec3 vGroundNormal;`;
 const FRAGMENT_DECL = `
 uniform highp sampler2DArray groundAlbedo; uniform highp sampler2DArray groundNormal; uniform highp sampler2DArray groundHeight;
 uniform float groundOn; uniform float groundStrength; uniform float groundFar; uniform float groundTile[${GROUND_LAYER_COUNT}];
 varying vec4 vGroundA; varying vec4 vGroundB; varying vec4 vGroundC; varying vec3 vGroundNormal;
+varying vec4 vTerrainDetail;
 vec2 groundTwist(vec2 uv) { return mat2(0.8253, -0.5646, 0.5646, 0.8253) * uv * 0.53 + vec2(0.37, 0.71); }`;
 
 const COLOR = `
@@ -87,6 +90,10 @@ const COLOR = `
       }
       w1 = max(w1, 0.0);
       vec3 gp = vNaturalPosition; vec3 gn = normalize(vGroundNormal);
+      // Bedrock facets follow the actual triangles; soil keeps its seamless smooth normals.
+      vec3 face = normalize(cross(dFdx(gp), dFdy(gp)));
+      if (dot(face, gn) < 0.0) face = -face;
+      gn = normalize(mix(gn, face, gw[6] * smoothstep(0.12, 0.6, vTerrainDetail.w) * 0.8));
       // Steep ground: project from the side instead of stretching the top view down the slope.
       float side = 1.0 - smoothstep(0.55, 0.8, gn.y);
       vec2 sideP = abs(gn.x) > abs(gn.z) ? gp.zy : gp.xy;
@@ -112,8 +119,17 @@ const COLOR = `
       float cavity = h0 * b0 + h1 * b1;
       float rocky = max(side, gw[6]);
       diffuseColor.rgb *= mix(1.0, 0.5 + 0.5 * smoothstep(0.08, 0.62, cavity), groundFade * (0.35 + 0.55 * rocky));
-      vec2 t = (nrm.rg * 2.0 - 1.0) * groundFade * (1.0 - side);
-      groundBump = vec3(t.x, 0.0, -t.y);
+      // Orient photographed normals into the chosen projection, including vertical cliff faces.
+      vec3 axis = side > 0.5 && abs(gn.x) > abs(gn.z) ? vec3(0, 0, 1) : vec3(1, 0, 0);
+      vec3 tangent = normalize(axis - gn * dot(axis, gn));
+      vec3 bitangent = normalize(cross(gn, tangent));
+      vec2 t = (nrm.rg * 2.0 - 1.0) * groundFade * 0.75;
+      groundBump = normalize(gn * sqrt(max(0.01, 1.0 - dot(t, t))) + tangent * t.x + bitangent * t.y);
+      // Climate belongs to each terrain vertex, so wet and dry biomes can share one draw call.
+      float damp = smoothstep(0.48, 0.85, vTerrainDetail.x) * smoothstep(0.18, 0.35, vTerrainDetail.y);
+      float shelter = smoothstep(0.15, 0.75, gn.y) * (0.65 + vTerrainDetail.z * 0.35);
+      float moss = gw[6] * damp * shelter * smoothstep(0.4, 0.7, naturalNoise(gp * 0.6) + cavity * 0.15);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.2, 0.055) * (0.8 + cavity * 0.4), moss * groundFade * 0.65);
     }
   }`;
 
@@ -124,7 +140,7 @@ const MATTE = `
   material.roughness = 1.0;`;
 const NORMAL = `
   if (groundOn > 0.5 && groundFade > 0.0) {
-    vec3 gnw = normalize(normalize(vGroundNormal) + groundBump * 0.9);
+    vec3 gnw = groundBump;
     normal = normalize((viewMatrix * vec4(gnw, 0.0)).xyz);
   }`;
 
@@ -185,6 +201,7 @@ export class GroundTextures {
         .replace('#include <common>', `#include <common>${VERTEX_DECL}`)
         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
           vGroundA = groundA; vGroundB = groundB; vGroundC = groundC;
+          vTerrainDetail = terrainDetail;
           vGroundNormal = normalize(mat3(modelMatrix) * objectNormal);`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>${FRAGMENT_DECL}`)
@@ -192,7 +209,7 @@ export class GroundTextures {
         .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>${MATTE}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${NORMAL}`);
     };
-    material.customProgramCacheKey = () => `${key()}|ground-layers-2`;
+    material.customProgramCacheKey = () => `${key()}|ground-layers-3`;
   }
 
   /** Loads the layers for a quality level (the plain ground shows until they arrive). */

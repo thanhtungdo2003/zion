@@ -24,6 +24,7 @@ import { STRUCTURE_BLEND, insideStructure, structureChunkProps, structuresNear }
 import { RoadNetwork } from './roads';
 import { authoredWorld } from './maps/authored';
 import { infectionHeight, infectionSpawns, infectionSurface, infectionInside } from './maps/infection-map';
+import { BedrockRelief } from './geology';
 
 export const enum WaterKind {
   None = 0,
@@ -90,6 +91,7 @@ export class WorldGenerator {
   readonly hydrology: Hydrology;
   private readonly rq: RiverQuery = { dist: 0, halfWidth: 0, surface: 0, depth: 0 };
   private readonly scratch = makeColumnSample();
+  private readonly bedrock: BedrockRelief;
   private roadNetwork: RoadNetwork | null = null;
   get roads(): RoadNetwork | null {
     if (this.config.generatorVersion < 3 || this.rawTerrain) return null;
@@ -103,6 +105,7 @@ export class WorldGenerator {
     this.config = parseWorldConfig(input);
     this.worldSize = this.config.sizeChunks * CHUNK_SIZE;
     this.seaLevel = this.config.seaLevel;
+    this.bedrock = new BedrockRelief(this.config.seed);
     this.fields = new WorldFields(this.config.seed, this.worldSize, this.config.generatorVersion >= 3 ? .42 : 1);
     this.hydrology = new Hydrology(this.fields, this.worldSize, this.seaLevel);
     if ((this.config.mode ?? 'survival') === 'survival' && this.config.generatorVersion >= 2) this.camp = findCampSite(this);
@@ -164,6 +167,10 @@ export class WorldGenerator {
     }
     const damp = (1 - river) * (lake === lake ? 0.25 : 1);
     let h = macro + this.fields.detail(x, z, b.mountain) * damp;
+    if (this.config.generatorVersion >= 8 && macro > sea + 14) {
+      const exposure = b.mountain * smoothstep(14, 42, macro - sea);
+      h += this.bedrock.displacement(x, z, h, exposure, b.desert) * damp;
+    }
 
     let water = Number.NaN;
     let kind = WaterKind.None;

@@ -237,7 +237,21 @@ export class VegetationRenderer {
         const wet = chunk.humidity[k]! / 255, warm = chunk.temperature[k]! / 255;
         const x = ox + lx, z = oz + lz;
         const patch = (size: number, salt: number) => vegetationPatch(x, z, size, this.cosmeticSeed ^ salt);
-        if (slopeAt(lx, lz, y) > 1.25) continue;
+        const slope = slopeAt(lx, lz, y);
+        if (slope > 1.25) continue;
+        // Terrain outcrops have no prop footprint: find their damp, sheltered feet from the
+        // heightfield itself. Keep the same per-cover caps and instanced draw-call budget.
+        const rockyFoot = (surface === Surface.Rock || GRASSY.has(surface)) && wet > .55 && warm > .25
+          && slope < .9 && Math.max(
+            chunkHeightAtLocal(chunk, Math.max(0, lx - 2), lz),
+            chunkHeightAtLocal(chunk, Math.min(CHUNK_SIZE, lx + 2), lz),
+            chunkHeightAtLocal(chunk, lx, Math.max(0, lz - 2)),
+            chunkHeightAtLocal(chunk, lx, Math.min(CHUNK_SIZE, lz + 2)),
+          ) > y + 1.3;
+        if (rockyFoot && patch(8, 0xc1ef) > .38 && rng.next() < .24 * this.density) {
+          add(rng.next() < .3 ? 'ferns' : 'lush', lx, lz, k, 1.1 + rng.next() * .65, false);
+          continue;
+        }
         const base = CARPET[surface] ?? 0;
         // Reeds: low wet ground by the water and in mud, in stands.
         const nearWater = chunk.water[k] ? dequantizeHeight(chunk.water[k]!) > y - 1.6 : y < this.seaLevel + 1.2;

@@ -214,11 +214,12 @@ export default function InfectionStudio() {
   const previewKey = draft ? JSON.stringify({ ...draft, rules: undefined, name: undefined }) : '';
   useEffect(() => {
     if (!draft || !valid?.success) return;
+    let stale = false;
     const t = window.setTimeout(() => {
       setPreviewing(true);
-      studioPreviewInfectionMap(draft).then(setPreview).catch((e: unknown) => flash((e as Error).message)).finally(() => setPreviewing(false));
+      studioPreviewInfectionMap(draft).then((next) => { if (!stale) setPreview(next); }).catch((e: unknown) => { if (!stale) flash((e as Error).message); }).finally(() => { if (!stale) setPreviewing(false); });
     }, 500);
-    return () => window.clearTimeout(t);
+    return () => { stale = true; window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewKey]);
 
@@ -591,7 +592,7 @@ export default function InfectionStudio() {
           <button className={`btn ix-view-toggle${view3d ? ' on' : ''}`} onClick={() => setView3d((v) => !v)} title="Xem toàn bộ bản đồ dạng 3D"><Icon name={view3d ? 'lucide:map' : 'lucide:box'} /> {view3d ? 'Mặt bằng' : '3D'}</button>
           {view3d && preview && (() => {
             // Rebuilt when the layout changes (not on every slider move).
-            const key = `${draft.id}:${draft.base}:${JSON.stringify(draft.model ?? null)}:${draft.parts.length}:${preview.base.length}:${preview.wall.length}:${preview.nature.length}:${preview.heights.length}:${models.length}`;
+            const key = `${draft.id}:${draft.base}:${JSON.stringify(draft.model ?? null)}:${JSON.stringify(draft.parts)}:${models.length}`;
             return <InfectionMap3D preview={preview} draft={draft} registry={registry} buildKey={key} tool={tool.kind === 'spawn' || tool.kind === 'zombie' ? tool.kind : null}
               onPoint={(kind, p, remove) => patch((d) => { const list = kind === 'spawn' ? d.spawns : d.zombieSpawns; if (remove >= 0) list.splice(remove, 1); else if (p) list.push(p); })} />;
           })()}
