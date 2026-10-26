@@ -370,9 +370,9 @@ export default function InfectionStudio() {
     catch (e) { flash((e as Error).message); }
     finally { setBusy(false); }
   };
-  const create = (from: 'blank' | 'copy') => {
+  const create = (from: 'blank' | 'copy', named?: string) => {
     if (!maps || !draft) return;
-    const name = from === 'copy' ? `${draft.name} (bản sao)` : 'Bản đồ mới';
+    const name = from === 'copy' ? `${draft.name} (bản sao)` : named ?? 'Bản đồ mới';
     const id = `${slug(name)}-${uid()}`;
     const map = from === 'copy' ? { ...structuredClone(draft), id, name } : blankInfectionMap(id, name, `seed-${uid()}`);
     setMaps({ ...maps, maps: [...maps.maps, map] });
@@ -428,6 +428,10 @@ export default function InfectionStudio() {
           <div className="confirm-dialog ix-create"><h2>Tạo map mới</h2>
             <button className="btn" onClick={() => create('blank')}><Icon name="lucide:file-plus" /> Bản đồ trống · địa hình theo seed</button>
             <button className="btn" onClick={() => create('copy')}><Icon name="lucide:copy" /> Nhân bản “{draft.name}”</button>
+            <label className={`btn${uploading ? ' disabled' : ''}`} title="Một file GLB chứa cả bản đồ: tạo bản đồ mới trên nền model này (va chạm được tính khi tải lên)">
+              <Icon name="lucide:upload" /> Nhập GLB · bản đồ mới từ model
+              <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { create('blank', f.name.replace(/\.glb$/i, '').slice(0, 40) || 'Bản đồ mới'); uploadModel(f); } }} />
+            </label>
             <button className="btn" onClick={() => setCreating(false)}>Đóng</button>
           </div>
         </div>
