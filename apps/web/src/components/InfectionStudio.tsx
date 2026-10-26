@@ -454,7 +454,8 @@ export default function InfectionStudio() {
     if (!maps || !draft) return;
     const name = from === 'copy' ? `${draft.name} (bản sao)` : named ?? 'Bản đồ mới';
     const id = `${slug(name)}-${uid()}`;
-    const map = from === 'copy' ? { ...structuredClone(draft), id, name } : blankInfectionMap(id, name, `seed-${uid()}`);
+    // A new map is always a draft until published.
+    const map = from === 'copy' ? { ...structuredClone(draft), id, name, published: false } : blankInfectionMap(id, name, `seed-${uid()}`);
     setMaps({ ...maps, maps: [...maps.maps, map] });
     setDraft(map); setSaved(''); setSel(null); setCreating(false);
     view.current = { cx: 0, cz: 0, zoom: 3 };
