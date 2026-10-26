@@ -6,7 +6,7 @@ import {
   AmbientLight, CanvasTexture, CircleGeometry, Color, DoubleSide, Euler, HemisphereLight, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PointLight,
   Quaternion, Raycaster, Scene, SRGBColorSpace, TextureLoader, Vector3, WebGLRenderer, type Object3D, type Texture,
 } from 'three';
-import { ITEMS, WEAPON_ATTACHMENTS, WEAPON_BY_ITEM, WEAPON_SPECS, type Attachments, type AttachmentSlot, type GunSpec, type WeaponId } from '@zion/shared';
+import { ITEMS, WEAPON_ATTACHMENTS, weaponOptic, WEAPON_BY_ITEM, WEAPON_SPECS, type Attachments, type AttachmentSlot, type GunSpec, type WeaponId } from '@zion/shared';
 import { renderItemIcons } from '@/game/inventory/icons';
 import { ItemArt } from './Inventory';
 import { gltfLoader } from '@/game/render/gltf-loader';
@@ -17,6 +17,7 @@ import { CombatEffects } from '@/game/render/effects';
 import { SoundBank } from '@/game/audio';
 import { reloadScriptOf } from '@/game/reload-scripts';
 import { weaponRecoil } from '@/game/first-person-recoil';
+import { ScopeLens } from '@/game/render/scope-lens';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
@@ -86,6 +87,7 @@ export function ShootingRange() {
   /** Attachments chosen per gun (right click on a gun in the menu). */
   const [fitted, setFitted] = useState<Record<string, Attachments>>({});
   const [fitting, setFitting] = useState<string | null>(null);
+  const fittedNow = useRef(fitted); fittedNow.current = fitted;
 
   useEffect(() => {
     const el = host.current;
@@ -113,6 +115,7 @@ export function ShootingRange() {
     const keys = new Set<string>();
     let firing = false, aiming = false, nextShot = 0, mag = 0, reloadEnd = 0, reloadTimers: number[] = [];
     let score = 0, shots = 0, hits = 0, last: number | null = null;
+    let scopeLens: ScopeLens | null = null;
     let sounds: SoundBank | null = null, effects: CombatEffects | null = null, view: ViewModel | null = null, lib: WeaponLibrary | null = null;
     const spec = (): GunSpec | null => { const w = WEAPON_BY_ITEM[live.current.weapon]; const s = w ? WEAPON_SPECS[w as Exclude<WeaponId, 0>] : undefined; return s?.kind === 'gun' ? s as GunSpec : null; };
     const push = () => setHud({ mag, max: spec()?.magazine ?? 0, reloading: reloadEnd > performance.now(), last, score, shots, hits });
@@ -182,7 +185,9 @@ export function ShootingRange() {
       // Browsers sometimes report one huge jump (the cursor re-centred, a focus change): skipped,
       // so the view never snaps to another direction.
       if (Math.abs(e.movementX) > 220 || Math.abs(e.movementY) > 220) return;
-      const k = .0022 * (aiming ? .55 : 1);
+      // Slower through a magnified optic, by its power.
+      const power = aiming ? weaponOptic(live.current.weapon, fittedNow.current[live.current.weapon])?.magnification ?? 1 : 1;
+      const k = .0022 * (aiming ? .55 : 1) / Math.max(1, power * .7);
       yaw -= e.movementX * k; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * k));
     };
     const onDown = (e: MouseEvent) => {
@@ -313,6 +318,12 @@ export function ShootingRange() {
       view?.update(dt, { visible: true, moving, sprint: false, reloading: reloadEnd > now, yaw, pitch, aiming: aiming && reloadEnd <= now, firing });
       view?.setLoaded(mag > 0);
       effects?.update(dt, null);
+      // Through an optic: the magnified picture (or the dot / holo reticle) drawn on its lens, as in game.
+      const optic = weaponOptic(L.weapon, fittedNow.current[L.weapon]), lens = view?.lens;
+      const sight = !!lens && !!optic && aiming && reloadEnd <= now && (view?.aimed ?? 0) > .82 && ((optic.magnification ?? 1) > 1 || optic.reticle === 'dot' || optic.reticle === 'holo');
+      if (sight && lens && optic && view) {
+        (scopeLens ??= new ScopeLens()).render(renderer, scene, camera, lens.mesh, view.scopeHidden, { magnification: optic.magnification ?? 1, reticle: optic.reticle ?? null, nightVision: false }, true);
+      } else scopeLens?.release();
       renderer.render(scene, camera);
     };
     raf = requestAnimationFrame(frame);
@@ -322,7 +333,7 @@ export function ShootingRange() {
       document.removeEventListener('pointerlockchange', onLock);
       window.removeEventListener('mouseup', onUp); window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey);
-      effects?.dispose(); view?.dispose(); sounds?.dispose();
+      effects?.dispose(); view?.dispose(); sounds?.dispose(); scopeLens?.dispose();
       renderer.dispose(); el.removeChild(renderer.domElement);
     };
   }, []);
