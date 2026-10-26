@@ -57,6 +57,8 @@ export class Vehicles {
     for (const spot of pool) if (chosen.length < this.states.size && !chosen.includes(spot)) chosen.push(spot);
     [...this.states.values()].forEach((v, i) => this.spawns.set(v.id, { ...chosen[i]! }));
   }
+  /** The Jolt system vehicles and free rigid bodies share. */
+  get rigid(): JoltVehicles { return this.physics; }
   private install(v: VehicleState): void { this.physics.add(v); this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
   spawn(p: Player, type: string | undefined, now: number): string {
     const aliases: Record<string, VehicleKind> = { car: 'car', lada: 'car', jeep: 'jeep', quad: 'quad', quadbike: 'quad', grizzly: 'grizzly' };
@@ -189,7 +191,12 @@ export class Vehicles {
         this.install(v);
       }
     }
-    if (!this.jolt) { this.stepLegacy(now, dt, players, impact); return; }
+    if (!this.jolt) {
+      this.stepLegacy(now, dt, players, impact);
+      // Free bodies stay on Jolt whichever vehicle model drives.
+      this.physics.step([], () => undefined, dt, now);
+      return;
+    }
     // One Jolt step for every vehicle together, so they also collide with each other.
     const impacts = this.physics.step(this.states.values(), (v) => {
       const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) : undefined;

@@ -12,6 +12,7 @@ import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/
 import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { PropKnock } from './prop-knock';
+import { FreeBodies } from './free-bodies';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { uploadedHitMeshes } from '../world/uploaded-hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
@@ -241,6 +242,8 @@ export class GameServer {
   private statsDirty = false;
   /** Light props knocked away by vehicles, bullets and blasts. */
   private readonly knock: PropKnock;
+  /** Knocked props as server rigid bodies (shared Jolt system with the vehicles). */
+  private readonly freeBodies: FreeBodies;
   /** Shock waves racing out from blasts: each body is struck once, when the front reaches it. */
   private readonly shocks: Array<{ x: number; y: number; z: number; radius: number; damage: number; owner: Player | null; label: string; start: number; hit: Set<unknown> }> = [];
   private readonly grenades: Array<{ id: number; ownerId: number; owner: Player; s: ProjectileState; explodeAt: number; spec: ThrowSpec }> = [];
@@ -440,8 +443,9 @@ export class GameServer {
       now: () => this.serverTime,
     });
     // After base building, whose felled trees also leave the collision world.
+    this.freeBodies = new FreeBodies(() => this.vehicles.rigid, this.collision);
     this.knock = new PropKnock({
-      world: deps.world, registry: deps.registry, physics: this.physics,
+      world: deps.world, registry: deps.registry, physics: this.physics, bodies: this.freeBodies,
       broadcastAt: (x, z, msg) => this.broadcastAt(x, z, msg),
       broadcast: (msg) => this.broadcast(msg),
       occupied: (x, z, r) => [...this.players.values()].some((p) => !p.dead && Math.hypot(p.state.x - x, p.state.z - z) < r) || this.zombies.near(x, z, r).some((zb) => !zb.dead),
@@ -1045,6 +1049,16 @@ export class GameServer {
     return performance.now() - this.epoch;
   }
 
+  /** Physics cost and population for /metrics: Jolt step time, bodies, and free-body interactions. */
+  physicsProfile(): Record<string, number> {
+    const j = this.vehicles.rigid.stats, f = this.freeBodies.profile(), c = this.freeBodies.counters;
+    return {
+      physics_step_ms: Number(j.stepMs.toFixed(3)), physics_substeps: j.steps, physics_active_bodies: j.activeBodies, physics_bodies: j.bodies,
+      physics_live_vehicles: j.vehicles, physics_mirrored_colliders: j.mirrored, physics_free_bodies: f.bodies, physics_free_bodies_awake: f.awake,
+      physics_shot_impulses_total: c.shots, physics_push_impulses_total: c.pushes, physics_blast_impulses_total: c.blasts,
+    };
+  }
+
   get vehicleJolt(): boolean { return this.vehicles.jolt; }
   set vehicleJolt(on: boolean) { this.vehicles.jolt = on; }
 
@@ -1280,6 +1294,7 @@ export class GameServer {
     if (this.battle || this.deathCrates.size) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
     this.building?.welcome(player);
     if (this.knock) player.session.sendJson(this.knock.message());
+    if (this.freeBodies?.count) player.session.sendJson(this.freeBodies.message(this.serverTime));
     session.sendJson(this.npcList());
     session.sendJson({ t: 'coins', drops: [...this.coinDrops].map(([id, c]) => ({ id, x: c.x, y: c.y, z: c.z, amount: c.amount })) });
     this.broadcastPlayerList();
@@ -2366,6 +2381,8 @@ export class GameServer {
       }
     }
 
+    // Walkers shove loose props before the shared Jolt step moves them.
+    this.freeBodies.push(this.walkers(), TICK_DT);
     this.vehicles.step(now, TICK_DT, this.players, (v, occupants) => {
       for (const occupant of occupants) if (!occupant.dead) this.killPlayer(occupant, null, now, 'xe phát nổ');
       this.collision.removeOwnerColliders(vehicleOwner(v.id));
@@ -2456,6 +2473,7 @@ export class GameServer {
     if (!this.arena && (this.merchant.step(this.activeScratch, TICK_DT) || this.nurse.step(this.activeScratch, TICK_DT) || this.architect.step(this.activeScratch, TICK_DT))) this.broadcast(this.npcList());
     this.building?.step(TICK_DT, now);
     this.knock?.step(now);
+    this.freeBodies.sync(now, this.tick % SNAPSHOT_INTERVAL_TICKS === 0, this.bodyViewers());
     if (this.statsDirty && this.tick % 40 === 0) this.broadcastPlayerList();
     this.stepNpcCombat(now);
     this.stepNpcRetaliation(now);
@@ -2876,6 +2894,15 @@ export class GameServer {
       if (firstKill || Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
       if (firstKill && attacker) attacker.session.sendJson({ t: 'tutorialState', ...tutorialProgress(attacker) });
     }
+  }
+
+  /** Everyone on foot, for pushing free bodies about. */
+  private *walkers(): Iterable<{ x: number; y: number; z: number; vx: number; vz: number }> {
+    for (const p of this.players.values()) if (!p.dead && !p.vehicleId) yield p.state;
+  }
+
+  private *bodyViewers(): Iterable<{ x: number; z: number; send(text: string): void }> {
+    for (const p of this.players.values()) yield { x: p.state.x, z: p.state.z, send: (text) => p.session.sendText(text) };
   }
 
   private broadcastAt(x: number, z: number, msg: ServerJsonMessage): void {

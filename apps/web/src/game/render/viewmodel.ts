@@ -1,5 +1,6 @@
 import { Box3, BufferGeometry, CircleGeometry, DoubleSide, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Quaternion, Raycaster, Vector3, type Camera, type Material, type Object3D } from 'three';
-import { ITEMS, attachmentModifier, weaponOptic, type Attachments } from '@zion/shared';
+import { ITEMS, WEAPON_BY_ITEM, attachmentModifier, weaponOptic, weaponSpec, type Attachments } from '@zion/shared';
+import { WeaponDynamics, actionForSound, handImpulse, weaponBody } from '../weapon-dynamics';
 import { dressWeapon, withBuiltinOptic, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { WeaponMechanics } from './weapon-mechanics';
 import { reloadScriptOf, type HandTarget } from '../reload-scripts';
@@ -186,6 +187,10 @@ export class ViewModel {
     this.eyeRelief = !optic ? (ITEM_PISTOLS.has(itemId ?? '') || ITEMS[itemId ?? '']?.category === 'pistol' ? .4 : .3) : optic.magnification && optic.magnification > 1 ? .2 : .27;
     // Studio weapons may set their own hip position and eye relief.
     const spec = itemId ? weapons?.get(itemId)?.spec : undefined;
+    // The held gun's body for reload jolts: its real weight, proportions by class.
+    const held = itemId ? weaponSpec(WEAPON_BY_ITEM[itemId] ?? 0) : undefined, mass = held?.weight ?? 3;
+    this.dynamics.setBody(weaponBody(mass, ITEM_PISTOLS.has(itemId ?? '') || ITEMS[itemId ?? '']?.category === 'pistol' ? 'pistol' : mass >= 8 ? 'heavy' : 'rifle'));
+    this.dynamics.reset();
     // The Studio's eye relief holds with iron sights and red dots alike (magnified lenses set their own below).
     if (spec?.fpEyeRelief && (optic?.magnification ?? 1) <= 1) this.eyeRelief = spec.fpEyeRelief;
     this.hip.set(...(spec?.fpHip ?? [0.2, -0.27, -0.25]));
@@ -332,30 +337,27 @@ export class ViewModel {
     return ease(Math.min(1, r / .07, (1 - r) / .1));
   }
 
-  /** Jolts of the gun as the hands work its parts (sprung, so it feels its weight). */
-  private jolt = { y: 0, z: 0, rx: 0, rz: 0, vy: 0, vz: 0, vrx: 0, vrz: 0 };
+  /**
+   * The gun as a rigid body held on the arms' springs (see weapon-dynamics.ts): each part the
+   * hands work reaches it as an impulse where the hand acts, and it answers with its own mass and
+   * inertia, so a pistol jumps, a machine gun barely sways and a side handle twists the gun.
+   */
+  private readonly dynamics = new WeaponDynamics(weaponBody(3.5, 'rifle'));
+  private readonly dynOffset = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
   private kickParts(from: number, to: number): void {
     const script = reloadScriptOf(this.rig()?.visual.itemId);
     if (!script || to <= from) return;
-    const side = this.chargeSide() || -1, k = this.jolt;
+    const side = this.chargeSide();
     for (const e of script.sounds) {
       if (e.at <= from || e.at > to) continue;
-      const n = e.sound.toLowerCase(), w = e.volume ?? 1;
-      // Pulled out / racked back: the gun is dragged after the hand; pushed in / slapped / released:
-      // it is knocked up and forward, then settles back.
-      if (/casing|shelldrop|button|selector|aim|dry/.test(n)) continue;
-      if (/magout|shellout|open|eject|clipout/.test(n)) { k.vy -= .55 * w; k.vrx -= 1.6 * w; }
-      else if (/slap|magin|clipin|close|insert/.test(n)) { k.vy += .7 * w; k.vrx += 2.2 * w; k.vrz -= side * .8 * w; }
-      else if (/rack|pull|back/.test(n)) { k.vz += .6 * w; k.vrz += side * 1.4 * w; k.vrx += .6 * w; }
-      else if (/release|forward/.test(n)) { k.vz -= .7 * w; k.vrx -= 1.2 * w; }
-      else { k.vy += .2 * w; k.vrx += .5 * w; }
+      const action = actionForSound(e.sound);
+      if (!action) continue;
+      const { j, at } = handImpulse(action, this.dynamics.spec, side, e.volume ?? 1);
+      this.dynamics.impulse(j, at);
     }
   }
   private stepKick(dt: number): void {
-    const k = this.jolt, h = Math.min(dt, .05);
-    // Heavy and a little underdamped: one overshoot, then still.
-    const spring = (x: 'y' | 'z' | 'rx' | 'rz', v: 'vy' | 'vz' | 'vrx' | 'vrz') => { k[v] += (-170 * k[x] - 16 * k[v]) * h; k[x] += k[v] * h; };
-    spring('y', 'vy'); spring('z', 'vz'); spring('rx', 'vrx'); spring('rz', 'vrz');
+    this.dynamics.step(dt);
   }
 
   /** A shell-by-shell reload stopped (a shot): hands back on the gun. */
@@ -608,7 +610,7 @@ export class ViewModel {
     // each part pulled, pushed or racked jolts it on its spring.
     const tilt = this.animGame ? 0 : this.reloadTilt(), charging = this.animGame ? 0 : this.chargeWeight();
     if (tilt > 0 || charging > 0) { const side = this.chargeSide() || -1; ay += .05 * tilt + .06 * charging; rx += .06 * tilt + .07 * charging; rz += side * (.3 * tilt + .1 * charging); ax -= side * .03 * tilt; }
-    { const k = this.jolt; ay += k.y * .05; az += k.z * .05; rx += k.rx * .05; rz += k.rz * .05; }
+    { const k = this.dynamics.gripOffset(this.dynOffset); ax += k.x; ay += k.y; az += k.z; rx += k.rx; ry += k.ry; rz += k.rz; }
     // The animation's gun track: moved (camera metres), turned (degrees) and sized.
     let animScale = 1;
     if (this.animOn) for (const tr of this.anim!.tracks) if (tr.kind === 'gun') {

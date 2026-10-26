@@ -338,6 +338,7 @@ async function main(): Promise<void> {
           chunk_queue_length: world.queueLength,
           chunks_generated_total: world.stats.generated,
           physics_chunks_loaded: game.physics.loadedCount,
+          ...game.physicsProfile(),
           world_time_of_day: Number(game.timeOfDay().toFixed(4)),
           ws_sessions: gateway?.connectionCount ?? 0,
         }),

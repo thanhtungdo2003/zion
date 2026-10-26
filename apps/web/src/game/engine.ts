@@ -154,6 +154,7 @@ import { zombieVariant } from '@zion/shared';
 import { ZOMBIE_MODEL_URLS, ZombieAvatar, type LastHit } from './render/zombie-avatar';
 import { loadZombieModel, zombieTemplateIndex } from './render/zombie-model';
 import { DebrisSystem } from './render/debris';
+import { ColliderDebug } from './render/collider-debug';
 import { ParticleFX } from './render/particles';
 import { Minimap } from './render/minimap';
 import { CampLights } from './render/camp-lights';
@@ -434,6 +435,15 @@ export class GameEngine {
   private zombieTemplates: CharacterTemplate[] = [];
   private readonly zombies = new Map<number, { entity: RemoteEntity; avatar: ZombieAvatar; armor?: number; limbs: number; variant: ZombieVariant; leaping?: boolean; voiceAt: number; lastGroan: number; enraged: boolean; dead?: boolean; hurtAt: number; lastHit: LastHit | null; burnUntil?: number }>();
   private debris: DebrisSystem | null = null;
+  /** F4: colliders, contacts and aim ray drawn over the world. */
+  private colliderDebug: ColliderDebug | null = null;
+  private readonly onDebugKey = (e: KeyboardEvent): void => {
+    if (e.code !== 'F4' || e.repeat) return;
+    e.preventDefault();
+    if (!this.colliderDebug) return;
+    const on = this.colliderDebug.toggle();
+    this.toast({ key: on ? 'hud.collision_on' : 'hud.collision_off' });
+  };
   private weapons: WeaponLibrary | null = null;
   /** Character field of view; monsters should use `vision.canSee(...)`. */
   vision: VisionCone | null = null;
@@ -814,6 +824,8 @@ export class GameEngine {
 
   dispose(): void {
     this.flashOverlay?.remove(); this.flashOverlay = null;
+    window.removeEventListener('keydown', this.onDebugKey);
+    this.colliderDebug?.dispose(); this.colliderDebug = null;
     this.vehicles?.dispose();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
@@ -1267,6 +1279,7 @@ export class GameEngine {
       toast: (msg) => this.toast(msg),
       equippedItemId: () => this.inventory.equippedItemId(),
       planeSound: (key, at) => { if (at) this.sounds?.loopAt(key, 'transportPlane', { volume: .75, at, maxDistance: 1400, refDistance: 40 }); else this.sounds?.stopLoop(key); },
+      serverNow: () => this.clock.now(),
     });
     this.building.setWorld(world);
     this.slashes?.dispose();
@@ -1287,6 +1300,7 @@ export class GameEngine {
     this.armorKey = '';
     this.syncArmor();
     this.debris ??= new DebrisSystem(this.scene);
+    if (!this.colliderDebug) { this.colliderDebug = new ColliderDebug(this.scene); window.addEventListener('keydown', this.onDebugKey); }
     if (!this.effects) {
       this.effects = new CombatEffects(this.scene, this.weapons?.get('grenade')?.display ?? null, this.sounds, () => this.camera.position);
       const rounds = new Map<string, Object3D>();
@@ -2227,6 +2241,13 @@ export class GameEngine {
     this.debris?.update(dt, this.store?.collision);
     this.groundItems?.update(now);
     this.building?.update(dt, this.elapsed);
+    if (this.colliderDebug?.enabled) {
+      const cam = this.camera.position, dir = this.camera.getWorldDirection(this.tmpB);
+      this.colliderDebug.update(dt, this.store?.collision, cam.x, cam.y, cam.z, {
+        vehicles: this.vehicles?.poses() ?? [], bodies: this.building?.bodies.bodies() ?? [],
+        aim: { x: cam.x + dir.x * .3, y: cam.y + dir.y * .3, z: cam.z + dir.z * .3, dx: dir.x, dy: dir.y, dz: dir.z },
+      });
+    }
     this.slashes?.update(dt);
     this.updateHealing(now);
     for (const o of this.coinDrops.values()) {

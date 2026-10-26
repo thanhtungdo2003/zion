@@ -12,6 +12,8 @@ export const Layer = {
   Projectile: 1 << 6,
   Trigger: 1 << 7,
   Hitbox: 1 << 8,
+  /** Free rigid bodies (knocked props): shots and sight lines meet them; walkers push them aside. */
+  Dynamic: 1 << 9,
 } as const;
 
 export type LayerName = keyof typeof Layer;
@@ -22,11 +24,11 @@ export const Mask = {
   /** Geometry that blocks line of sight / melee reach. */
   LineOfSight: Layer.Terrain | Layer.Static,
   /** What a bullet or melee swing can hit. */
-  Weapon: Layer.Terrain | Layer.Static | Layer.Hitbox,
+  Weapon: Layer.Terrain | Layer.Static | Layer.Hitbox | Layer.Dynamic,
   /** Third-person camera obstruction (tree canopies and bushes pull the camera in too). */
   Camera: Layer.Terrain | Layer.Static | Layer.Vegetation,
   /** Everything that occupies space for placement / spawn validation. */
-  Placement: Layer.Terrain | Layer.Static | Layer.Vegetation,
+  Placement: Layer.Terrain | Layer.Static | Layer.Vegetation | Layer.Dynamic,
   All: 0xffffffff,
 } as const;
 

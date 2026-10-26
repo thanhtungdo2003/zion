@@ -23,6 +23,7 @@ import {
 import { checkPlacement, structureColliders } from '@zion/physics';
 import type { AssetLibrary } from './render/asset-library';
 import { FelledTrees, PlacementHologram, StructureRenderer, SupplyRenderer } from './render/building';
+import { FreeBodyViews } from './render/free-bodies';
 import type { DebrisSystem } from './render/debris';
 import { ParticleFX, type ParticleSystem } from './render/particles';
 import type { ChunkStore } from './world/chunk-store';
@@ -50,6 +51,8 @@ export interface BuildingHost {
   equippedItemId(): string | null;
   /** Keeps a looping engine sound at a point (null stops it). */
   planeSound(key: object, at: { x: number; y: number; z: number } | null): void;
+  /** Estimated server time (ms): server rigid bodies play back on its timeline. */
+  serverNow(): number;
 }
 
 /** A thing to use within reach (merged into the engine's interaction targets). */
@@ -67,6 +70,8 @@ export class BuildingController {
   private readonly structures: StructureRenderer;
   private readonly hologram: PlacementHologram;
   private readonly supply: SupplyRenderer;
+  /** Server rigid bodies (knocked props) played back from their poses. */
+  readonly bodies: FreeBodyViews;
   private removed = new Set<string>();
   /** Light props knocked away (vehicles, bullets, blasts) until they stand again. */
   private knocked = new Set<string>();
@@ -82,6 +87,7 @@ export class BuildingController {
     this.structures = new StructureRenderer(host.scene, host.debris, host.library);
     this.hologram = new PlacementHologram(host.scene);
     this.supply = new SupplyRenderer(host.scene, host.library);
+    this.bodies = new FreeBodyViews(host.scene, host.library);
   }
 
   setWorld(world: WorldInfo): void {
@@ -140,12 +146,20 @@ export class BuildingController {
     }
   }
 
-  /** A prop knocked away: hide it and throw its model (a small tree topples over its foot). */
+  /**
+   * A prop knocked away: hide it. A server rigid body takes its place (poses follow in 'bodies');
+   * otherwise its model is thrown as debris (a small tree topples over its foot).
+   */
   private knockAway(m: Extract<ServerJsonMessage, { t: 'knock' }>): void {
     this.knocked.add(m.key);
     this.refilter([m.key]);
     const visual = this.host.library.get(m.asset), debris = this.host.debris();
     this.host.play(m.tree ? 'knockdown' : 'arrowHitHard', m, m.tree ? 1 : .7);
+    if (m.body !== undefined) {
+      // Shown at once where it stood, until its first simulated pose arrives.
+      this.bodies.apply({ t: 'bodies', at: this.host.serverNow() - 1000, list: [[m.body, m.asset, m.scale, m.x, m.y, m.z, 0, Math.sin(m.rotY / 2), 0, Math.cos(m.rotY / 2), 0]] });
+      return;
+    }
     if (!visual || !debris) return;
     const obj = new Group();
     for (const part of visual.parts) { const mesh = new Mesh(part.geometry, part.material); mesh.castShadow = true; obj.add(mesh); }
@@ -172,6 +186,7 @@ export class BuildingController {
         return true;
       }
       case 'knock': this.knockAway(m); return true;
+      case 'bodies': this.bodies.apply(m); return true;
       case 'structures':
         this.structures.setAll(m.list);
         for (const s of m.list) this.host.store()?.collision.setOwnerColliders(structureOwner(s.id), structureColliders(s));
@@ -336,6 +351,7 @@ export class BuildingController {
 
   update(dt: number, time: number): void {
     this.trees.update(dt);
+    this.bodies.update(this.host.serverNow());
     this.structures.update(time);
     this.supply.update(dt, time);
     // Each transport plane drones overhead, heard from far away.
@@ -354,6 +370,7 @@ export class BuildingController {
     this.structures.dispose();
     this.hologram.dispose();
     this.supply.dispose();
+    this.bodies.dispose();
     this.rawChunks.clear();
   }
 }

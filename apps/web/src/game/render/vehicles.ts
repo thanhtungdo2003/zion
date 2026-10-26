@@ -33,6 +33,8 @@ export class VehicleRenderer {
     }
   }
   /** The vehicle a player is aboard (any seat), interpolated. */
+  /** Displayed (interpolated) pose of every vehicle (collision debug view). */
+  *poses():Iterable<VehicleState>{for(const v of this.views.values())yield v.pose;}
   rider(id:number):VehicleState|undefined{return [...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0)?.pose;}
   /** Seat of a player aboard: 0 driving, 1… passenger, −1 on foot. */
   seatIndex(id:number):number{const v=[...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0);return v?vehicleSeatOf(v.target,id):-1;}

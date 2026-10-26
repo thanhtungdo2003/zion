@@ -5,6 +5,7 @@ import { damageVehicle } from './vehicles';
 import type { Collider } from './shapes';
 import type { CollisionWorld } from './world';
 import type { Heightfield } from './heightfield';
+import { SURFACE_MATERIALS, isDynamicBodyTag, proxyBounds, type BodyPose, type BodyState, type ProxyPart, type RigidBodyDef } from './rigid-body';
 
 /**
  * Vehicle simulation on Jolt Physics (WASM). Each vehicle is a Jolt rigid body with a
@@ -47,6 +48,13 @@ interface Car {
   velocity: [number, number, number];
 }
 export interface VehicleInput { throttle: number; steer: number }
+/** A free rigid body (knocked prop, thrown object): Jolt owns its motion until it sleeps. */
+interface Prop { id: BodyID; radius: number; mass: number }
+/** Jolt step cost and population, for the server's physics profile. */
+export interface PhysicsStepStats { stepMs: number; steps: number; activeBodies: number; bodies: number; vehicles: number; props: number; mirrored: number }
+
+/** Free bodies beyond this many are refused: the solver budget stays bounded on small servers. */
+export const MAX_FREE_BODIES = 96;
 
 let vec!: InstanceType<JoltModule['Vec3']>, rvec!: InstanceType<JoltModule['RVec3']>, quat!: InstanceType<JoltModule['Quat']>;
 const v3 = (x: number, y: number, z: number) => { vec.Set(x, y, z); return vec; };
@@ -81,9 +89,15 @@ export class JoltVehicles {
   private readonly system: InstanceType<JoltModule['PhysicsSystem']>;
   private readonly bodies: InstanceType<JoltModule['BodyInterface']>;
   private readonly cars = new Map<number, Car>();
-  private readonly statics = new Map<Collider, { id: BodyID; seen: number }>();
+  private readonly statics = new Map<Collider, { id: BodyID; seen: number; step?: number }>();
+  /** Regions mirrored during the current step, and that step's number (see dropRemoved). */
+  private readonly regions: Array<[number, number, number, number]> = [];
+  private stepNo = 0;
   private readonly terrain = new Map<Heightfield, { id: BodyID; seen: number }>();
   private readonly buffer: Collider[] = [];
+  private readonly props = new Map<number, Prop>();
+  /** Last step's cost and population (stepMs averages steps that ran). */
+  readonly stats: PhysicsStepStats = { stepMs: 0, steps: 0, activeBodies: 0, bodies: 0, vehicles: 0, props: 0, mirrored: 0 };
 
   constructor(private readonly world: CollisionWorld) {
     const settings = new Jolt.JoltSettings();
@@ -195,6 +209,102 @@ export class JoltVehicles {
     }
   }
 
+  /* ------------------------------------ free rigid bodies ------------------------------------ */
+
+  hasBody(id: number): boolean { return this.props.has(id); }
+  get bodyCount(): number { return this.props.size; }
+
+  /**
+   * Adds a dynamic body built from its proxy parts with the given mass (inertia follows the
+   * shape), starting at `pose` with velocity `v` and spin `w`. Fast bodies use linear-cast CCD.
+   * False when the free-body budget is spent.
+   */
+  addBody(id: number, def: RigidBodyDef, pose: BodyPose, v: readonly number[] = [0, 0, 0], w: readonly number[] = [0, 0, 0]): boolean {
+    if (this.props.has(id)) this.removeBody(id);
+    if (this.props.size >= MAX_FREE_BODIES || !def.parts.length || !(def.mass > 0)) return false;
+    const proxy = this.proxyShape(def.parts);
+    const settings = new Jolt.BodyCreationSettings(proxy.shape, rv3(pose.x, pose.y, pose.z), q4(pose.qx, pose.qy, pose.qz, pose.qw), Jolt.EMotionType_Dynamic, LAYER_MOVING);
+    settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
+    settings.mMassPropertiesOverride.mMass = def.mass;
+    settings.mMotionQuality = Jolt.EMotionQuality_LinearCast;
+    const m = SURFACE_MATERIALS[def.material];
+    settings.mFriction = m.friction; settings.mRestitution = m.restitution;
+    // Air drag only; contact friction does the real stopping.
+    settings.mLinearDamping = .05; settings.mAngularDamping = .12;
+    settings.mMaxLinearVelocity = 60; settings.mMaxAngularVelocity = 40;
+    settings.mUserData = id;
+    const bodyId = keep(this.bodies.CreateAndAddBody(settings, Jolt.EActivation_Activate));
+    // The body now holds the shape; the settings (and their cached result) can go.
+    Jolt.destroy(settings); Jolt.destroy(proxy.settings);
+    this.bodies.SetLinearVelocity(bodyId, v3(v[0]!, v[1]!, v[2]!));
+    this.bodies.SetAngularVelocity(bodyId, v3(w[0]!, w[1]!, w[2]!));
+    const b = proxyBounds(def.parts);
+    this.props.set(id, { id: bodyId, mass: def.mass, radius: Math.hypot(Math.max(-b.minX, b.maxX), Math.max(-b.minY, b.maxY), Math.max(-b.minZ, b.maxZ)) });
+    return true;
+  }
+
+  removeBody(id: number): void {
+    const p = this.props.get(id);
+    if (!p) return;
+    this.bodies.RemoveBody(p.id); this.bodies.DestroyBody(p.id);
+    this.props.delete(id);
+  }
+
+  /** An impulse (N·s) at a world point: off-centre pushes also spin the body. */
+  applyImpulse(id: number, jx: number, jy: number, jz: number, px: number, py: number, pz: number): void {
+    const p = this.props.get(id);
+    if (!p || !Number.isFinite(jx + jy + jz + px + py + pz)) return;
+    this.bodies.AddImpulse(p.id, v3(jx, jy, jz), rv3(px, py, pz));
+    this.bodies.ActivateBody(p.id);
+  }
+
+  bodyMass(id: number): number { return this.props.get(id)?.mass ?? 0; }
+  bodyRadius(id: number): number { return this.props.get(id)?.radius ?? 0; }
+
+  bodyState(id: number): BodyState | null {
+    const p = this.props.get(id);
+    if (!p) return null;
+    const pos = this.bodies.GetPosition(p.id), r = this.bodies.GetRotation(p.id);
+    const lv = this.bodies.GetLinearVelocity(p.id), av = this.bodies.GetAngularVelocity(p.id);
+    return {
+      pose: { x: pos.GetX(), y: pos.GetY(), z: pos.GetZ(), qx: r.GetX(), qy: r.GetY(), qz: r.GetZ(), qw: r.GetW() },
+      v: [lv.GetX(), lv.GetY(), lv.GetZ()], w: [av.GetX(), av.GetY(), av.GetZ()],
+      awake: this.bodies.IsActive(p.id),
+    };
+  }
+
+  /** Ids of every free body. */
+  bodyIds(): number[] { return [...this.props.keys()]; }
+
+  private proxyShape(parts: readonly ProxyPart[]): { shape: InstanceType<JoltModule['Shape']>; settings: InstanceType<JoltModule['ShapeSettings']> } {
+    const piece = (p: ProxyPart): { s: InstanceType<JoltModule['ShapeSettings']>; x: number; y: number; z: number; q: [number, number, number, number] } => {
+      if (p.type === 'box') return { s: new Jolt.BoxShapeSettings(v3(p.hx, p.hy, p.hz), Math.min(.05, p.hx, p.hy, p.hz) * .9), x: p.cx, y: p.cy, z: p.cz, q: [0, Math.sin(p.yaw / 2), 0, Math.cos(p.yaw / 2)] };
+      if (p.type === 'sphere') return { s: new Jolt.SphereShapeSettings(p.r), x: p.cx, y: p.cy, z: p.cz, q: [0, 0, 0, 1] };
+      if (p.type === 'cylinder') return { s: new Jolt.CylinderShapeSettings(p.hh, p.r, Math.min(.05, p.hh, p.r) * .9), x: p.cx, y: p.cy, z: p.cz, q: [0, 0, 0, 1] };
+      const dx = p.bx - p.ax, dy = p.by - p.ay, dz = p.bz - p.az, len = Math.hypot(dx, dy, dz);
+      const x = (p.ax + p.bx) / 2, y = (p.ay + p.by) / 2, z = (p.az + p.bz) / 2;
+      if (len < 1e-4) return { s: new Jolt.SphereShapeSettings(p.r), x, y, z, q: [0, 0, 0, 1] };
+      // Turn the capsule's +Y axis onto the segment.
+      const ux = dx / len, uy = dy / len, uz = dz / len, ax = uz, az = -ux, sin = Math.hypot(ax, az);
+      let q: [number, number, number, number] = [0, 0, 0, 1];
+      if (sin > 1e-6) { const angle = Math.atan2(sin, uy), h = Math.sin(angle / 2) / sin; q = [ax * h, 0, az * h, Math.cos(angle / 2)]; }
+      else if (uy < 0) q = [1, 0, 0, 0];
+      return { s: new Jolt.CapsuleShapeSettings(len / 2, p.r), x, y, z, q };
+    };
+    const pieces = parts.map(piece);
+    let settings: InstanceType<JoltModule['ShapeSettings']>;
+    if (pieces.length === 1) {
+      // A compound needs two parts; one part is just placed.
+      const one = pieces[0]!;
+      settings = new Jolt.RotatedTranslatedShapeSettings(v3(one.x, one.y, one.z), q4(...one.q), one.s);
+    } else {
+      const compound = new Jolt.StaticCompoundShapeSettings();
+      for (const p of pieces) compound.AddShape(v3(p.x, p.y, p.z), q4(...p.q), p.s, 0);
+      settings = compound;
+    }
+    return { shape: settings.Create().Get(), settings };
+  }
+
   /** Mirrors terrain and static colliders around one point into Jolt. False if not streamed in. */
   private mirror(x: number, z: number, radius: number, now: number): boolean {
     const w = this.world, edge = w.worldSize - .01;
@@ -208,14 +318,15 @@ export class JoltVehicles {
         if (known) known.seen = now; else this.terrain.set(hf, { id: this.addTerrain(hf), seen: now });
       }
     const n = w.queryAABB({ minX: x - radius, minY: -1e4, minZ: z - radius, maxX: x + radius, maxY: 1e4, maxZ: z + radius }, Layer.Static, this.buffer);
+    this.regions.push([x - radius, z - radius, x + radius, z + radius]);
     for (let i = 0; i < n; i++) {
       const c = this.buffer[i]!;
       // Vehicles are Jolt bodies themselves; their CollisionWorld boxes are only for LOS/players.
-      if (c.tag > 50000 && c.tag < 60000) continue;
+      if ((c.tag > 50000 && c.tag < 60000) || isDynamicBodyTag(c.tag)) continue;
       const known = this.statics.get(c);
-      if (known) { known.seen = now; continue; }
+      if (known) { known.seen = now; known.step = this.stepNo; continue; }
       const id = this.addStatic(c);
-      if (id) this.statics.set(c, { id, seen: now });
+      if (id) this.statics.set(c, { id, seen: now, step: this.stepNo });
     }
     return true;
   }
@@ -266,7 +377,24 @@ export class JoltVehicles {
     return id;
   }
 
+  /**
+   * A mirrored collider inside a region queried this step that the query no longer returned has
+   * left the CollisionWorld (a knocked prop, a rebuilt chunk): drop it now, not after the grace
+   * period, or its ghost would block vehicles and overlap the body that replaced it.
+   */
+  private dropRemoved(): void {
+    if (this.regions.length) for (const [c, entry] of this.statics) {
+      if (entry.step === this.stepNo) continue;
+      const b = c.aabb;
+      if (!this.regions.some(([x0, z0, x1, z1]) => b.maxX >= x0 && b.minX <= x1 && b.maxZ >= z0 && b.minZ <= z1)) continue;
+      this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(c);
+    }
+    this.regions.length = 0;
+    this.stepNo++;
+  }
+
   private expire(now: number): void {
+    this.dropRemoved();
     for (const [key, entry] of this.statics) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(key); }
     for (const [key, entry] of this.terrain) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.terrain.delete(key); }
   }
@@ -306,8 +434,39 @@ export class JoltVehicles {
       live.push([v, car]);
       if (tyres.count) this.dragFlats(v, car, now);
     }
+    let freeAwake = 0;
+    for (const p of this.props.values()) {
+      if (!this.bodies.IsActive(p.id)) continue;
+      const pos = this.bodies.GetPosition(p.id), x = pos.GetX(), y = pos.GetY(), z = pos.GetZ();
+      const lv = this.bodies.GetLinearVelocity(p.id), speed = Math.hypot(lv.GetX(), lv.GetY(), lv.GetZ());
+      if (!this.mirror(x, z, 4 + p.radius + speed * .5, now)) {
+        // Unstreamed ground: freeze it where it is; it wakes again when touched.
+        this.bodies.SetLinearVelocity(p.id, v3(0, 0, 0)); this.bodies.SetAngularVelocity(p.id, v3(0, 0, 0));
+        this.bodies.DeactivateBody(p.id);
+        continue;
+      }
+      freeAwake++;
+      const ground = this.world.terrainHeight(x, z);
+      if (Number.isFinite(ground) && y < ground - 2) {
+        // A missed contact: put it back on the ground rather than let it fall out of the world.
+        this.bodies.SetPosition(p.id, rv3(x, ground + p.radius, z), Jolt.EActivation_Activate);
+        this.bodies.SetLinearVelocity(p.id, v3(0, 0, 0));
+      } else if (y < this.world.seaLevel) {
+        // Water drag (no buoyancy model yet: things sink slowly and settle on the bed).
+        const k = Math.exp(-dt * 2);
+        this.bodies.SetLinearVelocity(p.id, v3(lv.GetX() * k, lv.GetY() * k, lv.GetZ() * k));
+      }
+    }
     this.expire(now);
-    if (live.length) this.jolt.Step(dt, Math.max(1, Math.ceil(dt * 60)));
+    const steps = Math.max(1, Math.ceil(dt * 60));
+    const s = this.stats;
+    s.vehicles = live.length; s.props = this.props.size; s.mirrored = this.statics.size + this.terrain.size; s.steps = 0;
+    if (live.length || freeAwake) {
+      const t0 = performance.now();
+      this.jolt.Step(dt, steps);
+      s.stepMs = performance.now() - t0; s.steps = steps;
+    } else s.stepMs = 0;
+    s.activeBodies = this.system.GetNumActiveBodies(Jolt.EBodyType_RigidBody); s.bodies = this.system.GetNumBodies();
     for (const [v, car] of live) impacts.set(v.id, this.pull(v, car, dt, now));
     return impacts;
   }
@@ -384,6 +543,7 @@ export class JoltVehicles {
       this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
     }
     this.cars.clear();
+    for (const id of [...this.props.keys()]) this.removeBody(id);
     for (const e of [...this.statics.values(), ...this.terrain.values()]) { this.bodies.RemoveBody(e.id); this.bodies.DestroyBody(e.id); }
     this.statics.clear(); this.terrain.clear();
     Jolt.destroy(this.jolt);

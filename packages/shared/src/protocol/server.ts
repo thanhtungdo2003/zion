@@ -288,6 +288,20 @@ export interface KnockEvent {
   vx: number; vy: number; vz: number;
   /** A small tree: it falls over instead of flying. */
   tree: boolean;
+  /** The prop became this server rigid body: its poses arrive in 'bodies' messages (no cosmetic throw). */
+  body?: number;
+}
+/**
+ * Server rigid bodies (knocked props). Each row: [id, asset, scale, x, y, z, qx, qy, qz, qw, asleep].
+ * Awake bodies are sent at 15 Hz; a body falling asleep is sent once more; `full` replaces the set.
+ */
+export interface BodiesMessage {
+  t: 'bodies';
+  /** Server time (ms) of these poses, for timeline playback. */
+  at: number;
+  list: Array<[number, number, number, number, number, number, number, number, number, number, number]>;
+  gone?: number[];
+  full?: boolean;
 }
 /** Every prop currently knocked down (join, and whenever some stand again). */
 export interface KnockedMessage { t: 'knocked'; keys: string[] }
@@ -304,6 +318,7 @@ export type ServerJsonMessage =
   | KnockEvent
   | StaggerEvent
   | KnockedMessage
+  | BodiesMessage
   | TreesMessage
   | StructuresMessage
   | StructureMessage
