@@ -116,6 +116,8 @@ export function ShootingRange() {
     let firing = false, aiming = false, nextShot = 0, mag = 0, reloadEnd = 0, reloadTimers: number[] = [];
     let score = 0, shots = 0, hits = 0, last: number | null = null;
     let scopeLens: ScopeLens | null = null;
+    /** Recoil on top of the aim, recovering after each shot. */
+    let kickPitch = 0, kickYaw = 0;
     let sounds: SoundBank | null = null, effects: CombatEffects | null = null, view: ViewModel | null = null, lib: WeaponLibrary | null = null;
     const spec = (): GunSpec | null => { const w = WEAPON_BY_ITEM[live.current.weapon]; const s = w ? WEAPON_SPECS[w as Exclude<WeaponId, 0>] : undefined; return s?.kind === 'gun' ? s as GunSpec : null; };
     const push = () => setHud({ mag, max: spec()?.magazine ?? 0, reloading: reloadEnd > performance.now(), last, score, shots, hits });
@@ -235,13 +237,12 @@ export function ShootingRange() {
       mag--; shots++;
       const weaponId = WEAPON_BY_ITEM[live.current.weapon]!;
       view.kick(Math.min(1.8, weaponRecoil(weaponId) * 28 * (aiming ? .65 : 1)));
-      pitch = Math.min(1.45, pitch + weaponRecoil(weaponId) * (aiming ? .5 : .8));
-      yaw += (Math.random() - .5) * weaponRecoil(weaponId) * .4;
       const ends: number[] = [];
       let best: number | null = null;
       for (let p = 0; p < Math.max(1, s.pellets); p++) {
         const spread = s.spread * (aiming ? .25 : 1) * (s.pellets > 1 ? 1 : .6);
-        const dir = new Vector3(0, 0, -1).applyEuler(new Euler(pitch + (Math.random() - .5) * spread * 2, yaw + (Math.random() - .5) * spread * 2, 0, 'YXZ'));
+        // Along the view as it is now (the sight picture), before this shot's kick.
+        const dir = new Vector3(0, 0, -1).applyEuler(new Euler(pitch + kickPitch + (Math.random() - .5) * spread * 2, yaw + kickYaw + (Math.random() - .5) * spread * 2, 0, 'YXZ'));
         ray.set(camera.position, dir); ray.far = s.range;
         const hit = ray.intersectObjects(hitMeshes, false)[0];
         if (!hit) continue;
@@ -265,6 +266,9 @@ export function ShootingRange() {
         }
       }
       if (best !== null) { hits++; score += best; last = best; } else last = null;
+      // The kick: the view jumps up (a little sideways) and settles back to where it was aimed.
+      kickPitch += weaponRecoil(weaponId) * (aiming ? .5 : .8);
+      kickYaw += (Math.random() - .5) * weaponRecoil(weaponId) * .4;
       const muzzle = new Vector3(), eject = new Vector3();
       if (!view.weaponPoint('muzzle', muzzle)) muzzle.copy(camera.position);
       const dir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -289,7 +293,8 @@ export function ShootingRange() {
         pos.x = Math.min(AREA.x1, Math.max(AREA.x0, pos.x)); pos.z = Math.min(AREA.z1, Math.max(AREA.z0, pos.z));
       }
       camera.position.set(pos.x, EYE, pos.z);
-      camera.rotation.set(pitch, yaw, 0, 'YXZ');
+      kickPitch *= Math.exp(-dt * 9); kickYaw *= Math.exp(-dt * 9);
+      camera.rotation.set(pitch + kickPitch, yaw + kickYaw, 0, 'YXZ');
       // Targets: stand, run across their lane, come and go, or pop up — at the chosen pace and distance.
       const L = live.current, standZ = NEAR_Z + (FAR_Z - NEAR_Z) * L.distance;
       for (const t of targets) {
