@@ -210,6 +210,9 @@ export class ParticleSystem {
 const tmp = new Vector3();
 
 /** The effect presets. */
+/** How a gun's flash looks: by gun, and by what is on its muzzle. */
+export type FlashStyle = 'pistol' | 'rifle' | 'heavy' | 'shotgun' | 'compensator';
+
 export const ParticleFX = {
   /** Flamethrower: a roaring tongue of fire along the aim, embers, and dark smoke above it. */
   flame(ps: ParticleSystem, x: number, y: number, z: number, dx: number, dz: number, range: number): void {
@@ -261,22 +264,38 @@ export const ParticleFX = {
   },
 
   /** Gunfire: a white-hot core and flame tongue at the muzzle, sparks and a puff of smoke. */
-  muzzleFlash(ps: ParticleSystem, x: number, y: number, z: number, dx: number, dy: number, dz: number, heavy: boolean): void {
-    const s = heavy ? 1.4 : 1;
-    ps.glow.emit({ x, y, z, life: 0.05, size: 0.55 * s, sizeEnd: 0.2, color: [1, 0.95, 0.8], colorEnd: [1, 0.6, 0.2] });
-    for (let i = 1; i <= 4; i++) {
-      const d = i * 0.09 * s;
-      ps.glow.emit({ x: x + dx * d, y: y + dy * d, z: z + dz * d, vx: dx * 3, vy: dy * 3, vz: dz * 3, life: 0.06, size: (0.42 - i * 0.07) * s, sizeEnd: 0.05, color: [1, 0.78, 0.35], colorEnd: [0.9, 0.3, 0.05] });
+  /**
+   * The muzzle flash of one shot: a bright core gone within a couple of frames, a star of short
+   * prongs (rifles), a wide burst (shotguns), side jets (a compensator), a few sparks and a wisp of
+   * smoke. Nothing lingers where the gun was.
+   */
+  muzzleFlash(ps: ParticleSystem, x: number, y: number, z: number, dx: number, dy: number, dz: number, style: FlashStyle = 'rifle'): void {
+    const s = style === 'pistol' ? .7 : style === 'heavy' ? 1.35 : style === 'shotgun' ? 1.25 : 1;
+    // Two directions across the bore, for the star's prongs.
+    const ul = Math.hypot(dx, dz) || 1, ux = -dz / ul, uy = 0, uz = dx / ul;
+    const vx = dy * uz - dz * uy, vy = dz * ux - dx * uz, vz = dx * uy - dy * ux;
+    ps.glow.emit({ x: x + dx * .02, y: y + dy * .02, z: z + dz * .02, life: .03, size: (style === 'shotgun' ? .24 : .16) * s, sizeEnd: .05, color: [1, .96, .82], colorEnd: [1, .62, .22] });
+    if (style === 'compensator') {
+      // Gas out of the side ports: short jets up and to the sides, little forward flame.
+      for (const [a, b] of [[0, 1], [1, .35], [-1, .35]] as const) {
+        const px = ux * a + vx * b, py = uy * a + vy * b, pz = uz * a + vz * b;
+        ps.glow.emit({ x: x + px * .03, y: y + py * .03, z: z + pz * .03, vx: px * 5, vy: py * 5, vz: pz * 5, life: .035, size: .07, sizeEnd: .02, color: [1, .85, .45], colorEnd: [1, .45, .1] });
+      }
+    } else {
+      // Forward cone, then the star (rifles and heavy guns), or a wide bloom (shotguns).
+      for (let k = 1; k <= 3; k++) {
+        const d = k * .045 * s;
+        ps.glow.emit({ x: x + dx * d, y: y + dy * d, z: z + dz * d, life: .03, size: (.13 - k * .025) * s, sizeEnd: .03, color: [1, .8, .38], colorEnd: [.95, .35, .06] });
+      }
+      const prongs = style === 'shotgun' ? 7 : style === 'pistol' ? 0 : 4, turn = Math.random() * Math.PI;
+      for (let k = 0; k < prongs; k++) {
+        const a = turn + k / prongs * Math.PI * 2, px = ux * Math.cos(a) + vx * Math.sin(a), py = uy * Math.cos(a) + vy * Math.sin(a), pz = uz * Math.cos(a) + vz * Math.sin(a);
+        ps.glow.emit({ x: x + px * .025 * s + dx * .03, y: y + py * .025 * s + dy * .03, z: z + pz * .025 * s + dz * .03, vx: px * 3 + dx * 2, vy: py * 3 + dy * 2, vz: pz * 3 + dz * 2, life: .03, size: .06 * s, sizeEnd: .015, color: [1, .88, .5], colorEnd: [1, .45, .1] });
+      }
     }
-    ps.glow.emit({ x, y, z, vx: dx * 9, vy: dy * 9 + 1, vz: dz * 9, spread: 4, life: 0.18, size: 0.05, sizeEnd: 0.01, color: [1, 0.85, 0.4], colorEnd: [1, 0.3, 0], gravity: 9, count: heavy ? 8 : 4 });
-    ps.smoke.emit({ x, y, z, vx: dx * 1.5, vy: dy * 1.5 + 0.5, vz: dz * 1.5, spread: 0.35, life: 0.9, size: 0.18 * s, sizeEnd: 0.9 * s, color: [0.75, 0.72, 0.68], alpha: 0.45, drag: 2.5, count: heavy ? 4 : 2 });
-  },
-
-  /** Barrel heat: a lingering orange glow at the muzzle that builds up under sustained fire. */
-  barrelGlow(ps: ParticleSystem, x: number, y: number, z: number, heat: number): void {
-    if (heat <= 0.05) return;
-    ps.glow.emit({ x, y, z, life: 0.12, size: 0.12 + 0.18 * heat, sizeEnd: 0.08, color: [1, 0.45 * heat + 0.15, 0.08], alpha: 0.35 + 0.5 * heat });
-    if (heat > 0.5 && Math.random() < heat * 0.3) ps.smoke.emit({ x, y, z, vy: 0.6, spread: 0.08, life: 1.2, size: 0.06, sizeEnd: 0.35, color: [0.7, 0.7, 0.7], alpha: 0.25, drag: 1 });
+    // A few sparks thrown forward, and a thin wisp of smoke.
+    ps.glow.emit({ x, y, z, vx: dx * 8, vy: dy * 8 + .5, vz: dz * 8, spread: 2.5, life: .07, size: .025, sizeEnd: .006, color: [1, .85, .4], colorEnd: [1, .3, 0], gravity: 9, count: style === 'shotgun' || style === 'heavy' ? 5 : style === 'pistol' ? 1 : 3 });
+    ps.smoke.emit({ x, y, z, vx: dx * .8, vy: dy * .8 + .35, vz: dz * .8, spread: .15, life: .45, size: .05 * s, sizeEnd: .28 * s, color: [.75, .72, .68], alpha: .22, drag: 3, count: 1 });
   },
 
   /** Bullets leaving the gun: spent casing kicked out of the ejection port, impact sparks + dust. */

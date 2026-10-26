@@ -269,7 +269,8 @@ export function ShootingRange() {
       if (!view.weaponPoint('muzzle', muzzle)) muzzle.copy(camera.position);
       const dir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       const right = new Vector3(-dir.z, 0, dir.x).normalize();
-      effects.shot(0, { weapon: weaponId, muzzle, dir, eject: view.weaponPoint('eject', eject) ? eject : null, right, ends });
+      const device = fittedNow.current[live.current.weapon]?.muzzle;
+      effects.shot(0, { weapon: weaponId, muzzle, dir, eject: view.weaponPoint('eject', eject) ? eject : null, right, ends, muzzleDevice: device, suppressed: !!device?.startsWith('suppressor') });
       nextShot = now + s.fireMs;
       if (!s.auto) firing = false;
       push();

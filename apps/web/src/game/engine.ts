@@ -2587,7 +2587,7 @@ export class GameEngine {
         : this.tmpA.set(ox + fx * 0.6, oy, oz + fz * 0.6);
       const eject = this.localWeaponPoint('eject', this.tmpB) ? this.tmpB : null;
       const id = this.welcome?.playerId ?? 0;
-      this.effects?.shot(id, { weapon, muzzle, dir, eject, right: new Vector3(-fz, 0, fx), ends, suppressed });
+      this.effects?.shot(id, { weapon, muzzle, dir, eject, right: new Vector3(-fz, 0, fx), ends, suppressed, muzzleDevice: attachments?.muzzle });
     });
     av?.kick(heavy ? 0.35 : 0.12);
   }

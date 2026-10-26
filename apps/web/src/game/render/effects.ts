@@ -8,11 +8,11 @@ import {
   type Object3D,
   type Scene,
 } from 'three';
-import { GRENADE_GRAVITY, WeaponId, weaponSpec, advanceBallistic, type C4Pose, type ProjectileEvent } from '@zion/shared';
+import { GRENADE_GRAVITY, ITEMS, ITEM_BY_WEAPON, WeaponId, weaponSpec, advanceBallistic, type C4Pose, type ProjectileEvent } from '@zion/shared';
 import { SpentBrass } from './spent-brass';
 import { Mask, makeRayHit, stepProjectile, type CollisionWorld, type ProjectileState } from '@zion/physics';
 import type { SoundBank } from '../audio';
-import { ParticleFX, ParticleSystem } from './particles';
+import { ParticleFX, type FlashStyle, ParticleSystem } from './particles';
 import { BulletHoles } from './bullet-holes';
 
 /** A launcher round replayed from the server's launch event (ballistic, ended by 'projEnd'). */
@@ -46,6 +46,8 @@ export interface ShotInfo {
   /** Ejection port (for casings) and the gun's right side. */
   eject: Vector3 |null;
   right: Vector3 | null;
+  /** What is on the muzzle (shapes the flash: a compensator's side jets). */
+  muzzleDevice?: string;
   /** Pellet end points, flattened xyz. */
   ends: ArrayLike<number>;
   /** Suppressed: no flash, a short muffled report heard only nearby. */
@@ -140,7 +142,12 @@ export class CombatEffects {
     if (spec?.kind === 'gun' && spec.fire === 'flame') return this.flame(shooterId, m, d, spec.range);
     if (spec?.kind === 'gun' && spec.fire === 'projectile') return this.launchFlash(info.weapon, m, d);
     const heavy = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel || info.weapon === WeaponId.AWM || info.weapon === WeaponId.Barrett || info.weapon === WeaponId.SVD;
-    if (!info.suppressed) ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, heavy);
+    if (!info.suppressed) {
+      const shotgun = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12 || info.weapon === WeaponId.DoubleBarrel;
+      const pistol = ITEMS[ITEM_BY_WEAPON[info.weapon] ?? '']?.category === 'pistol';
+      const style: FlashStyle = info.muzzleDevice?.startsWith('compensator') ? 'compensator' : shotgun ? 'shotgun' : pistol ? 'pistol' : heavy ? 'heavy' : 'rifle';
+      ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, style);
+    }
     // The spent case out of the port (a revolver keeps its cases, a break-action drops them on reloading).
     if (info.eject && info.right && info.weapon !== WeaponId.Revolver && info.weapon !== WeaponId.DoubleBarrel) {
       const shell = info.weapon === WeaponId.Shotgun || info.weapon === WeaponId.Saiga12;
@@ -153,10 +160,6 @@ export class CombatEffects {
     const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
     light.position.copy(m);
     light.intensity = info.suppressed ? 0 : heavy ? 14 : 9;
-    const h = this.heat.get(shooterId) ?? { h: 0, at: new Vector3() };
-    h.h = Math.min(1, h.h + (heavy ? 0.35 : 0.09));
-    h.at.copy(m);
-    this.heat.set(shooterId, h);
     this.gunSound(info.weapon, m, !!info.suppressed);
   }
 
@@ -214,7 +217,7 @@ export class CombatEffects {
   private launchFlash(weapon: number, m: Vector3, d: Vector3): void {
     const rocket = weapon === WeaponId.RocketLauncher;
     if (weapon !== WeaponId.Crossbow) {
-      ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, true);
+      ParticleFX.muzzleFlash(this.particles, m.x, m.y, m.z, d.x, d.y, d.z, 'heavy');
       const light = this.flashLights[this.flashNext++ % this.flashLights.length]!;
       light.position.copy(m);
       light.intensity = rocket ? 20 : 12;
@@ -347,7 +350,7 @@ export class CombatEffects {
     for (const [id, h] of this.heat) {
       h.h -= dt * 0.35;
       if (h.h <= 0) this.heat.delete(id);
-      else ParticleFX.barrelGlow(this.particles, h.at.x, h.at.y, h.at.z, h.h);
+      // (No glow left hanging where the muzzle was: the flash is the shot's only light.)
     }
 
     this.smoke.update(dt);
