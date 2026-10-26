@@ -1,6 +1,7 @@
 import { PointLight, type Scene } from 'three';
 import { CAMP_ASSET, LIGHT_SOURCE_ASSET } from '@zion/assets';
 import { propTransform, type ChunkData } from '@zion/shared';
+import { assetLights } from './asset-lights';
 
 /**
  * Lamps built into whole-map models (model-local metres, just under each lamp head), found from
@@ -38,12 +39,22 @@ export class CampLights {
     if (now - this.lastScan < 250) return;
     this.lastScan = now;
     const lamps: Array<{ x: number; y: number; z: number; d: number }> = [];
-    const sources: Array<{ x: number; y: number; z: number; d: number; power: number }> = [];
+    const sources: Array<{ x: number; y: number; z: number; d: number; power: number; color?: number; range?: number }> = [];
     for (const chunk of chunks) for (const prop of chunk.props) {
       if (prop.asset === LIGHT_SOURCE_ASSET) {
         const t = propTransform(chunk, prop), d = (t.x - x) ** 2 + (t.z - z) ** 2;
         if (d < 110 * 110) sources.push({ x: t.x, y: t.y + .5 * t.scale, z: t.z, d, power: t.scale });
         continue;
+      }
+      // Lamps saved in a model (glowing blocks of a map model): placed with the model.
+      const own = assetLights(prop.asset);
+      if (own) {
+        const t = propTransform(chunk, prop), c = Math.cos(t.rotY), s = Math.sin(t.rotY);
+        for (const l of own) {
+          const wx = t.x + (l.x * c + l.z * s) * t.scale, wz = t.z + (-l.x * s + l.z * c) * t.scale;
+          const d = (wx - x) ** 2 + (wz - z) ** 2;
+          if (d < 110 * 110) sources.push({ x: wx, y: t.y + l.y * t.scale, z: wz, d, power: l.power / 3, color: l.color, range: l.range * t.scale });
+        }
       }
       const built = MODEL_LAMPS[prop.asset];
       if (built) {
@@ -73,7 +84,7 @@ export class CampLights {
     this.sources.forEach((light, i) => {
       const src = sources[i];
       light.intensity = src ? src.power * 22 * (.3 + .7 * night) : 0;
-      if (src) { light.distance = Math.min(70, 12 + 9 * src.power); light.position.set(src.x, src.y, src.z); }
+      if (src) { light.distance = src.range ?? Math.min(70, 12 + 9 * src.power); light.color.setHex(src.color ?? 0xffe4b8); light.position.set(src.x, src.y, src.z); }
     });
   }
   dispose(): void {

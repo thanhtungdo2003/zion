@@ -1,3 +1,4 @@
+import { collectAssetLights } from './asset-lights';
 import {
   BoxGeometry,
   DoubleSide,
@@ -233,6 +234,8 @@ export class AssetLibrary {
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const gltf = await this.gltf.loadAsync(entry.url);
         const parts = flattenScene(gltf.scene, model.scale, model.offset);
+        // Lamps saved in the model (glowing blocks): lit in game like the camp's.
+        collectAssetLights(def.numericId, gltf.scene, model.scale, model.offset);
         // Rocks, trees and plants are matte: no glossy highlights from photographed packs.
         // Buildings and whole maps: no mirror-like floors under lamps (rough, a little sheen at most).
         if (def.category === 'structure') for (const part of parts) {

@@ -6,7 +6,7 @@ import { createDefaultRegistry, LIGHT_SOURCE_ASSET, uploadedMapFit, type AssetDe
 import { Vector3, type Material, type Mesh, type MeshStandardMaterial } from 'three';
 import { gltfLoader } from '@/game/render/gltf-loader';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, modelInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
-import { studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
+import { API_URL, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
@@ -43,6 +43,7 @@ async function mapFitOf(buf: ArrayBuffer): Promise<UploadedMapFit> {
 // WebGL viewer: client only, loaded when first shown.
 const ModelPreview = dynamic(() => import('./ModelPreview'), { ssr: false });
 const InfectionMap3D = dynamic(() => import('./InfectionMap3D'), { ssr: false });
+const GlbBlockEditor = dynamic(() => import('./GlbBlockEditor'), { ssr: false });
 type Group = 'buildings' | 'materials' | 'nature';
 const GROUPS: Array<{ id: Group; label: string; icon: string }> = [
   { id: 'buildings', label: 'Công trình', icon: 'lucide:house' },
@@ -125,6 +126,8 @@ export default function InfectionStudio() {
   const [toast, setToast] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [creating, setCreating] = useState(false);
+  /** The map model open in the block editor. */
+  const [editingModel, setEditingModel] = useState(false);
 
   const flash = useCallback((t: string) => { setToast(t); window.setTimeout(() => setToast((x) => (x === t ? null : x)), 2600); }, []);
   const adopt = useCallback((next: InfectionMaps, id?: string) => {
@@ -164,6 +167,21 @@ export default function InfectionStudio() {
       setView3d(true);
       flash(`Đã tải lên ${m.name}: so kích thước với nhân vật trong 3D và chỉnh "Tỉ lệ model".`);
     }).catch((e: unknown) => flash(`Không tải lên được: ${(e as Error).message}`)).finally(() => setUploading(false));
+  };
+
+  /**
+   * The model edited block by block, saved as a new model (its collision computed again): the map
+   * moves onto it where the old one stood.
+   */
+  const saveEditedModel = async (glb: ArrayBuffer) => {
+    const old = models.find((m) => m.asset === draft?.model?.asset);
+    const fit = await mapFitOf(glb);
+    let bin = ''; const bytes = new Uint8Array(glb);
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const m = await studioUploadInfectionModel(`${(old?.name ?? 'Model').replace(/ \(sửa \d+\)$/, '')} (sửa ${new Date().toLocaleTimeString('vi', { hour: '2-digit', minute: '2-digit' })})`.slice(0, 60), btoa(bin), fit);
+    adoptModels([...models.filter((x) => x.asset !== m.asset), m]);
+    patch((d) => { if (d.model) d.model.asset = m.asset; });
+    flash('Đã lưu model đã chỉnh: bấm Lưu (và Publish) để game dùng nó.');
   };
 
   const dirty = !!draft && JSON.stringify(draft) !== saved;
@@ -502,6 +520,10 @@ export default function InfectionStudio() {
           </div>
         </div>
       )}
+      {editingModel && draft.model && (() => {
+        const m = models.find((x) => x.asset === draft.model!.asset);
+        return m ? <GlbBlockEditor url={`${API_URL}${m.url}`} name={m.name} onSave={saveEditedModel} onClose={() => setEditingModel(false)} /> : null;
+      })()}
       {deleting && <ConfirmDialog title={`Xóa ${draft.name}?`} message="Xóa vĩnh viễn bản đồ này." confirmLabel="Xóa" onCancel={() => setDeleting(false)}
         onConfirm={async () => { if (saved) adopt(await studioDeleteInfectionMap(draft.id)); else adopt({ ...maps, maps: maps.maps.filter((m) => m.id !== draft.id) }); setDeleting(false); }} />}
       {valid && !valid.success && <p className="error ix-error">{valid.error.issues.slice(0, 2).map((i) => `${i.path.join('.')}: ${i.message}`).join(' · ')}</p>}
@@ -602,6 +624,7 @@ export default function InfectionStudio() {
                 <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadModel(f); }} />
               </label>
               {draft.model && <>
+                <button className="btn" onClick={() => setEditingModel(true)} title="Bấm vào từng khối của model để dời, xoay, kéo dãn, tô màu hoặc cho phát sáng"><Icon name="lucide:boxes" /> Chỉnh khối model</button>
                 {(() => {
                   const b = registry.byNumericId(draft.model.asset)?.bounds;
                   return b ? <p className="ix-hint">Kích thước sau tỉ lệ: rộng ~{(b.radius * 2 * draft.model.scale).toFixed(1)} m · cao {(b.height * draft.model.scale).toFixed(1)} m (nhân vật cao ~1,8 m)</p> : <p className="ix-hint">Model chưa tải được trong Studio.</p>;
