@@ -148,7 +148,8 @@ export default function InfectionStudio() {
     setModels(list);
   }, []);
   useEffect(() => { if (status === 'ready') void studioInfectionModels().then((r) => adoptModels(r.models)).catch(() => undefined); }, [status, adoptModels]);
-  const uploadModel = (file: File) => {
+  /** `asNew`: a new map is made on the model once it is uploaded (never a seed map in between). */
+  const uploadModel = (file: File, asNew = false) => {
     if (file.size > 48 * 1024 * 1024) { flash('File lớn hơn 48 MB.'); return; }
     setUploading(true);
     void file.arrayBuffer().then(async (buf) => {
@@ -163,7 +164,13 @@ export default function InfectionStudio() {
       const height = (m.def as { bounds?: { height?: number } }).bounds?.height ?? 10;
       const scale = height > 300 ? .01 : height < .3 ? 100 : 1;
       // The model is the whole map: nothing grown from the seed (no hills, wall, grass, trees, rocks).
-      patch((d) => { const clean = modelInfectionMap(d.id, d.name, m.asset, scale); d.base = 'model'; d.model = clean.model; d.terrain = clean.terrain; d.environment = clean.environment; });
+      if (asNew) {
+        const name = file.name.replace(/\.glb$/i, '').slice(0, 40) || 'Bản đồ mới';
+        const map = modelInfectionMap(`${slug(name)}-${uid()}`, name, m.asset, scale);
+        setMaps((all) => (all ? { ...all, maps: [...all.maps, map] } : all));
+        setDraft(map); setSaved(''); setSel(null);
+        view.current = { cx: 0, cz: 0, zoom: 3 };
+      } else patch((d) => { const clean = modelInfectionMap(d.id, d.name, m.asset, scale); d.base = 'model'; d.model = clean.model; d.terrain = clean.terrain; d.environment = clean.environment; });
       setView3d(true);
       flash(`Đã tải lên ${m.name}: so kích thước với nhân vật trong 3D và chỉnh "Tỉ lệ model".`);
     }).catch((e: unknown) => flash(`Không tải lên được: ${(e as Error).message}`)).finally(() => setUploading(false));
@@ -496,6 +503,7 @@ export default function InfectionStudio() {
           {maps.maps.map((m) => <option key={m.id} value={m.id}>{m.name}{m.id === maps.active ? ' · mặc định' : m.published ? ' · đã publish' : ' · nháp'}</option>)}
         </select>
         <button className="btn" onClick={() => setCreating(true)} disabled={dirty}><Icon name="lucide:plus" /> Tạo map mới</button>
+        {uploading && <span className="studio-badge"><Spinner /> Đang tải GLB lên và tính va chạm…</span>}
         <span className="studio-badge ix-managing" title={draft.id}>Đang quản lý: <b>{draft.name}</b> · {draft.base === 'model' ? 'từ GLB' : draft.base === 'warehouse' ? 'Warehouse' : 'sinh từ seed'}{isActive ? ' · mặc định' : ''}</span>
         {isActive ? <span className="studio-badge custom">Map mặc định · luôn publish</span>
           : draft.published ? <button className="btn" onClick={() => void publish(false)} disabled={busy}><Icon name="lucide:eye-off" /> Gỡ khỏi game</button>
@@ -515,7 +523,7 @@ export default function InfectionStudio() {
             <button className="btn" onClick={() => create('copy')}><Icon name="lucide:copy" /> Nhân bản “{draft.name}”</button>
             <label className={`btn${uploading ? ' disabled' : ''}`} title="Một file GLB chứa cả bản đồ: tạo bản đồ mới trên nền model này (va chạm được tính khi tải lên)">
               <Icon name="lucide:upload" /> Nhập GLB · bản đồ mới từ model
-              <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { create('blank', f.name.replace(/\.glb$/i, '').slice(0, 40) || 'Bản đồ mới'); uploadModel(f); } }} />
+              <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setCreating(false); uploadModel(f, true); } }} />
             </label>
             <button className="btn" onClick={() => setCreating(false)}>Đóng</button>
           </div>
@@ -574,7 +582,7 @@ export default function InfectionStudio() {
           <canvas ref={canvas} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => { mouse.current = null; draw(); }} onWheel={onWheel} onContextMenu={(e) => e.preventDefault()} />
           <div className="ix-legend">
             <span><i style={{ background: '#ffb000' }} />Đã đặt ({draft.parts.length})</span>
-            <span><i style={{ background: '#3c8c46' }} />Cây, bụi, đá theo seed ({preview?.nature.length ?? 0})</span>
+            {draft.base !== 'model' && <span><i style={{ background: '#3c8c46' }} />Cây, bụi, đá theo seed ({preview?.nature.length ?? 0})</span>}
             <span><i style={{ background: '#7fc8ff' }} />Người ({draft.spawns.length || 'tự động'})</span>
             <span><i style={{ background: '#ff3b30' }} />Zombie ({draft.zombieSpawns.length || 'dùng điểm người'})</span>
           </div>
@@ -602,9 +610,9 @@ export default function InfectionStudio() {
           <section className="ix-section">
             <h3>Bản đồ</h3>
             <label className="ix-field"><span>Tên</span><input value={draft.name} onChange={(e) => patch((d) => { d.name = e.target.value; })} maxLength={60} /></label>
-            <label className="ix-field"><span>Seed địa hình</span>
+            {draft.base !== 'model' && <label className="ix-field"><span>Seed địa hình</span>
               <span className="ix-seed"><input value={draft.seed} onChange={(e) => patch((d) => { d.seed = e.target.value; })} maxLength={60} /><button className="btn" title="Seed ngẫu nhiên" onClick={() => patch((d) => { d.seed = `seed-${uid()}`; })}><Icon name="lucide:dices" /></button></span>
-            </label>
+            </label>}
             <label className="ix-field"><span>Nền bản đồ</span>
               <select value={draft.base} onChange={(e) => patch((d) => { d.base = e.target.value as InfectionMapDef['base']; })}>
                 <option value="empty">Trống (chỉ những gì bạn đặt)</option>
