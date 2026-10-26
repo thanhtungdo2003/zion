@@ -83,3 +83,51 @@ export function naturalMaterial<T extends Material>(material: T, surface: Natura
 export function groundMaterial(): MeshStandardMaterial {
   return naturalMaterial(new MeshStandardMaterial({ vertexColors: true, roughness: 0.98, metalness: 0 }), 'ground');
 }
+
+/**
+ * How mossy the rocks are around the player (0 dry or frozen … 1 lush and damp), set by the engine
+ * from the local climate; shared by every rock material.
+ */
+export const ROCK_MOSS = { value: 0 };
+
+/**
+ * Moss on rock: on the faces turned up to the sky, in patches, thicker in the cracks and hollows
+ * (the darker texels); its amount follows ROCK_MOSS. One shader change, no textures.
+ */
+export function mossyRock<T extends Material>(material: T): T {
+  const compile = material.onBeforeCompile.bind(material);
+  const key = material.customProgramCacheKey.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    compile(shader, renderer);
+    shader.uniforms.uMoss = ROCK_MOSS;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vMossPos; varying vec3 vMossUp;')
+      .replace('#include <project_vertex>', `
+        vec4 mossP = vec4(transformed, 1.0); vec3 mossN = objectNormal;
+        #ifdef USE_INSTANCING
+          mossP = instanceMatrix * mossP; mossN = mat3(instanceMatrix) * mossN;
+        #endif
+        vMossPos = (modelMatrix * mossP).xyz; vMossUp = normalize(mat3(modelMatrix) * mossN);
+        #include <project_vertex>`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform float uMoss; varying vec3 vMossPos; varying vec3 vMossUp;
+        float mossHash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }
+        float mossNoise(vec3 p) {
+          vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(mossHash(i), mossHash(i + vec3(1,0,0)), f.x), mix(mossHash(i + vec3(0,1,0)), mossHash(i + vec3(1,1,0)), f.x), f.y),
+                     mix(mix(mossHash(i + vec3(0,0,1)), mossHash(i + vec3(1,0,1)), f.x), mix(mossHash(i + vec3(0,1,1)), mossHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+        }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        if (uMoss > 0.01) {
+          float up = smoothstep(0.25, 0.85, normalize(vMossUp).y);
+          float patches = mossNoise(vMossPos * 0.55) * 0.65 + mossNoise(vMossPos * 2.7) * 0.35;
+          float hollow = 1.0 - smoothstep(0.15, 0.45, dot(diffuseColor.rgb, vec3(0.333)));
+          float moss = clamp(up * smoothstep(0.42, 0.7, patches + hollow * 0.25) * uMoss, 0.0, 1.0);
+          vec3 mossColor = mix(vec3(0.16, 0.24, 0.07), vec3(0.3, 0.38, 0.12), mossNoise(vMossPos * 9.0));
+          diffuseColor.rgb = mix(diffuseColor.rgb, mossColor, moss * 0.9);
+        }`);
+  };
+  material.customProgramCacheKey = () => `${key()}|mossy-rock`;
+  return material;
+}

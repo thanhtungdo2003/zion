@@ -102,6 +102,8 @@ function windMaterial(base: Material): Material {
  * dense carpets cost a handful of draw calls; the nearest chunks get the full detail.
  */
 export class VegetationRenderer {
+  /** Rock models: the grass at their feet grows taller in damp country. */
+  private readonly rocks = new Set<number>([2463, 2464, 2465, 2466, 2467, 2468, 2469, 2470, 2471, 2472]);
   private readonly perChunk = new Map<number, ChunkCover>();
   private readonly damage = new Map<number, Map<number, VegetationCell>>();
   private readonly coverCells = new Map<number, Set<number>>();
@@ -286,14 +288,16 @@ export class VegetationRenderer {
       const k0 = sample(lx0, lz0);
       if (!GRASSY.has(chunk.surface[k0]! as Surface)) continue;
       const r = Math.min(6, r0 * t.scale);
-      const count = Math.min(14, Math.round((4 + r * 3) * this.density));
+      const count = Math.min(this.rocks.has(p.asset) ? 22 : 14, Math.round((4 + r * (this.rocks.has(p.asset) ? 4.5 : 3)) * this.density));
       for (let i = 0; i < count; i++) {
         const a = rng.next() * Math.PI * 2, d = r * (.45 + rng.next() * .5) + .3;
         const lx = lx0 + Math.cos(a) * d, lz = lz0 + Math.sin(a) * d;
         if (lx < 0 || lz < 0 || lx >= CHUNK_SIZE || lz >= CHUNK_SIZE) continue;
         const k = sample(lx, lz), y = chunkHeightAtLocal(chunk, lx, lz);
         if (!GRASSY.has(chunk.surface[k]! as Surface) || !dry(y, k)) continue;
-        add(i === 0 && r > 1.2 ? 'lush' : 'carpet', lx, lz, k, .9 + rng.next() * .5, false);
+        // Round boulders in damp country: tall, lush grass grows up against the rock.
+        const lushRock = this.rocks.has(p.asset) && chunk.humidity[k]! / 255 > .45;
+        add(lushRock ? (i % 3 === 0 ? 'meadow' : 'lush') : i === 0 && r > 1.2 ? 'lush' : 'carpet', lx, lz, k, lushRock ? 1.2 + rng.next() * .6 : .9 + rng.next() * .5, false);
       }
     }
     return { byAsset: new Map([...out].map(([a, v]) => [a, new Float32Array(v)])) };

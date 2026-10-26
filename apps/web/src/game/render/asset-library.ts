@@ -25,7 +25,7 @@ import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
 import { gltfLoader } from './gltf-loader';
 import { API_URL } from '@/lib/api';
-import { naturalMaterial } from './natural-material';
+import { mossyRock, naturalMaterial } from './natural-material';
 import { ResourceDisposer } from './resources';
 
 export interface AssetVisual {
@@ -251,6 +251,8 @@ export class AssetLibrary {
           if (!part.geometry.getAttribute('normal')) part.geometry.computeVertexNormals();
           if (m.vertexColors && !part.geometry.getAttribute('color')) m.vertexColors = false;
           if (def.category === 'rock' && m.color && !m.map && m.color.r + m.color.g + m.color.b < .25) m.color.set('#8b877e');
+          // Rocks gather moss in green, damp country (on their tops, in their cracks).
+          if (def.category === 'rock') mossyRock(part.material);
         }
         // Flattened parts own cloned buffers but retain the original materials/textures.
         gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });

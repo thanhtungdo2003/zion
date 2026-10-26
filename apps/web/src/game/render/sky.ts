@@ -62,21 +62,14 @@ const skyFragment = /* glsl */ `
     vec3 sd3 = d * ct + cross(uPole, d) * st + uPole * dot(uPole, d) * (1.0 - ct);
     vec2 uv = vec2(atan(sd3.z, sd3.x) / 6.2831853 + 0.5,
                    asin(clamp(sd3.y, -1.0, 1.0)) / 3.14159265 + 0.5);
-    // Day: a photographed sky (CC0, Poly Haven); night: a photographed starry night sky.
-    vec3 day = texture2D(uSkyImage, uv).rgb * mix(vec3(1.15), uHorizon * 0.7 + vec3(0.3), uNight) * mix(1.0, 0.055, uNight);
-    // Night, game-styled: only the brighter stars as crisp points over a faint Milky Way, on a
+    // The colour layer: the live gradient by day (clouds are their own layer above it); at night
+    // a photographed starry sky. Night, game-styled: only the brighter stars as crisp points over a faint Milky Way, on a
     // deep blue; dim stars and the photo's haze drop away.
     vec3 nightPhoto = texture2D(uNightImage, uv).rgb;
     float starLum = dot(nightPhoto, vec3(0.2126, 0.7152, 0.0722));
     vec3 night = uTop * 0.55 + min(nightPhoto, vec3(0.5)) * vec3(0.07, 0.085, 0.13) + vec3(0.85, 0.9, 1.0) * smoothstep(0.55, 0.9, starLum) * 0.7;
-    vec3 photo = mix(day, night, uNight * uNightReady);
-    float ready = mix(uSkyReady, max(uSkyReady, uNightReady), uNight);
-    col = mix(col, photo, ready * smoothstep(0.04, 0.22, h) * 0.92);
-    vec2 clouds = cloudDensity(d, uCloudTime, uCloudSeed);
-    float cloudAlpha = clamp(clouds.x + clouds.y, 0.0, 0.8);
-    vec3 cloudColor = mix(vec3(0.8, 0.85, 0.92), uHorizon * 0.5, uNight);
-    cloudColor = mix(cloudColor, uHorizon, (1.0 - smoothstep(0.0, 0.35, uSunDir.y)) * 0.35);
-    col = mix(col, cloudColor, cloudAlpha);
+    col = mix(col, night, uNight * uNightReady * smoothstep(0.04, 0.22, h) * 0.92);
+    float cloudAlpha = 0.0;
     float sd = max(dot(d, uSunDir), 0.0);
     col += uSunColor * (pow(sd, 6.0) * 0.25 + pow(sd, 64.0) * 0.35);
     col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0 * (1.0 - cloudAlpha);
@@ -91,6 +84,52 @@ const skyFragment = /* glsl */ `
       col += vec3(step(0.9975, s) * twinkle * uNight * smoothstep(0.0, 0.2, h) * (1.0 - cloudAlpha));
     }
     gl_FragColor = vec4(col, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
+/**
+ * The cloud layer: domain-warped fractal noise on the sky, shaded by looking a little toward the
+ * sun (the far side of a cloud darker, its sunlit edges bright, a silver lining against the sun),
+ * thinning to the horizon. Moonlit grey at night over the stars.
+ */
+const cloudFragment = /* glsl */ `
+  uniform float uTime; uniform float uSeed; uniform float uNight; uniform float uCover;
+  uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uTop; uniform vec3 uHorizon;
+  varying vec3 vDir;
+  float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float cNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(cHash(i), cHash(i + vec2(1.0, 0.0)), f.x), mix(cHash(i + vec2(0.0, 1.0)), cHash(i + vec2(1.0)), f.x), f.y);
+  }
+  float cFbm(vec2 p) {
+    float n = 0.0, w = 0.5;
+    for (int i = 0; i < 5; i++) { n += cNoise(p) * w; p = mat2(1.6, -1.2, 1.2, 1.6) * p + 3.1; w *= 0.5; }
+    return n;
+  }
+  void main() {
+    vec3 d = normalize(vDir);
+    if (d.y < 0.015) discard;
+    vec2 p = d.xz / (d.y + 0.12) * 1.25 + vec2(uSeed * 0.37, uSeed * 0.11) - vec2(0.006, 0.0025) * uTime;
+    vec2 q = vec2(cFbm(p), cFbm(p + vec2(5.2, 1.3)));
+    vec2 w = p + 1.5 * q;
+    float n = cFbm(w);
+    float density = smoothstep(uCover, uCover + 0.28, n);
+    if (density < 0.004) discard;
+    // Toward the sun across the sky: denser there means this side is in its shadow.
+    vec2 toSun = normalize(uSunDir.xz + vec2(1e-4)) * 0.22;
+    float ahead = cFbm(w + toSun);
+    float lit = clamp(0.62 + (n - ahead) * 3.2, 0.0, 1.0);
+    float sunUp = smoothstep(-0.1, 0.25, uSunDir.y);
+    vec3 shadow = mix(uHorizon * 0.55 + uTop * 0.25, uTop * 0.25 + vec3(0.02, 0.025, 0.04), uNight);
+    vec3 light = mix(mix(uHorizon * 1.15, vec3(1.0), sunUp) * mix(vec3(1.0), uSunColor, 0.35), vec3(0.38, 0.42, 0.52), uNight);
+    vec3 col = mix(shadow, light, lit);
+    // Thin edges against the sun glow (silver lining).
+    float sd = max(dot(d, uSunDir), 0.0);
+    col += uSunColor * pow(sd, 10.0) * (1.0 - density) * 1.2 * (1.0 - uNight);
+    float alpha = density * mix(0.95, 0.75, uNight) * smoothstep(0.015, 0.2, d.y);
+    gl_FragColor = vec4(col, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -158,8 +197,15 @@ export class SkySystem {
   readonly hemi: HemisphereLight;
   readonly fog: Fog;
   private readonly dome: Mesh;
+  private readonly clouds: Mesh;
+  private readonly cloudMaterial = new ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 }, uSeed: { value: 0 }, uNight: { value: 0 }, uCover: { value: .52 },
+      uSunDir: { value: new Vector3() }, uSunColor: { value: new Color() }, uTop: { value: new Color() }, uHorizon: { value: new Color() },
+    },
+    vertexShader: skyVertex, fragmentShader: cloudFragment, side: BackSide, transparent: true, depthWrite: false, depthTest: true, fog: false,
+  });
   private readonly material: ShaderMaterial;
-  private readonly skyImage;
   private readonly nightImage;
   private disposed = false;
   /** 0 by day … 1 at full night. */
@@ -168,6 +214,7 @@ export class SkySystem {
   lightLevel = 1;
 
   constructor(private readonly scene: Scene, cosmeticSeed = 0) {
+    this.cloudMaterial.uniforms.uSeed!.value = (cosmeticSeed >>> 0) % 997;
     this.material = new ShaderMaterial({
       uniforms: {
         uTop: { value: this.top },
@@ -201,18 +248,17 @@ export class SkySystem {
     this.nightImage.minFilter = LinearFilter;
     this.nightImage.generateMipmaps = false;
     this.material.uniforms.uNightImage!.value = this.nightImage;
-    this.skyImage = new TextureLoader().load('/textures/sky/day-sky-2.jpg', (texture) => {
-      if (this.disposed) { texture.dispose(); return; }
-      this.material.uniforms.uSkyReady!.value = 1;
-    });
-    this.skyImage.colorSpace = SRGBColorSpace;
-    this.skyImage.wrapS = RepeatWrapping;
-    this.material.uniforms.uSkyImage!.value = this.skyImage;
     this.dome = new Mesh(new SphereGeometry(1, 32, 16), this.material);
     this.dome.scale.setScalar(2000);
     this.dome.renderOrder = -10;
     this.dome.frustumCulled = false;
     scene.add(this.dome);
+    // The cloud layer, a dome just inside the sky's: lit by the sun (or the moon), drifting.
+    this.clouds = new Mesh(new SphereGeometry(1, 48, 24), this.cloudMaterial);
+    this.clouds.scale.setScalar(1900);
+    this.clouds.renderOrder = -9;
+    this.clouds.frustumCulled = false;
+    scene.add(this.clouds);
 
     this.light = new DirectionalLight(0xffffff, 2);
     this.light.castShadow = true;
@@ -281,19 +327,25 @@ export class SkySystem {
     this.material.uniforms.uSkyTurn!.value = -(angle + Math.PI / 2);
     this.material.uniforms.uTime!.value = elapsed;
     this.material.uniforms.uCloudTime!.value = serverSeconds;
+    const c = this.cloudMaterial.uniforms;
+    c.uTime!.value = serverSeconds; c.uNight!.value = this.night;
+    (c.uSunDir!.value as Vector3).copy(usingSun ? this.sunDir : dir);
+    (c.uSunColor!.value as Color).copy(usingSun ? this.sunColor : MOON);
+    (c.uTop!.value as Color).copy(this.top); (c.uHorizon!.value as Color).copy(this.horizon);
   }
 
   follow(x: number, y: number, z: number): void {
     this.dome.position.set(x, y, z);
+    this.clouds.position.set(x, y, z);
   }
 
   dispose(): void {
     this.disposed = true;
-    this.scene.remove(this.dome, this.light, this.light.target, this.hemi);
+    this.scene.remove(this.dome, this.clouds, this.light, this.light.target, this.hemi);
+    this.clouds.geometry.dispose(); this.cloudMaterial.dispose();
     if (this.scene.fog === this.fog) this.scene.fog = null;
     this.dome.geometry.dispose();
     this.material.dispose();
-    this.skyImage.dispose();
     this.nightImage.dispose();
     this.light.dispose();
   }

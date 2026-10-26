@@ -21,6 +21,8 @@ import { ThrowArc, type ArcLaunch } from './render/throw-arc';
 import { reloadScriptOf, type PartSound } from './reload-scripts';
 import { Compass, type CompassMark } from './render/compass';
 import { NearBlur } from './render/near-blur';
+import { ROCK_MOSS } from './render/natural-material';
+import { CHUNK_SIZE as MOSS_CHUNK, chunkKey as mossChunkKey, lodStep } from '@zion/shared';
 import { handAnimationFor } from './hand-studio';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
 import { applyFirstPersonRoll } from './render/first-person-roll';
@@ -898,6 +900,20 @@ export class GameEngine {
   private nearBlurStrength(): number {
     if (!settingsStore.get().nearBlur || !this.eyeView || this.scoped || !this.viewModel) return 0;
     return 1 - .7 * this.viewModel.aimed;
+  }
+
+  private lastMoss = 0;
+  /** Moss on the rocks follows the local climate: thick where it is green and damp, none in desert or snow. */
+  private updateRockMoss(chunks: ReadonlyMap<number, ChunkData>, x: number, z: number, now: number): void {
+    if (now - this.lastMoss < 500) return;
+    this.lastMoss = now;
+    const cx = Math.floor(x / MOSS_CHUNK), cz = Math.floor(z / MOSS_CHUNK), chunk = chunks.get(mossChunkKey(cx, cz));
+    if (!chunk) return;
+    const step = lodStep(chunk.lod), n = chunk.verts;
+    const i = Math.min(n - 1, Math.max(0, Math.round((x - cx * MOSS_CHUNK) / step))), j = Math.min(n - 1, Math.max(0, Math.round((z - cz * MOSS_CHUNK) / step)));
+    const hum = chunk.humidity[j * n + i]! / 255, temp = chunk.temperature[j * n + i]! / 255;
+    const want = Math.max(0, Math.min(1, (hum - .4) / .35)) * Math.max(0, Math.min(1, (temp - .12) / .15)) * Math.max(0, Math.min(1, (.88 - temp) / .12));
+    ROCK_MOSS.value += (want - ROCK_MOSS.value) * .3;
   }
 
   attachMinimap(canvas: HTMLCanvasElement | null): void {
@@ -2154,6 +2170,7 @@ export class GameEngine {
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
+    this.updateRockMoss(store.chunks, px, pz, now);
     if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
     if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && !this.aiming && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
     this.updateShoulderAim(px, py, pz);

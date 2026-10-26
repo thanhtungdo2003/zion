@@ -107,6 +107,11 @@ const COLOR = `
         nrm += texture(groundNormal, vec3(uv1, float(i1))).rgb * b1;
       }
       diffuseColor.rgb *= mix(vec3(1.0), albedo * 2.0, groundStrength * groundFade);
+      // Cracks, crevices and hollows sit in shadow: the low texels of the height map are darkened
+      // (most on rock and steep ground), so rough ground reads as relief, not as a flat photo.
+      float cavity = h0 * b0 + h1 * b1;
+      float rocky = max(side, gw[6]);
+      diffuseColor.rgb *= mix(1.0, 0.5 + 0.5 * smoothstep(0.08, 0.62, cavity), groundFade * (0.35 + 0.55 * rocky));
       vec2 t = (nrm.rg * 2.0 - 1.0) * groundFade * (1.0 - side);
       groundBump = vec3(t.x, 0.0, -t.y);
     }

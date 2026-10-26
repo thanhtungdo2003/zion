@@ -150,7 +150,55 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
     }
   }
   if (gen.config.generatorVersion >= 2) placeAmmoCaches(gen, ox, oz, sample, out);
+  rockOutcrops(gen, ox, oz, sample, out);
   return out;
+}
+
+/**
+ * Rock outcrops: on steep slopes and high mountainsides the ground breaks into heaps of jagged
+ * boulders — a cliff face or big block half sunk in the slope, broken pieces round it and loose
+ * stones below (photographed rock models, with their own collision). Seeded per 14 m cell, so
+ * server and clients build the same.
+ */
+function rockOutcrops(gen: WorldGenerator, ox: number, oz: number, sample: ColumnSample, out: PropInstance[]): void {
+  const cell = 14, seed = gen.seed;
+  const push = (asset: number, x: number, z: number, scale: number, sink: number, yaw: number) => {
+    if (x < ox || x >= ox + CHUNK_SIZE || z < oz || z >= oz + CHUNK_SIZE) return;
+    gen.sampleColumn(x, z, sample);
+    if (hasWater(gen, sample) || sample.roadDistance < sample.roadHalfWidth + 2.5 || insideStructure(gen, x, z)) return;
+    out.push({ asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(sample.height - sink * scale), rot: quantizeRotation(yaw), scale: quantizeScale(scale) });
+  };
+  for (let gz = Math.floor(oz / cell); gz <= Math.floor((oz + CHUNK_SIZE - 1e-6) / cell); gz++) {
+    for (let gx = Math.floor(ox / cell); gx <= Math.floor((ox + CHUNK_SIZE - 1e-6) / cell); gx++) {
+      const rng = new Rng(hash3(seed, gx, gz, 0x5c));
+      const x = (gx + .15 + .7 * rng.next()) * cell, z = (gz + .15 + .7 * rng.next()) * cell;
+      if (x < ox || x >= ox + CHUNK_SIZE || z < oz || z >= oz + CHUNK_SIZE) continue;
+      if (x < 8 || z < 8 || x > gen.worldSize - 8 || z > gen.worldSize - 8) continue;
+      if (gen.camp && Math.max(Math.abs(x - gen.camp.x), Math.abs(z - gen.camp.z)) < 70) continue;
+      gen.sampleColumn(x, z, sample);
+      if (hasWater(gen, sample) || sample.roadDistance < sample.roadHalfWidth + 6) continue;
+      const slope = gen.slopeAt(x, z, sample.height), rel = sample.height - gen.seaLevel;
+      // Steep slopes, and the upper mountain where even moderate slopes go to rock.
+      const steep = smoothstep(.42, .78, slope), high = smoothstep(50, 110, rel) * smoothstep(.12, .35, slope);
+      const chance = Math.max(steep, high) * (.5 + .5 * smoothstep(-.4, .4, gen.fields.clusterNoise(x, z)));
+      if (chance <= 0 || rng.next() >= chance) continue;
+      // Down the slope: where loose pieces roll to.
+      const e = .8, dhx = gen.heightAt(x + e, z) - gen.heightAt(x - e, z), dhz = gen.heightAt(x, z + e) - gen.heightAt(x, z - e);
+      const down = Math.atan2(-dhz, -dhx);
+      const big = rng.next() < .4 && slope > .55 ? ISLAND_ASSET.cliff : ISLAND_ASSET.rockBig;
+      push(big[Math.floor(rng.next() * big.length)]!, x, z, big === ISLAND_ASSET.cliff ? .7 + rng.next() * .6 : 1 + rng.next() * 1.1, .5, rng.next() * Math.PI * 2);
+      const pieces = 2 + Math.floor(rng.next() * 3);
+      for (let i = 0; i < pieces; i++) {
+        const a = down + (rng.next() - .5) * 2.4, d = 2.2 + rng.next() * 3.2;
+        push(ISLAND_ASSET.rockMedium[Math.floor(rng.next() * 3)]!, x + Math.cos(a) * d, z + Math.sin(a) * d, .7 + rng.next() * .9, .4, rng.next() * Math.PI * 2);
+      }
+      const stones = 2 + Math.floor(rng.next() * 4);
+      for (let i = 0; i < stones; i++) {
+        const a = down + (rng.next() - .5) * 1.6, d = 4 + rng.next() * 5;
+        push(ISLAND_ASSET.stone[Math.floor(rng.next() * 2)]!, x + Math.cos(a) * d, z + Math.sin(a) * d, .6 + rng.next() * .8, .25, rng.next() * Math.PI * 2);
+      }
+    }
+  }
 }
 
 /**
