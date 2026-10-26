@@ -479,6 +479,12 @@ export default function MainMenu() {
           <b>{brMap.name}</b>
           <span className="menu-mode-caret"><Icon name="lucide:map" /></span>
         </button>}
+        <button className="menu-mode menu-range" onClick={() => router.push('/range')} title="Tập bắn với mọi loại súng, bia di động">
+          <span className="menu-mode-thumb range-thumb"><Icon name="lucide:crosshair" /></span>
+          <small>Luyện tập</small>
+          <b>Phòng tập</b>
+          <span className="menu-mode-caret"><Icon name="lucide:target" /></span>
+        </button>
         <button className="menu-mode" onClick={() => setModeOpen(true)} aria-haspopup="dialog" aria-expanded={modeOpen}>
           <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === gameMode)!.image})` }} />
           <small>{t('menu.mode')}</small>
