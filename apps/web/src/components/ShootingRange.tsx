@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AmbientLight, CanvasTexture, CircleGeometry, Color, DoubleSide, Euler, HemisphereLight, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PointLight,
-  Raycaster, Scene, SRGBColorSpace, TextureLoader, Vector3, WebGLRenderer, type Object3D, type Texture,
+  Quaternion, Raycaster, Scene, SRGBColorSpace, TextureLoader, Vector3, WebGLRenderer, type Object3D, type Texture,
 } from 'three';
-import { ITEMS, WEAPON_BY_ITEM, WEAPON_SPECS, type GunSpec, type WeaponId } from '@zion/shared';
+import { ITEMS, WEAPON_ATTACHMENTS, WEAPON_BY_ITEM, WEAPON_SPECS, type Attachments, type AttachmentSlot, type GunSpec, type WeaponId } from '@zion/shared';
+import { renderItemIcons } from '@/game/inventory/icons';
+import { ItemArt } from './Inventory';
 import { gltfLoader } from '@/game/render/gltf-loader';
 import { loadPlayerCharacter } from '@/game/render/character-model';
 import { loadWeapons, type WeaponLibrary } from '@/game/render/weapons';
@@ -41,7 +43,9 @@ const MOTIONS: Array<{ id: Motion; label: string }> = [
   { id: 'still', label: 'Đứng yên' }, { id: 'sway', label: 'Chạy ngang' }, { id: 'approach', label: 'Tiến / lùi' }, { id: 'popup', label: 'Bật lên / hạ xuống' },
 ];
 
-interface Target { node: Object3D; paper: Mesh; x: number; phase: number; size: { w: number; h: number; cx: number; cy: number } }
+/** A paper target; `hits` so far, and once broken (BREAK_AT hits) how far it has fallen. */
+interface Target { node: Object3D; paper: Mesh; x: number; phase: number; size: { w: number; h: number; cx: number; cy: number }; hits: number; fall: { drop: number; vy: number; tilt: number } | null }
+const BREAK_AT = 30;
 
 function guns(lib: WeaponLibrary): string[] {
   return [...lib.keys()].filter((id) => {
@@ -78,7 +82,10 @@ export function ShootingRange() {
   const [locked, setLocked] = useState(false);
   const live = useRef({ weapon, motion, speed, distance, menu });
   live.current = { weapon, motion, speed, distance, menu };
-  const game = useRef<{ view: ViewModel; lib: WeaponLibrary; reset: () => void; equip: (id: string) => void } | null>(null);
+  const game = useRef<{ view: ViewModel; lib: WeaponLibrary; reset: () => void; equip: (id: string, attachments?: Attachments) => void } | null>(null);
+  /** Attachments chosen per gun (right click on a gun in the menu). */
+  const [fitted, setFitted] = useState<Record<string, Attachments>>({});
+  const [fitting, setFitting] = useState<string | null>(null);
 
   useEffect(() => {
     const el = host.current;
@@ -110,11 +117,16 @@ export function ShootingRange() {
     const spec = (): GunSpec | null => { const w = WEAPON_BY_ITEM[live.current.weapon]; const s = w ? WEAPON_SPECS[w as Exclude<WeaponId, 0>] : undefined; return s?.kind === 'gun' ? s as GunSpec : null; };
     const push = () => setHud({ mag, max: spec()?.magazine ?? 0, reloading: reloadEnd > performance.now(), last, score, shots, hits });
 
-    const equip = (id: string) => {
+    const equip = (id: string, attachments?: Attachments) => {
       if (!view || !lib) return;
-      view.set(id, lib); mag = spec()?.magazine ?? 0; reloadEnd = 0; for (const t of reloadTimers) clearTimeout(t); reloadTimers = []; push();
+      view.set(id, lib, attachments); mag = spec()?.magazine ?? 0; reloadEnd = 0; for (const t of reloadTimers) clearTimeout(t); reloadTimers = []; push();
     };
-    const reset = () => { score = 0; shots = 0; hits = 0; last = null; for (const h of holes) h.removeFromParent(); holes.length = 0; push(); };
+    /** Everything back: the targets whole and up, no holes, the score from zero. */
+    const reset = () => {
+      score = 0; shots = 0; hits = 0; last = null; for (const h of holes) h.removeFromParent(); holes.length = 0;
+      for (const t of targets) { t.hits = 0; t.fall = null; t.node.quaternion.copy(t.node.userData.baseRot as Quaternion); }
+      push();
+    };
 
     void (async () => {
       try {
@@ -137,13 +149,16 @@ export function ShootingRange() {
           const bb = p.geometry.boundingBox!;
           const world = node.getWorldPosition(new Vector3());
           // Lanes in a row (the one left parked at the booth goes back down its lane).
-          targets.push({ node, paper: p, x: world.x, phase: i * 1.7, size: { w: bb.max.x - bb.min.x, h: bb.max.y - bb.min.y, cx: (bb.min.x + bb.max.x) / 2, cy: (bb.min.y + bb.max.y) / 2 } });
+          targets.push({ hits: 0, fall: null, node, paper: p, x: world.x, phase: i * 1.7, size: { w: bb.max.x - bb.min.x, h: bb.max.y - bb.min.y, cx: (bb.min.x + bb.max.x) / 2, cy: (bb.min.y + bb.max.y) / 2 } });
           node.userData.base = node.position.clone();
+          node.userData.baseRot = node.quaternion.clone();
           node.userData.baseWorld = world;
         });
         room.traverse((o) => { if ((o as Mesh).isMesh) hitMeshes.push(o); });
         lib = await loadWeapons(character).catch(() => new Map() as WeaponLibrary);
         if (disposed) return;
+        // Pictures of the guns for the menu.
+        try { renderItemIcons(lib); } catch { /* icons are optional */ }
         view = new ViewModel(camera);
         if (character.human) view.setBody(character.human);
         sounds = new SoundBank(() => camera.position, () => yaw);
@@ -164,12 +179,21 @@ export function ShootingRange() {
     document.addEventListener('pointerlockchange', onLock);
     const onMouseMove = (e: MouseEvent) => {
       if (!lockedNow()) return;
+      // Browsers sometimes report one huge jump (the cursor re-centred, a focus change): skipped,
+      // so the view never snaps to another direction.
+      if (Math.abs(e.movementX) > 220 || Math.abs(e.movementY) > 220) return;
       const k = .0022 * (aiming ? .55 : 1);
       yaw -= e.movementX * k; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * k));
     };
     const onDown = (e: MouseEvent) => {
       if (live.current.menu) return;
-      if (!lockedNow()) { sounds?.unlock(); void renderer.domElement.requestPointerLock(); return; }
+      if (!lockedNow()) {
+        sounds?.unlock();
+        // Raw mouse movement where the browser has it (no acceleration, no jumps).
+        const lock = renderer.domElement.requestPointerLock as (o?: { unadjustedMovement?: boolean }) => Promise<void> | void;
+        void Promise.resolve(lock.call(renderer.domElement, { unadjustedMovement: true })).catch(() => renderer.domElement.requestPointerLock());
+        return;
+      }
       if (e.button === 0) firing = true;
       if (e.button === 2) aiming = true;
     };
@@ -217,8 +241,10 @@ export function ShootingRange() {
         const hit = ray.intersectObjects(hitMeshes, false)[0];
         if (!hit) continue;
         ends.push(hit.point.x, hit.point.y, hit.point.z);
-        const target = targets.find((t) => t.paper === hit.object);
+        const target = targets.find((t) => t.paper === hit.object && !t.fall);
         if (target) {
+          // Shot through enough times, it breaks off its holder and falls.
+          if (++target.hits >= BREAK_AT) target.fall = { drop: 0, vy: 0, tilt: 0 };
           // A hole where it went in, and points by how near the centre.
           const local = target.paper.worldToLocal(hit.point.clone());
           const hole = new Mesh(holeGeo, holeMat);
@@ -269,6 +295,15 @@ export function ShootingRange() {
         if (L.motion === 'approach') w.z = NEAR_Z + (standZ - NEAR_Z) * (.5 + .5 * Math.sin(ph * .7));
         if (L.motion === 'popup') up = Math.sin(ph * 1.1) > .2 ? 0 : -1.2;
         w.y += up;
+        // A broken target drops to the floor, tipping over as it goes.
+        if (t.fall) {
+          const floor = -(base.y - .05);
+          t.fall.vy -= 9.8 * dt; t.fall.drop = Math.max(floor, t.fall.drop + t.fall.vy * dt);
+          if (t.fall.drop === floor) t.fall.vy = 0;
+          t.fall.tilt = Math.min(Math.PI / 2, t.fall.tilt + dt * 3.2);
+          w.y += t.fall.drop;
+          t.node.quaternion.copy(t.node.userData.baseRot as Quaternion).premultiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), t.fall.tilt));
+        }
         t.node.position.copy(parent.worldToLocal(w));
       }
       if (firing && now >= nextShot && reloadEnd <= now && !L.menu) shoot(now);
@@ -289,7 +324,7 @@ export function ShootingRange() {
     };
   }, []);
 
-  useEffect(() => { if (ready) game.current?.equip(weapon); }, [weapon, ready]);
+  useEffect(() => { if (ready) game.current?.equip(weapon, fitted[weapon]); }, [weapon, ready, fitted]);
   const accuracy = hud.shots ? Math.round(hud.hits / hud.shots * 100) : 0;
   const byClass = useMemo(() => {
     const groups = new Map<string, string[]>();
@@ -306,6 +341,7 @@ export function ShootingRange() {
         <Link href="/" className="btn"><Icon name="lucide:arrow-left" /> Về menu</Link>
         <b>Phòng tập</b>
         <span>{ITEMS[weapon]?.name ?? weapon}</span>
+        <button className="btn range-reset" onClick={() => game.current?.reset()} title="Dựng lại mọi bia, gỡ lỗ đạn, tính điểm lại"><Icon name="lucide:rotate-ccw" /> Reset</button>
         <span>Điểm <b>{hud.score}</b> · {hud.hits}/{hud.shots} trúng ({accuracy}%){hud.last !== null ? ` · phát vừa rồi ${hud.last}` : ''}</span>
       </div>
       <div className="range-ammo"><b>{hud.mag}</b> / {hud.max}{hud.reloading ? ' · đang thay đạn' : hud.mag === 0 ? ' · R thay đạn' : ''}</div>
@@ -313,19 +349,49 @@ export function ShootingRange() {
       {ready && !locked && !menu && <div className="range-hint">Bấm vào màn hình để bắt đầu · WASD đi · chuột trái bắn · chuột phải ngắm · R thay đạn · <b>E</b> chọn súng và bia</div>}
       {menu && (
         <div className="range-menu" role="dialog" aria-label="Phòng tập">
-          <header><b>Phòng tập</b><button className="btn" onClick={() => setMenu(false)}>Đóng (E)</button></header>
-          <h3>Súng</h3>
-          {byClass.map(([cat, ids]) => (
-            <div key={cat} className="range-guns"><small>{CATEGORY[cat] ?? cat}</small>
-              <div>{ids.map((id) => <button key={id} className={`btn${id === weapon ? ' btn-primary' : ''}`} onClick={() => setWeapon(id)}>{ITEMS[id]?.name ?? id}</button>)}</div>
-            </div>
-          ))}
-          <h3>Bia tập</h3>
-          <div className="range-motions">{MOTIONS.map((m) => <button key={m.id} className={`btn${motion === m.id ? ' btn-primary' : ''}`} onClick={() => setMotion(m.id)}>{m.label}</button>)}</div>
-          <label className="set-slider"><span>Tốc độ bia <b>{speed.toFixed(1)}×</b></span><input type="range" min={.1} max={4} step={.1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /></label>
-          <label className="set-slider"><span>Khoảng cách <b>{Math.round(NEAR_Z + (FAR_Z - NEAR_Z) * distance + 6.3)} m</b></span><input type="range" min={0} max={1} step={.01} value={distance} onChange={(e) => setDistance(Number(e.target.value))} /></label>
-          <button className="btn" onClick={() => game.current?.reset()}><Icon name="lucide:rotate-ccw" /> Gỡ lỗ đạn, tính điểm lại</button>
-          <p className="range-note">Ảnh trên bia: đặt file <code>public/range/target.png</code> (dọc, tỉ lệ khoảng 1 : 2) rồi tải lại trang.</p>
+          <header><b>Phòng tập</b><small>Bấm để cầm · chuột phải để chọn phụ kiện</small><button className="btn" onClick={() => setMenu(false)}>Đóng (E)</button></header>
+          <div className="range-menu-body">
+            <section className="range-guns">
+              {byClass.map(([cat, ids]) => (
+                <div key={cat}>
+                  <h3>{CATEGORY[cat] ?? cat}</h3>
+                  <div className="range-grid">
+                    {ids.map((id) => (
+                      <button key={id} className={`range-gun${id === weapon ? ' on' : ''}`} onClick={() => setWeapon(id)}
+                        onContextMenu={(e) => { e.preventDefault(); setWeapon(id); setFitting(id); }}>
+                        <span className="range-gun-art">{ITEMS[id] && <ItemArt def={ITEMS[id]!} attachments={fitted[id]} />}</span>
+                        <b>{ITEMS[id]?.name ?? id}</b>
+                        {fitted[id] && Object.values(fitted[id]!).some(Boolean) && <small>{Object.values(fitted[id]!).filter(Boolean).map((a) => ITEMS[a!]?.name ?? a).join(' · ')}</small>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </section>
+            <aside className="range-config">
+              {fitting && WEAPON_ATTACHMENTS[fitting] ? <>
+                <h3>Phụ kiện · {ITEMS[fitting]?.name ?? fitting}</h3>
+                {(Object.entries(WEAPON_ATTACHMENTS[fitting]!) as Array<[AttachmentSlot, readonly string[]]>).map(([slot, options]) => (
+                  <div key={slot} className="range-slot">
+                    <small>{slot === 'optic' ? 'Ống ngắm' : 'Đầu nòng'}</small>
+                    <div className="range-motions">
+                      <button className={`btn${!fitted[fitting]?.[slot] ? ' btn-primary' : ''}`} onClick={() => setFitted((f) => ({ ...f, [fitting]: { ...f[fitting], [slot]: undefined } }))}>Không</button>
+                      {options.map((a) => <button key={a} className={`btn${fitted[fitting]?.[slot] === a ? ' btn-primary' : ''}`} onClick={() => setFitted((f) => ({ ...f, [fitting]: { ...f[fitting], [slot]: a } }))}>{ITEMS[a]?.name ?? a}</button>)}
+                    </div>
+                  </div>
+                ))}
+                <button className="btn" onClick={() => setFitting(null)}>Xong</button>
+              </> : fitting ? <><p className="range-note">{ITEMS[fitting]?.name ?? fitting} không gắn được phụ kiện.</p><button className="btn" onClick={() => setFitting(null)}>Xong</button></> : <>
+                <h3>Bia tập</h3>
+                <div className="range-motions">{MOTIONS.map((m) => <button key={m.id} className={`btn${motion === m.id ? ' btn-primary' : ''}`} onClick={() => setMotion(m.id)}>{m.label}</button>)}</div>
+                <label className="set-slider"><span>Tốc độ bia <b>{speed.toFixed(1)}×</b></span><input type="range" min={.1} max={4} step={.1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /></label>
+                <label className="set-slider"><span>Khoảng cách <b>{Math.round(NEAR_Z + (FAR_Z - NEAR_Z) * distance + 6.3)} m</b></span><input type="range" min={0} max={1} step={.01} value={distance} onChange={(e) => setDistance(Number(e.target.value))} /></label>
+                <button className="btn" onClick={() => game.current?.reset()}><Icon name="lucide:rotate-ccw" /> Reset: dựng lại bia, gỡ lỗ đạn, tính điểm lại</button>
+                <p className="range-note">Một bia trúng {BREAK_AT} phát sẽ vỡ và rơi xuống.</p>
+                <p className="range-note">Ảnh trên bia: đặt file <code>public/range/target.png</code> (dọc, tỉ lệ khoảng 1 : 2) rồi tải lại trang.</p>
+              </>}
+            </aside>
+          </div>
         </div>
       )}
     </div>

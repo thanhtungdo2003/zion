@@ -3556,3 +3556,21 @@ kbd {
 .range-guns .btn, .range-motions .btn { width: auto; flex: none; padding: 4px 10px; }
 .range-note { font-size: 12px; color: var(--muted); }
 .range-thumb { display: grid; place-items: center; background: #2a2f2a; font-size: 22px; }
+
+/* Range menu: the guns as a big grid on the left, settings on the right. */
+.range-menu { width: min(1180px, 96vw); height: min(820px, 90vh); max-height: none; overflow: hidden; }
+.range-menu header { gap: 12px; }
+.range-menu header small { color: var(--muted); font-size: 12px; margin-right: auto; }
+.range-menu-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 320px; gap: 14px; }
+.range-guns { overflow: auto; padding-right: 6px; }
+.range-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.range-gun { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; background: #1b2025; border: 1px solid var(--border); color: var(--text); cursor: pointer; text-align: center; }
+.range-gun:hover { border-color: #6b7a86; }
+.range-gun.on { border-color: #ffb43f; background: #2a2920; }
+.range-gun-art { width: 100%; height: 92px; display: grid; place-items: center; }
+.range-gun-art .inv-sil { max-width: 100%; max-height: 92px; object-fit: contain; }
+.range-gun b { font-size: 14px; }
+.range-gun small { font-size: 11px; color: #9fd6ff; }
+.range-config { overflow: auto; border-left: 1px solid var(--border); padding-left: 14px; display: flex; flex-direction: column; gap: 8px; }
+.range-slot small { color: var(--muted); font-size: 11px; }
+.range-top .range-reset { pointer-events: auto; }
