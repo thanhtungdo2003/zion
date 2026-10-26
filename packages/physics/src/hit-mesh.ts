@@ -1,3 +1,4 @@
+import { closestPointOnTriangle } from './geometry';
 /**
  * Precise shot geometry: a model's own triangles in a bounding-volume hierarchy, so a bullet that
  * touches a prop's coarse collider is re-tested against the actual surfaces (windows, gaps
@@ -75,6 +76,38 @@ export class HitMesh {
     return (mask.bits[i >> 3]! & (1 << (i & 7))) !== 0;
   }
 
+  /** Triangles whose box meets this local-space box. */
+  private near(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number, visit: (t: number) => boolean): void {
+    if (!this.root) return;
+    const stack: Node[] = [this.root];
+    while (stack.length) {
+      const node = stack.pop()!;
+      if (node.maxX < minX || node.minX > maxX || node.maxY < minY || node.minY > maxY || node.maxZ < minZ || node.minZ > maxZ) continue;
+      if (node.left) { stack.push(node.left, node.right!); continue; }
+      for (const t of node.tris) if (!visit(t)) return;
+    }
+  }
+
+  /** Local-space capsule contacts: one per touching triangle (its deepest point along the axis). */
+  capsuleContacts(ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number, emit: (nx: number, ny: number, nz: number, depth: number) => boolean): void {
+    const v = this.v, cp = { x: 0, y: 0, z: 0 };
+    const dx = bx - ax, dy = by - ay, dz = bz - az, len = Math.hypot(dx, dy, dz);
+    const spheres = Math.max(1, Math.ceil(len / (r * .75))) + 1;
+    this.near(Math.min(ax, bx) - r, Math.min(ay, by) - r, Math.min(az, bz) - r, Math.max(ax, bx) + r, Math.max(ay, by) + r, Math.max(az, bz) + r, (t) => {
+      const o = t * 9;
+      let best = 0, bnx = 0, bny = 1, bnz = 0;
+      for (let i = 0; i < spheres; i++) {
+        const u = spheres === 1 ? 0 : i / (spheres - 1), sx = ax + dx * u, sy = ay + dy * u, sz = az + dz * u;
+        closestPointOnTriangle(sx, sy, sz, v[o]!, v[o + 1]!, v[o + 2]!, v[o + 3]!, v[o + 4]!, v[o + 5]!, v[o + 6]!, v[o + 7]!, v[o + 8]!, cp);
+        const ex = sx - cp.x, ey = sy - cp.y, ez = sz - cp.z, d2 = ex * ex + ey * ey + ez * ez;
+        if (d2 >= r * r || d2 < 1e-14) continue;
+        const d = Math.sqrt(d2);
+        if (r - d > best) { best = r - d; bnx = ex / d; bny = ey / d; bnz = ez / d; }
+      }
+      return best > 0 ? emit(bnx, bny, bnz, best) : true;
+    });
+  }
+
   /** Nearest hit of a local-space ray within maxT: t (or −1) and the face normal in `n`. */
   raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number, n: { x: number; y: number; z: number }): number {
     if (!this.root) return -1;
@@ -122,6 +155,19 @@ export class HitMesh {
     }
     return hit;
   }
+}
+
+/**
+ * A capsule (segment a→b, radius r) against a placed model's own triangles, in world space: each
+ * touching triangle gives one contact (pushed out from its nearest point), as solid as a wall.
+ * The capsule is covered by spheres along its axis, like the terrain test.
+ */
+export function capsuleHitRefContacts(mesh: HitMesh, ref: HitRef, ax: number, ay: number, az: number, bx: number, by: number, bz: number, r: number,
+  emit: (nx: number, ny: number, nz: number, depth: number) => boolean): void {
+  const k = ref.k;
+  const local = (x: number, y: number, z: number) => { const rx = x - ref.x, rz = z - ref.z; return [(rx * ref.c - rz * ref.s) / k, (y - ref.y) / k, (rx * ref.s + rz * ref.c) / k] as const; };
+  const [lax, lay, laz] = local(ax, ay, az), [lbx, lby, lbz] = local(bx, by, bz), lr = r / k;
+  mesh.capsuleContacts(lax, lay, laz, lbx, lby, lbz, lr, (nx, ny, nz, depth) => emit(nx * ref.c + nz * ref.s, ny, -nx * ref.s + nz * ref.c, depth * k));
 }
 
 /**

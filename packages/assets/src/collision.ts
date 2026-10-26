@@ -51,7 +51,8 @@ export function assetColliders(def: AssetDefinition, t: PropTransform, out: Coll
           shape: makeBox(tx(x, z), t.y + y * k, tz(x, z), hx * k, hy * k, hz * k, cd.yaw + t.rotY),
           layer,
           tag: def.numericId,
-          ...(layer === Layer.Static ? { hit } : {}),
+          ...(layer === Layer.Static || cd.solid ? { hit } : {}),
+          ...(cd.solid ? { solid: true } : {}),
         });
         break;
       }

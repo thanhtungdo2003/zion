@@ -629,25 +629,15 @@ export default function InfectionStudio() {
             {draft.base !== 'model' && <label className="ix-field"><span>Seed địa hình</span>
               <span className="ix-seed"><input value={draft.seed} onChange={(e) => patch((d) => { d.seed = e.target.value; })} maxLength={60} /><button className="btn" title="Seed ngẫu nhiên" onClick={() => patch((d) => { d.seed = `seed-${uid()}`; })}><Icon name="lucide:dices" /></button></span>
             </label>}
-            <label className="ix-field"><span>Nền bản đồ</span>
+            {draft.base !== 'model' ? <label className="ix-field"><span>Nền bản đồ</span>
               <select value={draft.base} onChange={(e) => patch((d) => { d.base = e.target.value as InfectionMapDef['base']; })}>
                 <option value="empty">Trống (chỉ những gì bạn đặt)</option>
                 <option value="warehouse">Warehouse</option>
                 <option value="friday13">The Street (cũ)</option>
-                <option value="model">Model tải lên (GLB)</option>
               </select>
-            </label>
-            {draft.base === 'model' && <>
-              <label className="ix-field"><span>Model bản đồ</span>
-                <select value={draft.model?.asset ?? ''} onChange={(e) => patch((d) => { const asset = Number(e.target.value); d.model = asset ? { asset, scale: d.model?.scale ?? 1, yaw: d.model?.yaw ?? 0, y: d.model?.y ?? 0 } : undefined; })}>
-                  <option value="">— chọn model —</option>
-                  {models.map((m) => <option key={m.asset} value={m.asset}>{m.name}</option>)}
-                </select>
-              </label>
-              <label className={`btn${uploading ? ' disabled' : ''}`} title="Một file GLB chứa cả bản đồ; va chạm được tính khi tải lên">
-                {uploading ? <><Spinner /> Đang tải lên và tính va chạm…</> : <><Icon name="lucide:upload" /> Tải lên file GLB</>}
-                <input type="file" accept=".glb" hidden disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadModel(f); }} />
-              </label>
+            </label> : <>
+              {/* A map made from a GLB is that model: no other base, no other model to pick. */}
+              <p className="ix-hint">Bản đồ từ file GLB <b>{models.find((m) => m.asset === draft.model?.asset)?.name ?? `#${draft.model?.asset ?? '?'}`}</b>. Va chạm là chính model: khe hở đủ rộng thì đi qua, đạn bay qua được chỗ trống.</p>
               {draft.model && <>
                 <button className="btn" onClick={() => setEditingModel(true)} title="Bấm vào từng khối của model để dời, xoay, kéo dãn, tô màu hoặc cho phát sáng"><Icon name="lucide:boxes" /> Chỉnh khối model</button>
                 {(() => {

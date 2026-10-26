@@ -2,8 +2,9 @@ import type { AssetDefinitionInput, ColliderDefinition } from './schema';
 
 /**
  * Map models uploaded in the Studio (Infection maps): a whole map as one GLB. Each gets a numeric
- * id in a reserved range, is registered at runtime (servers, workers and clients alike) and
- * collides as merged voxel boxes computed from its triangles when it is uploaded.
+ * id in a reserved range and is registered at runtime (servers, workers and clients alike). It
+ * collides as itself: its textured, opaque triangles (the hit mesh, read from the file by whoever
+ * plays it), found through one box over the whole model — every gap and doorway as it is.
  */
 export const UPLOADED_MAP_ASSET_MIN = 2900;
 export const UPLOADED_MAP_ASSET_MAX = 2999;
@@ -144,22 +145,16 @@ export const MAX_MAP_BOXES = 60000;
 export interface UploadedMapFit { offset: Vec3; colliders: ColliderDefinition[]; bounds: { radius: number; height: number } }
 
 /**
- * Centres the model on its footprint with its lowest point at 0 and computes its voxel colliders
- * (the grid cell follows the model's size, so models in centimetres or kilometres work too).
+ * Centres the model on its footprint with its lowest point at 0. Its collision is the model
+ * itself: one box over all of it, marked solid (the triangles inside decide).
  */
 export function uploadedMapFit(raw: Vec3[][]): UploadedMapFit {
   if (!raw.length) throw new Error('the model has no triangles');
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
   for (const t of raw) for (const p of t) for (let c = 0; c < 3; c++) { min[c] = Math.min(min[c]!, p[c]!); max[c] = Math.max(max[c]!, p[c]!); }
   const offset: Vec3 = [-(min[0] + max[0]) / 2, -min[1], -(min[2] + max[2]) / 2];
-  const tris = raw.map((t) => t.map((p) => [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]] as Vec3));
-  const span = Math.max(max[0] - min[0], max[2] - min[2], max[1] - min[1], 1e-6);
-  let colliders: ColliderDefinition[] | null = null;
-  // As fine as the box budget allows: about 8 cm on a map in metres, coarser only if it must be.
-  for (let cell = Math.max(span / 4000, .08 * Math.min(1, span / 20)); cell <= span / 8; cell *= 1.25) {
-    try { colliders = voxelColliders(tris, cell); break; } catch { /* coarser */ }
-  }
-  if (!colliders) throw new Error('map model too detailed for collision');
+  const half: Vec3 = [Math.max(.05, (max[0] - min[0]) / 2), Math.max(.05, (max[1] - min[1]) / 2), Math.max(.05, (max[2] - min[2]) / 2)];
+  const colliders = [{ type: 'box', center: [0, r3(half[1]), 0], halfExtents: half.map((v) => r3(v + .05)), solid: true } as ColliderDefinition];
   return {
     offset: offset.map(r3) as Vec3, colliders,
     bounds: { radius: Math.max(.001, r3(Math.hypot(max[0] - min[0], max[2] - min[2]) / 2)), height: Math.max(.001, r3(max[1] - min[1])) },
@@ -169,10 +164,23 @@ export function uploadedMapFit(raw: Vec3[][]): UploadedMapFit {
 /** The asset definition of an uploaded map model (its fit computed from the file when not given). */
 export function uploadedMapAsset(asset: number, name: string, glb: Uint8Array, fit?: UploadedMapFit): AssetDefinitionInput {
   const f = fit ?? uploadedMapFit(glbTriangles(glb, true));
+  // Older uploads carry voxel boxes: their model itself collides now.
+  if (!f.colliders.some((c) => (c as { solid?: boolean }).solid)) Object.assign(f, { colliders: uploadedMapFit(glbTriangles(glb, true)).colliders });
   return {
     id: `uploaded.infection_map_${asset}`, numericId: asset, name, category: 'structure',
     model: { kind: 'glb', path: uploadedMapPath(asset), scale: 1, offset: f.offset },
     colliders: f.colliders, collisionLayer: 'static', bounds: f.bounds,
     render: { maxDistance: 1000 }, tags: ['infection-map'],
   } as AssetDefinitionInput;
+}
+
+/**
+ * The triangles players collide with in an uploaded map model (textured, opaque surfaces), placed
+ * as the asset draws it (its centring offset applied): the collision world's hit mesh for it.
+ */
+export function uploadedMapHitMesh(glb: Uint8Array, offset: readonly [number, number, number]): { tris: Float32Array } {
+  const tris = glbTriangles(glb, true), out = new Float32Array(tris.length * 9);
+  let o = 0;
+  for (const t of tris) for (const p of t) { out[o++] = p[0] + offset[0]; out[o++] = p[1] + offset[1]; out[o++] = p[2] + offset[2]; }
+  return { tris: out };
 }

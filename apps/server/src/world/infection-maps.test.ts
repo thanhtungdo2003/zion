@@ -44,7 +44,8 @@ describe('infection map service', () => {
     await service.load();
     try {
       const model = await service.uploadModel('Plane yard', glb);
-      expect(registry.byNumericId(model.asset)?.colliders.length).toBeGreaterThan(10);
+      // It collides as itself: one solid box over the model (its triangles decide).
+      expect(registry.byNumericId(model.asset)?.colliders).toMatchObject([{ type: 'box', solid: true }]);
       expect(service.modelList()[0]!.url).toContain(`/api/infection-maps/models/${model.asset}.glb`);
       const map = { ...blankInfectionMap('yard', 'Yard', 'y1'), base: 'model' as const, model: { asset: model.asset, scale: 2, yaw: 0, y: 0 } };
       const preview = service.preview(map);

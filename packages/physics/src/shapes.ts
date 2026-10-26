@@ -145,6 +145,8 @@ export interface Collider {
   readonly tag: number;
   /** Placed model whose own triangles decide whether a shot really hits (props). */
   readonly hit?: HitRef;
+  /** Its model's triangles are what collides (see ColliderInit.solid). */
+  readonly solid?: boolean;
   /** Internal query de-duplication stamp. */
   stamp: number;
 }

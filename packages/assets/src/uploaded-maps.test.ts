@@ -14,10 +14,11 @@ describe('uploaded map collision', () => {
     expect(solidAt(0, 1, 2) || solidAt(.04, 1, 2)).toBe(true);
     expect(solidAt(2, .02, 2)).toBe(true);
   });
-  it('fits a map in metres with fine cells, within the box budget', () => {
+  it('centres the model and collides as itself: one solid box over all of it', () => {
     const fit = uploadedMapFit([...ground, ...wall(0), ...wall(.7)]);
-    expect(fit.colliders.length).toBeGreaterThan(0);
-    expect(Math.max(...fit.colliders.map((b) => (b.type === 'box' ? Math.min(...b.halfExtents) : 1)))).toBeLessThan(.1);
+    expect(fit.colliders).toHaveLength(1);
+    expect(fit.colliders[0]).toMatchObject({ type: 'box', solid: true });
+    expect(fit.offset[1]).toBeCloseTo(0);
   });
   it('collides only with textured, opaque materials', () => {
     expect(solidMaterial({ pbrMetallicRoughness: { baseColorTexture: { index: 0 } } })).toBe(true);

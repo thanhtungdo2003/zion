@@ -13,6 +13,7 @@ import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { PropKnock } from './prop-knock';
 import { loadHitMeshes } from '../world/hit-meshes';
+import { uploadedHitMeshes } from '../world/uploaded-hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
 import { BATTLE_LOBBY_RADIUS, BATTLE_MAP, BATTLE_TIME_OF_DAY, keepInCircle, type BattleCircle, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
@@ -350,6 +351,8 @@ export class GameServer {
     this.collision = new CollisionWorld({ worldSize: gen.worldSize, seaLevel: gen.seaLevel });
     // Shots test props against their real model surfaces (gaps, windows, lattices).
     this.collision.setHitMeshes(loadHitMeshes());
+    // Uploaded whole-map models collide as their own triangles.
+    for (const [id, mesh] of uploadedHitMeshes) this.collision.addHitMesh(id, mesh);
     this.vehicles = new Vehicles(this.collision, gen);
     for (const [id, door] of this.battleDoors) this.collision.setOwnerColliders(0xb0000000 + id, doorColliders(door));
     this.vegetation = new VegetationDamage({

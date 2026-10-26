@@ -24,7 +24,7 @@ import {
   type RayHit,
 } from './shapes';
 import { SpatialHash, traverseGrid2D } from './spatial-hash';
-import { HitMesh, raycastHitRef, type HitMeshSource, type HitRef } from './hit-mesh';
+import { HitMesh, capsuleHitRefContacts, raycastHitRef, type HitMeshSource, type HitRef } from './hit-mesh';
 
 export interface CollisionWorldOptions {
   /** World extent in metres along X and Z (world spans [0, size)). */
@@ -40,6 +40,11 @@ export interface ColliderInit {
   tag?: number;
   /** Placed model for precise shot tests (see HitMesh). */
   hit?: HitRef;
+  /**
+   * The model's own triangles are the solid (movement and shots alike), the shape only finds them:
+   * gaps, doorways and see-through surfaces stay open. Nothing collides until its triangles are known.
+   */
+  solid?: boolean;
 }
 
 const MAX_CONTACTS = 64;
@@ -130,6 +135,7 @@ export class CollisionWorld {
       owner,
       tag: init.tag ?? 0,
       ...(init.hit ? { hit: init.hit } : {}),
+      ...(init.solid ? { solid: true } : {}),
       stamp: 0,
     };
     this.statics.insert(c);
@@ -260,6 +266,17 @@ export class CollisionWorld {
       const c = out[n] ?? (out[n] = makeContact());
       let hit = false;
       const s = col.shape;
+      if (col.solid) {
+        // The model's own surfaces: one contact per triangle touched.
+        const mesh = col.hit ? this.hitMesh(col.hit.mesh) : undefined;
+        if (!mesh || !col.hit) continue;
+        capsuleHitRefContacts(mesh, col.hit, ax, ay, az, bx, by, bz, r, (nx, ny, nz, depth) => {
+          const k = out[n] ?? (out[n] = makeContact());
+          k.nx = nx; k.ny = ny; k.nz = nz; k.depth = depth; k.layer = col.layer; k.tag = col.tag; k.colliderId = col.id;
+          return ++n < MAX_CONTACTS;
+        });
+        continue;
+      }
       if (s.type === 'sphere') hit = capsuleVsSphere(ax, ay, az, bx, by, bz, r, s, c);
       else if (s.type === 'capsule') hit = capsuleVsCapsule(ax, ay, az, bx, by, bz, r, s, c);
       else hit = capsuleVsBox(ax, ay, az, bx, by, bz, r, s, c);
@@ -384,9 +401,14 @@ export class CollisionWorld {
    * prop's collider are re-tested against them, so shots pass through its gaps.
    */
   setHitMeshes(meshes: ReadonlyMap<number, HitMeshSource>): void {
-    this.hitSources.clear(); this.hitMeshes.clear();
-    for (const [id, tris] of meshes) this.hitSources.set(id, tris);
+    // Models added one by one (uploaded maps) are kept.
+    for (const id of [...this.hitSources.keys()]) if (!this.added.has(id)) { this.hitSources.delete(id); this.hitMeshes.delete(id); }
+    for (const [id, tris] of meshes) { this.hitSources.set(id, tris); this.hitMeshes.delete(id); }
   }
+  private readonly added = new Set<number>();
+  /** One model's triangles (an uploaded map model, known once its file is read). */
+  addHitMesh(id: number, tris: HitMeshSource): void { this.added.add(id); this.hitSources.set(id, tris); this.hitMeshes.delete(id); }
+  hasHitMesh(id: number): boolean { return this.hitSources.has(id); }
   private hitMesh(id: number): HitMesh | undefined {
     let m = this.hitMeshes.get(id);
     if (!m) { const src = this.hitSources.get(id); if (!src) return undefined; this.hitMeshes.set(id, m = new HitMesh(src)); }
@@ -442,8 +464,9 @@ export class CollisionWorld {
           else if (s.type === 'capsule') t = rayCapsule(ox, oy, oz, dx, dy, dz, s);
           else t = rayBox(ox, oy, oz, dx, dy, dz, s, nrm);
           if (t < 0 || t >= best) continue;
-          // Shots: the collider is only the broad phase; the model's own surfaces decide.
-          const ref = precise ? col.hit : undefined, mesh = ref ? this.hitMesh(ref.mesh) : undefined;
+          // Shots (and anything against a solid model): the collider is only the broad phase; the model's own surfaces decide.
+          const ref = precise || col.solid ? col.hit : undefined, mesh = ref ? this.hitMesh(ref.mesh) : undefined;
+          if (col.solid && !mesh) continue;
           if (ref && mesh) {
             if (ref.stamp !== stamp) {
               ref.stamp = stamp;

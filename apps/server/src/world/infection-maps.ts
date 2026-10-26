@@ -1,5 +1,6 @@
+import { uploadedHitMeshes } from './uploaded-hit-meshes';
 import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
-import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, createDefaultRegistry, uploadedMapAsset, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry, type UploadedMapFit } from '@zion/assets';
+import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, createDefaultRegistry, uploadedMapAsset, uploadedMapHitMesh, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, INFECTION_GROUND, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
@@ -95,6 +96,12 @@ export class InfectionMapService {
   tile(x: number, z: number, map?: string | null) { return (map && this.builtFor(map) || this.current).tiles(x, z); }
 
   private addModel(model: InfectionMapModel): void {
+    // Uploaded before models collided as themselves (voxel boxes): one solid box over the model now.
+    const def = model.def as { colliders?: Array<{ solid?: boolean }>; bounds?: { radius: number; height: number } };
+    if (def.bounds && !def.colliders?.some((c) => c.solid)) {
+      const r = def.bounds.radius, h = def.bounds.height;
+      model = { ...model, def: { ...model.def, colliders: [{ type: 'box', center: [0, h / 2, 0], halfExtents: [r + .05, h / 2 + .05, r + .05], solid: true }] } as AssetDefinitionInput };
+    }
     try { this.registry.registerUploaded(model.def); this.models.set(model.asset, model); }
     catch (err) { this.log.warn({ err, asset: model.asset }, 'uploaded map model skipped (invalid)'); }
   }
@@ -117,6 +124,15 @@ export class InfectionMapService {
     const model = { asset, name: def.name, version: new Date(rows[0]!.updated_at).getTime(), def };
     this.addModel(model);
     return { ...model, url: uploadedMapUrl(asset, model.version) };
+  }
+
+  private async loadHitMesh(asset: number): Promise<void> {
+    const model = this.models.get(asset);
+    if (!model || uploadedHitMeshes.has(asset)) return;
+    const glb = await this.modelFile(asset);
+    if (!glb) return;
+    const offset = ((model.def as { model?: { offset?: [number, number, number] } }).model?.offset) ?? [0, 0, 0];
+    uploadedHitMeshes.set(asset, uploadedMapHitMesh(new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength), offset));
   }
 
   /** An uploaded map model's file. */
@@ -152,6 +168,8 @@ export class InfectionMapService {
       if (live) { live.name = def.name; Object.assign(live.rules, def.rules); }
       return have;
     }
+    // A map on an uploaded model: its triangles are its collision (read from the file once).
+    if (def.base === 'model' && def.model) await this.loadHitMesh(def.model.asset);
     const world = new WorldService(configOf(def), this.registry, this.workers, this.cacheSize, this.log, this.extraAssets(def));
     await world.start();
     // Distinct per version of a map, so clients never reuse map tiles of an older version.

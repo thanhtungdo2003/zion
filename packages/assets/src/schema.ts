@@ -16,6 +16,8 @@ export const colliderDefinitionSchema = z.discriminatedUnion('type', [
       halfExtents: z.tuple([positive, positive, positive]),
       yaw: z.number().finite().default(0),
       layer: colliderLayer,
+      /** The model's own triangles collide; the box only finds them (whole-map models). */
+      solid: z.boolean().optional(),
     })
     .strict(),
 ]);

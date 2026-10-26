@@ -1,3 +1,5 @@
+import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, uploadedMapHitMesh } from '@zion/assets';
+import { API_URL } from '@/lib/api';
 import {
   BIOME_NAMES,
   CHUNK_SIZE,
@@ -36,6 +38,19 @@ export class ChunkStore {
     if (typeof fetch !== 'undefined' && typeof window !== 'undefined') void fetch('/assets/hit-meshes.bin').then((r) => (r.ok ? r.arrayBuffer() : null)).then((buf) => { if (buf) this.collision.setHitMeshes(decodeHitMeshes(buf)); }).catch(() => undefined);
   }
 
+  private readonly mapModels = new Set<number>();
+  /** An uploaded map model collides as itself: its file read once for its triangles. */
+  private loadMapModel(asset: number): void {
+    if (this.mapModels.has(asset) || typeof window === 'undefined') return;
+    this.mapModels.add(asset);
+    const model = this.registry.byNumericId(asset)?.model;
+    const offset = (model && 'offset' in model ? model.offset : undefined) ?? [0, 0, 0];
+    void fetch(`${API_URL}/api/infection-maps/models/${asset}.glb`)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+      .then((buf) => this.collision.addHitMesh(asset, uploadedMapHitMesh(new Uint8Array(buf), offset as [number, number, number])))
+      .catch(() => this.mapModels.delete(asset));
+  }
+
   listen(l: ChunkListener): void {
     this.listeners.push(l);
   }
@@ -45,6 +60,7 @@ export class ChunkStore {
     const prev = this.chunks.get(key);
     this.chunks.set(key, chunk);
     if (chunk.lod === 0) {
+      for (const p of chunk.props) if (p.asset >= UPLOADED_MAP_ASSET_MIN && p.asset <= UPLOADED_MAP_ASSET_MAX) this.loadMapModel(p.asset);
       const col = buildChunkCollision(chunk, this.registry);
       this.collision.addChunk(chunk.cx, chunk.cz, col.heightfield, col.colliders);
     } else if (prev?.lod === 0) {
