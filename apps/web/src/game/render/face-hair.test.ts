@@ -1,7 +1,7 @@
 import { untexturedGlb } from './test-glb';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { BufferAttribute, Vector3 } from 'three';
+import { type BufferAttribute, Vector3 } from 'three';
 import { BEARD_STYLES, DEFAULT_APPEARANCE, parseAppearance } from '@zion/shared';
 import { parseHumanAssets } from './human-rig';
 import { beardDensity, beardGeometry, type FaceSkin } from './face-hair';
