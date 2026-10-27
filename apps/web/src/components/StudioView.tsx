@@ -517,25 +517,36 @@ export default function StudioView() {
 
   return (
     <div className="studio-root">
-      <header className="studio-bar">
-        <Link href="/" className="studio-back" title="Về menu chính">
-          <Icon name="lucide:arrow-left" />
-        </Link>
-        <h1>Xưởng căn cứ</h1>
-        <StudioPlayerCount />
-        <StudioCurrency />
-        <ContentEditor />
-        <NewsEditor />
-        <StudioVehiclePhysics />
-        <StudioCharacterStyle />
-        <Link href="/studio/world" className="btn"><Icon name="lucide:map" /> World Editor</Link>
-        <Link href="/studio/weapons" className="btn"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
-        <Link href="/studio/gear" className="btn"><Icon name="game-icons:backpack" /> Trang bị</Link>
-        <Link href="/studio/hands" className="btn"><Icon name="lucide:hand" /> Bàn tay</Link>
-        <Link href="/studio/infection" className="btn"><Icon name="game-icons:biohazard" /> Lây nhiễm</Link>
-        <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Bố trí tùy chỉnh' : 'Bố trí mặc định'}</span>
-        {dirty && <span className="studio-badge unsaved">Thay đổi chưa lưu</span>}
-        <div className="studio-spacer" />
+      <header className="studio-head">
+        <div className="studio-head-row">
+          <Link href="/" className="studio-back" title="Về menu chính">
+            <Icon name="lucide:arrow-left" />
+          </Link>
+          <h1>Studio</h1>
+          <nav className="studio-nav" aria-label="Các xưởng">
+            <span className="on" aria-current="page"><Icon name="lucide:tent" /> Căn cứ</span>
+            <Link href="/studio/world"><Icon name="lucide:map" /> Thế giới</Link>
+            <Link href="/studio/weapons"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
+            <Link href="/studio/gear"><Icon name="game-icons:backpack" /> Trang bị</Link>
+            <Link href="/studio/hands"><Icon name="lucide:hand" /> Bàn tay</Link>
+            <Link href="/studio/infection"><Icon name="game-icons:biohazard" /> Lây nhiễm</Link>
+          </nav>
+          <div className="studio-spacer" />
+          <div className="studio-server" aria-label="Máy chủ">
+            <StudioPlayerCount />
+            <StudioCurrency />
+            <ContentEditor />
+            <NewsEditor />
+            <span className="studio-sep" aria-hidden />
+            <StudioVehiclePhysics />
+            <StudioCharacterStyle />
+          </div>
+        </div>
+        <div className="studio-head-row studio-tools">
+          <span className="studio-tools-title">Bố trí căn cứ</span>
+          <span className={`studio-badge ${server?.customised ? 'custom' : ''}`}>{server?.customised ? 'Tùy chỉnh' : 'Mặc định'}</span>
+          {dirty && <span className="studio-badge unsaved">Chưa lưu</span>}
+          <span className="studio-sep" aria-hidden />
         <div className="studio-seg">
           <button className={mode === 'translate' ? 'on' : ''} onClick={() => setMode('translate')} title="Di chuyển theo X / Y / Z (G)">
             <Icon name="lucide:move" /> Di chuyển
@@ -560,9 +571,10 @@ export default function StudioView() {
             <option value={2}>2 m</option>
           </select>
         </label>
-        <button className="btn" onClick={() => setModal('help')}>
+        <button className="btn" onClick={() => setModal('help')} title="Hướng dẫn">
           <Icon name="lucide:circle-help" />
         </button>
+        <div className="studio-spacer" />
         <button className="btn" onClick={() => setModal('discard')} disabled={!dirty || busy}>
           Bỏ thay đổi
         </button>
@@ -572,6 +584,7 @@ export default function StudioView() {
         <button className="btn btn-primary" onClick={() => setModal('publish')} disabled={!dirty || busy}>
           Áp dụng
         </button>
+        </div>
       </header>
 
       <aside className="studio-palette">
