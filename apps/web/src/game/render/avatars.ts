@@ -2060,7 +2060,9 @@ export class Avatar {
     for (const layer of this.legLayers) {
       const clip = clips.get(layer.clip)!;
       const rate = layer === active && turnRate !== undefined ? turnRate : cadence(clip, speed) * (reverse ? -1 : 1);
-      if (turnRate === undefined) layer.time = this.stepPhase * clip.duration;
+      // (An outgoing turn holds its last frame while it fades: put on the step clock it snapped
+      // the feet back to the turn's first frame.)
+      if (turnRate === undefined) { if (clip.loop || layer === active) layer.time = this.stepPhase * clip.duration; }
       else layer.time += dt * rate;
       // One-shot turns repeat while the turn goes on.
       if (!clip.loop) layer.time %= clip.duration;

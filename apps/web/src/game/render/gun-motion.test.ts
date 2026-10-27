@@ -31,7 +31,7 @@ beforeAll(async () => {
   const mixer = new AnimationMixer(src);
   mixer.clipAction(src.animations[0]!).play();
   mixamo = { ...survivor, mixamo: buildMixamoMotion(assets, src, src.animations[0]!, mixer) };
-  for (const [id, file] of [['ak47', 'ak47-rifle'], ['gl18', 'glock-18']] as const) {
+  for (const [id, file] of [['ak47', 'ak47-rifle'], ['gl18', 'glock-18'], ['katana', 'katana']] as const) {
     const wraw = JSON.parse(await readFile(new URL(`${root}models/weapons/${file}.bbmodel`, import.meta.url), 'utf8')) as RawModel;
     wraw.textures = [];
     const built = await buildBBModel(wraw);
@@ -106,5 +106,31 @@ describe('guns in third person', () => {
 
   it('a rifle starting to walk turns the trunk over a few frames, not at the crossfade halfway', () => {
     expect(jerk(run(survivor, 'ak47', [[2.5, G, 0], [1, G, 1.4]]), 2.5, 3.5)).toBeLessThan(.06);
+  });
+
+  it('returns from blade swings to standing smoothly, feet included, and finishes a standing turn without a snap', () => {
+    const a = new Avatar(survivor, true);
+    a.setStance('melee'); a.setWeapon('katana', lib);
+    let t = 0, yaw = 0, worst = 0;
+    const hist: Record<string, Vector3[]> = {};
+    const frame = (measure: boolean) => {
+      t += 1 / 60;
+      a.update(0, 0, 0, yaw, G, 1 / 60, t);
+      a.root.updateMatrixWorld(true);
+      for (const n of ['foot_L', 'foot_R', 'hand_R', 'hand_L']) {
+        const h = (hist[n] ??= []), p = a.root.getObjectByName(n)!.getWorldPosition(new Vector3());
+        h.push(p);
+        if (measure && h.length > 2 && n.startsWith('foot')) worst = Math.max(worst, p.clone().sub(h.at(-2)!.clone().multiplyScalar(2)).add(h.at(-3)!).length());
+      }
+    };
+    for (let i = 0; i < 150; i++) frame(false);
+    // Three combo steps, each ending back in the stand (a foot used to hang in the air, then drop).
+    for (let s = 0; s < 3; s++) { a.slash(); for (let i = 0; i < 70; i++) frame(true); }
+    for (let i = 0; i < 60; i++) frame(true);
+    // The view swings 70° and stops: the feet step round, then settle.
+    for (let i = 0; i < 20; i++) { yaw += 1.2 / 20; frame(true); }
+    for (let i = 0; i < 120; i++) frame(true);
+    expect(worst).toBeLessThan(.12);
+    expect(a.root.getObjectByName('foot_L')!.getWorldPosition(new Vector3()).y).toBeLessThan(.25);
   });
 });

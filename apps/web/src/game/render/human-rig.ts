@@ -1712,18 +1712,25 @@ export class HumanBody {
     const A = this.assets, { legs, upper } = this.boneSets();
     const q = this.localQ, s = tmpQ[5]!;
     for (const i of this.order) (q[i] ??= new Quaternion()).copy(A.bones[i]!.quaternion);
-    const blend = (layers: MocapLayer[], only: Set<number> | null) => {
+    // `whole`: a bone the clip does not animate is at its bind pose in that clip (the plain stand
+    // has no leg tracks): blending it in must straighten the legs too, not leave the outgoing
+    // clip's legs at full weight until its layer is dropped (the foot then snapped down).
+    const blend = (layers: MocapLayer[], only: Set<number> | null, whole = false) => {
       let acc = 1 - Math.min(1, layers.reduce((sum, l) => sum + l.weight, 0));
       for (const l of layers) {
         const clip = l.weight > .001 ? A.clips.get(l.clip) : undefined;
         if (!clip) continue;
         acc += l.weight;
         const k = Math.min(1, l.weight / Math.max(.001, acc)), f = this.clipFrame(clip, l.time);
-        for (const i of this.order) if ((!only || only.has(i)) && this.sampleInto(s, clip, i, f)) q[i]!.slerp(s, k);
+        for (const i of this.order) {
+          if (only && !only.has(i)) continue;
+          if (this.sampleInto(s, clip, i, f)) q[i]!.slerp(s, k);
+          else if (whole) q[i]!.slerp(A.bones[i]!.quaternion, k);
+        }
       }
     };
     const base = m.layers ?? [m];
-    blend(base, null);
+    blend(base, null, true);
     if (m.legs?.length) blend(m.legs, legs);
     if (m.uppers?.length) blend(m.uppers, upper);
     if (m.damp) {
