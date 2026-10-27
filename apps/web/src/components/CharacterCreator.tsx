@@ -319,22 +319,6 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
             </div>
             <h3>Màu tóc</h3>
             {swatches(HAIR_COLORS, look.hairColor, (i) => set('hairColor', i), 'Màu tóc')}
-            <h3>Lông mày</h3>
-            <div className="cc-options">
-              {[0, ...Array.from({ length: BROW_STYLES }, (_, i) => i + 1)].map((b) => (
-                <button key={b} type="button" className="cc-option" aria-pressed={look.brows === b} onClick={() => set('brows', b)}>
-                  <b>{b ? `Kiểu ${b}` : 'Không'}</b><small>{['Không có lông mày', 'Thanh, gọn', 'Đậm, ngang', 'Rậm, cong'][b]}</small>
-                </button>
-              ))}
-            </div>
-            <h3>Râu</h3>
-            <div className="cc-options">
-              {BEARD_STYLES.map((b) => (
-                <button key={b} type="button" className="cc-option" aria-pressed={look.beard === b} onClick={() => set('beard', b)}>
-                  <b>{BEARD_NAMES[b][0]}</b><small>{BEARD_NAMES[b][1]}</small>
-                </button>
-              ))}
-            </div>
           </>}
           {tab === 'outfit' && <>
             <h3>Áo</h3>
@@ -360,6 +344,22 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
             </div>
             <h3>Màu da</h3>
             {swatches(SKIN_TONES, look.skin, (i) => set('skin', i), 'Màu da')}
+            <h3>Lông mày</h3>
+            <div className="cc-options">
+              {[0, ...Array.from({ length: BROW_STYLES }, (_, i) => i + 1)].map((b) => (
+                <button key={b} type="button" className="cc-option" aria-pressed={look.brows === b} onClick={() => set('brows', b)}>
+                  <b>{b ? `Kiểu ${b}` : 'Không'}</b><small>{['Không có lông mày', 'Thanh, gọn', 'Đậm, ngang', 'Rậm, cong'][b]}</small>
+                </button>
+              ))}
+            </div>
+            <h3>Râu</h3>
+            <div className="cc-options">
+              {BEARD_STYLES.map((b) => (
+                <button key={b} type="button" className="cc-option" aria-pressed={look.beard === b} onClick={() => set('beard', b)}>
+                  <b>{BEARD_NAMES[b][0]}</b><small>{BEARD_NAMES[b][1]}</small>
+                </button>
+              ))}
+            </div>
             <h3>Tỷ lệ khuôn mặt</h3>
             {FACE_KEYS.map((k) => slider(FACE_NAMES[k], look.face[k], (v) => setLook((l) => ({ ...l, face: { ...l.face, [k]: v } })), k))}
           </>}
