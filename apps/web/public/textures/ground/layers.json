@@ -28,12 +28,12 @@
  },
  {
   "layer": "sand",
-  "polyhaven": "coast_sand_01",
   "mean": [
-   130,
-   114,
-   91
-  ]
+   223,
+   194,
+   163
+  ],
+  "source": "fine_sand_material (Sketchfab)"
  },
  {
   "layer": "cracked",
@@ -55,12 +55,12 @@
  },
  {
   "layer": "rock",
-  "polyhaven": "rock_ground",
   "mean": [
-   114,
-   106,
-   95
-  ]
+   109,
+   91,
+   76
+  ],
+  "source": "rock_material (Sketchfab)"
  },
  {
   "layer": "asphalt",
@@ -106,5 +106,15 @@
    96,
    62
   ]
+ },
+ {
+  "layer": "moss",
+  "source": "stone_oxy_moss_water_01 (Sketchfab)",
+  "mean": [
+   105,
+   105,
+   90
+  ],
+  "absolute": true
  }
 ]

@@ -18,8 +18,15 @@ export const GROUND_LAYERS = ['forest', 'meadow', 'mud', 'sand', 'cracked', 'gra
 export type GroundLayer = (typeof GROUND_LAYERS)[number];
 const L = Object.fromEntries(GROUND_LAYERS.map((n, i) => [n, i])) as Record<GroundLayer, number>;
 export const GROUND_LAYER_COUNT = GROUND_LAYERS.length;
+/**
+ * Texture layers: every ground layer, then mossy stone. Moss has no vertex weight of its own (it
+ * grows on damp, sheltered rock in the shader) and is stored in its own colour, not as detail.
+ */
+const TEXTURE_LAYERS = [...GROUND_LAYERS, 'moss'] as const;
+const TEXTURE_COUNT = TEXTURE_LAYERS.length;
+const MOSS = TEXTURE_COUNT - 1;
 /** Metres one texture tile covers on the ground. */
-const TILE: Record<GroundLayer, number> = { forest: 3.2, meadow: 3.4, mud: 3, sand: 3.6, cracked: 4, gravel: 2.8, rock: 4.5, asphalt: 3.6, concrete: 4, dirt: 3, snow: 4, dry: 3.4 };
+const TILE: Record<(typeof TEXTURE_LAYERS)[number], number> = { forest: 3.2, meadow: 3.4, mud: 3, sand: 4.2, cracked: 4, gravel: 2.8, rock: 6.5, asphalt: 3.6, concrete: 4, dirt: 3, snow: 4, dry: 3.4, moss: 4.5 };
 
 const SIZE: Record<Exclude<GroundDetail, 'off'>, number> = { low: 256, medium: 512, high: 1024 };
 
@@ -69,7 +76,7 @@ varying vec4 vTerrainDetail;
 varying vec4 vGroundA; varying vec4 vGroundB; varying vec4 vGroundC; varying vec3 vGroundNormal;`;
 const FRAGMENT_DECL = `
 uniform highp sampler2DArray groundAlbedo; uniform highp sampler2DArray groundNormal; uniform highp sampler2DArray groundHeight;
-uniform float groundOn; uniform float groundStrength; uniform float groundFar; uniform float groundTile[${GROUND_LAYER_COUNT}];
+uniform float groundOn; uniform float groundStrength; uniform float groundFar; uniform float groundTile[${TEXTURE_COUNT}];
 varying vec4 vGroundA; varying vec4 vGroundB; varying vec4 vGroundC; varying vec3 vGroundNormal;
 varying vec4 vTerrainDetail;
 vec2 groundTwist(vec2 uv) { return mat2(0.8253, -0.5646, 0.5646, 0.8253) * uv * 0.53 + vec2(0.37, 0.71); }`;
@@ -120,16 +127,22 @@ const COLOR = `
       float rocky = max(side, gw[6]);
       diffuseColor.rgb *= mix(1.0, 0.5 + 0.5 * smoothstep(0.08, 0.62, cavity), groundFade * (0.35 + 0.55 * rocky));
       // Orient photographed normals into the chosen projection, including vertical cliff faces.
+      // Climate belongs to each terrain vertex, so wet and dry biomes can share one draw call.
+      // Damp, sheltered rock grows moss: the mossy-stone layer in its own colour and relief.
+      float damp = smoothstep(0.48, 0.85, vTerrainDetail.x) * smoothstep(0.18, 0.35, vTerrainDetail.y);
+      float shelter = smoothstep(0.15, 0.75, gn.y) * (0.65 + vTerrainDetail.z * 0.35);
+      float moss = gw[6] * damp * shelter * smoothstep(0.3, 0.62, naturalNoise(gp * 0.6) + cavity * 0.15) * groundFade;
+      if (moss > 0.002) {
+        vec2 muv = mix(gp.xz, sideP, step(0.5, side)) / groundTile[${MOSS}];
+        vec3 ma = mix(texture(groundAlbedo, vec3(muv, ${MOSS}.0)).rgb, texture(groundAlbedo, vec3(groundTwist(muv), ${MOSS}.0)).rgb, twist);
+        diffuseColor.rgb = mix(diffuseColor.rgb, ma * (0.8 + cavity * 0.3), moss);
+        nrm = mix(nrm, texture(groundNormal, vec3(muv, ${MOSS}.0)).rgb, moss);
+      }
       vec3 axis = side > 0.5 && abs(gn.x) > abs(gn.z) ? vec3(0, 0, 1) : vec3(1, 0, 0);
       vec3 tangent = normalize(axis - gn * dot(axis, gn));
       vec3 bitangent = normalize(cross(gn, tangent));
       vec2 t = (nrm.rg * 2.0 - 1.0) * groundFade * 0.75;
       groundBump = normalize(gn * sqrt(max(0.01, 1.0 - dot(t, t))) + tangent * t.x + bitangent * t.y);
-      // Climate belongs to each terrain vertex, so wet and dry biomes can share one draw call.
-      float damp = smoothstep(0.48, 0.85, vTerrainDetail.x) * smoothstep(0.18, 0.35, vTerrainDetail.y);
-      float shelter = smoothstep(0.15, 0.75, gn.y) * (0.65 + vTerrainDetail.z * 0.35);
-      float moss = gw[6] * damp * shelter * smoothstep(0.4, 0.7, naturalNoise(gp * 0.6) + cavity * 0.15);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.2, 0.055) * (0.8 + cavity * 0.4), moss * groundFade * 0.65);
     }
   }`;
 
@@ -145,17 +158,17 @@ const NORMAL = `
   }`;
 
 function emptyArray(): DataArrayTexture {
-  const t = new DataArrayTexture(new Uint8Array(4 * GROUND_LAYER_COUNT).fill(128), 1, 1, GROUND_LAYER_COUNT);
+  const t = new DataArrayTexture(new Uint8Array(4 * TEXTURE_COUNT).fill(128), 1, 1, TEXTURE_COUNT);
   t.needsUpdate = true;
   return t;
 }
 
 async function loadLayers(base: string, suffix: string, size: number): Promise<Uint8Array<ArrayBuffer>> {
-  const data = new Uint8Array(size * size * 4 * GROUND_LAYER_COUNT);
+  const data = new Uint8Array(size * size * 4 * TEXTURE_COUNT);
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const images = await Promise.all(GROUND_LAYERS.map(async (name) => {
+  const images = await Promise.all(TEXTURE_LAYERS.map(async (name) => {
     const res = await fetch(`${base}/${name}-${suffix}`);
     if (!res.ok) throw new Error(`ground texture ${name}-${suffix}: ${res.status}`);
     return createImageBitmap(await res.blob());
@@ -170,7 +183,7 @@ async function loadLayers(base: string, suffix: string, size: number): Promise<U
 }
 
 function arrayTexture(data: Uint8Array<ArrayBuffer>, size: number, anisotropy: number): DataArrayTexture {
-  const t = new DataArrayTexture(data, size, size, GROUND_LAYER_COUNT);
+  const t = new DataArrayTexture(data, size, size, TEXTURE_COUNT);
   t.wrapS = t.wrapT = RepeatWrapping;
   t.magFilter = LinearFilter;
   t.minFilter = LinearMipmapLinearFilter;
@@ -186,7 +199,7 @@ export class GroundTextures {
   private readonly uniforms = {
     groundAlbedo: { value: emptyArray() }, groundNormal: { value: emptyArray() }, groundHeight: { value: emptyArray() },
     groundOn: { value: 0 }, groundStrength: { value: .85 }, groundFar: { value: 150 },
-    groundTile: { value: GROUND_LAYERS.map((n) => TILE[n]) },
+    groundTile: { value: TEXTURE_LAYERS.map((n) => TILE[n]) },
   };
   private detail: GroundDetail = 'off';
   private loading = 0;
@@ -209,7 +222,7 @@ export class GroundTextures {
         .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>${MATTE}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${NORMAL}`);
     };
-    material.customProgramCacheKey = () => `${key()}|ground-layers-3`;
+    material.customProgramCacheKey = () => `${key()}|ground-layers-4`;
   }
 
   /** Loads the layers for a quality level (the plain ground shows until they arrive). */
