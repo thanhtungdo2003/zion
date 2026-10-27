@@ -1,0 +1,31 @@
+{
+  "brickL:out": {
+    "parts": 331,
+    "errors": []
+  },
+  "brickL:cut": {
+    "parts": 331,
+    "errors": []
+  },
+  "concreteL:out": {
+    "parts": 458,
+    "errors": []
+  },
+  "concreteL:cut": {
+    "parts": 458,
+    "errors": []
+  },
+  "concreteRect:cut": {
+    "parts": 503,
+    "errors": []
+  },
+  "modular:out": {
+    "parts": 276,
+    "errors": []
+  },
+  "modular:cut": {
+    "parts": 276,
+    "errors": []
+  },
+  "errors": []
+}
