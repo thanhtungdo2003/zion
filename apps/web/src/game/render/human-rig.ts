@@ -21,6 +21,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SkinSurface, bindGarment } from './skin-surface';
 import { HAIR_HEAD_AT, HairInstance, loadHairStyle } from './hair-style';
+import { beardGeometry, beardMaterial, browMaterial, eyebrowGeometries, type FaceSkin } from './face-hair';
 import { settingsStore, type TextureQuality } from '@/lib/settings';
 import { handPose } from '../hand-studio';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
@@ -711,6 +712,52 @@ export class HumanBody {
     this.applyInfectedSkin();
   }
 
+  private static readonly faceSkins = new WeakMap<HumanAssets, FaceSkin>();
+  /** The head's skin, which eyebrows and beards are fitted to and skinned like. */
+  private faceSkin(): FaceSkin {
+    let skin = HumanBody.faceSkins.get(this.assets);
+    if (!skin) {
+      const g = this.assets.bodies.top;
+      skin = { position: g.getAttribute('position') as BufferAttribute, normal: g.getAttribute('normal') as BufferAttribute, skinIndex: g.getAttribute('skinIndex') as BufferAttribute, skinWeight: g.getAttribute('skinWeight') as BufferAttribute, index: g.getIndex()! };
+      HumanBody.faceSkins.set(this.assets, skin);
+    }
+    return skin;
+  }
+
+  private faceHair: { brows: SkinnedMesh | null; beard: SkinnedMesh | null } = { brows: null, beard: null };
+  private faceHairKey = '';
+  /** Eyebrows and beard in the hair colour (the natural colour: a dark brown). */
+  private wearFaceHair(a: Appearance): void {
+    const color = HAIR_COLORS[a.hairColor];
+    const tone = color && color !== 'natural' ? color : '#2a1d14';
+    const key = `${a.brows}|${a.beard}|${tone}`;
+    if (key === this.faceHairKey) return;
+    this.faceHairKey = key;
+    const skin = this.faceSkin();
+    const place = (slot: 'brows' | 'beard', geometry: BufferGeometry | null, material: Material | null) => {
+      const old = this.faceHair[slot];
+      if (old) { old.removeFromParent(); (old.material as Material).dispose(); this.faceHair[slot] = null; }
+      if (!geometry || !material) return;
+      const mesh = new SkinnedMesh(geometry, material);
+      mesh.name = `survivor-${slot}`;
+      mesh.bind(this.skeleton, new Matrix4());
+      mesh.frustumCulled = false;
+      mesh.castShadow = false;
+      mesh.visible = !this.infectedSkin;
+      this.group.add(mesh);
+      this.faceHair[slot] = mesh;
+    };
+    const beard = beardGeometry(skin, a.beard);
+    place('beard', beard, beard ? beardMaterial(tone, beard.userData.thin as number) : null);
+    const brows = a.brows;
+    if (!brows) { place('brows', null, null); return; }
+    void eyebrowGeometries(skin).then((shapes) => {
+      if (this.disposed || this.faceHairKey !== key) return;
+      const g = shapes[(brows - 1) % Math.max(1, shapes.length)];
+      place('brows', g ?? null, g ? browMaterial(new Color(tone).multiplyScalar(.8).getStyle()) : null);
+    });
+  }
+
   private wearHair(a: Appearance): void {
     const color = HAIR_COLORS[a.hairColor];
     const tint = color && color !== 'natural' ? color : null;
@@ -783,7 +830,7 @@ export class HumanBody {
     // The model's own hair is no longer worn: a style from the hair pack is.
     const oldHair = this.meshes.get('hair');
     if (oldHair) oldHair.visible = false;
-    if (!this.armsOnly) this.wearHair(a);
+    if (!this.armsOnly) { this.wearHair(a); this.wearFaceHair(a); }
     set('infected', null, this.infectedSkin);
     this.applyInfectedSkin();
     this.proportions(a);
@@ -797,6 +844,7 @@ export class HumanBody {
     zombie.visible = this.infectedSkin;
     if (this.infectedSkin) for (const [slot, mesh] of this.meshes) if (slot !== 'infected') mesh.visible = false;
     if (this.hairStyle) this.hairStyle.root.visible = !this.infectedSkin;
+    for (const m of [this.faceHair.brows, this.faceHair.beard]) if (m) m.visible = !this.infectedSkin;
   }
 
   /** Face and body proportions: face bones moved and scaled, limbs lengthened, shoulders widened. */
@@ -819,18 +867,40 @@ export class HumanBody {
     const grow = (n: string, s: number) => bone(n)?.scale.multiplyScalar(s);
     const mirror = (n: string, dx: number, dy = 0, dz = 0) => { shift(`${n}_L`, dx, dy, dz); shift(`${n}_R`, -dx, dy, dz); };
 
-    grow('spine_006', 1 + .055 * f('head'));
-    for (const n of ['jaw', 'jaw_001']) mirror(n, .007 * f('jaw'));
-    mirror('chin', .004 * f('jaw'));
-    for (const n of ['chin', 'chin_001']) { shift(n, 0, -.009 * f('chin'), .004 * f('chin')); grow(n, 1 + .08 * f('chin')); }
-    for (const n of ['cheek_B', 'cheek_B_001', 'cheek_T_001']) { mirror(n, .005 * f('cheeks'), 0, .002 * f('cheeks')); grow(`${n}_L`, 1 + .1 * f('cheeks')); grow(`${n}_R`, 1 + .1 * f('cheeks')); }
-    for (const n of ['nose', 'nose_001', 'nose_002', 'nose_003', 'nose_004']) grow(n, 1 + .16 * f('nose'));
-    for (const n of ['nose_L', 'nose_R', 'nose_L_001', 'nose_R_001']) grow(n, 1 + .12 * f('nose'));
-    shift('nose_002', 0, 0, .004 * f('nose'));
-    for (const n of ['brow_T', 'brow_T_001', 'brow_T_002', 'brow_T_003']) mirror(n, 0, .002 * f('brow'), .005 * f('brow'));
-    for (const n of ['forehead', 'forehead_001', 'forehead_002']) mirror(n, 0, 0, .003 * f('brow'));
-    for (const n of ['lid_T', 'lid_B', 'brow_B']) for (const k of ['', '_001', '_002', '_003']) mirror(`${n}${k}`, .003 * f('eyes'));
-    for (const s of ['L', 'R'] as const) grow(`ear_${s}`, 1 + .22 * f('ears'));
+    // Strong enough to make quite different people (the presets push several at once).
+    grow('spine_006', 1 + .07 * f('head'));
+    // Face width: jaw, cheeks and temples out together.
+    for (const n of ['jaw', 'jaw_001', 'temple', 'cheek_B_001', 'cheek_T']) mirror(n, .0045 * f('faceWidth'));
+    for (const n of ['jaw', 'jaw_001']) mirror(n, .009 * f('jaw'));
+    mirror('chin', .007 * f('jaw'));
+    for (const n of ['chin', 'chin_001']) { shift(n, 0, -.015 * f('chin'), .007 * f('chin')); grow(n, 1 + .14 * f('chin')); }
+    for (const n of ['cheek_B', 'cheek_B_001', 'cheek_T_001']) { mirror(n, .006 * f('cheeks'), 0, .003 * f('cheeks')); grow(`${n}_L`, 1 + .16 * f('cheeks')); grow(`${n}_R`, 1 + .16 * f('cheeks')); }
+    // Cheekbones: high and forward, or flat.
+    mirror('cheek_T_001', .004 * f('cheekbones'), .004 * f('cheekbones'), .005 * f('cheekbones'));
+    for (const s of ['L', 'R'] as const) grow(`cheek_T_${s}_001`, 1 + .14 * f('cheekbones'));
+    for (const n of ['nose', 'nose_001', 'nose_002', 'nose_003', 'nose_004']) grow(n, 1 + .26 * f('nose'));
+    for (const n of ['nose_L', 'nose_R', 'nose_L_001', 'nose_R_001']) grow(n, 1 + .2 * f('nose'));
+    shift('nose_002', 0, 0, .007 * f('nose'));
+    // Nose width (the wings out) and bridge (the line raised forward, or flat).
+    for (const n of ['nose_L', 'nose_L_001']) shift(n, .005 * f('noseWidth'), 0, 0);
+    for (const n of ['nose_R', 'nose_R_001']) shift(n, -.005 * f('noseWidth'), 0, 0);
+    for (const n of ['nose_L', 'nose_R', 'nose_L_001', 'nose_R_001']) grow(n, 1 + .2 * f('noseWidth'));
+    for (const n of ['nose', 'nose_001']) shift(n, 0, 0, .007 * f('noseBridge'));
+    shift('nose_002', 0, -.002 * f('noseBridge'), .005 * f('noseBridge'));
+    // Lips: fuller and forward, or thin.
+    for (const t of ['lip_T', 'lip_B']) for (const k of ['', '_001']) {
+      mirror(`${t}${k}`, 0, 0, .0025 * f('lips'));
+      for (const s of ['L', 'R'] as const) grow(`${t}_${s}${k}`, 1 + .3 * f('lips'));
+    }
+    shift('lip_T_L', 0, .0015 * f('lips'), 0); shift('lip_B_L', 0, -.0015 * f('lips'), 0);
+    for (const n of ['brow_T', 'brow_T_001', 'brow_T_002', 'brow_T_003']) mirror(n, 0, .003 * f('brow'), .008 * f('brow'));
+    for (const n of ['forehead', 'forehead_001', 'forehead_002']) mirror(n, 0, .008 * f('forehead'), .005 * f('brow') + .003 * f('forehead'));
+    mirror('temple', 0, .006 * f('forehead'), 0);
+    for (const n of ['lid_T', 'lid_B', 'brow_B']) for (const k of ['', '_001', '_002', '_003']) mirror(`${n}${k}`, .005 * f('eyes'));
+    // Eye size: the lids open wider and the eyes grow a little.
+    for (const k of ['', '_001', '_002', '_003']) { mirror(`lid_T${k}`, 0, .002 * f('eyeSize'), 0); mirror(`lid_B${k}`, 0, -.0015 * f('eyeSize'), 0); }
+    for (const s of ['L', 'R'] as const) grow(`eye_${s}`, 1 + .1 * f('eyeSize'));
+    for (const s of ['L', 'R'] as const) grow(`ear_${s}`, 1 + .3 * f('ears'));
     // Shoulders: the arms sit further out along the collar bones.
     for (const s of ['L', 'R'] as const) bone(`upper_arm_${s}`)?.position.multiplyScalar(1 + .14 * b('shoulders'));
     // Legs: longer thighs and shins, the hips raised to keep the feet on the ground.

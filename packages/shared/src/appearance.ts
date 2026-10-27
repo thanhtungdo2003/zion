@@ -26,8 +26,29 @@ export const PANTS_COLORS = ['#7a7b79', '#4a503a', '#2b2b2d', '#5d6670', '#3d465
 export const BOOT_COLORS = ['#6b5236', '#2a2420', '#4f5141', '#80705c'] as const;
 
 /** Face sliders, −100…100 (0 = the base model). */
-export const FACE_KEYS = ['head', 'jaw', 'chin', 'cheeks', 'nose', 'brow', 'eyes', 'ears'] as const;
+export const FACE_KEYS = ['head', 'faceWidth', 'forehead', 'jaw', 'chin', 'cheeks', 'cheekbones', 'nose', 'noseWidth', 'noseBridge', 'lips', 'brow', 'eyes', 'eyeSize', 'ears'] as const;
 export type FaceKey = (typeof FACE_KEYS)[number];
+/** Eyebrows: none, or one of the three shapes (models/characters/eyebrows.glb). Beards grow from the skin. */
+export const BROW_STYLES = 3;
+export const BEARD_STYLES = ['none', 'stubble', 'mustache', 'goatee', 'full'] as const;
+export type BeardStyle = (typeof BEARD_STYLES)[number];
+
+/**
+ * Whole faces to start from (the face sliders all at once): quite different people, each still
+ * adjustable afterwards.
+ */
+export const FACE_PRESETS: ReadonlyArray<{ id: string; name: string; face: Partial<Record<(typeof FACE_KEYS)[number], number>> }> = [
+  { id: 'base', name: 'Mặc định', face: {} },
+  { id: 'angular', name: 'Góc cạnh', face: { faceWidth: -20, jaw: 85, chin: 40, cheeks: -60, cheekbones: 70, nose: 20, noseBridge: 60, lips: -40, brow: 70, eyeSize: -30 } },
+  { id: 'round', name: 'Mặt tròn', face: { head: 15, faceWidth: 80, jaw: -30, chin: -60, cheeks: 90, cheekbones: -20, nose: -30, noseWidth: 40, noseBridge: -40, lips: 30, eyeSize: 20 } },
+  { id: 'long', name: 'Mặt dài', face: { faceWidth: -70, forehead: 60, jaw: -40, chin: 90, cheeks: -40, nose: 50, noseBridge: 40, lips: -20, eyes: -20 } },
+  { id: 'broad', name: 'Bặm trợn', face: { head: 25, faceWidth: 60, forehead: -40, jaw: 100, chin: 20, cheeks: 30, cheekbones: 40, nose: 70, noseWidth: 80, noseBridge: -20, lips: 50, brow: 100, eyeSize: -60, ears: 30 } },
+  { id: 'gentle', name: 'Thư sinh', face: { head: -10, faceWidth: -40, forehead: 30, jaw: -70, chin: -10, cheeks: -20, cheekbones: 10, nose: -40, noseWidth: -50, noseBridge: 30, lips: -10, brow: -50, eyeSize: 60, ears: -20 } },
+  { id: 'flat', name: 'Mũi tẹt, mắt xa', face: { faceWidth: 40, forehead: 20, jaw: 10, chin: -30, cheeks: 50, cheekbones: 60, nose: -20, noseWidth: 90, noseBridge: -100, lips: 60, brow: -30, eyes: 70, eyeSize: -10 } },
+  { id: 'weathered', name: 'Từng trải', face: { head: 5, faceWidth: -10, forehead: 50, jaw: 50, chin: 30, cheeks: -90, cheekbones: 90, nose: 60, noseWidth: 20, noseBridge: 70, lips: -60, brow: 80, eyes: -30, eyeSize: -40, ears: 50 } },
+  { id: 'young', name: 'Trẻ trung', face: { head: 10, faceWidth: 10, forehead: 40, jaw: -50, chin: -40, cheeks: 60, cheekbones: -30, nose: -60, noseWidth: -20, noseBridge: -30, lips: 40, brow: -60, eyeSize: 90, ears: -30 } },
+];
+
 /** Body sliders, −100…100 (0 = the base model). */
 export const BODY_KEYS = ['build', 'muscle', 'shoulders', 'waist', 'legs'] as const;
 export type BodyKey = (typeof BODY_KEYS)[number];
@@ -43,6 +64,9 @@ export interface Appearance {
   bootsColor: number;
   belt: boolean;
   face: Record<FaceKey, number>;
+  /** 0 = none, 1…BROW_STYLES. */
+  brows: number;
+  beard: BeardStyle;
   body: Record<BodyKey, number>;
   /** −100…100: 0.93×…1.07× the base height (≈1.73 m). */
   height: number;
@@ -61,14 +85,20 @@ export const appearanceSchema = z.object({
   pantsColor: index(PANTS_COLORS),
   bootsColor: index(BOOT_COLORS),
   belt: z.boolean(),
-  face: z.object(Object.fromEntries(FACE_KEYS.map((k) => [k, slider])) as Record<FaceKey, typeof slider>).strict(),
+  // (Looks saved with fewer face sliders take 0 for the new ones.)
+  face: z.preprocess((v) => (v && typeof v === 'object' ? { ...Object.fromEntries(FACE_KEYS.map((k) => [k, 0])), ...v } : v),
+    z.object(Object.fromEntries(FACE_KEYS.map((k) => [k, slider])) as Record<FaceKey, typeof slider>).strict()),
+  brows: z.number().int().min(0).max(BROW_STYLES).default(1),
+  beard: z.enum(BEARD_STYLES).default('none'),
   body: z.object(Object.fromEntries(BODY_KEYS.map((k) => [k, slider])) as Record<BodyKey, typeof slider>).strict(),
   height: slider,
 }).strict();
 
 export const DEFAULT_APPEARANCE: Appearance = {
   v: 1, hair: 'hair_01', hairColor: 1, skin: 1, top: 'tank_top', topColor: 0, pantsColor: 0, bootsColor: 0, belt: true,
-  face: { head: 0, jaw: 0, chin: 0, cheeks: 0, nose: 0, brow: 0, eyes: 0, ears: 0 },
+  face: Object.fromEntries(FACE_KEYS.map((k) => [k, 0])) as Record<FaceKey, number>,
+  brows: 1,
+  beard: 'none',
   body: { build: 0, muscle: 0, shoulders: 0, waist: 0, legs: 0 },
   height: 0,
 };
@@ -100,6 +130,8 @@ export function randomAppearance(seed: number): Appearance {
     bootsColor: pick(BOOT_COLORS.length),
     belt: rnd() < 0.8,
     face: Object.fromEntries(FACE_KEYS.map((k) => [k, range(55)])) as Record<FaceKey, number>,
+    brows: 1 + pick(BROW_STYLES),
+    beard: rnd() < .5 ? 'none' : BEARD_STYLES[1 + pick(BEARD_STYLES.length - 1)]!,
     body: Object.fromEntries(BODY_KEYS.map((k) => [k, range(60)])) as Record<BodyKey, number>,
     height: range(70),
   };

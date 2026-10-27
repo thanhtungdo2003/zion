@@ -22,6 +22,10 @@ import {
   DEFAULT_APPEARANCE,
   EntityFlags,
   FACE_KEYS,
+  FACE_PRESETS,
+  BROW_STYLES,
+  BEARD_STYLES,
+  type BeardStyle,
   HAIR_COLORS,
   HAIR_STYLES,
   PANTS_COLORS,
@@ -79,14 +83,28 @@ const HAIR_NAMES: Record<HairStyle, { name: string; note: string }> = {
   hair_27: { name: 'Kiểu 27', note: 'Dài' },
   bald: { name: 'Cạo trọc', note: 'Không tóc' },
 };
+const BEARD_NAMES: Record<BeardStyle, [string, string]> = {
+  none: ['Cạo sạch', 'Không râu'],
+  stubble: ['Râu lún phún', 'Mới mọc vài ngày'],
+  mustache: ['Ria mép', 'Chỉ trên môi'],
+  goatee: ['Râu dê', 'Ria và chòm cằm'],
+  full: ['Râu quai nón', 'Kín hàm, nối tóc mai'],
+};
 const FACE_NAMES: Record<FaceKey, [string, string, string]> = {
   head: ['Kích thước đầu', 'Nhỏ', 'Lớn'],
+  faceWidth: ['Bề ngang mặt', 'Hẹp', 'Rộng'],
+  forehead: ['Trán', 'Thấp', 'Cao'],
   jaw: ['Độ rộng hàm', 'Thon', 'Vuông'],
   chin: ['Cằm', 'Ngắn', 'Dài'],
-  cheeks: ['Gò má', 'Hóp', 'Đầy'],
+  cheeks: ['Má', 'Hóp', 'Đầy'],
+  cheekbones: ['Gò má', 'Phẳng', 'Cao'],
   nose: ['Mũi', 'Nhỏ', 'To'],
+  noseWidth: ['Cánh mũi', 'Hẹp', 'Rộng'],
+  noseBridge: ['Sống mũi', 'Tẹt', 'Cao'],
+  lips: ['Môi', 'Mỏng', 'Dày'],
   brow: ['Chân mày', 'Phẳng', 'Nhô'],
   eyes: ['Khoảng cách mắt', 'Gần', 'Xa'],
+  eyeSize: ['Cỡ mắt', 'Híp', 'To'],
   ears: ['Tai', 'Nhỏ', 'To'],
 };
 const BODY_NAMES: Record<BodyKey, [string, string, string]> = {
@@ -301,6 +319,22 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
             </div>
             <h3>Màu tóc</h3>
             {swatches(HAIR_COLORS, look.hairColor, (i) => set('hairColor', i), 'Màu tóc')}
+            <h3>Lông mày</h3>
+            <div className="cc-options">
+              {[0, ...Array.from({ length: BROW_STYLES }, (_, i) => i + 1)].map((b) => (
+                <button key={b} type="button" className="cc-option" aria-pressed={look.brows === b} onClick={() => set('brows', b)}>
+                  <b>{b ? `Kiểu ${b}` : 'Không'}</b><small>{['Không có lông mày', 'Thanh, gọn', 'Đậm, ngang', 'Rậm, cong'][b]}</small>
+                </button>
+              ))}
+            </div>
+            <h3>Râu</h3>
+            <div className="cc-options">
+              {BEARD_STYLES.map((b) => (
+                <button key={b} type="button" className="cc-option" aria-pressed={look.beard === b} onClick={() => set('beard', b)}>
+                  <b>{BEARD_NAMES[b][0]}</b><small>{BEARD_NAMES[b][1]}</small>
+                </button>
+              ))}
+            </div>
           </>}
           {tab === 'outfit' && <>
             <h3>Áo</h3>
@@ -316,6 +350,14 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
             <label className="cc-check"><input type="checkbox" checked={look.belt} onChange={(e) => set('belt', e.target.checked)} /> Thắt lưng vải canvas</label>
           </>}
           {tab === 'face' && <>
+            <h3>Khuôn mặt mẫu</h3>
+            <div className="cc-options">
+              {FACE_PRESETS.map((p) => (
+                <button key={p.id} type="button" className="cc-option" onClick={() => setLook((l) => ({ ...l, face: { ...Object.fromEntries(FACE_KEYS.map((k) => [k, 0])) as typeof l.face, ...p.face } }))}>
+                  <b>{p.name}</b>
+                </button>
+              ))}
+            </div>
             <h3>Màu da</h3>
             {swatches(SKIN_TONES, look.skin, (i) => set('skin', i), 'Màu da')}
             <h3>Tỷ lệ khuôn mặt</h3>
