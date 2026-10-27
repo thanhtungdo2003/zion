@@ -815,7 +815,8 @@ export class ViewModel {
         const worked = this.rig()?.mechanics;
         if (worked?.boltWorked && hold?.support && guard && this.reloadT < 0) {
           const bolt = worked.partWorld(/bolt-handle/, new Vector3()) ?? worked.partWorld(/^bolt$|bolt-carriage/, new Vector3());
-          if (bolt) { out.R = { palm: bolt, preset: 'pinch' }; out.L = { grasp: fitGripProfile(model, guard) }; }
+          if (bolt && out.R && 'rifle' in out.R) out.R.rifle.bolt = bolt;
+          else if (bolt) { out.R = { palm: bolt, preset: 'pinch' }; out.L = { grasp: fitGripProfile(model, guard) }; }
         }
         const script = reloadScriptOf(this.rig()?.visual.itemId);
         if (guard && !recordedReload && script && !this.animGame && r > .01 && r < .99) {

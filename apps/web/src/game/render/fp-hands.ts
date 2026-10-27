@@ -14,7 +14,9 @@ export type FpHand = { grasp: Grasp } | ({ palm: Vector3 } & HandShaping) | ({ t
 export interface HandShaping { preset: HandPreset; to?: HandPreset; u?: number; elbow?: number; shoulder?: Vector3 }
 
 /** A long gun held as recorded: the display model, grip at its origin, bore +X, top +Y. */
-export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number; /** Shift of the firing hand (display units). */ grip?: Vector3 }
+export interface FpRifle { model: Object3D; key: string; support: Vector3 | null; gripRadius?: number; supportRadius?: number; /** Shift of the firing hand (display units). */ grip?: Vector3;
+  /** Working a bolt: the firing hand goes to the handle (world) while the support hand keeps its hold. */
+  bolt?: Vector3 }
 
 const SIDES = ['L', 'R'] as const;
 
@@ -141,6 +143,9 @@ export class FirstPersonHands {
     const rifle = hands.R && 'rifle' in hands.R ? hands.R.rifle : null;
     if (rifle) {
       this.poseRifle(rifle);
+      // The bolt worked by the firing hand; the support arm stays in the recorded hold (an IK grip
+      // of the handguard on its own bent the left elbow up).
+      if (rifle.bolt) this.reachHand('R', { palm: rifle.bolt, preset: 'pinch' }, this.holder.localToWorld(new Vector3(.6, -1, .25)).sub(this.holder.getWorldPosition(new Vector3())));
       const L = hands.L;
       if (L && !('rifle' in L)) {
         const pole = this.holder.localToWorld(new Vector3(-.6, -1, .25)).sub(this.holder.getWorldPosition(new Vector3()));

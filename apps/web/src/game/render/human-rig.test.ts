@@ -7,7 +7,7 @@ import { DEFAULT_APPEARANCE, EntityFlags, randomAppearance } from '@zion/shared'
 import { Avatar, stepLoops } from './avatars';
 import { BB_UNITS_PER_METER, buildBBModel, mirrorCharacter, survivorTemplate, type CharacterTemplate, type RawModel } from './character-model';
 import { HumanBody, SURVIVOR_SIZE, parseHumanAssets, type HumanAssets } from './human-rig';
-import { builtinWeaponVisual, fittedSpec, fitToHand, standaloneVisual, type WeaponLibrary, type WeaponVisual } from './weapons';
+import { builtinWeaponVisual, fittedSpec, fitToHand, heldWeaponVisual, standaloneVisual, type WeaponLibrary, type WeaponVisual } from './weapons';
 import { rifleStockContact } from './grip-profile';
 import { FirstPersonHands } from './fp-hands';
 import { ViewModel } from './viewmodel';
@@ -795,6 +795,34 @@ describe('survivor model', () => {
     const before = bone(avatar, 'hand_R');
     avatar.update(x, 0, z, -2.9, EntityFlags.Grounded, 1 / 60, 3); avatar.root.updateMatrixWorld(true);
     expect(bone(avatar, 'hand_R').distanceTo(before)).toBeLessThan(.1);
+  });
+
+  it('works a bolt in first person with the right hand while the left arm keeps its hold (elbow down)', async () => {
+    const raw = JSON.parse(await readFile(new URL('../../../../../models/weapons/mauser-kar98k.bbmodel', import.meta.url), 'utf8')) as RawModel;
+    raw.textures = [];
+    const model = await buildBBModel(raw), spec = fittedSpec(builtinWeaponVisual('kar98k')!, model);
+    const visual = heldWeaponVisual('kar98k', spec, model, template);
+    const camera = new PerspectiveCamera(75, 16 / 9, .02, 100), view = new ViewModel(camera);
+    view.setBody(assets); view.set('kar98k', new Map([['kar98k', visual]]));
+    const hands = () => camera.getObjectByName('first-person-hands')!;
+    const pos = (n: string) => hands().getObjectByName(n)!.getWorldPosition(new Vector3());
+    const step = () => { view.update(1 / 60, { visible: true, moving: false, sprint: false, aiming: true, reloading: false, yaw: 0, pitch: 0 }); camera.updateMatrixWorld(true); };
+    for (let i = 0; i < 60; i++) step();
+    const held = pos('hand_L');
+    view.kick();
+    let highest = -Infinity, rightTravel = 0;
+    const startR = pos('hand_R');
+    for (let i = 0; i < 90; i++) {
+      step();
+      // The left elbow stays below the line from its shoulder to its hand.
+      const sh = pos('upper_arm_L'), el = pos('forearm_L'), hd = pos('hand_L');
+      highest = Math.max(highest, el.y - (sh.y + (hd.y - sh.y) * (el.clone().sub(sh).length() / (el.clone().sub(sh).length() + hd.clone().sub(el).length()))));
+      expect(hd.distanceTo(held)).toBeLessThan(.06);
+      rightTravel = Math.max(rightTravel, pos('hand_R').distanceTo(startR));
+    }
+    expect(highest).toBeLessThan(.01);
+    expect(rightTravel).toBeGreaterThan(.03);
+    view.dispose();
   });
 
   it('keeps the real rifle support wrist neutral in first-person hip fire, aim, running and recoil', async () => {

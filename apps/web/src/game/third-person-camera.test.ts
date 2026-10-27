@@ -65,13 +65,13 @@ describe('third-person shoulder camera', () => {
     const { camera, boom, focus, world } = fixture();
     boom.update(camera, focus, 0, 0, 1 / 60, world);
     boom.update(camera, focus, 0, 0, 1 / 60, world, true);
-    expect(camera.position.z - focus.z).toBeGreaterThan(.85);
+    expect(camera.position.z - focus.z).toBeGreaterThan(.6);
     expect(camera.position.z - focus.z).toBeLessThan(2.8);
     for (let i = 0; i < 120; i++) boom.update(camera, focus, 0, 0, 1 / 60, world, true);
-    // Close behind the head, out over the right shoulder, level with the eyes.
-    expect(camera.position.z - focus.z).toBeCloseTo(.85, 5);
-    expect(camera.position.x - focus.x).toBeCloseTo(.38, 5);
-    expect(camera.position.y - focus.y).toBeCloseTo(0, 5);
+    // Close behind the head, out over the right shoulder, a little above the eyes.
+    expect(camera.position.z - focus.z).toBeCloseTo(.6, 5);
+    expect(camera.position.x - focus.x).toBeCloseTo(.32, 5);
+    expect(camera.position.y - focus.y).toBeCloseTo(.1, 5);
     for (let i = 0; i < 150; i++) boom.update(camera, focus, 0, 0, 1 / 60, world);
     expect(camera.position.z - focus.z).toBeCloseTo(2.8, 5);
   });

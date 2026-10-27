@@ -4,8 +4,10 @@ import { Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
 const CAMERA_SAMPLES = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [.7, .7], [-.7, .7], [.7, -.7], [-.7, -.7]] as const;
 
 /** Aiming (a gun without an optic): this far behind the head and out over the right shoulder (m). */
-const AIM_BACK = .85;
-const AIM_SIDE = .38;
+const AIM_BACK = .6;
+const AIM_SIDE = .32;
+/** …and this far above the eyes. */
+const AIM_UP = .1;
 
 /** Shoulder camera with immediate inward collision response and a smooth return outwards. */
 export class ThirdPersonCamera {
@@ -26,7 +28,7 @@ export class ThirdPersonCamera {
     this.direction.set(Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
       .multiplyScalar(chase?.distance ?? (2.8 - this.aimBlend * (2.8 - AIM_BACK))).addScaledVector(this.right, chase ? 0 : .55 - this.aimBlend * (.55 - AIM_SIDE));
     // Aiming: over the firing shoulder, level with the head.
-    this.direction.y += chase?.height ?? (.3 - this.aimBlend * .3);
+    this.direction.y += chase?.height ?? (.3 - this.aimBlend * (.3 - AIM_UP));
     const desired = this.direction.length();
     this.direction.divideScalar(desired);
     this.up.crossVectors(this.direction, this.right).normalize();
