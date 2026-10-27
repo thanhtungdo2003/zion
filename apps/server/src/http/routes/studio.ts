@@ -38,6 +38,9 @@ export interface StudioBackend {
   previewInfectionMap(map: unknown): unknown;
   vehiclePhysics(): { jolt: boolean };
   setVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }>;
+  /** Player character look for every client: the survivor model or the old block character. */
+  characterStyle(): { blocky: boolean };
+  setCharacterStyle(blocky: boolean): Promise<{ blocky: boolean }>;
 }
 
 const CAMP_IDS = new Set<number>([...Object.values(CAMP_ASSET), LIGHT_SOURCE_ASSET]);
@@ -337,6 +340,11 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
   }
   app.get('/api/studio/vehicle-physics', { preHandler: guard }, async () => studio.vehiclePhysics());
   app.post('/api/studio/vehicle-physics', { preHandler: guard }, async (req) => studio.setVehiclePhysics(z.object({ jolt: z.boolean() }).strict().parse(req.body).jolt));
+  app.post('/api/studio/character-style', { preHandler: guard }, async (req) => studio.setCharacterStyle(z.object({ blocky: z.boolean() }).strict().parse(req.body).blocky));
+  app.get('/api/character-style', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return studio.characterStyle();
+  });
 
   app.post('/api/studio/reset', { preHandler: guard, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async () => {
     await studio.reset();

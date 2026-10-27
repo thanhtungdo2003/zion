@@ -7,6 +7,7 @@ import { StudioPlayerCount } from './StudioPlayerCount';
 import { StudioCurrency } from './StudioCurrency';
 import { NewsEditor } from './NewsEditor';
 import { StudioVehiclePhysics } from './StudioVehiclePhysics';
+import { StudioCharacterStyle } from './StudioCharacterStyle';
 import { Spinner } from './Spinner';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAMP_ASSETS, LIGHT_ASSETS, LIGHT_SOURCE_ASSET } from '@zion/assets';
@@ -526,6 +527,7 @@ export default function StudioView() {
         <ContentEditor />
         <NewsEditor />
         <StudioVehiclePhysics />
+        <StudioCharacterStyle />
         <Link href="/studio/world" className="btn"><Icon name="lucide:map" /> World Editor</Link>
         <Link href="/studio/weapons" className="btn"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
         <Link href="/studio/gear" className="btn"><Icon name="game-icons:backpack" /> Trang bị</Link>

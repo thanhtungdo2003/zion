@@ -138,7 +138,7 @@ export function HandStudioPage() {
       fpCam.aspect = w / h; fpCam.updateProjectionMatrix(); frustum.userData.rebuild?.();
     };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();
-    void Promise.all([loadPlayerCharacter(), loadHandStudio()]).then(async ([character]) => {
+    void Promise.all([loadPlayerCharacter(undefined, undefined, 'survivor'), loadHandStudio()]).then(async ([character]) => {
       const lib = await loadWeapons(character).catch(() => new Map() as WeaponLibrary);
       if (disposed) return;
       setData(handStudio());

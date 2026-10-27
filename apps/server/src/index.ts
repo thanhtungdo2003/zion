@@ -194,10 +194,13 @@ async function main(): Promise<void> {
   }
 
   // Studio switches persisted across restarts.
+  let blockyCharacters = false;
   try {
     const physics = await db.query<{ value: { jolt?: boolean } }>(`SELECT value FROM server_settings WHERE key = 'vehicle_physics'`);
     const jolt = physics.rows[0]?.value.jolt;
     if (typeof jolt === 'boolean') { game.vehicleJolt = jolt; vehicleJolt = jolt; }
+    const style = await db.query<{ value: { blocky?: boolean } }>(`SELECT value FROM server_settings WHERE key = 'character_style'`);
+    blockyCharacters = style.rows[0]?.value.blocky === true;
   } catch (err) {
     logger.error({ err }, 'failed to load server settings (using defaults)');
   }
@@ -306,6 +309,14 @@ async function main(): Promise<void> {
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ jolt })]);
         audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
         return { jolt };
+      },
+      characterStyle: () => ({ blocky: blockyCharacters }),
+      setCharacterStyle: async (blocky) => {
+        blockyCharacters = blocky;
+        await db.query(`INSERT INTO server_settings (key, value) VALUES ('character_style', $1::jsonb)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ blocky })]);
+        audit.record({ event: 'studio.character_style', details: { blocky } });
+        return { blocky };
       },
       terrain: () => {
         const gen = world.generator;

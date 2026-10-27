@@ -71,7 +71,7 @@ export function GearStudioPage() {
     controls.target.set(0, 1.25, 0);
     const resize = () => { const w = el.clientWidth || 1, h = el.clientHeight || 1; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();
-    void Promise.all([loadPlayerCharacter(), loadGearFit()]).then(async ([character]) => {
+    void Promise.all([loadPlayerCharacter(undefined, undefined, 'survivor'), loadGearFit()]).then(async ([character]) => {
       const weapons = await loadWeapons(character);
       if (disposed) return;
       setFit(gearFit());

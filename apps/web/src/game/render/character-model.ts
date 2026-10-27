@@ -16,6 +16,7 @@ import {
 import { FACES, type FaceName } from './bbmodel-loader';
 import { surfaceMaterial, surfaceOf, type Surface } from './material-labels';
 import { cachedFetch } from '@/lib/preload';
+import { API_URL } from '@/lib/api';
 import { HUMAN_SCALE, fetchBinary, loadHumanAssets, type HumanAssets } from './human-rig';
 
 /** Served from apps/web/public/models (copy of /models/characters/teen-wasteland-survivor.bbmodel). */
@@ -429,13 +430,29 @@ export function survivorTemplate(rig: CharacterTemplate, human: HumanAssets): Ch
 /** Height of the rig hand's grip point above its pivot (`HAND_GRIP` in weapons.ts). */
 const HAND_GRIP_HEIGHT = 2 / UNITS_PER_METER;
 
+let styleLoad: Promise<boolean> | null = null;
+/** The Studio's character switch: true when players are the old block character (asked once per page). */
+export function blockyCharacters(): Promise<boolean> {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  styleLoad ??= fetch(`${API_URL}/api/character-style`, { credentials: 'include' })
+    .then((res) => (res.ok ? res.json() as Promise<{ blocky?: unknown }> : { blocky: false }))
+    .then((r) => r.blocky === true)
+    .catch(() => false);
+  return styleLoad;
+}
+
+/** Forgets the asked switch (the Studio after flipping it). */
+export function resetCharacterStyle(): void { styleLoad = null; }
+
 /**
  * The player character: the survivor model (with its rig re-pivoted to it), or the Blockbench
- * character itself for other models and when the survivor cannot load.
+ * character itself for other models, when the Studio switch asks for it (`style` 'auto'), and when
+ * the survivor cannot load. Fitting tools pass 'survivor' to always get the survivor.
  */
-export async function loadPlayerCharacter(url = CHARACTER_MODEL_URL, onProgress?: (p: number) => void): Promise<CharacterTemplate> {
-  const rig = mirrorCharacter(await loadCharacterModel(url, (p) => onProgress?.(url === CHARACTER_MODEL_URL ? p * .1 : p)));
-  if (url !== CHARACTER_MODEL_URL) return rig;
+export async function loadPlayerCharacter(url = CHARACTER_MODEL_URL, onProgress?: (p: number) => void, style: 'auto' | 'survivor' = 'auto'): Promise<CharacterTemplate> {
+  const blocky = url === CHARACTER_MODEL_URL && style === 'auto' && await blockyCharacters();
+  const rig = mirrorCharacter(await loadCharacterModel(url, (p) => onProgress?.(url === CHARACTER_MODEL_URL && !blocky ? p * .1 : p)));
+  if (url !== CHARACTER_MODEL_URL || blocky) return rig;
   try {
     const human = await loadHumanAssets((u) => fetchBinary(cachedFetch, u, (p) => onProgress?.(.1 + p * .9)));
     const template = survivorTemplate(rig, human);
