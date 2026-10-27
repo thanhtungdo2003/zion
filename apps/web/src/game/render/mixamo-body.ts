@@ -45,7 +45,7 @@ function aimChild(name: string): string | null {
 }
 
 const TRUNK = new Set(['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head']);
-const ARM = /^(Left|Right)(Shoulder|Arm|ForeArm|Hand)/;
+const LEG = /^(Left|Right)(UpLeg|Leg|Foot|ToeBase)$/;
 
 /** One recorded loop on the Mixamo skeleton: world turns per frame, the hips' sway and bob. */
 interface MixamoLoop { duration: number; frames: Quaternion[][]; hips: Vector3[]; /** Asset units one loop covers (0: recorded on the spot). */ stride: number }
@@ -180,7 +180,7 @@ export class MixamoSkin {
   private readonly bound = new WeakSet<SkinnedMesh>();
   private phase = 0;
   private weight = 0;
-  private armWeight = 0;
+  private upperWeight = 0;
   private readonly world: Quaternion[];
   private readonly restInvOld: Quaternion[];
   private readonly scratch = { m: new Matrix4(), inv: new Matrix4(), p: new Vector3(), q: new Quaternion(), s: new Vector3(), a: new Quaternion(), b: new Quaternion() };
@@ -219,7 +219,9 @@ export class MixamoSkin {
     const { joints, rest, source, walk } = this.motion, s = this.scratch, group = this.body.group;
     const ease = 1 - Math.exp(-Math.max(0, f.dt) * 8);
     this.weight += ((f.walking ? 1 : 0) - this.weight) * ease;
-    this.armWeight += ((f.walking && !f.armsBusy ? 1 : 0) - this.armWeight) * ease;
+    // Something in hand: the trunk and arms keep the regular pose that holds it (the grip, the
+    // handguard, the aim), only the legs and their steps come from the recording.
+    this.upperWeight += ((f.walking && !f.armsBusy ? 1 : 0) - this.upperWeight) * ease;
     // Steps follow the ground speed: one loop per stride.
     group.updateMatrixWorld(true);
     const scale = group.getWorldScale(s.s).y;
@@ -233,7 +235,7 @@ export class MixamoSkin {
       s.m.multiplyMatrices(s.inv, this.body.bones[source[k]!]!.matrixWorld).decompose(s.p, s.q, s.s);
       if (k === 0) hipsCopy = s.p.clone();
       const copy = s.q.multiply(this.restInvOld[k]!);
-      const w = ARM.test(j.name) ? this.armWeight : this.weight;
+      const w = LEG.test(j.name) ? this.weight : this.upperWeight;
       if (w <= .001) { this.world[k]!.copy(copy); return; }
       s.a.copy(walk.frames[i0]![k]!).slerp(walk.frames[i1]![k]!, u);
       this.world[k]!.copy(copy).slerp(s.a, w);
@@ -244,7 +246,7 @@ export class MixamoSkin {
       else b.quaternion.copy(s.b.copy(this.world[j.parent]!).invert().multiply(this.world[k]!));
     });
     const hips = rest[0]!.clone().add(s.p.copy(walk.hips[i0]!).lerp(walk.hips[i1]!, u));
-    this.bones[0]!.position.copy(hipsCopy ?? rest[0]!).lerp(hips, this.weight);
+    this.bones[0]!.position.copy(hipsCopy ?? rest[0]!).lerp(hips, this.upperWeight);
     group.updateMatrixWorld(true);
   }
 

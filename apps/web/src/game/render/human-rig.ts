@@ -1727,11 +1727,23 @@ export class HumanBody {
     if (m.legs?.length) blend(m.legs, legs);
     if (m.uppers?.length) blend(m.uppers, upper);
     if (m.damp) {
-      // Toward the mean pose of the dominant recording: smaller swings, same timing.
-      const main = base.reduce((a, b) => (b.weight > a.weight ? b : a), base[0]!), clip = A.clips.get(main.clip);
-      if (clip) {
-        const mean = this.clipMean(clip), S = this.side;
-        const damp = (bones: number[], k: number) => { for (const i of bones) { const t = mean.get(i); if (t) q[i]!.slerp(t, k); } };
+      // Toward the mean pose of the recordings, crossfaded like the recordings themselves
+      // (switching to the dominant one's mean halfway through a crossfade popped the trunk).
+      const means: Array<{ mean: Map<number, Quaternion>; weight: number }> = [];
+      for (const l of base) { const clip = l.weight > .001 ? A.clips.get(l.clip) : undefined; if (clip) means.push({ mean: this.clipMean(clip), weight: l.weight }); }
+      if (means.length) {
+        const S = this.side, t = tmpQ[6]!;
+        const meanOf = (i: number): Quaternion | null => {
+          let acc = 0, found = false;
+          for (const m of means) {
+            const r = m.mean.get(i);
+            if (!r) continue;
+            acc += m.weight;
+            if (!found) { t.copy(r); found = true; } else t.slerp(r, m.weight / acc);
+          }
+          return found ? t : null;
+        };
+        const damp = (bones: number[], k: number) => { for (const i of bones) { const target = meanOf(i); if (target) q[i]!.slerp(target, k); } };
         if (m.damp.hips) damp([this.spine[0]!], m.damp.hips);
         if (m.damp.arms) damp((['L', 'R'] as const).flatMap((sd) => [S[sd].shoulder, S[sd].upperArm, S[sd].upperArm1, S[sd].forearm, S[sd].forearm1, S[sd].hand]), m.damp.arms);
       }

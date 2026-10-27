@@ -29,6 +29,8 @@ const FADE_SEC = 0.18;
 const NO_ROOT_MOTION = new Set(['jump']);
 /** The jump clip opens with a crouch; physics has already left the ground, so skip it. */
 const JUMP_START = 0.15;
+/** How much faster than recorded a jump may run to catch up with the body (take-off, landing). */
+const JUMP_CATCH_UP = 3;
 /** The head follows the aim freely up to this angle; beyond it the whole body turns. */
 const MAX_HEAD_YAW = 55 * DEG;
 const STANCE_CLIPS: Record<Stance, { idle: string | null; walk: string }> = {
@@ -145,6 +147,8 @@ const GUN_READY_ANGLE = .07;
 const GUN_YAW_RANGE = .6;
 /** Seconds for the upper body to change between recorded holds (ready, aim, low carry). */
 const UPPER_FADE = .32;
+/** Crossfade when the body changes posing method (s). */
+const BRANCH_FADE = .18;
 /** Either recorded roll (empty-handed, or the dive roll with a weapon). */
 const ARMED_ROLL = [.55, 1.75] as const;
 /** Survivor bones simulated when it falls limp (the rest follow their parents). */
@@ -157,6 +161,10 @@ const isRoll = (clip: string | null | undefined) => clip === 'roll' || clip === 
  * (Shooting). Each is an upper-body layer, crossfaded like the rifle's.
  */
 const PISTOL_DRAWN = 1.7, PISTOL_HOLD = 1.7, PISTOL_HIP = 1.25;
+/** Where the Shooting recording's recoil begins (s). */
+const PISTOL_RECOIL = .2;
+/** The recorded recoil's kick and recovery played within this (s); shots in it do not restart it. */
+const PISTOL_RECOIL_SPAN = .3;
 
 /**
  * Critically damped spring towards `target` (D. Holden, "Spring-It-On"): continuous velocity,
@@ -222,8 +230,8 @@ function smooth(a: number, b: number, x: number): number {
 type AvatarMocap = MocapPose;
 
 /** Take-off, top, landing and end of a recorded jump, from its hip height (cached per clip). */
-const jumpCache = new WeakMap<Mocap, { takeoff: number; apex: number; land: number; end: number }>();
-function jumpPhases(clip: Mocap): { takeoff: number; apex: number; land: number; end: number } {
+const jumpCache = new WeakMap<Mocap, { takeoff: number; apex: number; touch: number; land: number; end: number }>();
+function jumpPhases(clip: Mocap): { takeoff: number; apex: number; touch: number; land: number; end: number } {
   let p = jumpCache.get(clip);
   if (p) return p;
   const y = clip.hipsY, n = y.length, at = (i: number) => (i / Math.max(1, n - 1)) * clip.duration;
@@ -234,7 +242,11 @@ function jumpPhases(clip: Mocap): { takeoff: number; apex: number; land: number;
   for (let i = apex; i < n; i++) if (y[i]! < y[land]!) land = i;
   let takeoff = crouch;
   while (takeoff < apex && y[takeoff]! < 0) takeoff++;
-  p = { takeoff: at(takeoff), apex: at(apex), land: at(land), end: Math.min(clip.duration, at(land) + .6) };
+  // Touch-down: the recorded hips back at standing height after the apex (the feet meet the
+  // ground; the landing crouch follows).
+  let touch = apex;
+  while (touch < land && y[touch]! > 0) touch++;
+  p = { takeoff: at(takeoff), apex: at(apex), touch: at(touch), land: at(land), end: Math.min(clip.duration, at(land) + .6) };
   jumpCache.set(clip, p);
   return p;
 }
@@ -493,6 +505,7 @@ export class Avatar {
           // person or revealing a remote player must not resume a stale foot/upper-body pose.
           if (!this.root.visible) { this.stepRecordedMotion(); return; }
           this.finishPose();
+          this.smoothBranchSwitch();
           // The pack swings from the posed shoulders (and its strap ends from the pack).
           const hook = this.carryHooks.get('back_center');
           if (this.backpack && hook) this.backpack.update(hook, this.frame.dt);
@@ -829,6 +842,8 @@ export class Avatar {
   kick(amount: number): void {
     this.recoil = Math.min(0.5, this.recoil + amount);
     this.proneShotFor = .6;
+    // A shot during the recorded recoil lets it finish (restarting it mid-way jerked the gun).
+    if (this.lastKick > PISTOL_RECOIL_SPAN) this.lastKick = 0;
   }
 
   private proneShotFor = 0;
@@ -1309,6 +1324,7 @@ export class Avatar {
     if (held?.visual.aim && held.obj.visible && recorded?.arms && !limp && !climbing && !this.mantleGrip && !this.planning && (!this.reloadAnim || recorded.action) && !this.healing) {
       // Recorded body first, rigid weapon in the firing hand second, support-hand IK last.
       grasp.L = grasp.R = null;
+      this.poseBranch = recorded.weight > .98 ? 'gun' : 'gun-driver';
       if (recorded.weight > .98) human.poseMocap(recorded, dt);
       else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
       this.attachRecordedGun(held, bracing, recorded.action?.weight ?? 0);
@@ -1317,6 +1333,7 @@ export class Avatar {
     }
     if (held && held.obj.visible && !held.visual.aim && !held.visual.melee && recorded && recorded.weight > .98
       && !limp && !climbing && !this.mantleGrip && !this.planning && !this.healing) {
+      this.poseBranch = 'item';
       human.poseMocap(recorded, dt);
       this.carryItem(held);
       return;
@@ -1325,13 +1342,18 @@ export class Avatar {
       && held.visual.melee) {
       if (recorded && recorded.arms && recorded.weight > .98) {
         // Recorded body; the weapon rides in the animated right hand, the left arm moves freely.
+        this.poseBranch = 'melee';
         human.poseMocap(recorded, dt);
         this.holdMelee(held);
-      } else this.carryWeapon(held, grasp, reach, hands, recorded, { dt, tuck, land, speed, fwd });
+      } else {
+        this.poseBranch = 'carry';
+        this.carryWeapon(held, grasp, reach, hands, recorded, { dt, tuck, land, speed, fwd });
+      }
       return;
     }
     // Fully recorded and nothing to reach for: the clip as it was captured.
     if (recorded && recorded.arms && recorded.weight > .98 && !grasp.L && !grasp.R && !reach.L && !reach.R) {
+      this.poseBranch = 'recorded';
       human.poseMocap(recorded, dt);
       // Walking and running carry the head level too: the walk recording looks down at the ground.
       if (!limp && (recorded.clip === NEUTRAL_IDLE || /^(walk_|jog_|fast_run)/.test(recorded.clip)) && recorded.weight > .98) {
@@ -1340,8 +1362,58 @@ export class Avatar {
         human.headUp(new Vector3(-Math.sin(ly) * Math.cos(lp), Math.sin(lp), -Math.cos(ly) * Math.cos(lp)), .9);
       } else if (!limp && !isRoll(recorded.clip)) human.lookAround(this.lookYaw, Math.max(-.6, Math.min(.6, this.lookPitch)) * (prone ? .4 : 1), prone ? 0 : .3);
     }
-    else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
+    else {
+      this.poseBranch = 'driver';
+      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
+    }
     human.group.updateMatrixWorld(true);
+  }
+
+  /** Which way finishPose posed the body this frame (a change starts a short crossfade). */
+  private poseBranch = '';
+  private lastBranch = '';
+  /** The body (bone rotations, hips) and the held item as last shown, and a crossfade from them. */
+  private shown: { q: Quaternion[]; hips: Vector3; item: Matrix4 | null; itemObj: Object3D | null } | null = null;
+  private crossfade: { from: { q: Quaternion[]; hips: Vector3; item: Matrix4 | null; itemObj: Object3D | null }; t: number } | null = null;
+
+  /**
+   * The posing methods (recorded clip, driver with IK, held-gun placement…) each give a whole,
+   * consistent pose but not the same one: switching method from one frame to the next (a pistol
+   * reload, the body fading into its recording) jumped the arms and the gun. A switch now fades
+   * from the pose last shown over BRANCH_FADE seconds, the item in hand fading along with it.
+   */
+  private smoothBranchSwitch(): void {
+    const human = this.human!, dt = this.frame.dt;
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey)?.obj ?? null : null;
+    if (this.shown && this.lastBranch && this.poseBranch !== this.lastBranch && !this.humanRagdoll) {
+      this.crossfade = { from: this.shown, t: 0 };
+    }
+    this.lastBranch = this.poseBranch;
+    const f = this.crossfade;
+    if (f) {
+      f.t += dt;
+      const k = f.t >= BRANCH_FADE ? 1 : smooth(0, 1, f.t / BRANCH_FADE);
+      if (k >= 1 || this.humanRagdoll) this.crossfade = null;
+      else {
+        human.bones.forEach((b, i) => { const q = f.from.q[i]; if (q) b.quaternion.slerpQuaternions(q, b.quaternion.clone(), k); });
+        const hips = human.bones[human.assets.index.get('spine') ?? 0]!;
+        hips.position.lerpVectors(f.from.hips, hips.position.clone(), k);
+        human.group.updateMatrixWorld(true);
+        if (held && f.from.item && f.from.itemObj === held && held.parent) {
+          const now = held.matrixWorld.clone();
+          const a = { p: new Vector3(), q: new Quaternion(), s: new Vector3() }, b = { p: new Vector3(), q: new Quaternion(), s: new Vector3() };
+          f.from.item.decompose(a.p, a.q, a.s); now.decompose(b.p, b.q, b.s);
+          const world = new Matrix4().compose(a.p.lerp(b.p, k), a.q.slerp(b.q, k), a.s.lerp(b.s, k));
+          held.matrix.copy(held.parent.matrixWorld.clone().invert().multiply(world));
+          held.updateWorldMatrix(false, true);
+        }
+      }
+    }
+    const shown = this.shown ??= { q: human.bones.map(() => new Quaternion()), hips: new Vector3(), item: null, itemObj: null };
+    human.bones.forEach((b, i) => shown.q[i]!.copy(b.quaternion));
+    shown.hips.copy(human.bones[human.assets.index.get('spine') ?? 0]!.position);
+    shown.itemObj = held && held.visible ? held : null;
+    shown.item = shown.itemObj ? (shown.item ?? new Matrix4()).copy(held!.matrixWorld) : null;
   }
 
   /** The Mixamo skeleton: the recorded walk when walking forward on foot, else the survivor's pose. */
@@ -1351,7 +1423,7 @@ export class Avatar {
     const has = (f: number) => (flags & f) !== 0;
     const yaw = this.root.rotation.y, len = Math.hypot(dx, dz);
     const forward = len < 1e-6 || (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / len > .7;
-    const walking = !this.humanRagdoll && has(EntityFlags.Grounded) && forward && speed > .3 && speed < 4.2
+    const walking = !this.humanRagdoll && has(EntityFlags.Grounded) && forward && speed > .3 && speed < 2.8
       && !has(EntityFlags.Crouching | EntityFlags.Prone | EntityFlags.Swimming | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Dead | EntityFlags.Downed | EntityFlags.Knocked | EntityFlags.Attacking)
       && !this.drivingActive && !this.flightActive && !this.mantleGrip && !this.reloadAnim && this.cur.clip?.name !== 'roll';
     const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
@@ -1411,6 +1483,8 @@ export class Avatar {
   private meleeSwings = 0;
   /** Last shot (seconds ago), for the one-handed firing stance and the Shooting clip's recoil. */
   private sinceShot = 9;
+  /** Seconds since the last shot left the gun (`kick`), for the pistol's recorded recoil. */
+  private lastKick = 9;
   private forwardBlend = 0;
 
   private calibrateGun(held: { obj: Object3D; visual: WeaponVisual }, trig: Side, scale: number): RifleFit {
@@ -1459,7 +1533,10 @@ export class Avatar {
     const ready = inGame && !supportFree && !pistol && (flags & EntityFlags.Prone) === 0;
     [this.readyBlend, this.readyVel] = spring(this.readyBlend, this.readyVel, ready ? 1 : 0, dt, .07);
     // A pistol fired from the hip is still brought onto the aim (one-handed).
-    const aimWeight = (inGame ? pistol ? Math.max(this.sightBlend, this.raiseBlend) : this.sightBlend : this.raiseBlend) * carry;
+    // A pistol's chest only brings the bore on once its pointing stance (Shooting, or the hip shot)
+    // is in: turning the chest to level the gun of the high hold bent the body double.
+    const pointing = pistol ? Math.min(1, 2 * this.upperLayers.reduce((sum, l) => sum + (l.clip === 'pistol_shoot' || l.clip === 'pistol_hip' ? easeWeight(l.weight) : 0), 0)) : 1;
+    const aimWeight = (inGame ? pistol ? Math.max(this.sightBlend, this.raiseBlend) * pointing : this.sightBlend : this.raiseBlend) * carry;
     // The ready gun is placed on the aim by the arm; the chest then only shares the look.
     const hipNow = this.readyBlend * carry;
     // Running freely the gun is carried along the body, level; otherwise it follows the aim.
@@ -1770,6 +1847,7 @@ export class Avatar {
     this.aimClipTime += dt;
     if (this.pistolDraw >= 0) this.pistolDraw = this.pistolDraw < PISTOL_DRAWN ? this.pistolDraw + dt : PISTOL_DRAWN;
     this.sinceShot = flags & EntityFlags.Attacking ? 0 : this.sinceShot + dt;
+    this.lastKick += dt;
     const distance = Math.hypot(dx, dz);
     const climbingNow = (flags & EntityFlags.Climbing) !== 0, mantlingNow = !!this.mantleGrip;
     // A lunge's travel is the recording's own steps: no running lean, bob or forward alignment on top.
@@ -1846,11 +1924,13 @@ export class Avatar {
     const advancedRate = layer?.rate ?? (layer ? 1 : 0);
     if (!layer) {
       const phase = cur && clip.loop && clips.get(cur.clip)?.loop ? (cur.time / Math.max(1e-6, clips.get(cur.clip)!.duration)) % 1 : 0;
-      layer = { clip: want, time: want === this.mocapIdle ? Math.random() * clip.duration : phase * clip.duration, weight: 0 };
+      // A body seen for the first time (spawn, a player coming into view) starts in its recording
+      // rather than fading in from the bind pose (and switching pose methods once faded in).
+      layer = { clip: want, time: want === this.mocapIdle ? Math.random() * clip.duration : phase * clip.duration, weight: cur ? 0 : 1 };
       this.mocapLayers.push(layer);
     }
-    layer.weight += k;
-    let rate = 1, time = layer.time;
+    layer.weight = Math.min(1, layer.weight + k);
+    let rate = 1, time = layer.time, jumpInAir = false;
     const acting = !!this.recAction && want === this.recAction.clip;
     if (acting) { time = this.recAction!.from + this.recAction!.t * this.recAction!.rate; rate = this.recAction!.rate; }
     else if (want === NEUTRAL_IDLE) { time = 0; rate = 0; }
@@ -1867,7 +1947,15 @@ export class Avatar {
     else if (isRoll(want)) time = roll! * clip.duration;
     else if (want === 'jump') {
       const p = jumpPhases(clip);
-      time = airborne ? vy > 0 ? p.takeoff + (p.apex - p.takeoff) * smooth(5, 0, vy) : p.apex + (p.land - p.apex) * smooth(0, 6, -vy) : p.land + (p.end - p.land) * smooth(0, 1, 1 - this.landT / LAND_SEC);
+      // Falling ends at the recorded touch-down; on the ground the recording plays on from there
+      // (its landing crouch, then standing up).
+      const target = airborne ? vy > 0 ? p.takeoff + (p.apex - p.takeoff) * smooth(5, 0, vy) : p.apex + (p.touch - p.apex) * smooth(0, 6, -vy) : p.touch + (p.end - p.touch) * smooth(0, 1, 1 - this.landT / LAND_SEC);
+      // One jump runs forward through its recording, at most a few times its speed: touching down
+      // short of the recorded landing (a low hop, a slow fall) used to snap the hips straight into
+      // the deepest crouch in one frame. A fresh take-off starts over.
+      const fresh = layer.weight <= k + .02 || (airborne && vy > 0 && target < time - .3);
+      time = fresh ? target : Math.max(time - dt, Math.min(target, time - dt + dt * JUMP_CATCH_UP));
+      jumpInAir = time < p.touch;
     } else if (want.startsWith('prone_turn_')) {
       rate = Math.min(2, Math.abs(this.bodyTurnRate) / 1.5);
     } else if (want === 'prone_rifle') {
@@ -1897,7 +1985,8 @@ export class Avatar {
     // pops the arms and gun in one frame).
     const activeUpper = standingAim && clips.has(upperId) ? upperId : null;
     // Linear progress over UPPER_FADE seconds, eased on output: a soft start and finish.
-    const upperFade = Math.max(dt, 0) / UPPER_FADE;
+    // (A pistol comes up to point twice as fast: a shot waits for the gun to be on the aim.)
+    const upperFade = Math.max(dt, 0) / (pistol ? UPPER_FADE / 2 : UPPER_FADE);
     for (const l of this.upperLayers) { l.time += dt; l.weight = l.clip === activeUpper ? Math.min(1, l.weight + upperFade) : Math.max(0, l.weight - upperFade); }
     if (activeUpper && !this.upperLayers.some((l) => l.clip === activeUpper)) this.upperLayers.push({ clip: activeUpper, time: this.aimClipTime, weight: upperFade });
     // Pistol layers keep their own times: the draw as it plays, the held frames still, the
@@ -1906,7 +1995,9 @@ export class Avatar {
       if (l.clip === 'pistol_draw') l.time = Math.max(0, this.pistolDraw);
       else if (l.clip === 'pistol_hold') l.time = PISTOL_HOLD;
       else if (l.clip === 'pistol_hip') l.time = PISTOL_HIP;
-      else if (l.clip === 'pistol_shoot') l.time = Math.min(this.sinceShot, clips.get('pistol_shoot')!.duration * .5);
+      // Shooting holds its steady first frame; a shot plays the recorded recoil (from 0.2 s in) to
+      // the end, which returns to that same steady frame, within PISTOL_RECOIL_SPAN.
+      else if (l.clip === 'pistol_shoot') { const d = clips.get('pistol_shoot')!.duration; l.time = this.lastKick < PISTOL_RECOIL_SPAN ? PISTOL_RECOIL + (d - PISTOL_RECOIL) * this.lastKick / PISTOL_RECOIL_SPAN : 0; }
     }
     const syncUpper = this.upperLayers.find((l) => l.clip === activeUpper);
     if (syncUpper && moving && !airborne && upperId === 'rifle_run') syncUpper.time = time / clip.duration * clips.get(upperId)!.duration;
@@ -1916,7 +2007,8 @@ export class Avatar {
     const action = reloadClip && this.reloadAnim ? rifleReloadLayer(this.reloadAnim.t, this.reloadAnim.dur, reloadClip.duration) : null;
     return (this.mocap = {
       // Climbs ride on the physics' own rise: their recorded hip lift would climb twice.
-      clip: want, time, weight, hips: (want !== 'jump' || !airborne) && !climbingNow && !mantlingNow,
+      // (The jump's recorded rise too, until its touch-down: the body may land before the recording does.)
+      clip: want, time, weight, hips: (want !== 'jump' || (!airborne && !jumpInAir)) && !climbingNow && !mantlingNow,
       arms: gun ? (!this.reloadAnim || !!action) && !isRoll(want) : true,
       ground: isRoll(want) || posture === 2 || want === 'crouch_to_prone',
       layers: this.mocapLayers.map((l) => ({ ...l, weight: easeWeight(l.weight) })), legs, upper: null, uppers, action, alignForward: this.forwardBlend,
