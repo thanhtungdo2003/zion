@@ -510,7 +510,12 @@ export class GameEngine {
    * Seen from the eye: first person, and the shoulder camera while aiming a gun (down its sights
    * or optic, the same first-person sight picture as in the Studio).
    */
-  private get eyeView(): boolean { return this.firstPerson || (this.cameraMode === 'third-person' && (this.scoped || this.aiming)); }
+  private get eyeView(): boolean { return this.firstPerson || (this.cameraMode === 'third-person' && (this.scoped || (this.aiming && !this.shoulderSights))); }
+  /**
+   * Third person aiming a gun with no optic on it: the camera comes in to the shoulder at head
+   * height and the character stays in view (an optic still takes the view to the eye).
+   */
+  private get shoulderSights(): boolean { return this.cameraMode === 'third-person' && this.aiming && !this.scoped && !this.currentOptic(); }
   private lensScopeReady(): boolean { return (this.firstPerson || this.cameraMode === 'third-person') && !!this.viewModel?.lens; }
   private get lensScoped(): boolean { return this.scoped && this.eyeView && !!this.viewModel?.lens; }
   /** Sight picture drawn on the optic's lens: magnified optics while scoped, red dots / holos once raised to the eye. */
@@ -2201,7 +2206,7 @@ export class GameEngine {
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateRockMoss(store.chunks, px, pz, now);
     if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
-    if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.scoped && !this.aiming && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > .75;
+    if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.eyeView && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > (this.shoulderSights ? .45 : .75);
     this.updateShoulderAim(px, py, pz);
     if (this.eyeView && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
