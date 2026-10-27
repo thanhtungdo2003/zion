@@ -22,7 +22,7 @@ export function WaveHud({ state, selfId, dead, onLeave }: { state: WaveStateMess
   const left = useCountdown(state);
   const line = state.phase === 'lobby' ? 'Đang chờ đồng đội vào trận…'
     : state.phase === 'countdown' ? `Đợt đầu tiên sau ${Math.ceil(left / 1000)} giây · chuẩn bị vũ khí`
-      : state.phase === 'break' ? `Nghỉ ${Math.ceil(left / 1000)} giây · nhặt tiếp tế, hồi máu, nạp đạn`
+      : state.phase === 'break' ? `Cửa hàng mở · B để mở/đóng · tự bắt đầu sau ${Math.ceil(left / 1000)} giây`
         : state.phase === 'fighting' ? `Còn ${state.remaining} xác sống` : 'Cả đội đã gục';
   return (
     <>

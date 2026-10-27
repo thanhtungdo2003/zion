@@ -980,16 +980,29 @@ export class GameEngine {
 
   setTutorialBlocked(blocked: boolean): void {
     this.tutorialBlocked = blocked;
-    this.input.suspended = blocked || this.chatOpen || this.inventory.get().open || this.hud.get().mapOpen;
+    this.input.suspended = blocked || this.chatOpen || this.inventory.get().open || this.hud.get().mapOpen || this.shopOpen;
   }
 
   setChatOpen(open: boolean): void {
     this.chatOpen = open;
-    this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open || this.hud.get().mapOpen;
+    this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open || this.hud.get().mapOpen || this.shopOpen;
+  }
+
+  /** Zombie waves: the shop between waves is open (the cursor is free, the game keys rest). */
+  private shopOpen = false;
+  setShopOpen(open: boolean): void {
+    this.shopOpen = open;
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open || this.hud.get().mapOpen;
+  }
+
+  /** Zombie waves: buy from the shop with match cash, or say ready for the next wave. */
+  waveShop(msg: { t: 'waveBuy'; item: string } | { t: 'waveReady'; ready: boolean }): void {
+    this.conn.sendWave(msg);
+    if (msg.t === 'waveBuy') this.sounds?.play('partGunAim', { volume: .3 });
   }
 
   setInventoryOpen(open: boolean): void {
-    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.hud.get().mapOpen;
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.hud.get().mapOpen || this.shopOpen;
   }
 
   tutorial(message: Extract<ClientMessage, { t: 'tutorial' }>): void { this.conn.sendTutorial(message); }
@@ -1001,7 +1014,7 @@ export class GameEngine {
       viewYaw: this.input.yaw,
       ...(state ? { position: [state.x, state.y, state.z] as [number, number, number] } : {}),
     } : {}) });
-    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open;
+    this.input.suspended = open || this.tutorialBlocked || this.chatOpen || this.inventory.get().open || this.shopOpen;
   }
 
   useVehicle(): void {

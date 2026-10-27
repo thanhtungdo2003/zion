@@ -7,11 +7,11 @@ import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
 import { WaveMatch } from './waves';
-import { WAVE_MAX_BOTS, WAVE_TEAM_LIMIT, waveBoard, waveInventory, waveSupplies, type WavePlayMode, type WaveResult, type WaveStateMessage } from '@zion/shared';
+import { ARMOR_SPECS, WAVE_KILL_CASH, WAVE_MAX_BOTS, WAVE_START_CASH, WAVE_TEAM_LIMIT, waveBoard, waveClearCash, waveInventory, wavePrice, waveShopStock, type WavePlayMode, type WaveResult, type WaveStateMessage } from '@zion/shared';
 import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
-import { BOT_ID_BASE, BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
+import { BOT_ID_BASE, BattleBot, BattleBotDirector, MAX_BATTLE_BOTS, isBotGun } from './battle-bots';
 import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { PropKnock } from './prop-knock';
 import { FreeBodies } from './free-bodies';
@@ -337,6 +337,9 @@ export class GameServer {
   private waves: WaveMatch | null = null;
   /** Kills per team member this match, and whether the result went out yet. */
   private readonly waveKills = new Map<number, number>();
+  /** Wave match cash by member (players and bots), and who has said ready in the shop. */
+  private readonly waveCash = new Map<number, number>();
+  private readonly waveReady = new Set<number>();
   private waveResult: WaveStateMessage['result'] | undefined;
   private waveRecorded = false;
   private waveBotsAdded = false;
@@ -1312,7 +1315,7 @@ export class GameServer {
       this.battleWasOccupied = true;
     }
     if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
-    if (this.waves) this.syncLoadout(player);
+    if (this.waves) { this.syncLoadout(player); if (!this.waveCash.has(player.id)) this.waveCash.set(player.id, WAVE_START_CASH); }
     if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
@@ -1399,7 +1402,8 @@ export class GameServer {
     if (this.battle && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
     if (this.infection && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
-    if (this.waves && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'revive', 'pickup', 'drop'].includes(msg.t)) return;
+    if (this.waves && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'revive', 'pickup', 'drop', 'waveBuy', 'waveReady'].includes(msg.t)) return;
+    if (msg.t === 'waveBuy' || msg.t === 'waveReady') { if (p && this.waves) this.onWaveShop(p, msg); return; }
     if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
     if (msg.t === 'loadout') { if (p && this.infection) this.onLoadout(p, msg); return; }
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
@@ -2280,21 +2284,27 @@ export class GameServer {
         this.dressBot(bot, false);
         // Bots carry the same kit as players, keep with their player and fire normal rounds.
         Object.assign(bot, { squad: 'wave-team', follow: lead.id, infiniteAmmo: true, speedMul: 1, jumpMul: 1 });
+        this.waveCash.set(bot.id, WAVE_START_CASH);
       }
       this.broadcastWaves();
     }
     const humans = [...this.players.values()];
     const standing = humans.filter((p) => !p.dead).length + bots.filter((b) => !b.dead).length;
     const before = m.phase;
-    const ev = m.tick(now, { present: humans.length, expected: cfg?.expected ?? 1, alive: standing, team: humans.length + bots.length, zombiesAlive: this.zombies.alive });
+    // The shop closes once every standing player is ready (bots always are).
+    const allReady = humans.filter((p) => !p.dead).every((p) => this.waveReady.has(p.id));
+    const ev = m.tick(now, { present: humans.length, expected: cfg?.expected ?? 1, alive: standing, team: humans.length + bots.length, zombiesAlive: this.zombies.alive, allReady });
+    if (ev.started) this.waveReady.clear();
     if (before === 'countdown' && m.phase === 'fighting') {
       this.waveStarters = [...humans.map((p) => ({ id: p.id, accountId: p.accountId, name: p.username, bot: false })), ...bots.map((b) => ({ id: b.id, accountId: null, name: b.name, bot: true }))];
     }
     if (ev.started) this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Đợt ${ev.started}: ${m.plan!.count} xác sống đang kéo đến!` });
     for (const variant of ev.spawn) this.spawnWaveZombie(variant, m.plan?.sides ?? 1);
     if (ev.cleared) {
-      this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Đã sống sót qua đợt ${ev.cleared}! Nghỉ ${Math.round((m.endsAt - now) / 1000)} giây: nhặt tiếp tế, hồi máu, nạp đạn.` });
-      this.dropWaveSupplies(ev.cleared, humans.filter((p) => !p.dead).length + bots.filter((b) => !b.dead).length);
+      this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Đã sống sót qua đợt ${ev.cleared}! Cửa hàng đã mở: mua súng, đạn, giáp rồi bấm Sẵn sàng.` });
+      // Everyone still standing is paid for the wave; the bots shop at once.
+      for (const id of [...humans.filter((p) => !p.dead).map((p) => p.id), ...bots.filter((b) => !b.dead).map((b) => b.id)]) this.waveCash.set(id, (this.waveCash.get(id) ?? 0) + waveClearCash(ev.cleared));
+      for (const bot of bots) if (!bot.dead) { bot.health = Math.min(100, bot.health + 40); this.waveBotShop(bot); }
       // Downed teammates get back up between waves; the fallen stay out.
       for (const p of humans) if (p.downed && !p.dead) { p.downed = false; p.health = 40; p.dirty = true; }
     }
@@ -2342,17 +2352,60 @@ export class GameServer {
     this.zombies.spawnAt(spot, variant);
   }
 
-  /** Supplies laid out round the team's position when a wave is cleared. */
-  private dropWaveSupplies(cleared: number, members: number): void {
-    const team = [...this.players.values()].filter((p) => !p.dead);
-    const at = team[0]?.state ?? { x: this.infectionCentre, y: 0, z: this.infectionCentre };
-    waveSupplies(cleared, Math.max(1, members), Math.random).forEach((s, i) => {
-      const a = i / 3, r = 1.6 + i * .25;
-      const pos = this.spawns.validateAt(at.x + Math.cos(a) * r, at.z + Math.sin(a) * r) ?? at;
-      this.spawnGroundItem(s.itemId, s.count, pos.x, pos.y + .1, pos.z);
-    });
-    // Bots pick their share of ammo up at once.
-    for (const bot of this.bots?.bots ?? []) if (!bot.dead) bot.health = Math.min(100, bot.health + 40);
+  /** Wave shop (between waves only): buy with match cash, or say ready for the next wave. */
+  private onWaveShop(p: Player, msg: { t: 'waveBuy'; item: string } | { t: 'waveReady'; ready: boolean }): void {
+    const m = this.waves!;
+    if (m.phase !== 'break' || p.dead) return;
+    if (msg.t === 'waveReady') {
+      if (msg.ready) this.waveReady.add(p.id); else this.waveReady.delete(p.id);
+      this.broadcastWaves();
+      return;
+    }
+    const price = wavePrice(msg.item), cash = this.waveCash.get(p.id) ?? 0;
+    const say = (text: string) => p.session.sendJson({ t: 'chat', from: 'CỬA HÀNG', fromId: 0, system: true, text });
+    if (price === null) return;
+    if (cash < price) return say('Không đủ tiền.');
+    if (!p.inv.add(msg.item)) return say('Ba lô đã đầy.');
+    this.waveCash.set(p.id, cash - price);
+    this.syncLoadout(p);
+    this.sendInv(p);
+    this.broadcastWaves();
+  }
+
+  /**
+   * A bot's shopping between waves: the best gun it can afford over the one it has (keeping
+   * something for armour while it has none), then better armour, body first.
+   */
+  private waveBotShop(bot: BattleBot): void {
+    let cash = this.waveCash.get(bot.id) ?? 0;
+    const stock = waveShopStock();
+    const current = bot.gunItem ? wavePrice(bot.gunItem.itemId) ?? 0 : 0;
+    const budget = !bot.armor.chest || !bot.armor.head ? cash * .65 : cash;
+    const gun = stock.filter((e) => (e.category === 'guns' || e.category === 'heavy') && isBotGun(e.item) && e.price <= budget && e.price > current)
+      .sort((a, b) => b.price - a.price)[0];
+    if (gun) {
+      const spec = weaponSpec(WEAPON_BY_ITEM[gun.item] ?? 0);
+      const uid = Math.max(0, ...bot.items.map((i) => i.uid)) + 1;
+      const item = { uid, itemId: gun.item, container: 'primary' as const, x: 0, y: 0, rotated: false, ...(spec?.kind === 'gun' ? { mag: spec.magazine } : {}) };
+      bot.items = [...bot.items.filter((i) => i !== bot.gunItem), item];
+      bot.gunItem = item;
+      bot.weapon = WEAPON_BY_ITEM[gun.item] ?? bot.weapon;
+      cash -= gun.price;
+    }
+    // Body first, then the head; no piece takes more than 60 % of what is left.
+    const order = ['chest', 'head', 'face', 'ears'].filter((k): k is keyof typeof bot.armor => k in bot.armor);
+    for (const slot of order) {
+      const have = ARMOR_SPECS.find((a) => a.id === bot.armor[slot]);
+      const haveTier = have ? wavePrice(have.item) ?? 0 : 0;
+      let best: { id: number; price: number } | null = null;
+      for (const a of ARMOR_SPECS) {
+        if (a.slot !== slot) continue;
+        const price = wavePrice(a.item);
+        if (price !== null && price <= cash * .6 && price > haveTier && (!best || price > best.price)) best = { id: a.id, price };
+      }
+      if (best) { bot.armor[slot] = best.id; cash -= best.price; }
+    }
+    this.waveCash.set(bot.id, cash);
   }
 
   /** The whole team is down: record the result on its board once, tell everyone. */
@@ -2373,8 +2426,8 @@ export class GameServer {
   private broadcastWaves(): void {
     const m = this.waves!, cfg = this.deps.waves;
     const members = [
-      ...[...this.players.values()].map((p) => ({ id: p.id, name: p.username, bot: false, alive: !p.dead, kills: this.waveKills.get(p.id) ?? 0 })),
-      ...(this.bots?.bots ?? []).map((b) => ({ id: b.id, name: b.name, bot: true, alive: !b.dead, kills: this.waveKills.get(b.id) ?? 0 })),
+      ...[...this.players.values()].map((p) => ({ id: p.id, name: p.username, bot: false, alive: !p.dead, kills: this.waveKills.get(p.id) ?? 0, cash: this.waveCash.get(p.id) ?? 0, ready: this.waveReady.has(p.id) })),
+      ...(this.bots?.bots ?? []).map((b) => ({ id: b.id, name: b.name, bot: true, alive: !b.dead, kills: this.waveKills.get(b.id) ?? 0, cash: this.waveCash.get(b.id) ?? 0, ready: true })),
     ];
     const msg: WaveStateMessage = {
       t: 'waves', map: { id: cfg?.mapId ?? '', name: cfg?.mapName ?? this.infectionMap.name }, playMode: cfg?.playMode ?? 'bots',
@@ -3066,7 +3119,14 @@ export class GameServer {
         void this.deps.teams?.progress(attacker.accountId, { x: zb.state.x, z: zb.state.z }).catch((err: unknown) => this.log.error({ err }, 'team kill progress failed'));
       }
       this.broadcastAt(zb.state.x, zb.state.z, { t: 'death', playerId: zb.id, killerId: sourceId || null });
-      if (this.waves) { if (sourceId) this.waveKills.set(sourceId, (this.waveKills.get(sourceId) ?? 0) + 1); return; }
+      if (this.waves) {
+        if (sourceId) {
+          this.waveKills.set(sourceId, (this.waveKills.get(sourceId) ?? 0) + 1);
+          // The one who brought it down is paid by its kind.
+          if (this.waveCash.has(sourceId)) this.waveCash.set(sourceId, this.waveCash.get(sourceId)! + (WAVE_KILL_CASH[zb.variant] ?? 25));
+        }
+        return;
+      }
       // Some zombies drop a ZCoin where they fell; whoever picks it up gets it.
       if (firstKill || Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
       if (firstKill && attacker) attacker.session.sendJson({ t: 'tutorialState', ...tutorialProgress(attacker) });

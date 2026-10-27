@@ -1,7 +1,8 @@
 import { ZombieVariant } from './zombies';
-import { ITEMS, ammoItemFor } from './items';
+import { ITEMS } from './items';
 import { WEAPON_BY_ITEM, weaponSpec } from './weapons';
 import type { InventoryData, PlacedItem } from './inventory';
+import { SHOP_STOCK, type ShopCategory } from './shop';
 
 /**
  * Zombie Wave Survival: a party of up to four (real players, or one player with up to three
@@ -10,8 +11,32 @@ import type { InventoryData, PlacedItem } from './inventory';
  */
 export const WAVE_TEAM_LIMIT = 4;
 export const WAVE_MAX_BOTS = 3;
-/** Rest between waves: loot the drops, heal, reload. */
-export const WAVE_BREAK_MS = 20_000;
+/**
+ * Between waves the shop is open: the next wave starts once every standing player is ready, or
+ * after this long at most (nobody can hold the team forever).
+ */
+export const WAVE_SHOP_MS = 120_000;
+/** Cash each member starts a match with, earned per zombie by kind, and per member for a cleared wave. */
+export const WAVE_START_CASH = 300;
+export const WAVE_KILL_CASH: Record<ZombieVariant, number> = {
+  [ZombieVariant.Rotting]: 25, [ZombieVariant.Gaunt]: 30, [ZombieVariant.Crimson]: 40, [ZombieVariant.Brute]: 75,
+} as Record<ZombieVariant, number>;
+export const waveClearCash = (wave: number): number => 100 + 50 * Math.max(1, wave);
+
+/** What the wave shop sells: guns, heavy weapons, melee, explosives, ammo, medicine, armour and attachments. */
+export const WAVE_SHOP_CATEGORIES: readonly ShopCategory[] = ['guns', 'heavy', 'melee', 'explosives', 'ammo', 'medical', 'armor', 'attachments'];
+export interface WaveShopEntry { item: string; price: number; category: ShopCategory }
+/**
+ * The wave shop's stock and prices (the merchant's, guns and gear at 60 %: a match is short).
+ * Built from the merchant's stock each time, so weapons made in the Studio are sold too.
+ */
+export function waveShopStock(): WaveShopEntry[] {
+  return SHOP_STOCK.filter((e) => WAVE_SHOP_CATEGORIES.includes(e.category) && ITEMS[e.item])
+    .map((e) => ({ item: e.item, category: e.category, price: e.category === 'ammo' || e.category === 'medical' ? e.price : Math.max(10, Math.round(e.price * .6 / 5) * 5) }));
+}
+export function wavePrice(item: string): number | null {
+  return waveShopStock().find((e) => e.item === item)?.price ?? null;
+}
 /** From the last member's arrival to the first wave. */
 export const WAVE_COUNTDOWN_MS = 8_000;
 /** Zombies alive at once, whatever the wave (server load and fairness). */
@@ -19,6 +44,7 @@ export const WAVE_MAX_ALIVE = 36;
 
 /** 'bots': one player and 0–3 bots; 'friends': a party of real players (no bots). */
 export type WavePlayMode = 'bots' | 'friends';
+/** 'break': between waves, the shop open. */
 export type WavePhase = 'lobby' | 'countdown' | 'fighting' | 'break' | 'over';
 
 /** The eight leaderboards each map has. */
@@ -95,7 +121,7 @@ export function pickWaveVariant(mix: Record<ZombieVariant, number>, roll: number
 }
 
 /** One team member as the HUD and results show it. */
-export interface WaveMember { id: number; name: string; bot: boolean; alive: boolean; kills: number }
+export interface WaveMember { id: number; name: string; bot: boolean; alive: boolean; kills: number; cash: number; ready: boolean }
 
 /** Live state of a wave match (sent once a second and on every change). */
 export interface WaveStateMessage {
@@ -110,7 +136,7 @@ export interface WaveStateMessage {
   /** Zombies still to come this wave plus those alive. */
   remaining: number;
   alive: number;
-  /** Server time the countdown or break ends (0 = none), and the time left when this was sent. */
+  /** Server time the countdown or the shop ends (0 = none), and the time left when this was sent. */
   endsAt: number;
   msLeft: number;
   /** Server time the first wave began (0 = not yet). */
@@ -146,21 +172,4 @@ export function waveInventory(): InventoryData {
     { uid: 6, itemId: 'medkit', container: 'backpack', x: 0, y: 1, rotated: false, count: 3 },
   ];
   return { items, equipped: 1 };
-}
-
-/**
- * Supplies dropped at the team's feet when a wave is cleared: ammo for every gun it may carry,
- * medkits, and from wave 2 on a better gun every other wave (shotgun, rifles, then a machine gun).
- */
-export function waveSupplies(cleared: number, members: number, roll: () => number): Array<{ itemId: string; count?: number }> {
-  const out: Array<{ itemId: string; count?: number }> = [];
-  const ammo = ['ammo_9mm', 'ammo_9mm', 'ammo_556', 'ammo_762', 'ammo_12g'];
-  for (let i = 0; i < members * 2; i++) { const id = ammo[Math.floor(roll() * ammo.length)]!; out.push({ itemId: id, count: ITEMS[id]?.ammo?.capacity ?? 30 }); }
-  for (let i = 0; i < Math.max(1, Math.ceil(members / 2)); i++) out.push({ itemId: 'medkit', count: 3 });
-  if (cleared % 2 === 1 || cleared >= 6) {
-    const guns = cleared < 3 ? ['mp5', 'shotgun', 'uzi'] : cleared < 6 ? ['m4a1', 'ak47', 'shotgun', 'saiga12'] : ['m4a1', 'ak47', 'saiga12', 'pkm'];
-    const gun = guns[Math.floor(roll() * guns.length)]!;
-    out.push({ itemId: gun }, { itemId: ammoItemFor(gun) ?? 'ammo_9mm', count: ITEMS[ammoItemFor(gun) ?? 'ammo_9mm']?.ammo?.capacity ?? 30 });
-  }
-  return out;
 }

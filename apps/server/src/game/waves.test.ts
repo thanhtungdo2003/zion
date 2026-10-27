@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WAVE_BOARDS, WAVE_BREAK_MS, WAVE_COUNTDOWN_MS, ZombieVariant, isWaveBoard, waveBoard, wavePlan, zombieMaxHealth } from '@zion/shared';
+import { WAVE_BOARDS, WAVE_SHOP_MS, WAVE_COUNTDOWN_MS, ZombieVariant, isWaveBoard, waveBoard, wavePlan, zombieMaxHealth } from '@zion/shared';
 import { WAVE_GATHER_MS, WaveMatch } from './waves';
 
 const input = (over: Partial<Parameters<WaveMatch['tick']>[1]> = {}) => ({ present: 1, expected: 1, alive: 1, team: 1, zombiesAlive: 0, ...over });
@@ -70,8 +70,15 @@ describe('wave match flow', () => {
     expect(m.phase).toBe('break');
     expect(m.cleared).toBe(1);
     expect(m.clearMs).toBeGreaterThan(0);
-    now += WAVE_BREAK_MS;
-    expect(m.tick(now, input()).started).toBe(2);
+    // The shop stays open until everyone is ready…
+    now += 30_000;
+    expect(m.tick(now, input({ allReady: false })).started).toBeUndefined();
+    expect(m.tick(now, input({ allReady: true })).started).toBe(2);
+    // …or, at most, WAVE_SHOP_MS.
+    const slow = new WaveMatch();
+    slow.phase = 'break'; slow.wave = 1; slow.endsAt = now + WAVE_SHOP_MS; slow.startedAt = 1;
+    expect(slow.tick(now + WAVE_SHOP_MS - 1, input({ allReady: false })).started).toBeUndefined();
+    expect(slow.tick(now + WAVE_SHOP_MS, input({ allReady: false })).started).toBe(2);
     now += 5000;
     expect(m.tick(now, input({ alive: 0 })).over).toBe(true);
     expect(m.phase).toBe('over');

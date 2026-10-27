@@ -187,6 +187,11 @@ export class GameConnection {
     this.send(msg);
   }
 
+  /** Zombie waves: a shop purchase or the ready toggle (the answer is the next 'waves' state). */
+  sendWave(msg: { t: 'waveBuy'; item: string } | { t: 'waveReady'; ready: boolean }): void {
+    this.send(msg);
+  }
+
   sendNurseHeal(req: number): void {
     this.send({ t: 'nurseheal', req });
   }

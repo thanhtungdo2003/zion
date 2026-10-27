@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
-import { INFECTION_MAP, WAVE_COUNTDOWN_MS, type ServerJsonMessage, type WaveResult, type WaveStateMessage } from '@zion/shared';
+import { INFECTION_MAP, WAVE_COUNTDOWN_MS, WAVE_START_CASH, waveClearCash, wavePrice, type ServerJsonMessage, type WaveResult, type WaveStateMessage } from '@zion/shared';
 import { GENERATOR_VERSION, normalizeSeed } from '@zion/worldgen';
 import { createLogger } from '../logger';
 import { Metrics } from '../metrics';
@@ -19,7 +19,7 @@ interface Harness { waves: WaveMatch; stepWaves(now: number): void; zombies: Zom
 
 /** One small arena, one player, two bots, a few simulated seconds per step (bounded). */
 describe('wave survival server', () => {
-  it('a player with two bots: kit, countdown, zombies that hunt bots too, a break with supplies, the result recorded on Trio Bot', async () => {
+  it('a player with two bots: kit, countdown, zombies that hunt bots too, the shop between waves (cash from kills and the wave, bots buy, everyone ready starts the next), the result recorded on Trio Bot', async () => {
     const logger = createLogger('silent', false), registry = createDefaultRegistry();
     const world = new WorldService({ seed: normalizeSeed(INFECTION_MAP.seed), sizeChunks: INFECTION_MAP.sizeChunks, generatorVersion: GENERATOR_VERSION, seaLevel: 20, mode: 'infection' }, registry, 0, 512, logger);
     const repository = { load: vi.fn(), saveMany: vi.fn(), loadChest: vi.fn(), saveChestAndPlayer: vi.fn() };
@@ -56,17 +56,42 @@ describe('wave survival server', () => {
       // Zombies take the team's players and bots alike as prey.
       expect(zombies.some((z) => z.target && (z.target as unknown) !== p)).toBe(true);
 
-      // Clear the wave: every remaining zombie falls; supplies drop and a break begins.
+      // Nothing can be bought while a wave is on.
+      game.handleMessage(session, { t: 'waveBuy', item: 'ammo_9mm' });
+      expect(p.inv.items.filter((i) => i.itemId === 'ammo_9mm')).toHaveLength(3);
+      // Clear the wave: every remaining zombie falls; the shop opens.
       const plan = h.waves.plan!;
       h.waves.spawned = plan.count;
       for (const z of h.zombies.zombies.values()) { z.dead = true; z.deadAt = now; }
       sent.length = 0;
       now += 250; h.stepWaves(now);
       expect(h.waves.phase).toBe('break');
-      expect(sent.some((m) => m.t === 'ground')).toBe(true);
+      expect(sent.some((m) => m.t === 'ground')).toBe(false);
       const state = sent.filter((m): m is WaveStateMessage => m.t === 'waves').at(-1)!;
       expect(state).toMatchObject({ phase: 'break', cleared: 1, wave: 2, playMode: 'bots' });
-      expect(state.members.filter((m) => m.bot)).toHaveLength(2);
+      const bots = state.members.filter((m) => m.bot);
+      expect(bots).toHaveLength(2);
+      expect(bots.every((m) => m.ready)).toBe(true);
+      // Paid for the wave: the start money plus the clear bonus.
+      const me = state.members.find((m) => !m.bot)!;
+      expect(me.cash).toBe(WAVE_START_CASH + waveClearCash(1));
+      expect(me.ready).toBe(false);
+      // The bots spent theirs on a better gun and armour.
+      expect(h.bots.bots.every((b) => b.gunItem && (wavePrice(b.gunItem.itemId) ?? 0) > 0 && b.armor.chest)).toBe(true);
+      // Buying: paid from the match cash, the item lands in the backpack; too dear is refused.
+      game.handleMessage(session, { t: 'waveBuy', item: 'ammo_9mm' });
+      expect(p.inv.items.filter((i) => i.itemId === 'ammo_9mm')).toHaveLength(4);
+      game.handleMessage(session, { t: 'waveBuy', item: 'barrett' });
+      expect(p.inv.items.some((i) => i.itemId === 'barrett')).toBe(false);
+      const after = sent.filter((m): m is WaveStateMessage => m.t === 'waves').at(-1)!;
+      expect(after.members.find((m) => !m.bot)!.cash).toBe(me.cash - wavePrice('ammo_9mm')!);
+      // The shop waits for the player; ready starts the next wave.
+      now += 5000; h.stepWaves(now);
+      expect(h.waves.phase).toBe('break');
+      game.handleMessage(session, { t: 'waveReady', ready: true });
+      now += 250; h.stepWaves(now);
+      expect(h.waves.phase).toBe('fighting');
+      expect(h.waves.wave).toBe(2);
 
       // The whole team goes down: over, recorded once on the Trio Bot board.
       p.dead = true;

@@ -12,7 +12,7 @@ import { InventoryStore } from '@/game/inventory/inventory';
 import { Hud } from './Hud';
 import { Onboarding } from './Onboarding';
 import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs, StaminaBar } from './Quests';
-import { ArmorHud, Hotbar, InventoryPanel } from './Inventory';
+import { ArmorHud, Hotbar, InventoryPanel, WaveShopPanel } from './Inventory';
 import { WorldMap } from './WorldMap';
 import { WorldMapStore } from '@/game/world-map';
 import { BattleHud } from './BattleHud';
@@ -47,6 +47,23 @@ export default function GameView() {
   const equipped = inv.items.find((i) => i.uid === inv.equipped);
   const spec = weaponSpec(equipped ? WEAPON_BY_ITEM[equipped.itemId] ?? 0 : 0);
   const touchVisible = touchControls && hud.status === 'playing' && hud.pointerLocked && !inv.open && !hud.dialogue && !hud.mapOpen && hud.downed === null && !chatOpen && !tutorialBlocked;
+
+  // Zombie waves: the shop opens by itself after each wave (closable; B opens it again).
+  const waves = hud.mode === 'waves' ? hud.waves : null;
+  const shopTime = !!waves && waves.phase === 'break' && hud.status === 'playing';
+  const [shopClosed, setShopClosed] = useState(false);
+  useEffect(() => { if (!shopTime) setShopClosed(false); }, [shopTime, waves?.cleared]);
+  const shopOpen = shopTime && !shopClosed && !inv.open;
+  useEffect(() => { engineRef.current?.setShopOpen(shopOpen); }, [shopOpen]);
+  useEffect(() => {
+    if (!shopTime) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyB' || e.repeat || (e.target instanceof Element && e.target.closest('input, textarea, select'))) return;
+      setShopClosed((c) => !c);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [shopTime]);
 
   // Leaving on purpose gives the place up: the menu must not send the player back in.
   const leaveMatch = useCallback(() => { clearActiveMatch(); router.push('/'); }, [router]);
@@ -155,6 +172,8 @@ export default function GameView() {
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
       <VoiceDock />
+      {inWorld && shopOpen && waves && <WaveShopPanel state={inv} store={inventory} waves={waves} selfId={hud.selfId}
+        onBuy={(item) => engineRef.current?.waveShop({ t: 'waveBuy', item })} onReady={(ready) => engineRef.current?.waveShop({ t: 'waveReady', ready })} onClose={() => setShopClosed(true)} />}
       {inWorld && hud.planning && (
         <div className={`build-hint${hud.planning.ok ? '' : ' bad'}`} role="status">
           <b>{hud.planning.name}</b>

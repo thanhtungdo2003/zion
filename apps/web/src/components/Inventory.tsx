@@ -5,7 +5,7 @@ import { ChestPanel } from './ChestPanel';
 import { BlueprintPanel, SupplyPanel } from './BuildPanels';
 import ModelPreview from './ModelPreview';
 
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   CONTAINERS,
   canPlace,
@@ -21,7 +21,7 @@ import { usePending } from '@/game/pending';
 import { Spinner } from './Spinner';
 import { AttachmentPanel } from './AttachmentPanel';
 import { AttachGuide } from './WeaponGuides';
-import { ATTACHMENTS, acceptsAttachments, compatibleSlot, gunsFor, WEAPON_ATTACHMENTS, ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, armorVision, armorHearing, buyPrice, sellPrice, isStash, type Attachments, type ShopCategory, type WeaponId, type ArmorSlot, ARMOR_BY_ID } from '@zion/shared';
+import { ATTACHMENTS, acceptsAttachments, compatibleSlot, gunsFor, WEAPON_ATTACHMENTS, ARMOR_BY_ITEM, ARMOR_SLOTS, NURSE_HEAL_PRICE, NURSE_NAME, SHOP_STOCK, WEAPON_BY_ITEM, WEAPON_SPECS, weaponSpec, weaponSpeedFactor, weaponStaminaFactor, armorProtection, armorSpeedFactor, armorVision, armorHearing, buyPrice, sellPrice, isStash, type Attachments, type ShopCategory, type WeaponId, type ArmorSlot, ARMOR_BY_ID, WAVE_SHOP_CATEGORIES, waveShopStock, type WaveShopEntry, type WaveStateMessage } from '@zion/shared';
 import { useSettings } from '@/lib/settings';
 import { itemDescription } from '@/lib/i18n';
 import { CACHE_DRAWS_PER_DAY, CACHE_STOCK, CAMP_CACHE_STOCK, ITEMS, maxCount, type ItemDef } from '@/game/inventory/items';
@@ -690,6 +690,14 @@ function WornGear({ grid }: { grid: (id: ContainerId, fill?: boolean) => React.R
 
 const SHOP_TABS: ShopCategory[] = ['guns', 'heavy', 'melee', 'explosives', 'ammo', 'attachments', 'armor', 'tools'];
 
+/** Zombie-wave match cash (not ZCoin): a plain dollar amount. */
+function Cash({ n, className }: { n: number; className?: string }) {
+  return <span className={`wave-cash ${className ?? ''}`}><i aria-hidden>$</i><b>{n.toLocaleString()}</b></span>;
+}
+
+/** The zombie-wave shop between waves: the merchant's catalogue with match cash, buy only. */
+export interface WaveShopProps { stock: WaveShopEntry[]; cash: number; onBuy(item: string): void }
+
 /** The ZCoin gold coin (its 3D model, pre-rendered), with the amount. */
 export function Coins({ n, className }: { n: number; className?: string }) {
   const src = itemIcons.get('zcoin');
@@ -771,7 +779,7 @@ function NursePanel({ store, coins, onTip }: { store: InventoryStore; coins: num
 }
 
 /** Weapon merchant: buy from his stock or sell what you carry, paid in ZCoin (server wallet). */
-function ShopPanel({ state, store, coins }: { state: InventoryState; store: InventoryStore; coins: number }) {
+function ShopPanel({ state, store, coins, wave }: { state: InventoryState; store: InventoryStore; coins: number; wave?: WaveShopProps }) {
   const busy = usePending();
   const tr = useSettings(), { t, item } = tr;
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
@@ -780,7 +788,9 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
   /** Attachments tab narrowed to one gun ("View attachments" on a gun listing). */
   const [fitFor, setFitFor] = useState<string | null>(null);
   const fitting = fitFor ? new Set(Object.values(WEAPON_ATTACHMENTS[fitFor] ?? {}).flat()) : null;
-  const products = mode === 'buy'
+  const products = wave
+    ? wave.stock.filter(e => e.category === tab).map(e => ({ key: e.item, id: e.item, price: e.price, count: undefined as number | undefined, issued: false }))
+    : mode === 'buy'
     ? SHOP_STOCK.filter(e => e.category === tab && (e.vendor ?? 'weapons') === 'weapons' && ITEMS[e.item]?.category !== 'food' && (tab !== 'attachments' || !fitting || fitting.has(e.item)))
       .map(e => ({ key: e.item, id: e.item, price: e.price, count: undefined as number | undefined, issued: false }))
     : state.items.flatMap(i => {
@@ -802,23 +812,23 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
     return sample ? { itemId: sample, attachments: undefined, owned: false } : null;
   })() : null;
   return <section className="merchant-shop">
-    <header className="merchant-shop-head"><div className="shop-modes">
+    {!wave && <header className="merchant-shop-head"><div className="shop-modes">
       <button className={mode === 'buy' ? 'on' : ''} onClick={() => { setMode('buy'); setSelected(''); }}>{t('shop.buy')}</button>
       <button className={mode === 'sell' ? 'on' : ''} onClick={() => { setMode('sell'); setSelected(''); }}>{t('shop.sell')}</button>
-    </div><Coins n={coins} /></header>
-    {mode === 'buy' && <div className="shop-tabs">{SHOP_TABS.map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); setFitFor(null); }}>{t(`shop.cat.${c}`)}</button>)}{tab === 'attachments' && <div className="shop-attach-guide"><AttachGuide /></div>}</div>}
+    </div><Coins n={coins} /></header>}
+    {mode === 'buy' && <div className="shop-tabs">{(wave ? WAVE_SHOP_CATEGORIES : SHOP_TABS).map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); setFitFor(null); }}>{t(`shop.cat.${c}`)}</button>)}{tab === 'attachments' && <div className="shop-attach-guide"><AttachGuide /></div>}</div>}
     {mode === 'buy' && tab === 'attachments' && fitFor && <div className="shop-fit-filter"><Icon name="lucide:filter" /> Phụ kiện lắp được cho <b>{item(fitFor)}</b><button type="button" aria-label="Bỏ lọc" onClick={() => setFitFor(null)}><Icon name="lucide:x" /></button></div>}
     <div className="shop-browser"><div className="shop-catalog">
       {!products.length && <div className="shop-empty">{t('shop.nothing')}</div>}
       {products.map(p => {
         const d = ITEMS[p.id]!;
-        const pending = busy(`${mode}:${p.key}`), enabled = mode === 'buy' ? coins >= p.price : p.price > 0;
+        const pending = !wave && busy(`${mode}:${p.key}`), enabled = wave ? wave.cash >= p.price : mode === 'buy' ? coins >= p.price : p.price > 0;
         return <article className={`shop-card${selection?.key === p.key ? ' selected' : ''}`} key={p.key}>
           <button className="shop-card-select" aria-pressed={selection?.key === p.key} onClick={() => setSelected(p.key)}>
             <span className="shop-card-art" style={{ background: d.color }}><ItemArt def={d} /></span>
             <b>{item(p.id)}</b><small>{p.issued ? t('tip.issued') : maxCount(d) ? `${p.count ?? maxCount(d)}/${maxCount(d)}` : `${d.w}×${d.h}`}</small>
           </button>
-          <div className="shop-card-action"><Coins n={p.price} className={enabled ? '' : 'short'} /><button className="btn shop-btn" data-nosound disabled={!enabled || pending} onClick={() => mode === 'buy' ? store.onBuy?.(p.id) : typeof p.key === 'number' && store.onSell?.(p.key)}>{pending ? <Spinner /> : t(mode === 'buy' ? 'shop.buy' : 'shop.sell')}</button></div>
+          <div className="shop-card-action">{wave ? <Cash n={p.price} className={enabled ? '' : 'short'} /> : <Coins n={p.price} className={enabled ? '' : 'short'} />}<button className="btn shop-btn" data-nosound disabled={!enabled || pending} onClick={() => wave ? wave.onBuy(p.id) : mode === 'buy' ? store.onBuy?.(p.id) : typeof p.key === 'number' && store.onSell?.(p.key)}>{pending ? <Spinner /> : t(mode === 'buy' ? 'shop.buy' : 'shop.sell')}</button></div>
         </article>;
       })}
     </div>{def && <aside className="shop-detail">
@@ -835,6 +845,44 @@ function ShopPanel({ state, store, coins }: { state: InventoryState; store: Inve
       </>}
     </aside>}</div>
   </section>;
+}
+
+/**
+ * Zombie waves, between waves: the shop (guns, ammo, armour… with match cash), the team's cash and
+ * who is ready, the ready button, and how long until the next wave starts anyway.
+ */
+export function WaveShopPanel({ state, store, waves, selfId, onBuy, onReady, onClose }: { state: InventoryState; store: InventoryStore; waves: WaveStateMessage; selfId: number | null; onBuy(item: string): void; onReady(ready: boolean): void; onClose(): void }) {
+  const me = waves.members.find((m) => m.id === selfId);
+  const stock = useMemo(() => waveShopStock(), []);
+  const [left, setLeft] = useState(waves.msLeft);
+  useEffect(() => {
+    const start = performance.now(), from = waves.msLeft;
+    setLeft(from);
+    const id = window.setInterval(() => setLeft(Math.max(0, from - (performance.now() - start))), 250);
+    return () => window.clearInterval(id);
+  }, [waves]);
+  return <div className="wave-shop-backdrop" role="dialog" aria-modal="true" aria-label="Cửa hàng">
+    <div className="wave-shop">
+      <header className="wave-shop-head">
+        <div><small>Đã qua đợt {waves.cleared}</small><h2>Cửa hàng</h2></div>
+        <Cash n={me?.cash ?? 0} className="wave-shop-cash" />
+        <span className="wave-shop-timer" title="Đợt sau tự bắt đầu khi hết giờ">Đợt {waves.wave} sau {Math.ceil(left / 1000)} giây</span>
+        <button className="inv-close" aria-label="Đóng cửa hàng (B để mở lại)" onClick={onClose}><Icon name="lucide:x" /></button>
+      </header>
+      <div className="wave-shop-body"><ShopPanel state={state} store={store} coins={0} wave={{ stock, cash: me?.cash ?? 0, onBuy }} /></div>
+      <footer className="wave-shop-foot">
+        <ul className="wave-shop-team" aria-label="Đội">
+          {waves.members.filter((m) => m.alive).map((m) => <li key={m.id} className={m.ready ? 'ready' : ''}>
+            <Icon name={m.bot ? 'lucide:bot' : m.ready ? 'lucide:circle-check' : 'lucide:circle-dashed'} />
+            <span>{m.name}{m.id === selfId ? ' (bạn)' : ''}</span><Cash n={m.cash} />
+          </li>)}
+        </ul>
+        <button className={`btn btn-primary wave-shop-ready${me?.ready ? ' on' : ''}`} onClick={() => onReady(!me?.ready)}>
+          {me?.ready ? 'Đã sẵn sàng · bấm để huỷ' : 'Sẵn sàng'}
+        </button>
+      </footer>
+    </div>
+  </div>;
 }
 
 /** Durability colour: green when new, through yellow, to red when nearly broken. */

@@ -3749,3 +3749,26 @@ kbd {
 .voice-dock li.speaking { border-left-color: var(--accent); color: var(--text); }
 .voice-dock li.speaking svg { color: var(--accent); }
 .voice-dock li small { color: var(--muted); }
+
+/* ------------------------------------------------------------------ zombie waves: shop between waves */
+.wave-cash { display: inline-flex; align-items: baseline; gap: 2px; color: #7fe08a; font: 700 14px var(--mono); }
+.wave-cash i { font-style: normal; opacity: .8; }
+.wave-cash.short { color: var(--danger); }
+.wave-shop-backdrop { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgba(5, 6, 7, .55); pointer-events: auto; }
+.wave-shop { display: flex; flex-direction: column; width: min(1180px, 100%); height: min(760px, calc(100dvh - 32px)); background: var(--panel-solid); border: 1px solid var(--line); border-top: 3px solid var(--accent); }
+.wave-shop-head { display: flex; align-items: center; gap: 18px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+.wave-shop-head small { font: 600 11px var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.wave-shop-head h2 { margin: 0; font: 800 22px var(--cond); letter-spacing: .12em; text-transform: uppercase; }
+.wave-shop-cash { font-size: 22px; margin-left: 8px; }
+.wave-shop-timer { margin-left: auto; color: var(--muted); font: 600 13px var(--sans); }
+.wave-shop-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.wave-shop-body .merchant-shop { flex: 1; min-height: 0; }
+.wave-shop-foot { display: flex; align-items: center; gap: 16px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.wave-shop-team { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; flex: 1; }
+.wave-shop-team li { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: #0d0f10; border: 1px solid var(--line); font: 600 13px var(--sans); color: var(--muted); }
+.wave-shop-team li svg { width: 15px; height: 15px; }
+.wave-shop-team li.ready { color: var(--text); border-color: rgba(127, 224, 138, .5); }
+.wave-shop-team li.ready svg { color: #7fe08a; }
+.wave-shop-ready { width: min(300px, 100%); min-height: 48px; font: 800 18px var(--cond); letter-spacing: .16em; }
+.wave-shop-ready.on { background: #2e3a30; border-color: #7fe08a; color: #7fe08a; }
+@media (max-width: 760px) { .wave-shop-foot { flex-direction: column; align-items: stretch; } .wave-shop-timer { display: none; } }

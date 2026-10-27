@@ -1,4 +1,4 @@
-import { WAVE_BREAK_MS, WAVE_COUNTDOWN_MS, pickWaveVariant, wavePlan, type WavePhase, type WavePlan, type ZombieVariant } from '@zion/shared';
+import { WAVE_SHOP_MS, WAVE_COUNTDOWN_MS, pickWaveVariant, wavePlan, type WavePhase, type WavePlan, type ZombieVariant } from '@zion/shared';
 
 /** How long a friends party may wait for its last members before the first wave starts anyway. */
 export const WAVE_GATHER_MS = 25_000;
@@ -12,12 +12,14 @@ export interface WaveTickInput {
   /** Team size the waves are scaled for (fixed when the first wave starts). */
   team: number;
   zombiesAlive: number;
+  /** Between waves: every standing player has said ready in the shop (bots always are). */
+  allReady?: boolean;
 }
 
 export interface WaveEvents {
   /** A wave began (its number). */
   started?: number;
-  /** A wave was cleared (its number): the break follows. */
+  /** A wave was cleared (its number): the shop opens. */
   cleared?: number;
   /** Zombies to bring in this tick, by kind. */
   spawn: ZombieVariant[];
@@ -79,7 +81,7 @@ export class WaveMatch {
       return ev;
     }
     if (this.phase === 'break') {
-      if (now >= this.endsAt) this.begin(now, ev);
+      if (input.allReady || now >= this.endsAt) this.begin(now, ev);
       return ev;
     }
     const plan = this.plan!;
@@ -92,7 +94,7 @@ export class WaveMatch {
     }
     if (this.spawned >= plan.count && input.zombiesAlive <= 0) {
       this.cleared = this.wave; this.clearMs = now - this.startedAt;
-      this.phase = 'break'; this.endsAt = now + WAVE_BREAK_MS;
+      this.phase = 'break'; this.endsAt = now + WAVE_SHOP_MS;
       ev.cleared = this.wave;
     }
     return ev;

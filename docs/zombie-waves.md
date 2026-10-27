@@ -12,7 +12,7 @@ waves of zombies on a published Infection map. Results go to eight leaderboards 
 | Parties | `TeamService` (create, join by code, ready, kick, leader, launch) | A separate wave lobby (limit 4), a `map` op for the leader, and launches that skip the leader's own ready |
 | Bots | `BattleBotDirector` (aim settle, spread, line of sight, nav, follow) | `targets` / `hitOther` hooks so bots fight zombies; bots are never hostile to the team |
 | Zombies | `ZombieDirector` (AI, limbs, bites, kinds and their fixed health) | No ambient spawns in this mode, `spawnAt(pos, kind)`, horde targeting (a wave zombie always knows where the nearest survivor is), bites on bots |
-| Rules | none | `WaveMatch` (`apps/server/src/game/waves.ts`): lobby, countdown, then fighting and break in turn, then over |
+| Rules | none | `WaveMatch` (`apps/server/src/game/waves.ts`): lobby, countdown, then fighting and the shop in turn, then over |
 | Difficulty | zombie kinds | `wavePlan` (`packages/shared/src/waves.ts`) |
 | Leaderboards | none per mode | `wave_scores` table (migration 031) with `WaveScoreRepository`, plus `GET /api/waves/maps` and `GET /api/waves/leaderboard` |
 | Menu | Mode picker, design tokens, `.mode-modal` and `.br-results` styles | `WaveLobby` (switch, four slots, map cards, PLAY), `WaveBoards`, and `WaveHud` with its results card |
@@ -26,8 +26,21 @@ waves of zombies on a published Infection map. Results go to eight leaderboards 
   once.
 - **Zombie health is fixed per kind** (Rotting/Gaunt 70, Crimson 50, Brute 200) and never grows.
 - **Kit.** Everyone starts with a GL18 pistol, a machete, three boxes of 9 mm and a medkit.
-- **Breaks.** A 20 s break follows every cleared wave. Supplies drop at the team's feet: ammo,
-  medkits, and a better gun every other wave. Downed (not dead) players get back up.
+- **Cash.** Each member starts with $300 and earns cash for every zombie it brings down
+  (Rotting 25, Gaunt 30, Crimson 40, Brute 75). Every member still standing also gets
+  100 + 50 × the wave number for a cleared wave. The cash belongs to the match only and is not ZCoin.
+- **Shop between waves.** After every cleared wave the shop opens. It sells the merchant's
+  catalogue (guns, special weapons, melee, explosives, ammo, medicine, armour, attachments).
+  Ammo and medicine are at merchant price; everything else is at 60 %.
+  - Players buy with their match cash; the item goes into the backpack. Nothing can be bought
+    during a wave.
+  - **B** closes and reopens the shop.
+  - **Bots shop by themselves.** Each buys the best gun it can afford over the one it carries,
+    keeping some cash for armour while it has none. It then buys armour, body first, no piece
+    taking more than 60 % of what is left.
+- **Ready.** The next wave starts once every standing player has pressed Sẵn sàng (bots are
+  always ready), or after 2 minutes at most, so nobody can hold the team forever. Downed (not
+  dead) players get back up when the shop opens.
 - **Damage.** There is no friendly fire, and nothing hurts before wave 1.
 - **Going down.** A player who drops goes down while any teammate (player or bot) still stands;
   a downed player can be revived. When the whole team is down the match is over.
@@ -72,7 +85,7 @@ no schema change.
 | File | Covers | Database |
 |---|---|---|
 | `apps/server/src/game/waves.test.ts` | Board rules (including that three bots never reach Solo or Full Squad), difficulty growth with fixed health, the full match flow, the party gather timeout | No |
-| `apps/server/src/game/waves-server.test.ts` | A real game server with one player and two bots: kit, no damage before wave 1, zombies hunting bots, a break with supplies, the result recorded once on Trio Bot | No |
+| `apps/server/src/game/waves-server.test.ts` | A real game server with one player and two bots: kit, no damage before wave 1, zombies hunting bots, the shop between waves (cash, bots buying, ready starts the next wave), the result recorded once on Trio Bot | No |
 | `apps/server/src/repositories/wave-scores.integration.test.ts` | Ranking, one row per team, boards and maps kept apart, one record per match | Opt-in: `ZION_WAVES_INTEGRATION=1` and `DATABASE_URL` |
 
 `node apps/web/scripts/wave-lobby-e2e.mjs` renders the lobby (bots, party, join and mobile views)
@@ -82,7 +95,7 @@ and the boards with a mocked API, through a disposable Edge debugging session on
 
 - **Maps.** Only published Infection maps are offered. Maps have no thumbnails yet, so the cards
   show the mode image.
-- **Bots** fire unlimited ammo, like Infection bots. They do not pick up supplies or revive
+- **Bots** fire unlimited ammo, like Infection bots. They do not revive
   anyone.
 - **Inviting** a friend works by room code. There is no friends-list invite.
 - **Database test.** The leaderboard SQL has a test against PostgreSQL, but it has not been run:

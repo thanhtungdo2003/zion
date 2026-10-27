@@ -102,6 +102,10 @@ const itemId = z.string().regex(/^[a-z0-9_]{1,32}$/);
 /** Buy one item from the weapon merchant (the server checks range and funds). */
 export const buyMessageSchema = z.object({ t: z.literal('buy'), req: u32, item: itemId }).strict();
 
+/** Zombie waves, between waves: buy one item from the wave shop with match cash; say ready (or not) for the next wave. */
+export const waveBuyMessageSchema = z.object({ t: z.literal('waveBuy'), item: itemId }).strict();
+export const waveReadyMessageSchema = z.object({ t: z.literal('waveReady'), ready: z.boolean() }).strict();
+
 /** Sell one item (by uid) to the merchant; the server prices it from its own copy. */
 export const sellMessageSchema = z.object({ t: z.literal('sell'), req: u32, uid: u32 }).strict();
 
@@ -200,6 +204,8 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   pickupCoinMessageSchema,
   buyMessageSchema,
   sellMessageSchema,
+  waveBuyMessageSchema,
+  waveReadyMessageSchema,
   authMessageSchema,
   inputMessageSchema,
   pingMessageSchema,
