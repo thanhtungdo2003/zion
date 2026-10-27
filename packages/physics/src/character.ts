@@ -1,4 +1,5 @@
 import { Layer, Mask } from './layers';
+import { MANTLE_CLIPS, type MantleClipTable } from './mantle-clips';
 import { makeContact, makeRayHit, type Contact } from './shapes';
 import type { CollisionWorld } from './world';
 
@@ -115,7 +116,32 @@ export interface CharacterState {
   mantle?: Mantle;
 }
 
-export interface Mantle { t: number; dur: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number }
+/** `kind` 0: Braced Hang To Crouch, 1: Climbing; the climb plays its recording from `t0` (s). */
+export interface Mantle { t: number; dur: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; kind?: 0 | 1; t0?: number }
+
+/** Ledges from head height up are climbed with the full wall climb; lower ones from a braced hang. */
+export const MANTLE_CLIMB_MIN = 1.75;
+const MANTLE_TABLES = [MANTLE_CLIPS.hang_to_crouch, MANTLE_CLIPS.climb_wall] as const;
+
+/** A recorded table at a time (s), linearly between its frames. */
+export function mantleSample(table: MantleClipTable, values: number[], time: number): number {
+  const x = Math.max(0, Math.min(values.length - 1, time * table.fps)), i = Math.floor(x), f = x - i;
+  return values[i]! + ((values[Math.min(values.length - 1, i + 1)] ?? values[i]!) - values[i]!) * f;
+}
+
+/**
+ * Which recording climbs a ledge `h` above the feet, and from when: a ledge lower than the
+ * recording's own climb starts it part-way (the feet already that much up), so its pace and shape
+ * stay as recorded; a higher one plays it all from a little hop.
+ */
+export function mantlePlan(h: number): { kind: 0 | 1; t0: number; dur: number; table: MantleClipTable } {
+  const kind: 0 | 1 = h >= MANTLE_CLIMB_MIN ? 1 : 0, table = MANTLE_TABLES[kind];
+  const need = table.rise.at(-1)! - h;
+  let i = 0;
+  if (need > 0) while (i < table.rise.length - 1 && table.rise[i]! < need) i++;
+  const t0 = Math.min(table.duration * .8, i / table.fps);
+  return { kind, t0, dur: table.duration - t0, table };
+}
 
 /** Ledges a character can mantle onto (m above the feet): above a plain jump, below arm's reach. */
 export const MANTLE_MIN = 0.85;
@@ -479,21 +505,28 @@ export class CharacterController {
     if (h + risen < MANTLE_MIN || h + risen > MANTLE_MAX || h < 0.3) return false;
     // Room to rise beside the wall, and to stand on top.
     if (!this.isFree(s.x, top + 0.03, s.z, 0.001) || !this.isFree(ax, top + 0.03, az, 0.001)) return false;
-    s.mantle = { t: 0, dur: 0.42 + h * 0.2, fx: s.x, fy: s.y, fz: s.z, tx: ax, ty: top + 0.02, tz: az };
+    // (The ledge's height over the ground the jump left from picks the recording.)
+    const plan = mantlePlan(h + risen);
+    s.mantle = { t: 0, dur: plan.dur, fx: s.x, fy: s.y, fz: s.z, tx: ax, ty: top + 0.02, tz: az, kind: plan.kind, t0: plan.t0 };
     s.vx = s.vz = s.vy = 0; s.pushX = s.pushZ = 0;
     s.grounded = false;
     return true;
   }
 
-  /** Hands on the edge, body pulled up (first two thirds), then over onto the top. */
+  /**
+   * Along the recording: up as its feet climb (counted down from the top, never below the start),
+   * forward as its feet go forward.
+   */
   private stepMantle(s: CharacterState, dt: number): void {
     const m = s.mantle!;
     m.t += dt;
-    const k = Math.min(1, m.t / m.dur), rise = Math.min(1, k / 0.62), over = Math.max(0, (k - 0.5) / 0.5);
-    const ease = (v: number) => v * v * (3 - 2 * v);
-    s.y = m.fy + (m.ty - m.fy) * ease(rise);
-    s.x = m.fx + (m.tx - m.fx) * ease(over);
-    s.z = m.fz + (m.tz - m.fz) * ease(over);
+    const k = Math.min(1, m.t / m.dur), table = MANTLE_TABLES[m.kind ?? 0], t0 = m.t0 ?? 0, c = t0 + Math.min(m.t, m.dur);
+    const rise = mantleSample(table, table.rise, c), riseEnd = table.rise.at(-1)!;
+    const f0 = mantleSample(table, table.forward, t0), fEnd = table.forward.at(-1)!;
+    const over = fEnd - f0 > 1e-3 ? (mantleSample(table, table.forward, c) - f0) / (fEnd - f0) : k;
+    s.y = Math.max(m.fy, m.ty - (riseEnd - rise));
+    s.x = m.fx + (m.tx - m.fx) * over;
+    s.z = m.fz + (m.tz - m.fz) * over;
     s.vx = s.vy = s.vz = 0;
     s.climbing = false;
     if (k >= 1) { s.mantle = undefined; s.grounded = true; s.x = m.tx; s.y = m.ty; s.z = m.tz; }

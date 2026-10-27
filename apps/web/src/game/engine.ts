@@ -112,7 +112,9 @@ import {
   WeaponId,
   propTransform,
 } from '@zion/shared';
-import { DEFAULT_CHARACTER, characterEyeHeight, Mask, makeRayHit, raycastRig, zombieHitRig, PRONE_RIG } from '@zion/physics';
+import { DEFAULT_CHARACTER, characterEyeHeight, Mask, makeRayHit, raycastRig, zombieHitRig, PRONE_RIG, MANTLE_CLIPS, mantlePlan, mantleSample } from '@zion/physics';
+/** A recording's foot bone (the ankle) above the sole (m). */
+const MANTLE_ANKLE = .08;
 import { CAMP_ASSET, createDefaultRegistry, type AssetDefinitionInput, type AssetRegistry } from '@zion/assets';
 import type { HudState, HudStore, LifeState } from './hud-store';
 import { itemName, translateMsg, type Msg } from '@/lib/i18n';
@@ -129,7 +131,7 @@ import { doorColliders } from '@zion/physics';
 import { BATTLE_FLIGHT, BATTLE_TIME_OF_DAY, battleCircleAt, battlePlaneAt, type BattleState } from '@zion/shared';
 import { AssetLibrary, windUniforms } from './render/asset-library';
 import { ResourceDisposer } from './render/resources';
-import { Avatar } from './render/avatars';
+import { Avatar, type MantleClipPose } from './render/avatars';
 import { loadPlayerCharacter, type CharacterTemplate } from './render/character-model';
 import { BuildingController } from './building-controller';
 import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
@@ -350,14 +352,14 @@ export class GameEngine {
   /** Peeking round a corner while aiming (TOP & third person): −1 left, 1 right, since when. */
   private autoLean = { side: 0, at: 0 };
   private readonly reachHit = makeRayHit();
-  /** Ledges being climbed: where each climber's hands are planted, and when it started. */
-  private readonly mantles = new Map<number, { left: Vector3; right: Vector3; start: number; dur: number }>();
+  /** Ledges being climbed: where each climber's hands are planted, when it started, the recording it follows. */
+  private readonly mantles = new Map<number, { left: Vector3; right: Vector3; start: number; dur: number; kind: 0 | 1; t0: number; wall: Vector3; dir: Vector3; top: number }>();
 
   /**
    * Where a mantling character's hands grip the edge (world, fixed for the whole climb) and how
    * far along it is. Our own climb is known exactly; others' edges are found by looking ahead.
    */
-  private mantleGrip(id: number, flags: number, x: number, y: number, z: number, yaw: number, own?: { t: number; dur: number; fx: number; fz: number; tx: number; ty: number; tz: number }): { grip: { left: Vector3; right: Vector3 }; k: number } | null {
+  private mantleGrip(id: number, flags: number, x: number, y: number, z: number, yaw: number, own?: { t: number; dur: number; fx: number; fy: number; fz: number; tx: number; ty: number; tz: number; kind?: 0 | 1; t0?: number }): { grip: { left: Vector3; right: Vector3 }; k: number; clip: MantleClipPose } | null {
     if (!(flags & EntityFlags.Mantling)) { this.mantles.delete(id); return null; }
     let m = this.mantles.get(id);
     if (!m) {
@@ -376,11 +378,22 @@ export class GameEngine {
       }
       // Hands a shoulder-width apart on the very edge.
       const rx = -dz, rz = dx;
-      m = { left: new Vector3(ex - rx * .28, ey + .02, ez - rz * .28), right: new Vector3(ex + rx * .28, ey + .02, ez + rz * .28), start: performance.now(), dur: own ? own.dur : .42 + Math.max(0, ey - y) * .2 };
+      // The recording the climb follows (the same choice as the physics makes).
+      // (Measured from the ground, as the physics does: a climb may start in the air.)
+      const ground = this.store?.collision.raycast(x, y + .1, z, 0, -1, 0, 3, Mask.CharacterMovement, this.reachHit) ? this.reachHit.y : y;
+      const plan = mantlePlan(ey - ground);
+      m = { left: new Vector3(ex - rx * .28, ey + .02, ez - rz * .28), right: new Vector3(ex + rx * .28, ey + .02, ez + rz * .28), start: performance.now(), dur: own ? own.dur : plan.dur,
+        kind: own?.kind ?? plan.kind, t0: own?.t0 ?? plan.t0, wall: new Vector3(ex, ey, ez), dir: new Vector3(dx, 0, dz), top: ey };
       this.mantles.set(id, m);
     }
-    const k = own ? own.t / own.dur : Math.min(1, (performance.now() - m.start) / 1000 / m.dur);
-    return { grip: m, k };
+    const elapsed = own ? own.t : Math.min(m.dur, (performance.now() - m.start) / 1000);
+    const k = Math.min(1, elapsed / m.dur);
+    // The recording's hips: its feet's starting level is the top less its climb (plus the ankle
+    // above the sole), its hands' edge is the wall's face.
+    const table = m.kind ? MANTLE_CLIPS.climb_wall : MANTLE_CLIPS.hang_to_crouch, time = m.t0 + elapsed;
+    const hipY = m.top - table.rise.at(-1)! + MANTLE_ANKLE + mantleSample(table, table.hipY, time);
+    const ahead = m.wall.x * m.dir.x + m.wall.z * m.dir.z + mantleSample(table, table.hipZ, time) - (x * m.dir.x + z * m.dir.z);
+    return { grip: m, k, clip: { kind: m.kind, time, hipHeight: hipY - y, hipAhead: ahead } };
   }
   private readonly doors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
   private lastStationScan = 0;
@@ -2062,7 +2075,7 @@ export class GameEngine {
       r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
-      { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0); }
+      { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0, m?.clip ?? null); }
       r.avatar.posePlan((pose.flags & EntityFlags.Planning) !== 0);
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
@@ -2152,7 +2165,7 @@ export class GameEngine {
     }
     this.feel = this.meleeFeel.update(dt, performance.now());
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state, dt);
-    { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0); }
+    { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0, m?.clip ?? null); }
     this.localAvatar?.posePlan(!!this.building?.planning);
     // Battle royale squad: diamond + name over every living teammate, through walls; follows the
     // rendered body when it is streamed in, else the last reported team position.

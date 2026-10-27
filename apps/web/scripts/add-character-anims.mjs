@@ -50,6 +50,8 @@ const CLIPS = {
   climb_up: { loop: true, source: 'Climbing Up Wall.fbx' },
   climb_down: { loop: true, source: 'Climbing Down Wall.fbx' },
   hang_to_crouch: { loop: false, source: 'Braced Hang To Crouch.fbx' },
+  // Ledges from head height up: the full wall climb (physics follows its feet, mantle-tables.mjs).
+  climb_wall: { loop: false, source: 'Climbing.fbx' },
   // Unarmed attacks, cycled.
   punch_1: { loop: false, source: 'Punching.fbx' },
   punch_2: { loop: false, source: 'Punching (1).fbx' },

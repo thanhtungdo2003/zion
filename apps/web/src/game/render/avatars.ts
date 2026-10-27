@@ -115,6 +115,10 @@ function speakerSprite(): Sprite {
 const NEUTRAL_IDLE = STAND_CLIP;
 /** Fraction of a mantle spent reaching and pulling before getting up onto the ledge. */
 const MANTLE_PULL = .55;
+/** The ledge climbs' recordings, by `Mantle.kind`. */
+const MANTLE_CLIP_NAMES = ['hang_to_crouch', 'climb_wall'] as const;
+/** Where a ledge climb is in its recording, and where that puts the hips relative to the body's feet (m). */
+export interface MantleClipPose { kind: 0 | 1; time: number; hipHeight: number; hipAhead: number }
 /** Height one recorded ladder cycle climbs at the survivor's size (m). */
 const LADDER_STRIDE = 1.39;
 /** How far a sword's handle tilts from across the knuckles towards the forearm's line (rad). */
@@ -543,6 +547,14 @@ export class Avatar {
   }
 
   private mantleArms = false;
+  /** The recorded ledge climb being followed (survivor bodies). */
+  private mantleClip: MantleClipPose | null = null;
+
+  /** The climb's hips in body units, from metres above / ahead of where the body stands. */
+  private mantleHips(weight: number): { y: number; z: number; weight: number } {
+    const scale = this.human ? this.human.group.getWorldScale(new Vector3()).y : 1, c = this.mantleClip!;
+    return { y: c.hipHeight / scale, z: c.hipAhead / scale, weight: Math.min(1, weight) };
+  }
   private readonly gripTarget = new Vector3();
   private readonly gripShoulder = new Vector3();
   private readonly gripHand = new Vector3();
@@ -551,9 +563,10 @@ export class Avatar {
    * (world points that stay put while the body rises: the arms swing and shorten to keep them
    * there), the chest leaning in, the legs kicking up the wall in turn. `k`: progress 0..1.
    */
-  poseMantle(grip: { left: Vector3; right: Vector3 } | null, k: number): void {
+  poseMantle(grip: { left: Vector3; right: Vector3 } | null, k: number, clip: MantleClipPose | null = null): void {
     const arms = [['left', grip?.left], ['right', grip?.right]] as const;
     this.mantleGrip = grip;
+    this.mantleClip = grip ? clip : null;
     this.mantleK = grip ? k : 0;
     this.poseDirty = true;
     if (!grip) {
@@ -1884,8 +1897,9 @@ export class Avatar {
     else if (!busy) {
       // A recorded move (blade combo step, punch) plays over locomotion; legs keep stepping.
       if (climbingNow) want = vy < -.1 ? 'climb_down' : 'climb_up';
-      // Over a ledge: reach and pull (Climbing Up Wall), then up onto it (Braced Hang To Crouch).
-      else if (mantlingNow) want = this.mantleK < MANTLE_PULL ? 'climb_up' : 'hang_to_crouch';
+      // Over a ledge: the recording the climb follows (Braced Hang To Crouch below head height,
+      // Climbing above), else reach and pull, then up onto it.
+      else if (mantlingNow) want = this.mantleClip && clips.has(MANTLE_CLIP_NAMES[this.mantleClip.kind]) ? MANTLE_CLIP_NAMES[this.mantleClip.kind] : this.mantleK < MANTLE_PULL ? 'climb_up' : 'hang_to_crouch';
       else if (this.recAction && posture !== 2 && !airborne) want = this.recAction.clip;
       else if (airborne && (this.airTime > .08 || vy > 1) || this.landT > 0) want = 'jump';
       else if (transition) want = transition.clip;
@@ -1935,6 +1949,7 @@ export class Avatar {
     if (acting) { time = this.recAction!.from + this.recAction!.t * this.recAction!.rate; rate = this.recAction!.rate; }
     else if (want === NEUTRAL_IDLE) { time = 0; rate = 0; }
     else if (climbingNow) { rate = Math.abs(vy) / LADDER_STRIDE * clip.duration; time = layer.time + dt * (rate - advancedRate); }
+    else if (mantlingNow && this.mantleClip && want === MANTLE_CLIP_NAMES[this.mantleClip.kind]) { rate = 0; time = this.mantleClip.time; }
     else if (mantlingNow) {
       rate = 0;
       time = want === 'climb_up' ? this.mantleK / MANTLE_PULL * clip.duration * .5 : clip.duration * (.45 + .55 * (this.mantleK - MANTLE_PULL) / (1 - MANTLE_PULL));
@@ -2009,6 +2024,8 @@ export class Avatar {
       // Climbs ride on the physics' own rise: their recorded hip lift would climb twice.
       // (The jump's recorded rise too, until its touch-down: the body may land before the recording does.)
       clip: want, time, weight, hips: (want !== 'jump' || (!airborne && !jumpInAir)) && !climbingNow && !mantlingNow,
+      // A ledge climb puts the hips where the recording has them over the ledge.
+      ...(mantlingNow && this.mantleClip && want === MANTLE_CLIP_NAMES[this.mantleClip.kind] ? { hipsAt: this.mantleHips(layer.weight) } : {}),
       arms: gun ? (!this.reloadAnim || !!action) && !isRoll(want) : true,
       ground: isRoll(want) || posture === 2 || want === 'crouch_to_prone',
       layers: this.mocapLayers.map((l) => ({ ...l, weight: easeWeight(l.weight) })), legs, upper: null, uppers, action, alignForward: this.forwardBlend,

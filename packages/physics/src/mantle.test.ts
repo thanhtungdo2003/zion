@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CharacterController, CollisionWorld, Heightfield, Layer, createCharacterState, makeBox } from './index';
+import { CharacterController, CollisionWorld, Heightfield, Layer, MANTLE_CLIPS, createCharacterState, makeBox, mantlePlan } from './index';
 
 /** Flat ground with a block `height` m tall whose face is 0.5 m ahead (−Z) of (40, 40). */
 function world(height: number, ceiling = false): CollisionWorld {
@@ -9,7 +9,7 @@ function world(height: number, ceiling = false): CollisionWorld {
   if (ceiling) w.setOwnerColliders(2, [{ shape: makeBox(40, height + 1.2, 34, 3, .2, 3), layer: Layer.Static }]);
   return w;
 }
-const run = (w: CollisionWorld, jump: boolean, ticks = 60) => {
+const run = (w: CollisionWorld, jump: boolean, ticks = 150) => {
   const c = new CharacterController(w), s = createCharacterState(40, 0, 39);
   for (let i = 0; i < 10; i++) c.step(s, { mx: 0, mz: 0, yaw: 0, jump: false, sprint: false }, 1 / 30);
   let mantled = false;
@@ -33,5 +33,32 @@ describe('mantle (W + Space at a ledge)', () => {
   });
   it('a low obstacle is still a plain jump', () => {
     expect(run(world(.6), true).mantled).toBe(false);
+  });
+  it('climbs at the pace of the recordings: a braced hang below head height, the full wall climb above', () => {
+    const low = mantlePlan(1.2), high = mantlePlan(2.1), mid = mantlePlan(1.9);
+    expect(low.kind).toBe(0);
+    expect(high.kind).toBe(1);
+    expect(high.t0).toBe(0);
+    expect(high.dur).toBeCloseTo(MANTLE_CLIPS.climb_wall.duration, 5);
+    // A ledge lower than the recording's own climb starts it part-way, at the same pace.
+    expect(mid.t0).toBeGreaterThan(0);
+    expect(mid.dur).toBeLessThan(high.dur);
+    // On the way up the body only rises and moves forward, then stands on the top.
+    const w = world(1.2), c = new CharacterController(w), s = createCharacterState(40, 0, 39);
+    for (let i = 0; i < 10; i++) c.step(s, { mx: 0, mz: 0, yaw: 0, jump: false, sprint: false }, 1 / 30);
+    let lastY = -1, lastZ = 99, started = false;
+    for (let i = 0; i < 120; i++) {
+      c.step(s, { mx: 0, mz: 1, yaw: 0, jump: i < 40, sprint: false }, 1 / 30);
+      if (!s.mantle && !started) continue;
+      started = true;
+      if (!s.mantle) break;
+      expect(s.mantle.kind).toBe(0);
+      expect(s.y).toBeGreaterThanOrEqual(lastY - 1e-9);
+      expect(s.z).toBeLessThanOrEqual(lastZ + 1e-9);
+      lastY = s.y; lastZ = s.z;
+    }
+    expect(started).toBe(true);
+    expect(s.mantle).toBeUndefined();
+    expect(s.y).toBeCloseTo(1.22, 1);
   });
 });

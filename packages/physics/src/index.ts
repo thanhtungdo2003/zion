@@ -6,6 +6,7 @@ export * from './spatial-hash';
 export * from './world';
 export * from './hit-mesh';
 export * from './character';
+export * from './mantle-clips';
 export * from './hitbox';
 export * from './projectile';
 export * from './airborne';

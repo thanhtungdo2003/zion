@@ -104,6 +104,8 @@ export interface MocapPose extends MocapLayer {
   /** Remove the recording's baked sideways stance when locomotion follows the camera. */
   alignForward?: number;
   aim?: { yaw: number; pitch: number; weight: number; rifle?: boolean };
+  /** Hips placed outright (body units: height above the feet, distance ahead), by `weight` (a ledge climb as recorded). */
+  hipsAt?: { y: number; z: number; weight: number };
 }
 
 interface BoneDef { name: string; parent: number; position: Vector3; quaternion: Quaternion; scale: Vector3 }
@@ -1779,6 +1781,7 @@ export class HumanBody {
     }
     const parent = A.bones[spine0]!.parent;
     const target = tmpV[0]!.copy(A.restP[spine0]!).setY(A.restP[spine0]!.y + lift);
+    if (m.hipsAt) target.lerp(tmpV[1]!.set(A.restP[spine0]!.x, m.hipsAt.y, m.hipsAt.z), m.hipsAt.weight);
     if (parent >= 0) target.sub(A.restP[parent]!).applyQuaternion(tmpQ[0]!.copy(A.restQ[parent]!).invert());
     hips.position.copy(target);
     this.group.updateMatrixWorld(true);
