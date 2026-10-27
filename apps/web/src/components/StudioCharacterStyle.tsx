@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { studioSetCharacterStyle } from '@/lib/api';
-import { blockyCharacters, resetCharacterStyle } from '@/game/render/character-model';
+import { blockyCharacters, resetCharacterStyle } from '@/game/character-style';
 import { Icon } from './Icon';
 
 /** Switch between the survivor model and the old block (Minecraft-style) character for every player. */

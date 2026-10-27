@@ -16,7 +16,7 @@ import {
 import { FACES, type FaceName } from './bbmodel-loader';
 import { surfaceMaterial, surfaceOf, type Surface } from './material-labels';
 import { cachedFetch } from '@/lib/preload';
-import { API_URL } from '@/lib/api';
+import { blockyCharacters } from '../character-style';
 import { HUMAN_SCALE, fetchBinary, loadHumanAssets, type HumanAssets } from './human-rig';
 
 /** Served from apps/web/public/models (copy of /models/characters/teen-wasteland-survivor.bbmodel). */
@@ -429,20 +429,6 @@ export function survivorTemplate(rig: CharacterTemplate, human: HumanAssets): Ch
 
 /** Height of the rig hand's grip point above its pivot (`HAND_GRIP` in weapons.ts). */
 const HAND_GRIP_HEIGHT = 2 / UNITS_PER_METER;
-
-let styleLoad: Promise<boolean> | null = null;
-/** The Studio's character switch: true when players are the old block character (asked once per page). */
-export function blockyCharacters(): Promise<boolean> {
-  if (typeof window === 'undefined') return Promise.resolve(false);
-  styleLoad ??= fetch(`${API_URL}/api/character-style`, { credentials: 'include' })
-    .then((res) => (res.ok ? res.json() as Promise<{ blocky?: unknown }> : { blocky: false }))
-    .then((r) => r.blocky === true)
-    .catch(() => false);
-  return styleLoad;
-}
-
-/** Forgets the asked switch (the Studio after flipping it). */
-export function resetCharacterStyle(): void { styleLoad = null; }
 
 /**
  * The player character: the survivor model (with its rig re-pivoted to it), or the Blockbench

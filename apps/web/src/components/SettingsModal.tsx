@@ -18,6 +18,27 @@ const LANGS: Array<{ id: Lang; label: string; native: string }> = [
   { id: 'vi', label: 'Tiếng Việt', native: 'VIE' },
 ];
 
+/** A percentage slider row (the setting is a 0–1+ fraction). */
+function Range({ label, min, max, value, onChange }: { label: string; min: number; max: number; value: number; onChange: (v: number) => void }) {
+  const pct = Math.round(value * 100);
+  return <label className="set-slider">
+    <span>{label}</span>
+    <input type="range" min={min} max={max} step={5} value={pct} onChange={(e) => onChange(Number(e.target.value) / 100)} />
+    <em>{pct}%</em>
+  </label>;
+}
+
+/** A labelled segmented choice; the chosen option's note sits beside the label. */
+function Choice<T extends string | boolean>({ label, value, options, onChange }: { label: string; value: T; options: Array<{ id: T; label: string; hint: string }>; onChange: (v: T) => void }) {
+  const current = options.find((o) => o.id === value);
+  return <div className="set-choice">
+    <div className="set-choice-head"><span>{label}</span><small>{current?.hint}</small></div>
+    <div className="set-seg" role="radiogroup" aria-label={label}>
+      {options.map((o) => <button key={String(o.id)} type="button" role="radio" aria-checked={o.id === value} onClick={() => onChange(o.id)}>{o.label}</button>)}
+    </div>
+  </div>;
+}
+
 /** Flat, hard-edged settings panel: language switch, master volume, host-provided sections. */
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
@@ -132,92 +153,45 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
 
         {tab === 'display' && <div role="tabpanel" id="settings-panel-display" aria-labelledby="settings-tab-display">
         <section className="set-section">
-          <h3>
-            <span>01</span> {t('settings.display')}
-          </h3>
-          <label className="set-slider">
-            <span>{t('settings.brightness')}</span>
-            <input
-              type="range"
-              min={60}
-              max={200}
-              step={5}
-              value={Math.round(brightness * 100)}
-              onChange={(e) => settingsStore.set({ brightness: Number(e.target.value) / 100 })}
-            />
-            <em>{Math.round(brightness * 100)}%</em>
-          </label>
-        </section>
-        <section className="set-section">
-          <h3><span>02</span> Chất lượng đồ họa</h3>
+          <h3><span>01</span> Mức đồ họa</h3>
           <div className="set-langs set-camera" role="radiogroup" aria-label="Mức đồ họa">
             {(['low', 'medium', 'high'] as GraphicsPreset[]).map((p) => (
               <button key={p} type="button" role="radio" aria-checked={preset === p} className="set-lang" onClick={() => settingsStore.set(GRAPHICS_PRESETS[p])}>
                 <b>{p === 'low' ? 'THẤP' : p === 'medium' ? 'VỪA' : 'CAO'}</b>
-                <small>{p === 'low' ? 'Mượt nhất · máy yếu' : p === 'medium' ? 'Cân bằng' : 'Đẹp nhất'}</small>
+                <small>{p === 'low' ? 'Mượt nhất' : p === 'medium' ? 'Cân bằng' : 'Đẹp nhất'}</small>
                 <i aria-hidden><Icon name={preset === p ? 'lucide:square-check' : 'lucide:square'} /></i>
               </button>
             ))}
           </div>
-          <label className="set-slider">
-            <span>Độ phân giải</span>
-            <input type="range" min={50} max={100} step={5} value={Math.round(renderScale * 100)} onChange={(e) => settingsStore.set({ renderScale: Number(e.target.value) / 100 })} />
-            <em>{Math.round(renderScale * 100)}%</em>
-          </label>
-          <label className="set-slider">
-            <span>Tầm nhìn vật thể</span>
-            <input type="range" min={40} max={100} step={5} value={Math.round(drawDistance * 100)} onChange={(e) => settingsStore.set({ drawDistance: Number(e.target.value) / 100 })} />
-            <em>{Math.round(drawDistance * 100)}%</em>
-          </label>
-          <label className="set-slider">
-            <span>Mật độ cỏ</span>
-            <input type="range" min={0} max={100} step={5} value={Math.round(grassDensity * 100)} onChange={(e) => settingsStore.set({ grassDensity: Number(e.target.value) / 100 })} />
-            <em>{Math.round(grassDensity * 100)}%</em>
-          </label>
-          <div className="set-langs set-camera" role="radiogroup" aria-label="Đổ bóng">
-            {(['off', 'low', 'high'] as const).map((q) => (
-              <button key={q} type="button" role="radio" aria-checked={shadows === q} className="set-lang" onClick={() => settingsStore.set({ shadows: q })}>
-                <b>{q === 'off' ? 'TẮT BÓNG' : q === 'low' ? 'BÓNG THẤP' : 'BÓNG CAO'}</b>
-                <small>{q === 'off' ? 'Nhẹ GPU nhất' : q === 'low' ? 'Bóng mờ, nhẹ' : 'Bóng sắc nét'}</small>
-                <i aria-hidden><Icon name={shadows === q ? 'lucide:square-check' : 'lucide:square'} /></i>
-              </button>
-            ))}
+          {!preset && <p className="set-camera-hint">Đang dùng thiết lập riêng bên dưới.</p>}
+        </section>
+        <section className="set-section">
+          <h3><span>02</span> {t('settings.display')}</h3>
+          <div className="set-rows">
+            <Range label={t('settings.brightness')} min={60} max={200} value={brightness} onChange={(v) => settingsStore.set({ brightness: v })} />
+            <Range label="Độ phân giải" min={50} max={100} value={renderScale} onChange={(v) => settingsStore.set({ renderScale: v })} />
+            <Range label="Tầm nhìn" min={40} max={100} value={drawDistance} onChange={(v) => settingsStore.set({ drawDistance: v })} />
+            <Range label="Mật độ cỏ" min={0} max={100} value={grassDensity} onChange={(v) => settingsStore.set({ grassDensity: v })} />
           </div>
-          <div className="set-langs set-camera set-ground" role="radiogroup" aria-label="Chất liệu mặt đất">
-            {GROUND_DETAILS.map((q) => (
-              <button key={q} type="button" role="radio" aria-checked={groundDetail === q} className="set-lang" onClick={() => settingsStore.set({ groundDetail: q })}>
-                <b>{q === 'off' ? 'ĐẤT TRƠN' : q === 'low' ? 'ĐẤT THẤP' : q === 'medium' ? 'ĐẤT VỪA' : 'ĐẤT CAO'}</b>
-                <small>{q === 'off' ? 'Mặt đất màu, nhẹ nhất' : q === 'low' ? 'Chất liệu 256 px' : q === 'medium' ? 'Chất liệu 512 px' : 'Chất liệu 1024 px · nét nhất'}</small>
-                <i aria-hidden><Icon name={groundDetail === q ? 'lucide:square-check' : 'lucide:square'} /></i>
-              </button>
-            ))}
+        </section>
+        <section className="set-section">
+          <h3><span>03</span> Chi tiết</h3>
+          <div className="set-rows">
+            <Choice label="Đổ bóng" value={shadows} onChange={(q) => settingsStore.set({ shadows: q })} options={[
+              { id: 'off', label: 'Tắt', hint: 'Nhẹ GPU nhất' }, { id: 'low', label: 'Thấp', hint: 'Bóng mờ, nhẹ' }, { id: 'high', label: 'Cao', hint: 'Bóng sắc nét' }]} />
+            <Choice label="Mặt đất" value={groundDetail} onChange={(q) => settingsStore.set({ groundDetail: q })} options={GROUND_DETAILS.map((q) => (
+              { id: q, label: q === 'off' ? 'Trơn' : q === 'low' ? 'Thấp' : q === 'medium' ? 'Vừa' : 'Cao', hint: q === 'off' ? 'Mặt đất màu, nhẹ nhất' : q === 'low' ? 'Chất liệu 256 px' : q === 'medium' ? 'Chất liệu 512 px' : 'Chất liệu 1024 px · nét nhất' }))} />
+            <Choice label="Texture trang phục" value={textureQuality} onChange={(q) => settingsStore.set({ textureQuality: q })} options={TEXTURE_QUALITIES.map((q) => (
+              { id: q, label: q === 'low' ? 'Thấp' : q === 'medium' ? 'Vừa' : 'Cao', hint: q === 'low' ? '256 px, nhẹ nhất' : q === 'medium' ? '512 px' : 'Giữ nguyên texture gốc' }))} />
           </div>
-          <div className="set-langs set-camera" role="radiogroup" aria-label="Chất lượng texture trang phục">
-            {TEXTURE_QUALITIES.map((q) => (
-              <button key={q} type="button" role="radio" aria-checked={textureQuality === q} className="set-lang" onClick={() => settingsStore.set({ textureQuality: q })}>
-                <b>{q === 'low' ? 'TEXTURE THẤP' : q === 'medium' ? 'TEXTURE VỪA' : 'TEXTURE CAO'}</b>
-                <small>{q === 'low' ? 'Trang phục 256 px, nhẹ nhất' : q === 'medium' ? 'Trang phục 512 px' : 'Giữ nguyên texture gốc'}</small>
-                <i aria-hidden><Icon name={textureQuality === q ? 'lucide:square-check' : 'lucide:square'} /></i>
-              </button>
-            ))}
-          </div>
-          <div className="set-langs set-camera" role="radiogroup" aria-label="Shader ánh sáng">
-            {([false, true] as const).map((on) => (
-              <button key={String(on)} type="button" role="radio" aria-checked={shaders === on} className="set-lang" onClick={() => settingsStore.set({ shaders: on })}>
-                <b>{on ? 'SHADER BẬT' : 'SHADER TẮT'}</b>
-                <small>{on ? 'Bóng mềm, ánh sáng toả, tia nắng, AO · nặng GPU' : 'Hình ảnh thường, nhẹ máy'}</small>
-                <i aria-hidden><Icon name={shaders === on ? 'lucide:square-check' : 'lucide:square'} /></i>
-              </button>
-            ))}
-          </div>
-          <div className="set-langs set-camera" role="radiogroup" aria-label="Làm mờ vật ở gần mắt">
-            {([true, false] as const).map((on) => (
-              <button key={String(on)} type="button" role="radio" aria-checked={nearBlur === on} className="set-lang" onClick={() => settingsStore.set({ nearBlur: on })}>
-                <b>{on ? 'MỜ GẦN MẮT BẬT' : 'MỜ GẦN MẮT TẮT'}</b>
-                <small>{on ? 'Súng, tay sát mắt hơi nhoè như mắt nhìn xa' : 'Mọi thứ đều nét'}</small>
-                <i aria-hidden><Icon name={nearBlur === on ? 'lucide:square-check' : 'lucide:square'} /></i>
-              </button>
-            ))}
+        </section>
+        <section className="set-section">
+          <h3><span>04</span> Hiệu ứng</h3>
+          <div className="set-rows">
+            <Choice label="Shader ánh sáng" value={shaders} onChange={(on) => settingsStore.set({ shaders: on })} options={[
+              { id: false, label: 'Tắt', hint: 'Hình ảnh thường, nhẹ máy' }, { id: true, label: 'Bật', hint: 'Bóng mềm, ánh sáng toả, tia nắng, AO · nặng GPU' }]} />
+            <Choice label="Mờ vật gần mắt" value={nearBlur} onChange={(on) => settingsStore.set({ nearBlur: on })} options={[
+              { id: false, label: 'Tắt', hint: 'Mọi thứ đều nét' }, { id: true, label: 'Bật', hint: 'Súng, tay sát mắt hơi nhoè' }]} />
           </div>
         </section>
         </div>}

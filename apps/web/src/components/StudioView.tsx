@@ -572,7 +572,7 @@ export default function StudioView() {
           </select>
         </label>
         <button className="btn" onClick={() => setModal('help')} title="Hướng dẫn">
-          <Icon name="lucide:circle-help" />
+          <Icon name="lucide:circle-question-mark" />
         </button>
         <div className="studio-spacer" />
         <button className="btn" onClick={() => setModal('discard')} disabled={!dirty || busy}>
