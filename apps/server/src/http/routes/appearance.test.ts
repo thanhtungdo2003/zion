@@ -21,7 +21,7 @@ describe('character appearance routes', () => {
       const first = await app.inject({ url: '/api/appearance', headers });
       expect(first.json()).toEqual({ appearance: null });
       expect(first.headers['cache-control']).toBe('no-store');
-      const look = { ...DEFAULT_APPEARANCE, hair: 'buzz', height: 40 };
+      const look = { ...DEFAULT_APPEARANCE, hair: 'hair_07' as const, height: 40 };
       const put = await app.inject({ method: 'PUT', url: '/api/appearance', headers, payload: { appearance: look } });
       expect(put.statusCode).toBe(200);
       expect(saveAppearance).toHaveBeenCalledWith('mine', look);
@@ -32,6 +32,10 @@ describe('character appearance routes', () => {
         expect(r.statusCode).toBeGreaterThanOrEqual(400);
       }
       expect(saveAppearance).toHaveBeenCalledTimes(1);
+      // A look saved before the hair pack keeps a haircut from it.
+      const legacy = await app.inject({ method: 'PUT', url: '/api/appearance', headers, payload: { appearance: { ...look, hair: 'buzz' } } });
+      expect(legacy.statusCode).toBe(200);
+      expect(saveAppearance).toHaveBeenLastCalledWith('mine', { ...look, hair: 'hair_01' });
     } finally { await app.close(); }
   });
 });

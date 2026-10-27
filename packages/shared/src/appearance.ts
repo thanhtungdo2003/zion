@@ -6,14 +6,20 @@ import { z } from 'zod';
  * the match (`players`), so everyone sees the same character.
  */
 
-export const HAIR_STYLES = ['side_part', 'crop', 'undercut', 'buzz', 'bald'] as const;
+/** The hair pack's 27 styles (models/hair/hair_NN.glb, as made), or none. */
+export const HAIR_STYLES = ['hair_01', 'hair_02', 'hair_03', 'hair_04', 'hair_05', 'hair_06', 'hair_07', 'hair_08', 'hair_09', 'hair_10',
+  'hair_11', 'hair_12', 'hair_13', 'hair_14', 'hair_15', 'hair_16', 'hair_17', 'hair_18', 'hair_19', 'hair_20', 'hair_21', 'hair_22',
+  'hair_23', 'hair_24', 'hair_25', 'hair_26', 'hair_27', 'bald'] as const;
 export type HairStyle = (typeof HAIR_STYLES)[number];
+/** Looks saved before the hair pack keep a haircut of about the same length. */
+const LEGACY_HAIR: Record<string, HairStyle> = { side_part: 'hair_01', crop: 'hair_01', undercut: 'hair_01', buzz: 'hair_01' };
 
 export const TOP_STYLES = ['tank_top', 'none'] as const;
 export type TopStyle = (typeof TOP_STYLES)[number];
 
 export const SKIN_TONES = ['#f2d4bf', '#e3b899', '#cd9b78', '#ad7652', '#845437', '#5a3826'] as const;
-export const HAIR_COLORS = ['#2a1d14', '#0f0d0c', '#4a2f1d', '#7a5232', '#b08a58', '#8e3b22', '#8a8784', '#ddd6c8'] as const;
+/** Hair colours tinting the styles' (grey, made to be tinted) textures, their detail kept; 'natural' shows the texture as it is. */
+export const HAIR_COLORS = ['natural', '#2a1d14', '#0f0d0c', '#4a2f1d', '#7a5232', '#b08a58', '#8e3b22', '#8a8784', '#ddd6c8', '#2f3f63', '#6b2a4a'] as const;
 export const TOP_COLORS = ['#4a4f2e', '#2a2b2a', '#e6e1d4', '#3b4a5e', '#6c2e28', '#8a7a58', '#5e6b73'] as const;
 /** Muted only (washed-out work and outdoor colours, never bright): grey joggers first. */
 export const PANTS_COLORS = ['#7a7b79', '#4a503a', '#2b2b2d', '#5d6670', '#3d4652', '#6f5741', '#9a8f78'] as const;
@@ -47,7 +53,7 @@ const index = (palette: readonly string[]) => z.number().int().min(0).max(palett
 
 export const appearanceSchema = z.object({
   v: z.literal(1),
-  hair: z.enum(HAIR_STYLES),
+  hair: z.preprocess((v) => (typeof v === 'string' && LEGACY_HAIR[v] ? LEGACY_HAIR[v] : v), z.enum(HAIR_STYLES)),
   hairColor: index(HAIR_COLORS),
   skin: index(SKIN_TONES),
   top: z.enum(TOP_STYLES),
@@ -61,7 +67,7 @@ export const appearanceSchema = z.object({
 }).strict();
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  v: 1, hair: 'side_part', hairColor: 0, skin: 1, top: 'tank_top', topColor: 0, pantsColor: 0, bootsColor: 0, belt: true,
+  v: 1, hair: 'hair_01', hairColor: 1, skin: 1, top: 'tank_top', topColor: 0, pantsColor: 0, bootsColor: 0, belt: true,
   face: { head: 0, jaw: 0, chin: 0, cheeks: 0, nose: 0, brow: 0, eyes: 0, ears: 0 },
   body: { build: 0, muscle: 0, shoulders: 0, waist: 0, legs: 0 },
   height: 0,
@@ -86,7 +92,7 @@ export function randomAppearance(seed: number): Appearance {
   return {
     v: 1,
     hair: HAIR_STYLES[pick(HAIR_STYLES.length)]!,
-    hairColor: pick(6),
+    hairColor: 1 + pick(7),
     skin: pick(SKIN_TONES.length),
     top: rnd() < 0.9 ? 'tank_top' : 'none',
     topColor: pick(TOP_COLORS.length),

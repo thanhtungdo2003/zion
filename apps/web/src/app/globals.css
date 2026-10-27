@@ -3772,3 +3772,6 @@ kbd {
 .wave-shop-ready { width: min(300px, 100%); min-height: 48px; font: 800 18px var(--cond); letter-spacing: .16em; }
 .wave-shop-ready.on { background: #2e3a30; border-color: #7fe08a; color: #7fe08a; }
 @media (max-width: 760px) { .wave-shop-foot { flex-direction: column; align-items: stretch; } .wave-shop-timer { display: none; } }
+/* Hair colour "natural": the style's own texture colour. */
+.cc-swatch.natural { background: linear-gradient(135deg, #3a2a1c 0%, #6b4a2e 50%, #b08a58 100%); position: relative; }
+.cc-swatch.natural::after { content: "Gốc"; position: absolute; inset: auto 0 -16px; font: 600 9px var(--sans); color: var(--muted); text-align: center; }

@@ -48,11 +48,35 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]['id'];
 
+/** The hair pack's styles: how long, and whether tied. */
 const HAIR_NAMES: Record<HairStyle, { name: string; note: string }> = {
-  side_part: { name: 'Rẽ ngôi cổ điển', note: 'Chải lệch, gọn gàng' },
-  crop: { name: 'Cắt ngắn', note: 'Ngắn đều, dễ chăm' },
-  undercut: { name: 'Undercut', note: 'Hai bên cạo sát' },
-  buzz: { name: 'Đầu đinh', note: 'Sát da đầu' },
+  hair_01: { name: 'Kiểu 1', note: 'Ngắn' },
+  hair_02: { name: 'Kiểu 2', note: 'Ngắn' },
+  hair_03: { name: 'Kiểu 3', note: 'Ngang vai · buộc' },
+  hair_04: { name: 'Kiểu 4', note: 'Ngắn · buộc' },
+  hair_05: { name: 'Kiểu 5', note: 'Ngắn' },
+  hair_06: { name: 'Kiểu 6', note: 'Dài · buộc' },
+  hair_07: { name: 'Kiểu 7', note: 'Dài' },
+  hair_08: { name: 'Kiểu 8', note: 'Ngắn' },
+  hair_09: { name: 'Kiểu 9', note: 'Ngang vai' },
+  hair_10: { name: 'Kiểu 10', note: 'Ngắn' },
+  hair_11: { name: 'Kiểu 11', note: 'Ngang vai' },
+  hair_12: { name: 'Kiểu 12', note: 'Ngắn' },
+  hair_13: { name: 'Kiểu 13', note: 'Ngắn' },
+  hair_14: { name: 'Kiểu 14', note: 'Ngắn' },
+  hair_15: { name: 'Kiểu 15', note: 'Ngắn' },
+  hair_16: { name: 'Kiểu 16', note: 'Ngang vai · buộc' },
+  hair_17: { name: 'Kiểu 17', note: 'Dài' },
+  hair_18: { name: 'Kiểu 18', note: 'Dài · buộc' },
+  hair_19: { name: 'Kiểu 19', note: 'Ngắn · buộc' },
+  hair_20: { name: 'Kiểu 20', note: 'Ngắn' },
+  hair_21: { name: 'Kiểu 21', note: 'Ngang vai' },
+  hair_22: { name: 'Kiểu 22', note: 'Dài' },
+  hair_23: { name: 'Kiểu 23', note: 'Dài · buộc' },
+  hair_24: { name: 'Kiểu 24', note: 'Ngắn' },
+  hair_25: { name: 'Kiểu 25', note: 'Dài · buộc' },
+  hair_26: { name: 'Kiểu 26', note: 'Ngang vai · buộc' },
+  hair_27: { name: 'Kiểu 27', note: 'Dài' },
   bald: { name: 'Cạo trọc', note: 'Không tóc' },
 };
 const FACE_NAMES: Record<FaceKey, [string, string, string]> = {
@@ -232,7 +256,8 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
   const swatches = (palette: readonly string[], value: number, pick: (i: number) => void, label: string) => (
     <div className="cc-swatches" role="radiogroup" aria-label={label}>
       {palette.map((c, i) => (
-        <button key={c} type="button" role="radio" aria-checked={value === i} aria-label={`${label} ${i + 1}`} className="cc-swatch" style={{ background: c }} onClick={() => pick(i)} />
+        <button key={c} type="button" role="radio" aria-checked={value === i} aria-label={c === 'natural' ? `${label} tự nhiên` : `${label} ${i + 1}`} title={c === 'natural' ? 'Màu gốc của kiểu tóc (xám bạc)' : undefined}
+          className={`cc-swatch${c === 'natural' ? ' natural' : ''}`} style={c === 'natural' ? undefined : { background: c }} onClick={() => pick(i)} />
       ))}
     </div>
   );

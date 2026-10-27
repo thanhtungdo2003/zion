@@ -217,10 +217,10 @@ describe('survivor model', () => {
       for (const s of ['L', 'R'] as const) lengths(s).forEach((v, k) => expect(v).toBeCloseTo(rest[s][k]!, 5));
     }
   });
-  it('loads every part on one skeleton with the derived haircuts and first-person arms', () => {
+  it('loads every part on one skeleton and the first-person arms (its own hair no longer worn)', () => {
     expect(assets.bones.length).toBe(162);
     expect([...assets.parts.keys()].sort()).toEqual(['belt', 'body', 'eyes', 'feet', 'gloves', 'hair', 'infected', 'legs', 'top']);
-    expect([...assets.hair.keys()].sort()).toEqual(['buzz', 'crop', 'side_part', 'undercut']);
+    expect([...assets.hair.keys()]).toEqual(['source']);
     expect(assets.arms.getIndex()!.count).toBeGreaterThan(3000);
     expect(assets.parts.get('body')!.geometry.morphAttributes.position).toHaveLength(3);
   });

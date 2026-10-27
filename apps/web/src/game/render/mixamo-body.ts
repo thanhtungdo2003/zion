@@ -250,6 +250,12 @@ export class MixamoSkin {
     group.updateMatrixWorld(true);
   }
 
+  /** The head joint and its rest matrix in the body's space (where the hair goes). */
+  head(): { obj: Object3D; rest: Matrix4 } {
+    const k = this.motion.joints.findIndex((j) => j.name === 'Head');
+    return { obj: this.bones[k]!, rest: new Matrix4().makeTranslation(this.motion.rest[k]!.x, this.motion.rest[k]!.y, this.motion.rest[k]!.z) };
+  }
+
   dispose(): void {
     this.bones[0]!.removeFromParent();
   }

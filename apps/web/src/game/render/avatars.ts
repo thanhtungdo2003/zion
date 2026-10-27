@@ -515,7 +515,8 @@ export class Avatar {
           if (this.backpack && hook) this.backpack.update(hook, this.frame.dt);
           for (const list of this.armorTails.values()) for (const { tail, frame } of list) tail.update(frame, this.frame.dt);
           this.poseMixamo();
-        } else if (this.humanRagdoll) this.poseMixamo();
+          this.human?.updateHair(this.frame.dt, this.mixamo?.head());
+        } else if (this.humanRagdoll) { this.poseMixamo(); this.human?.updateHair(this.frame.dt, this.mixamo?.head()); }
       };
     }
     // Rest positions of the bones in model space: armour pieces are placed relative to them.

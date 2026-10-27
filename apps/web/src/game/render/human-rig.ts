@@ -20,6 +20,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SkinSurface, bindGarment } from './skin-surface';
+import { HAIR_HEAD_AT, HairInstance, loadHairStyle } from './hair-style';
 import { settingsStore, type TextureQuality } from '@/lib/settings';
 import { handPose } from '../hand-studio';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
@@ -118,7 +119,7 @@ export interface HumanAssets {
   index: Map<string, number>;
   inverses: Matrix4[];
   parts: Map<string, HumanPart>;
-  hair: Map<HairStyle, BufferGeometry>;
+  hair: Map<string, BufferGeometry>;
   /** Forearms and hands only (first-person view). */
   arms: BufferGeometry;
   /** First-person arms in the shirt: the skin it covers left out, and its sleeves (when the model has a shirt). */
@@ -233,44 +234,14 @@ function meanColor(geometry: BufferGeometry): Color {
   return out.multiplyScalar(1 / Math.max(1, c.count));
 }
 
-/**
- * Haircuts derived from the one authored hairstyle: every strand vertex moves towards its scalp
- * anchor (`_anchor`, the nearest head vertex), keeping `keep(p)` of its height above the skin.
- */
-const HAIRCUTS: Record<Exclude<HairStyle, 'side_part' | 'bald'>, (p: Vector3) => number> = {
-  crop: (p) => .5 + .22 * smooth(1.63, 1.68, p.y),
-  undercut: (p) => .14 + .86 * smooth(1.64, 1.668, p.y) * (1 - smooth(.052, .07, Math.abs(p.x))),
-  buzz: () => .2,
-};
-
 function smooth(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 }
 
-function haircuts(source: BufferGeometry, body: BufferGeometry): Map<HairStyle, BufferGeometry> {
-  const out = new Map<HairStyle, BufferGeometry>([['side_part', source]]);
-  const anchor = source.getAttribute('_anchor'), pos = source.getAttribute('position');
-  const bp = body.getAttribute('position'), bn = body.getAttribute('normal');
-  if (!anchor) return out;
-  const p = new Vector3(), a = new Vector3(), n = new Vector3();
-  for (const [style, keep] of Object.entries(HAIRCUTS) as Array<[HairStyle, (p: Vector3) => number]>) {
-    const arr = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      p.fromBufferAttribute(pos, i);
-      const j = anchor.getX(i);
-      a.fromBufferAttribute(bp, j).add(n.fromBufferAttribute(bn, j).normalize().multiplyScalar(.0025));
-      const k = keep(p);
-      p.sub(a).multiplyScalar(k).add(a);
-      arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z;
-    }
-    const g = new BufferGeometry();
-    for (const [name, attr] of Object.entries(source.attributes)) if (name !== 'position' && name !== '_anchor') g.setAttribute(name, attr);
-    g.setAttribute('position', new Float32BufferAttribute(arr, 3));
-    g.setIndex(source.getIndex());
-    out.set(style, g);
-  }
-  return out;
+/** The model's own hair (no longer worn: the hair pack's styles replaced it). */
+function haircuts(source: BufferGeometry): Map<string, BufferGeometry> {
+  return new Map([['source', source]]);
 }
 
 /** First-person arms: from the collar bone down, so any cut edge stays behind the shoulder. */
@@ -517,7 +488,7 @@ export async function parseHumanAssets(buffer: ArrayBuffer, options: { rebuildSk
   const skinArms = gloved ? withoutHands(armsOnly(body.geometry, names), names) : armsOnly(body.geometry, names);
   return {
     bones, index, inverses: skeleton.boneInverses.map((m) => m.clone()), parts,
-    hair: hairPart ? haircuts(hairPart.geometry, body.geometry) : new Map(),
+    hair: hairPart ? haircuts(hairPart.geometry) : new Map(),
     arms: skinArms,
     ...(shirt ? { sleeves: armsOnly(shirt.geometry, names), armsDressed: armsOnly(bodies.top, names) } : {}),
     bodies,
@@ -722,21 +693,60 @@ export class HumanBody {
       const gloves = assets.parts.get('gloves');
       if (gloves) add('gloves', gloves.geometry);
     }
-    else for (const [slot, part] of assets.parts) add(slot, slot === 'hair' ? assets.hair.get('side_part') ?? part.geometry : slot === 'body' ? assets.bodies.top : part.geometry);
+    else for (const [slot, part] of assets.parts) add(slot, slot === 'hair' ? assets.hair.get('source') ?? part.geometry : slot === 'body' ? assets.bodies.top : part.geometry);
     this.setAppearance(DEFAULT_APPEARANCE);
   }
 
   /** All rendered meshes (outlines, tints). */
   get meshList(): SkinnedMesh[] { return [...this.meshes.values()]; }
 
-  private hairShown = false;
   private hairCovered = false;
-  /** A helmet or hood over the head hides the hair under it. */
+  /** The hair pack style worn, and which one it is (loads once per style). */
+  private hairStyle: HairInstance | null = null;
+  private hairStyleId: HairStyle | null = null;
+  /** A helmet or hood over the head presses the hair under it in. */
   setHairCovered(on: boolean): void {
     this.hairCovered = on;
-    const hair = this.meshes.get('hair');
-    if (hair) hair.visible = this.hairShown && !on;
+    this.hairStyle?.setHelmet(on);
     this.applyInfectedSkin();
+  }
+
+  private wearHair(a: Appearance): void {
+    const color = HAIR_COLORS[a.hairColor];
+    const tint = color && color !== 'natural' ? color : null;
+    if (this.hairStyleId === a.hair) { this.hairStyle?.setColor(tint); return; }
+    this.hairStyleId = a.hair;
+    this.hairStyle?.dispose(); this.hairStyle = null;
+    const want = a.hair;
+    void loadHairStyle(want).then((template) => {
+      if (!template || this.hairStyleId !== want || this.disposed) return;
+      const hair = new HairInstance(template);
+      hair.setColor(tint); hair.setHelmet(this.hairCovered);
+      this.group.add(hair.root);
+      this.hairStyle = hair;
+      this.applyInfectedSkin();
+    });
+  }
+
+  private readonly hairHeadRest = new Matrix4();
+  private hairHeadReady = false;
+  /**
+   * The hair on the head (call once the body is posed for the frame): its head bone onto the
+   * survivor's (or `head`, another skeleton's head with its rest matrix in body space), the strands
+   * stepped by `dt`.
+   */
+  updateHair(dt: number, head?: { obj: Object3D; rest: Matrix4 }): void {
+    const hair = this.hairStyle;
+    if (!hair || !hair.root.visible) return;
+    if (!this.hairHeadReady) {
+      const i = this.assets.index.get('spine_006')!;
+      this.hairHeadRest.compose(this.assets.restP[i]!, this.assets.restQ[i]!, new Vector3(1, 1, 1));
+      this.hairHeadReady = true;
+    }
+    const obj = head?.obj ?? this.bones[this.assets.index.get('spine_006')!]!, rest = head?.rest ?? this.hairHeadRest;
+    // bip_head in the body's space sits at HAIR_HEAD_AT (unrotated); relative to the head bone at rest:
+    const rel = rest.clone().invert().multiply(new Matrix4().makeTranslation(HAIR_HEAD_AT.x, HAIR_HEAD_AT.y, HAIR_HEAD_AT.z));
+    hair.update(this.group, obj.matrixWorld.clone().multiply(rel), dt);
   }
 
   private readonly outfitCovered = new Set<string>();
@@ -770,15 +780,10 @@ export class HumanBody {
     set('legs', PANTS_COLORS[a.pantsColor] ?? null);
     set('belt', null, a.belt);
     set('feet', BOOT_COLORS[a.bootsColor] ?? null);
-    const hair = this.meshes.get('hair');
-    if (hair) {
-      const geometry = A.hair.get(a.hair);
-      this.hairShown = a.hair !== 'bald' && !!geometry;
-      if (geometry) hair.geometry = geometry;
-      set('hair', HAIR_COLORS[a.hairColor] ?? null, this.hairShown && !this.hairCovered);
-      // Cropped hair shows the scalp through it: a little lighter.
-      if (a.hair === 'buzz' || a.hair === 'undercut') hair.material = this.lighter(hair.material as MeshStandardMaterial);
-    }
+    // The model's own hair is no longer worn: a style from the hair pack is.
+    const oldHair = this.meshes.get('hair');
+    if (oldHair) oldHair.visible = false;
+    if (!this.armsOnly) this.wearHair(a);
     set('infected', null, this.infectedSkin);
     this.applyInfectedSkin();
     this.proportions(a);
@@ -791,13 +796,7 @@ export class HumanBody {
     if (!zombie) return;
     zombie.visible = this.infectedSkin;
     if (this.infectedSkin) for (const [slot, mesh] of this.meshes) if (slot !== 'infected') mesh.visible = false;
-  }
-
-  private lighter(m: MeshStandardMaterial): MeshStandardMaterial {
-    const id = `${m.name}|light|${m.color.getHexString()}`;
-    let out = materialCache.get(id);
-    if (!out) { out = m.clone(); out.color.multiplyScalar(1.12); out.roughness = Math.min(1, m.roughness + .15); materialCache.set(id, out); }
-    return out;
+    if (this.hairStyle) this.hairStyle.root.visible = !this.infectedSkin;
   }
 
   /** Face and body proportions: face bones moved and scaled, limbs lengthened, shoulders widened. */
@@ -871,7 +870,10 @@ export class HumanBody {
     mesh.material = t;
   }
 
+  private disposed = false;
   dispose(): void {
+    this.disposed = true;
+    this.hairStyle?.dispose(); this.hairStyle = null;
     this.group.removeFromParent();
     this.skeleton.dispose();
   }
