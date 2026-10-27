@@ -16,7 +16,7 @@ let server = null;
 const dirs = [];
 afterEach(() => { server?.close(); server = null; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
-async function setup(shipped, published) {
+async function setup(shipped, published, publishedBuiltAt = 2) {
   const root = mkdtempSync(path.join(tmpdir(), 'zion-upd-')); dirs.push(root);
   const web = path.join(root, 'web'), data = path.join(root, 'data');
   for (const [rel, body] of Object.entries(shipped)) { mkdirSync(path.dirname(path.join(web, rel)), { recursive: true }); writeFileSync(path.join(web, rel), body); }
@@ -26,7 +26,7 @@ async function setup(shipped, published) {
   server = createServer((req, res) => {
     requests++;
     if (!published) { res.writeHead(404); res.end(); return; }
-    if (req.url === '/api/desktop/manifest') { res.end(JSON.stringify(manifest('v2', 2, published))); return; }
+    if (req.url === '/api/desktop/manifest') { res.end(JSON.stringify(manifest('v2', publishedBuiltAt, published))); return; }
     const b = blobs.get(req.url.split('/').pop());
     if (!b) { res.writeHead(404); res.end(); return; }
     res.end(b);
@@ -64,6 +64,14 @@ describe('desktop content updates', () => {
     expect((await store.check()).state).toBe('unpublished');
     expect(readFileSync(store.resolve('index.html'), 'utf8')).toBe('home');
     expect(store.resolve('../secret')).toBeNull();
+  });
+
+  it('never rolls a newer app back to older content still on the server', async () => {
+    const env = await setup({ 'index.html': 'new home' }, { 'index.html': 'old home' }, 0);
+    const store = env.make();
+    expect((await store.check()).state).toBe('current');
+    store.activate();
+    expect(readFileSync(store.resolve('index.html'), 'utf8')).toBe('new home');
   });
 
   it('removes blobs no set uses any more', async () => {

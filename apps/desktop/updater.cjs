@@ -110,7 +110,9 @@ class ContentStore {
       return { state: /HTTP 404/.test(String(err && err.message)) ? 'unpublished' : 'offline', error: String(err && err.message || err) };
     }
     const target = this.pending || this.current;
-    if (target && target.version === remote.version) return { state: 'current', version: remote.version };
+    // Only ever forward: content older than (or as old as) what this app has is not an update
+    // (a new app build must not be rolled back by a server still publishing the previous one).
+    if (target && (target.version === remote.version || !(remote.builtAt > target.builtAt))) return { state: 'current', version: target.version };
     // Wanted blobs, each once.
     const want = new Map();
     for (const [rel, [sha, size]] of Object.entries(remote.files)) {
