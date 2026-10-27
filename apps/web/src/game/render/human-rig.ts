@@ -21,7 +21,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SkinSurface, bindGarment } from './skin-surface';
 import { HAIR_HEAD_AT, HairInstance, loadHairStyle } from './hair-style';
-import { beardGeometry, beardMaterial, browMaterial, eyebrowGeometries, type FaceSkin } from './face-hair';
+import { beardGeometry, beardMaterial, browMaterial, browShell, eyebrowGeometries, type FaceSkin } from './face-hair';
 import { settingsStore, type TextureQuality } from '@/lib/settings';
 import { handPose } from '../hand-studio';
 import { BOOT_COLORS, DEFAULT_APPEARANCE, HAIR_COLORS, PANTS_COLORS, SKIN_TONES, TOP_COLORS, type Appearance, type HairStyle } from '@zion/shared';
@@ -724,7 +724,7 @@ export class HumanBody {
     return skin;
   }
 
-  private faceHair: { brows: SkinnedMesh | null; beard: SkinnedMesh | null } = { brows: null, beard: null };
+  private faceHair: { brows: SkinnedMesh | null; browSkin: SkinnedMesh | null; beard: SkinnedMesh | null } = { brows: null, browSkin: null, beard: null };
   private faceHairKey = '';
   /** Eyebrows and beard in the hair colour (the natural colour: a dark brown). */
   private wearFaceHair(a: Appearance): void {
@@ -734,7 +734,7 @@ export class HumanBody {
     if (key === this.faceHairKey) return;
     this.faceHairKey = key;
     const skin = this.faceSkin();
-    const place = (slot: 'brows' | 'beard', geometry: BufferGeometry | null, material: Material | null) => {
+    const place = (slot: 'brows' | 'browSkin' | 'beard', geometry: BufferGeometry | null, material: Material | null) => {
       const old = this.faceHair[slot];
       if (old) { old.removeFromParent(); (old.material as Material).dispose(); this.faceHair[slot] = null; }
       if (!geometry || !material) return;
@@ -750,11 +750,14 @@ export class HumanBody {
     const beard = beardGeometry(skin, a.beard);
     place('beard', beard, beard ? beardMaterial(tone, beard.userData.thin as number) : null);
     const brows = a.brows;
-    if (!brows) { place('brows', null, null); return; }
+    if (!brows) { place('brows', null, null); place('browSkin', null, null); return; }
     void eyebrowGeometries(skin).then((shapes) => {
       if (this.disposed || this.faceHairKey !== key) return;
       const g = shapes[(brows - 1) % Math.max(1, shapes.length)];
-      place('brows', g ?? null, g ? browMaterial(new Color(tone).multiplyScalar(.8).getStyle()) : null);
+      const browColor = new Color(tone).multiplyScalar(.8).getStyle();
+      place('brows', g ?? null, g ? browMaterial(browColor) : null);
+      const under = g ? browShell(skin, g) : null;
+      place('browSkin', under, under ? beardMaterial(browColor, under.userData.thin as number) : null);
     });
   }
 
@@ -844,7 +847,7 @@ export class HumanBody {
     zombie.visible = this.infectedSkin;
     if (this.infectedSkin) for (const [slot, mesh] of this.meshes) if (slot !== 'infected') mesh.visible = false;
     if (this.hairStyle) this.hairStyle.root.visible = !this.infectedSkin;
-    for (const m of [this.faceHair.brows, this.faceHair.beard]) if (m) m.visible = !this.infectedSkin;
+    for (const m of [this.faceHair.brows, this.faceHair.browSkin, this.faceHair.beard]) if (m) m.visible = !this.infectedSkin;
   }
 
   /** Face and body proportions: face bones moved and scaled, limbs lengthened, shoulders widened. */

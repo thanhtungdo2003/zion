@@ -58,6 +58,8 @@ export interface MixamoMotion {
   skinMap: Int16Array;
   /** Survivor bone each joint copies outside the recording. */
   source: number[];
+  /** The survivor's face bones (under its head), each with a joint of its own after `joints`. */
+  face: number[];
   walk: MixamoLoop;
 }
 
@@ -71,8 +73,15 @@ export function buildMixamoMotion(assets: HumanAssets, src: Object3D, clip: Anim
   const rest = source.map((i) => assets.restP[i]!.clone());
   // Every other survivor bone follows its nearest ancestor that a joint stands on.
   const owner = new Map(source.map((s, k) => [s, k]));
+  // The face rig (every bone under the head: jaw, lips, brows, lids, nose…) has no Mixamo joint:
+  // each keeps a joint of its own that copies it, carried by the Mixamo head.
+  const head = at('spine_006');
+  const underHead = (i: number) => { for (let b = assets.bones[i]!.parent; b >= 0; b = assets.bones[b]!.parent) if (b === head) return true; return false; };
+  const face = assets.bones.map((_, i) => i).filter(underHead);
+  const faceAt = new Map(face.map((b, k) => [b, joints.length + k]));
   const skinMap = new Int16Array(assets.bones.length);
   assets.bones.forEach((_, i) => {
+    if (faceAt.has(i)) { skinMap[i] = faceAt.get(i)!; return; }
     let b = i;
     while (b >= 0 && !owner.has(b)) b = assets.bones[b]!.parent;
     skinMap[i] = b >= 0 ? owner.get(b)! : 0;
@@ -130,7 +139,7 @@ export function buildMixamoMotion(assets: HumanAssets, src: Object3D, clip: Anim
   // Keep the mean height where the recording carried it, and the sway centred.
   const mean = hips.reduce((s, p) => s.add(p), new Vector3()).multiplyScalar(1 / hips.length);
   for (const p of hips) { p.x -= mean.x; p.z -= mean.z; }
-  return { joints, rest, skinMap, source, walk: { duration: clip.duration, frames, hips, stride: travel.length() * ratio } };
+  return { joints, rest, skinMap, source, face, walk: { duration: clip.duration, frames, hips, stride: travel.length() * ratio } };
 }
 
 /** Loads the walk recording and builds the Mixamo motion for this survivor. */
@@ -183,6 +192,10 @@ export class MixamoSkin {
   private upperWeight = 0;
   private readonly world: Quaternion[];
   private readonly restInvOld: Quaternion[];
+  private readonly faceBones: Bone[];
+  private readonly faceRest: Matrix4[];
+  private readonly oldHeadRestInv: Matrix4;
+  private readonly newHeadRestInv: Matrix4;
   private readonly scratch = { m: new Matrix4(), inv: new Matrix4(), p: new Vector3(), q: new Quaternion(), s: new Vector3(), a: new Quaternion(), b: new Quaternion() };
 
   constructor(private readonly body: HumanBody, private readonly motion: MixamoMotion) {
@@ -192,7 +205,14 @@ export class MixamoSkin {
       const b = this.bones[k]!;
       if (j.parent >= 0) { this.bones[j.parent]!.add(b); b.position.copy(rest[k]!).sub(rest[j.parent]!); } else { body.group.add(b); b.position.copy(rest[k]!); }
     });
-    this.skeleton = new Skeleton(this.bones, rest.map((p) => new Matrix4().makeTranslation(-p.x, -p.y, -p.z)));
+    // Face joints: plain matrices in the body's space, set each frame from the survivor's face.
+    const A = body.assets;
+    this.faceRest = motion.face.map((i) => new Matrix4().compose(A.restP[i]!, A.restQ[i]!, new Vector3(1, 1, 1)));
+    this.faceBones = motion.face.map((i) => { const b = new Bone(); b.name = `mixamo_face_${A.bones[i]!.name}`; b.matrixAutoUpdate = false; body.group.add(b); return b; });
+    const headI = A.index.get('spine_006')!;
+    this.oldHeadRestInv = new Matrix4().compose(A.restP[headI]!, A.restQ[headI]!, new Vector3(1, 1, 1)).invert();
+    this.newHeadRestInv = new Matrix4().makeTranslation(-rest[joints.findIndex((j) => j.name === 'Head')]!.x, -rest[joints.findIndex((j) => j.name === 'Head')]!.y, -rest[joints.findIndex((j) => j.name === 'Head')]!.z);
+    this.skeleton = new Skeleton([...this.bones, ...this.faceBones], [...rest.map((p) => new Matrix4().makeTranslation(-p.x, -p.y, -p.z)), ...this.faceRest.map((m) => m.clone().invert())]);
     this.world = joints.map(() => new Quaternion());
     this.restInvOld = motion.source.map((i) => body.assets.restQ[i]!.clone().invert());
     this.rebind();
@@ -248,6 +268,17 @@ export class MixamoSkin {
     const hips = rest[0]!.clone().add(s.p.copy(walk.hips[i0]!).lerp(walk.hips[i1]!, u));
     this.bones[0]!.position.copy(hipsCopy ?? rest[0]!).lerp(hips, this.upperWeight);
     group.updateMatrixWorld(true);
+    // The face moves with the Mixamo head as it moved with the survivor's:
+    // joint = (new head's move) · (old head's move)⁻¹ · face bone, all in the body's space.
+    const headK = joints.findIndex((j) => j.name === 'Head');
+    const newHead = s.m.multiplyMatrices(s.inv, this.bones[headK]!.matrixWorld).multiply(this.newHeadRestInv);
+    const oldHead = new Matrix4().multiplyMatrices(s.inv, this.body.bones[this.body.assets.index.get('spine_006')!]!.matrixWorld).multiply(this.oldHeadRestInv);
+    const carry = newHead.multiply(oldHead.invert());
+    this.motion.face.forEach((i, k) => {
+      const b = this.faceBones[k]!;
+      b.matrix.multiplyMatrices(carry, new Matrix4().multiplyMatrices(s.inv, this.body.bones[i]!.matrixWorld));
+      b.updateMatrixWorld(true);
+    });
   }
 
   /** The head joint and its rest matrix in the body's space (where the hair goes). */
@@ -258,5 +289,6 @@ export class MixamoSkin {
 
   dispose(): void {
     this.bones[0]!.removeFromParent();
+    for (const b of this.faceBones) b.removeFromParent();
   }
 }

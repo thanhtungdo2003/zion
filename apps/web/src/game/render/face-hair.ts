@@ -33,9 +33,11 @@ export function beardDensity(style: BeardStyle, p: Vector3): number {
   // Full beard (râu quai nón): the jaw from ear to ear, the chin, under the jaw, the upper lip,
   // the sideburns; the cheeks above a line from the mouth's corners to the sideburns stay bare.
   const cheekLine = 1.553 + Math.max(0, ax - .03) * 1.15;
-  const sideburn = ax > .05 && p.z > -.022 && p.z < .022 && p.y < 1.6;
-  const jaw = p.y < cheekLine && (p.z > -.005 || (p.y < 1.5 && p.z > .0)) && p.y > 1.462;
-  const full = sideburn ? near(1.46, 1.6, .012, p.y) : jaw ? Math.min(1, near(1.462, cheekLine, .006, p.y) * 1.2) : 0;
+  // The beard stops at the jaw's edge: under the chin only near its front, never down the neck.
+  const sideburn = ax > .05 && p.z > -.02 && p.z < .022 && p.y > 1.53 && p.y < 1.6;
+  const underJaw = p.y < 1.505 && p.y > 1.476 && p.z > .018 + (1.505 - p.y) * .9;
+  const jaw = p.y < cheekLine && ((p.y >= 1.505 && p.z > -.006) || underJaw);
+  const full = sideburn ? near(1.53, 1.6, .01, p.y) : jaw ? Math.min(1, near(p.y >= 1.505 ? 1.49 : 1.476, cheekLine, .006, p.y) * 1.2) : 0;
   let d = 0;
   if (style === 'mustache') d = Math.min(1, mustache);
   else if (style === 'goatee') d = Math.min(1, Math.max(goatee, mustache));
@@ -59,16 +61,23 @@ export function beardGeometry(skin: FaceSkin, style: BeardStyle): BufferGeometry
   let cache = beardCache.get(skin);
   if (!cache) { cache = new Map(); beardCache.set(skin, cache); }
   if (cache.has(style)) return cache.get(style)!;
-  const look = BEARD_LOOK[style];
-  const p = new Vector3(), n = new Vector3();
+  const p = new Vector3();
   const density = new Float32Array(skin.position.count);
   for (let i = 0; i < skin.position.count; i++) density[i] = beardDensity(style, p.fromBufferAttribute(skin.position, i));
+  const g = shellGeometry(skin, density, BEARD_LOOK[style], style === 'stubble' ? 4 : 1, style === 'stubble' ? 3 : 1);
+  cache.set(style, g);
+  return g;
+}
+
+/** Hair grown from the skin where `density` > 0: the skin's triangles repeated outwards, layer by layer. */
+function shellGeometry(skin: FaceSkin, density: Float32Array, look: { length: number; layers: number; thin: number }, fine: number, stretch: number): BufferGeometry | null {
+  const p = new Vector3(), n = new Vector3();
   const tris: number[] = [];
   for (let t = 0; t < skin.index.count; t += 3) {
     const a = skin.index.getX(t), b = skin.index.getX(t + 1), c = skin.index.getX(t + 2);
     if (density[a]! + density[b]! + density[c]! > .15) tris.push(a, b, c);
   }
-  if (!tris.length) { cache.set(style, null); return null; }
+  if (!tris.length) return null;
   const used = [...new Set(tris)], at = new Map(used.map((v, k) => [v, k]));
   const L = look.layers, count = used.length * L;
   const pos = new Float32Array(count * 3), nrm = new Float32Array(count * 3), uv = new Float32Array(count * 2), layer = new Float32Array(count * 2);
@@ -81,10 +90,9 @@ export function beardGeometry(skin: FaceSkin, style: BeardStyle): BufferGeometry
       // Strands lean down and a little forward, as beard hair grows.
       p.addScaledVector(n, h).y -= h * .35;
       pos.set([p.x, p.y, p.z], o * 3); nrm.set([n.x, n.y, n.z], o * 3);
-      // (Stubble: short dots, finer than the streaks of grown hair.)
-      const f = style === 'stubble' ? 4 : 1;
-      // Around the head (arc length), so the strands run down the cheeks as on the chin.
-      uv.set([Math.atan2(p.x, p.z + .02) * .085 * 14 * f, p.y * 5 * f * (style === 'stubble' ? 3 : 1)], o * 2);
+      // Around the head (arc length), so the strands run down the cheeks as on the chin; `fine`
+      // for short dots (stubble, brows) rather than the streaks of grown hair.
+      uv.set([Math.atan2(p.x, p.z + .02) * .085 * 14 * fine, p.y * 5 * fine * stretch], o * 2);
       layer.set([(l + 1) / L, density[v]!], o * 2);
       for (let c = 0; c < 4; c++) { si[o * 4 + c] = skin.skinIndex.getComponent(v, c); sw[o * 4 + c] = skin.skinWeight.getComponent(v, c); }
     });
@@ -100,7 +108,29 @@ export function beardGeometry(skin: FaceSkin, style: BeardStyle): BufferGeometry
   g.setAttribute('skinWeight', new BufferAttribute(sw, 4));
   g.setIndex(index);
   g.userData.thin = look.thin;
-  cache.set(style, g);
+  return g;
+}
+
+const browShellCache = new WeakMap<BufferGeometry, BufferGeometry | null>();
+/**
+ * A short, dense layer of hairs on the skin under an eyebrow shape, so a sparse shape still reads
+ * as a brow: grown where the shape's strands lie (within 3 mm of them).
+ */
+export function browShell(skin: FaceSkin, brow: BufferGeometry): BufferGeometry | null {
+  if (browShellCache.has(brow)) return browShellCache.get(brow)!;
+  const pos = brow.getAttribute('position'), v = new Vector3(), q = new Vector3();
+  const pts: Vector3[] = [];
+  for (let i = 0; i < pos.count; i += 3) pts.push(new Vector3().fromBufferAttribute(pos, i));
+  const density = new Float32Array(skin.position.count);
+  for (let i = 0; i < skin.position.count; i++) {
+    v.fromBufferAttribute(skin.position, i);
+    if (v.y < 1.58 || v.y > 1.64 || v.z < .01 || Math.abs(v.x) > .065) continue;
+    let best = Infinity;
+    for (const p of pts) { const d = q.copy(p).sub(v).lengthSq(); if (d < best) best = d; }
+    density[i] = Math.max(0, 1 - Math.sqrt(best) / .0045);
+  }
+  const g = shellGeometry(skin, density, { length: .0012, layers: 3, thin: .05 }, 3, 2);
+  browShellCache.set(brow, g);
   return g;
 }
 
@@ -157,6 +187,8 @@ export function beardMaterial(color: string, thin: number): MeshStandardMaterial
 const browCache = new WeakMap<FaceSkin, Promise<BufferGeometry[]>>();
 /** How much the hair-thin brow strands are thickened (m). */
 const BROW_THICKEN = .0008;
+/** How far the brow strands stand off the skin at least (m): never under it, even as the face moves. */
+const BROW_LIFT = .0026;
 
 /**
  * The three eyebrow shapes, fitted once per body: scaled onto the brow ridge (inner ends at the
@@ -183,7 +215,7 @@ function fitBrow(g: BufferGeometry, skin: FaceSkin): BufferGeometry {
   const b = g.boundingBox!, k = .112 / (b.max.x - b.min.x);
   g.applyMatrix4(new Matrix4().makeTranslation(-(b.min.x + b.max.x) / 2, -b.max.y, -b.max.z));
   g.applyMatrix4(new Matrix4().makeScale(k, k, k));
-  g.applyMatrix4(new Matrix4().makeTranslation(0, 1.617, .074));
+  g.applyMatrix4(new Matrix4().makeTranslation(0, 1.617, .077));
   // The skin of the brow ridge to sit on.
   const ridge: number[] = [], v = new Vector3(), s = new Vector3(), n = new Vector3();
   for (let i = 0; i < skin.position.count; i++) { v.fromBufferAttribute(skin.position, i); if (v.y > 1.57 && v.y < 1.66 && v.z > 0 && Math.abs(v.x) < .07) ridge.push(i); }
@@ -195,7 +227,7 @@ function fitBrow(g: BufferGeometry, skin: FaceSkin): BufferGeometry {
     for (const j of ridge) { const d = s.fromBufferAttribute(skin.position, j).distanceToSquared(v); if (d < bd) { bd = d; best = j; } }
     s.fromBufferAttribute(skin.position, best); n.fromBufferAttribute(skin.normal, best).normalize();
     const above = v.clone().sub(s).dot(n);
-    if (above < .0012) v.addScaledVector(n, .0012 - above);
+    if (above < BROW_LIFT) v.addScaledVector(n, BROW_LIFT - above);
     pos.setXYZ(i, v.x, v.y, v.z);
     for (let c = 0; c < 4; c++) { si[i * 4 + c] = skin.skinIndex.getComponent(best, c); sw[i * 4 + c] = skin.skinWeight.getComponent(best, c); }
   }

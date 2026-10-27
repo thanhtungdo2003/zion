@@ -47,7 +47,9 @@ describe('Mixamo skeleton', () => {
     expect(motion.joints).toHaveLength(6 + 2 * (4 + 15 + 4));
     expect(motion.skinMap.length).toBe(assets.bones.length);
     expect(motion.skinMap[assets.index.get('forearm_L_001')!]).toBe(motion.joints.findIndex((j) => j.name === 'LeftForeArm'));
-    expect(motion.skinMap[assets.index.get('jaw')!]).toBe(motion.joints.findIndex((j) => j.name === 'Head'));
+    // The face rig keeps joints of its own (the face sliders and the jaw still work).
+    expect(motion.skinMap[assets.index.get('jaw')!]).toBe(motion.joints.length + motion.face.indexOf(assets.index.get('jaw')!));
+    expect(motion.skinMap[assets.index.get('spine_006')!]).toBe(motion.joints.findIndex((j) => j.name === 'Head'));
   });
 
   it('walks upright on the survivor: feet take turns on the ground, arms hang, head on top', () => {
