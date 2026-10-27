@@ -10,6 +10,7 @@ import type { AuthService } from '../security/auth-service';
 import { ConcurrencyCounter, KeyedWindowLimiter } from '../security/rate-limit';
 import type { GameServer } from './game-server';
 import type { MatchPool } from './match-pool';
+import type { MatchSource } from './wave-rooms';
 import { ClientSession, CloseCode } from './session';
 
 const AUTH_TIMEOUT_MS = 5_000;
@@ -25,11 +26,13 @@ export class GameGateway {
   battleMaps: ((id: string) => MatchPool | undefined) | null = null;
   /** Pools of the Infection maps picked in the menu, by map id. */
   infectionMaps: ((id: string) => MatchPool | undefined) | null = null;
+  /** Wave survival rooms: (map, party, bots) → where this connection plays, or null. */
+  waves?: (mapId: string, party: boolean, bots: number) => MatchSource | null;
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
   private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
   /** Match-mode sessions are assigned a match once authenticated (the squad is known then). */
-  private readonly sessionPools = new WeakMap<ClientSession, MatchPool>();
+  private readonly sessionPools = new WeakMap<ClientSession, MatchSource>();
   private readonly perIp = new ConcurrencyCounter();
   private readonly upgradeLimiter: KeyedWindowLimiter;
   private readonly allowedOrigins: Set<string>;
@@ -99,8 +102,14 @@ export class GameGateway {
     if (this.sessions.size >= this.config.MAX_CONNECTIONS) return this.reject(socket, 503, 'capacity');
     if (this.perIp.get(ip) >= this.config.MAX_CONNECTIONS_PER_IP) return this.reject(socket, 429, 'per_ip');
     const query = new URL(url, 'http://localhost').searchParams, mode = query.get('mode'), squad = mode === 'battle-royale' && query.get('squad') === '1';
-    if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection') return this.reject(socket, 400, 'mode');
-    let pool = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
+    if (mode && mode !== 'survival' && mode !== 'battle-royale' && mode !== 'infection' && mode !== 'waves') return this.reject(socket, 400, 'mode');
+    let pool: MatchSource | undefined = mode === 'battle-royale' || mode === 'infection' ? this.pools[mode] : undefined;
+    // Wave survival: a private room for this player (bots) or their launched party (friends).
+    if (mode === 'waves') {
+      const map = query.get('map') ?? '', bots = Number(query.get('bots') ?? '0');
+      pool = this.waves?.(map, query.get('party') === '1', bots) ?? undefined;
+      if (!pool) return this.reject(socket, 404, 'map');
+    }
     // A battle royale map chosen in the mode menu (the built-in island when absent).
     const mapId = mode === 'battle-royale' || mode === 'infection' ? query.get('map') : null;
     if (mode === 'battle-royale' && mapId && mapId !== 'hac-son') {
@@ -112,11 +121,11 @@ export class GameGateway {
       pool = this.infectionMaps?.(mapId);
       if (!pool) return this.reject(socket, 404, 'map');
     }
-    if ((mode === 'battle-royale' || mode === 'infection') && !pool) return this.reject(socket, 503, 'mode_unavailable');
+    if ((mode === 'battle-royale' || mode === 'infection' || mode === 'waves') && !pool) return this.reject(socket, 503, 'mode_unavailable');
     this.wss.handleUpgrade(req, socket, head, (ws) => this.onConnection(ws, ip, pool ? undefined : this.game, squad, pool));
   }
 
-  private onConnection(ws: WebSocket, ip: string, game: GameServer | undefined, squad = false, pool?: MatchPool): void {
+  private onConnection(ws: WebSocket, ip: string, game: GameServer | undefined, squad = false, pool?: MatchSource): void {
     const session = new ClientSession(this.nextSessionId++, ws, ip, this.metrics);
     session.squad = squad;
     if (game) this.sessionGames.set(session, game);

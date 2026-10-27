@@ -160,6 +160,10 @@ export interface BotHooks {
   botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
   /** Whether the bot can be hurt now (battle royale: only once the match runs, never in the lobby). */
   canHurt?(bot: BattleBot): boolean;
+  /** Wave survival: other hostiles the bots fight (the zombies), in sight checks and bullet paths. */
+  targets?(): Array<Combatant & { state: CharacterState; id: number }>;
+  /** A blow or round landed on one of those hostiles (true = handled). */
+  hitOther?(bot: BattleBot, target: Combatant, damage: number, zone: string, x: number, y: number, z: number, now: number): boolean;
 }
 
 export interface BotWorld {
@@ -323,6 +327,7 @@ export class BattleBotDirector {
     if (!enemy && this.phase !== 'running') return list;
     for (const p of players) if (!p.dead && !p.state.flight && p.active && (!enemy || enemy(bot, p.id))) list.push(p);
     for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (enemy ? enemy(bot, other.id) : !bot.squad || other.squad !== bot.squad)) list.push(other);
+    if (this.hooks.targets) for (const t of this.hooks.targets()) if (!t.dead) list.push(t);
     return list;
   }
 
@@ -690,12 +695,12 @@ export class BattleBotDirector {
     bot.attackingUntil = now + (melee?.swingMs ?? MELEE.swingMs);
     const damage = melee?.damage ?? MELEE.baseDamage;
     if (target instanceof BattleBot) { if (!this.hooks.botHitsBot?.(bot, target, damage, 'torso', now)) this.hit(target, damage, bot.name, { x: s.x, z: s.z }, now, 'torso', bot.id); }
-    else this.hooks.hitPlayer(bot, target as Player, damage, 'torso', t.x, t.y + 1.1, t.z, now);
+    else if (!this.hooks.hitOther?.(bot, target, damage, 'torso', t.x, t.y + 1.1, t.z, now)) this.hooks.hitPlayer(bot, target as Player, damage, 'torso', t.x, t.y + 1.1, t.z, now);
   }
 
   private fly(now: number, players: readonly Player[]): void {
     if (!this.rounds.length) return;
-    const candidates: Array<Combatant & { state: CharacterState }> = [...players.filter(p => !p.dead && !p.state.flight), ...this.bots.filter(b => !b.dead && !b.state.flight)];
+    const candidates: Array<Combatant & { state: CharacterState }> = [...players.filter(p => !p.dead && !p.state.flight), ...this.bots.filter(b => !b.dead && !b.state.flight), ...(this.hooks.targets?.().filter((t) => !t.dead) ?? [])];
     for (let i = this.rounds.length - 1; i >= 0; i--) {
       const r = this.rounds[i]!;
       const ox = r.x, oy = r.y, oz = r.z;
@@ -713,7 +718,7 @@ export class BattleBotDirector {
       if (hit.target instanceof BattleBot && r.bot.squad && hit.target.squad === r.bot.squad) continue;
       if (hit.target instanceof BattleBot && this.hooks.botHitsBot?.(r.bot, hit.target, damage, hit.zone, now)) continue;
       if (hit.target instanceof BattleBot) this.hit(hit.target, damage, r.bot.name, { x: r.bot.state.x, z: r.bot.state.z }, now, hit.zone, r.bot.id);
-      else this.hooks.hitPlayer(r.bot, hit.target as Player, damage, hit.zone, r.x, r.y, r.z, now);
+      else if (!this.hooks.hitOther?.(r.bot, hit.target, damage, hit.zone, r.x, r.y, r.z, now)) this.hooks.hitPlayer(r.bot, hit.target as Player, damage, hit.zone, r.x, r.y, r.z, now);
     }
   }
 

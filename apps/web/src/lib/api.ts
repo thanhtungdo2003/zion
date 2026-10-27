@@ -3,6 +3,7 @@ import type { AtlasTile, CustomWeapon, GameContent, GameMode, InfectionMapDef, I
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
 import type { HandbookEntry, NewsAction, NewsDraft, NewsPost } from '@zion/shared';
+import type { WaveBoard, WaveLeaderboard } from '@zion/shared';
 import { parseAppearance, type Appearance } from '@zion/shared';
 /**
  * Thin client for the auth/game HTTP API. The access token lives only in memory; the refresh
@@ -227,7 +228,15 @@ export async function getGameTicket(): Promise<TicketResponse> {
 }
 
 /** Survival teams and battle royale squads are separate lobbies, picked by mode. */
-const teamUrl = (mode: GameMode) => mode === 'battle-royale' ? '/api/teams?mode=battle-royale' : '/api/teams';
+const teamUrl = (mode: GameMode) => mode === 'battle-royale' ? '/api/teams?mode=battle-royale' : mode === 'waves' ? '/api/teams?mode=waves' : '/api/teams';
+
+/** Zombie Wave Survival: playable maps and one leaderboard (map × board). */
+export async function listWaveMaps(): Promise<BattleMapInfo[]> {
+  return (await request<{ maps: Array<{ id: string; name: string; thumbnail: string | null; players: number }> }>('/api/waves/maps')).maps.map((m) => ({ ...m, matches: 0 }));
+}
+export async function getWaveLeaderboard(map: string, board: WaveBoard): Promise<WaveLeaderboard> {
+  return request<WaveLeaderboard>(`/api/waves/leaderboard?map=${encodeURIComponent(map)}&board=${board}`);
+}
 export async function getTeamLobby(mode: GameMode = 'survival'): Promise<TeamLobby> {
   await ensureAccess();
   return request<TeamLobby>(teamUrl(mode), { auth: true });

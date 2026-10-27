@@ -111,6 +111,8 @@ export class Zombie {
   alertUntil = 0;
   /** Only ambient scouts recruit, preventing exponential reinforcement chains. */
   recruitsLeft = 0;
+  /** A wave zombie: always knows where the nearest survivor is (no wandering, no losing them). */
+  horde = false;
   recruitAt = 0;
   jumpReadyAt = 0;
   jumpingUntil = 0;
@@ -212,6 +214,8 @@ export class ZombieDirector {
     private readonly collision: CollisionWorld,
     private readonly spawns: SpawnService,
     private readonly hooks: ZombieHooks,
+    /** False in wave matches: no ambient, indoor or reinforcement spawns; waves bring them in. */
+    private readonly ambient = true,
   ) { this.navigation = new ZombieNavigation(collision); }
 
   /** Controller for a given ground speed (crawlers move slower depending on limbs left). */
@@ -228,7 +232,12 @@ export class ZombieDirector {
 
   step(players: readonly Player[], now: number, tod: number): void {
     const night = isNight(tod);
-    if (now >= this.nextSpawnCheck) {
+    if (!this.ambient && now >= this.nextSpawnCheck) {
+      // Wave matches: only clear away old bodies (nobody is despawned for being far away).
+      this.nextSpawnCheck = now + 2000;
+      for (const [id, z] of this.zombies) if (z.dead && now - z.deadAt > CORPSE_MS) { this.navigation.clear(z.navigation); this.zombies.delete(id); }
+    }
+    if (this.ambient && now >= this.nextSpawnCheck) {
       this.nextSpawnCheck = now + 2000;
       this.despawn(players, now);
       this.spawnMap(players, now, night);
@@ -305,6 +314,32 @@ export class ZombieDirector {
     if (active.some(p => dist2(pos, p.state) < minimum ** 2)) return false;
     return !this.near(pos.x, pos.z, 10).some(z => !z.dead);
   }
+
+  /** Nearest standing target (players and anyone passed in with them), regardless of sight. */
+  private nearest(z: Zombie, players: readonly Player[]): Player | null {
+    let best: Player | null = null, d = Infinity;
+    for (const p of players) {
+      if (!p.active || p.dead) continue;
+      const e = dist2(z.state, p.state);
+      if (e < d) { d = e; best = p; }
+    }
+    return best;
+  }
+
+  /** A wave zombie of the given kind at a validated spot, hunting the team at once. */
+  spawnAt(pos: { x: number; y: number; z: number }, variant: ZombieVariant): Zombie {
+    const z = new Zombie(this.nextId++, pos.x, pos.y, pos.z, variant);
+    if (variant === ZombieVariant.Rotting && Math.random() < .14) z.bucket = ZOMBIE_BUCKET_DURABILITY;
+    z.horde = true;
+    this.zombies.set(z.id, z);
+    return z;
+  }
+
+  /** Living zombies (wave counts). */
+  get alive(): number { let n = 0; for (const z of this.zombies.values()) if (!z.dead) n++; return n; }
+
+  /** Removes every zombie (a new wave match on this server). */
+  clear(): void { this.zombies.clear(); }
 
   private addZombie(pos: { x: number; y: number; z: number }): Zombie {
     const roll = Math.random();
@@ -410,7 +445,8 @@ export class ZombieDirector {
     const giveUp = Math.max(CHASE_GIVE_UP_DIST, sense * 1.6);
     if (z.target && (z.target.dead || !z.target.active || dist2(s, z.target.state) > giveUp ** 2)) z.target = null;
     if (!z.target) this.detect(z, players, sense);
-    this.reinforce(z, players, now);
+    if (!z.target && z.horde) z.target = this.nearest(z, players);
+    if (this.ambient) this.reinforce(z, players, now);
     if (z.target && z.variant === ZombieVariant.Crimson && z.jumpReadyAt === 0) z.jumpReadyAt = now + 4000;
     let goalX: number;
     let goalZ: number;

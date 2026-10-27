@@ -53,7 +53,7 @@ export default function GameView() {
     const el = container.current;
     if (!el) return;
     const query = new URLSearchParams(window.location.search).get('mode');
-    const mode = query === 'battle-royale' || query === 'infection' ? query : 'survival';
+    const mode = query === 'battle-royale' || query === 'infection' || query === 'waves' ? query : 'survival';
     const engine = new GameEngine(el, store, inventory, worldMap, mode);
     engineRef.current = engine;
     void engine.start();

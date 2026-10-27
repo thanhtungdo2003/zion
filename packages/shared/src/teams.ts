@@ -16,6 +16,8 @@ export interface TeamRecord {
   id: string; code: string; name: string; leaderId: string; public: boolean;
   members: TeamMember[]; quests: Record<string, TeamQuestRun>; chat: TeamChatLine[];
   launchId: string | null; launchedAt: number;
+  /** Wave survival parties: the map the leader picked (everyone launches onto it). */
+  map?: string;
 }
 export interface TeamView extends TeamRecord {
   members: Array<TeamMember & { online: boolean; inGame: boolean; entityId?: number; x?: number; y?: number; z?: number; health?: number; downed?: boolean; yaw?: number; rank?: RankTitle }>;
@@ -30,6 +32,7 @@ export type TeamAction =
   | { op: 'kick' | 'promote'; accountId: string }
   | { op: 'settings'; name: string; public: boolean }
   | { op: 'launch' }
+  | { op: 'map'; map: string }
   | { op: 'chat'; text: string };
 export interface TeamStateMessage { t: 'teamState'; team: TeamView | null; quests: QuestStateMessage['entries'] }
 

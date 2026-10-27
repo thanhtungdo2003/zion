@@ -1,457 +1,175 @@
-# ZION — REALISTIC GAME ENGINE & PHYSICS SYSTEM
+# TASK: Implement Zombie Wave Survival Mode — Party Lobby, Bot System & Leaderboards
 
-## 1. Mục tiêu dự án
+## 1. Mục tiêu
 
-Tiếp tục phát triển Zion thành một game FPS 3D có hệ thống engine chuyên biệt, tập trung vào vật lý thực, tương tác vật thể có tính thuyết phục, animation chịu ảnh hưởng của lực và quán tính, mô hình va chạm chính xác cùng kiến trúc đồ họa có khả năng mở rộng.
+Phát triển chế độ **Zombie Wave Survival** cho ZION, cho phép người chơi lập đội với bạn bè hoặc chơi một mình cùng bot. Trải nghiệm cần có nhịp độ chiến đấu nhanh, zombie ngày càng nguy hiểm theo từng wave nhưng vẫn giữ cảm giác bắn súng đã tay.
 
-Đây không đơn thuần là yêu cầu bổ sung vài hiệu ứng vật lý vào game hiện tại. Mục tiêu là xây dựng một nền tảng engine có các hệ thống cốt lõi hoạt động thống nhất, có thể tái sử dụng trên cả Web và Desktop.
+Trước khi triển khai, hãy nghiên cứu cấu trúc code, hệ thống multiplayer, menu chính, UI design system, bản đồ, combat, AI zombie và dữ liệu người chơi hiện có. Tái sử dụng kiến trúc và component phù hợp, không xây dựng một hệ thống độc lập gây trùng lặp logic.
 
-Engine phải ưu tiên tính nhất quán vật lý, chất lượng thị giác, hiệu năng và khả năng mở rộng.
+## 2. Game mode và cơ chế Wave
 
-### Nguyên tắc bắt buộc
+- Người chơi chiến đấu với các đợt zombie liên tiếp trên một bản đồ được chọn trước.
+- Khi bắt đầu wave, khu vực chiến đấu được khóa để ngăn người chơi rời khỏi arena.
+- Zombie xuất hiện theo từng đợt. Khi tiêu diệt toàn bộ zombie, chuyển sang giai đoạn nghỉ ngắn để người chơi loot súng, đạn, medkit và chuẩn bị cho wave tiếp theo.
+- Độ khó tăng dần qua số lượng zombie, tốc độ tiếp cận, tần suất tấn công, cách phối hợp, hướng tiếp cận và thành phần zombie.
+- Có thể bổ sung các biến thể zombie với hành vi, tốc độ, tầm tấn công hoặc kỹ năng khác nhau để tạo áp lực chiến thuật.
+- **Giữ HP cố định cho từng loại zombie.** Không tăng HP vô hạn theo wave. Người chơi cần duy trì cảm giác bắn trúng, gây sát thương rõ ràng và tiêu diệt zombie trong thời gian hợp lý.
+- Tăng độ khó chủ yếu bằng số lượng, mật độ, nhịp spawn, khả năng bao vây, sự đa dạng của kẻ địch và áp lực tài nguyên. Điều chỉnh các thông số dựa trên thời gian sống sót, tỷ lệ tiêu diệt và khả năng phối hợp của đội.
+- Khi toàn đội bị hạ, kết thúc lượt chơi, lưu kết quả và cung cấp nút chơi lại nhanh.
 
-- Khảo sát mã nguồn và kiến trúc Zion hiện tại trước khi triển khai.
-- Giữ lại những hệ thống gameplay, networking, world generation và tài nguyên đang hoạt động tốt.
-- Không viết lại toàn bộ game hoặc thay engine hiện tại nếu chưa có phân tích kỹ thuật và benchmark chứng minh cần thiết.
-- Phân biệt rõ game engine, physics engine, animation system, rendering engine và gameplay logic.
-- Không mô phỏng vật lý bằng các phép dịch chuyển hoặc xoay model tùy ý khi có thể sử dụng rigidbody, constraints, forces và collision solver phù hợp.
-- Không dùng một collider hộp lớn cho toàn bộ model nếu hình dạng đó gây sai lệch đáng kể đối với gameplay.
-- Không coi mọi vật thể đều phải được mô phỏng ở độ chính xác cao. Sử dụng nhiều cấp độ mô phỏng tùy theo mức độ tương tác, khoảng cách và yêu cầu gameplay.
-- Tất cả hệ thống phải được tích hợp vào game hiện tại, không dừng ở demo độc lập hoặc tài liệu thiết kế.
+## 3. Party System — Chơi cùng bạn bè hoặc bot
 
-## 2. Kiến trúc tổng thể
+Người chơi có thể chọn một trong hai chế độ trước khi bắt đầu trận:
 
-Thiết kế engine theo các module có ranh giới trách nhiệm rõ ràng:
+### A. Chơi cùng bạn bè
+- Cho phép tạo đội, mời bạn bè và tham gia phòng thông qua hệ thống multiplayer hiện có.
+- Đội có tối đa **4 người chơi**, bao gồm chủ phòng.
+- Bốn slot hiển thị trạng thái rõ ràng: chủ phòng, người chơi đã tham gia, slot trống và trạng thái sẵn sàng nếu hệ thống hỗ trợ.
+- Chủ phòng có quyền chọn bản đồ, bắt đầu trận và quản lý thành viên theo cơ chế quyền hạn hiện có.
+- Các thành viên phải đồng bộ cùng bản đồ, chế độ chơi và cấu hình trận.
+- Không cho bắt đầu khi chưa đáp ứng điều kiện của phòng hoặc khi trạng thái kết nối của thành viên không hợp lệ.
 
-1. **Core Engine:** vòng lặp game, fixed timestep, quản lý scene, entity, component và lifecycle.
-2. **Physics Engine:** rigidbody, lực, mô-men xoắn, quán tính, ma sát, constraints và collision detection.
-3. **Collision & Query System:** collider, raycast, shape cast, overlap tests và truy vấn không gian.
-4. **Animation & Physical Interaction:** animation clips, skeletal rig, IK, động lực học và tương tác giữa các bộ phận.
-5. **Vehicle Physics:** hệ thống bánh xe, hệ thống treo, lực kéo, phanh, lực cản và độ ổn định thân xe.
-6. **Rendering Engine:** geometry, PBR materials, lighting, shadows, reflections và các kỹ thuật ray tracing phù hợp.
-7. **Asset & Model Pipeline:** quản lý model, skeleton, collider, material, collision layers và metadata.
-8. **Gameplay Integration:** nhân vật, vũ khí, đạn, zombie, phương tiện và tương tác môi trường.
-9. **Networking Integration:** đồng bộ trạng thái vật lý cần thiết trong multiplayer.
-10. **Debugging & Profiling:** hiển thị collider, vector lực, vận tốc, điểm va chạm, frame time và thống kê solver.
+### B. Chơi cùng bot
+- Hỗ trợ chơi solo không bot hoặc thêm từ **1 đến 3 bot**.
+- Tổng số nhân vật trong đội tối đa là 4, tính cả người chơi thật và bot.
+- Có thể thêm hoặc bỏ bot trước khi bắt đầu trận.
+- Bot phải được thể hiện trực tiếp trong các slot của đội; phân biệt rõ bot và người chơi thật.
+- Bot cần có AI hỗ trợ chiến đấu thực tế: di chuyển cùng đội, tìm và tấn công zombie, phản ứng với nguy hiểm, tránh bị mắc kẹt, hỗ trợ đồng đội khi phù hợp và sử dụng tài nguyên theo khả năng của hệ thống.
+- Bot không được chỉ đứng yên, chạy theo người chơi một cách máy móc hoặc tự động tiêu diệt zombie bằng các hành vi gian lận không hợp lý.
+- Độ khó của bot nên được điều chỉnh thông qua độ chính xác, phản ứng, hành vi chiến đấu và khả năng hỗ trợ, không phải bằng cách tăng sức mạnh vô lý.
 
-Các module phải được thiết kế để có thể kiểm thử độc lập nhưng hoạt động thống nhất trong game.
+## 4. Main Menu — Party Lobby Modal
 
-## 3. Physics Engine — Vật lý cốt lõi
+Thiết kế một **modal lớn xuất hiện ngay tại menu chính**, đóng vai trò là điểm bắt đầu của chế độ Zombie Wave Survival.
 
-Xây dựng hoặc tích hợp một physics engine thực sự thay vì tự tạo các hiệu ứng chuyển động rời rạc.
+### Bố cục chính
 
-Trước khi lựa chọn công nghệ, đánh giá physics engine hiện tại và các giải pháp phù hợp với JavaScript/TypeScript, WebAssembly hoặc native runtime. Chỉ thay đổi công nghệ khi có lý do rõ ràng về độ chính xác, hiệu năng hoặc khả năng tích hợp.
+- Modal đủ rộng để tạo cảm giác đây là một màn hình lập đội hoàn chỉnh, không phải popup nhỏ.
+- Bố cục tham khảo cách tổ chức phòng chờ của Liên Quân Mobile: đội hình thành viên là trọng tâm, thông tin trận đấu rõ ràng, các thao tác quan trọng dễ tìm.
+- Chỉ tham khảo cấu trúc và trải nghiệm sử dụng, không sao chép giao diện, hình ảnh hoặc nhận diện thương hiệu của Liên Quân.
+- Bám sát DNA giao diện hiện tại của ZION: màu sắc, typography, nền, hiệu ứng, đường viền, icon, độ tương phản, phong cách military/survival và ngôn ngữ thiết kế đang sử dụng.
+- Không tự ý đổi design system toàn game hoặc tạo ra một giao diện lạc tông.
 
-### 3.1. Rigidbody và động lực học
+### A. Switch chọn chế độ
 
-Hỗ trợ tối thiểu:
+Đặt một **switch/segmented control lớn, nổi bật, dễ nhận biết** ở phần đầu modal để chuyển giữa:
 
-- Mass và center of mass.
-- Linear velocity và angular velocity.
-- Linear acceleration và angular acceleration.
-- Forces, impulses và torques.
-- Inertia tensor và rotational dynamics.
-- Gravity, damping và drag.
-- Static, dynamic và kinematic bodies.
-- Sleeping và wake-up khi có tương tác.
-- Collision response và contact constraints.
+- Chơi cùng bạn bè.
+- Chơi cùng bot.
 
-Vật thể phải phản ứng theo khối lượng, hình dạng va chạm, vận tốc, hướng chuyển động và vị trí tác dụng lực.
+Trạng thái đang chọn phải có độ tương phản rõ ràng, animation chuyển trạng thái mượt và phản hồi tương tác tốt. Khi chuyển chế độ, nội dung bốn slot, các thao tác và thông tin liên quan phải cập nhật tương ứng mà không đóng modal.
 
-Ví dụ: một vật nặng bị đẩy không được gia tốc giống một vật nhẹ khi chịu cùng lực. Va chạm lệch tâm phải có thể tạo mô-men xoắn làm vật thể xoay.
+### B. Bốn slot đội hình
 
-### 3.2. Ma sát và va chạm
+Hiển thị chính xác **4 ô vuông đại diện cho 4 vị trí trong đội**, có kích thước đủ lớn và bố cục cân đối.
 
-Triển khai các cơ chế phù hợp:
+Mỗi slot cần có:
 
-- Normal contact response.
-- Restitution và friction.
-- Static friction và dynamic friction khi solver hỗ trợ.
-- Friction constraints.
-- Continuous collision detection cho các vật thể có tốc độ cao.
-- Contact manifolds và collision filtering.
-- Collision layers, masks và trigger volumes.
-- Stable stacking và xử lý vật thể nằm trên bề mặt.
-- Chống xuyên vật thể do timestep hoặc vận tốc lớn.
+- Avatar hoặc hình đại diện nhân vật.
+- Tên người chơi hoặc tên bot.
+- Trạng thái slot: trống, đang chờ, đã sẵn sàng hoặc trạng thái tương ứng.
+- Nhận diện trực quan người chơi thật, bot và chủ phòng.
+- Hiệu ứng hover, selected và transition nhất quán với UI hiện tại.
 
-Không giả định mọi va chạm đều là va chạm đàn hồi. Đặc tính phản ứng phải phụ thuộc vật liệu, khối lượng, vận tốc và thông số được cấu hình.
+Ở chế độ bạn bè, slot trống có thể dùng để mời thành viên. Ở chế độ bot, slot trống cho phép thêm bot nếu đội chưa đủ bốn vị trí. Slot phải phản ánh đúng trạng thái thực tế của phòng, không chỉ là hình ảnh trang trí.
 
-### 3.3. Timestep và độ ổn định
+### C. Chọn bản đồ
 
-- Sử dụng fixed timestep cho mô phỏng vật lý.
-- Tách physics update khỏi render frame rate.
-- Dùng interpolation khi render giữa các physics ticks.
-- Cấu hình solver iterations và substeps theo nhu cầu.
-- Có cơ chế xử lý frame spike và giới hạn thời gian mô phỏng.
-- Không để FPS thay đổi làm thay đổi tùy tiện quỹ đạo vật thể.
+Bổ sung khu vực chọn bản đồ ngay trong modal.
 
-Mục tiêu là tạo kết quả ổn định, có thể tái lập trong cùng điều kiện đầu vào. Không tuyên bố mô phỏng deterministic tuyệt đối giữa mọi thiết bị nếu engine không bảo đảm điều đó.
+- Hiển thị danh sách hoặc các thẻ bản đồ bằng hình ảnh xem trước phù hợp.
+- Làm nổi bật bản đồ đang được chọn.
+- Có thể xem tên bản đồ và thông tin ngắn cần thiết.
+- Việc đổi bản đồ phải cập nhật cấu hình phòng và được đồng bộ với các thành viên trong đội.
+- Chỉ cho phép chọn những bản đồ được hỗ trợ bởi chế độ Wave Survival.
+- Có thể mở rộng để mỗi bản đồ có đặc trưng chiến đấu riêng, nhưng không bắt buộc tạo bản đồ mới trong task này.
 
-## 4. Model Geometry và Collision Geometry
+### D. Nút Play
 
-Đây là một yêu cầu trọng tâm.
+- Đặt nút **PLAY** ở vị trí dễ thấy, là hành động chính của modal.
+- Nút có kích thước, độ tương phản và trạng thái tương tác nổi bật theo design system hiện tại.
+- Ở chế độ bạn bè, chỉ chủ phòng được bắt đầu trận; các điều kiện sẵn sàng và kết nối phải được xác thực.
+- Ở chế độ bot, nút bắt đầu trận với cấu hình số lượng bot hiện tại.
+- Hiển thị trạng thái loading trong quá trình khởi tạo trận; không cho phép gửi nhiều yêu cầu bắt đầu liên tiếp.
+- Khi bắt đầu, truyền chính xác bản đồ, đội hình, chế độ chơi và số lượng bot sang hệ thống tạo trận.
 
-Model hiển thị và hình dạng va chạm phải được quản lý độc lập nhưng liên kết chính xác thông qua cùng hệ tọa độ, transform và metadata.
+## 5. Hệ thống bảng xếp hạng — 8 bảng riêng biệt
 
-### 4.1. Phân biệt visual mesh và collision mesh
+Xây dựng hệ thống xếp hạng cho Zombie Wave Survival với **8 bảng độc lập cho mỗi bản đồ**. Không gộp kết quả của các kiểu đội hình khác nhau vào cùng một bảng.
 
-- **Visual Mesh:** hình học phục vụ hiển thị, có thể gồm nhiều chi tiết, vật liệu, texture và khe hở.
-- **Collision Mesh:** hình học phục vụ va chạm, raycast, đạn và truy vấn không gian.
-- **Hitbox / Hit Region:** vùng gameplay dùng để xác định bộ phận bị trúng đạn, sát thương hoặc tương tác đặc biệt.
-- **Physics Proxy:** hình dạng đơn giản hóa dùng cho mô phỏng rigidbody và các tương tác không yêu cầu độ chính xác cao.
+### A. Chơi cùng bot — 4 bảng
 
-Không sử dụng visual mesh có độ phức tạp cao làm dynamic collision mesh mặc định nếu điều đó gây giảm hiệu năng hoặc mất ổn định solver.
-
-### 4.2. Quy tắc về khe hở và khoảng trống
-
-Các khoảng trống trong model phải được xử lý theo hình học thực tế, không được vô tình trở thành vật cản vô hình.
-
-Ví dụ:
-
-- Một ô cửa phải cho phép nhân vật đi qua nếu kích thước và tư thế phù hợp.
-- Khoảng trống giữa các bộ phận xe không được bị lấp bởi một collider hộp lớn không hợp lý.
-- Ray bắn phải có thể đi qua khe hở thực sự nếu đường đi không giao với hình học chặn đạn.
-- Một chiếc xe phải va chạm với tường hoặc vật thể theo các bề mặt thực tế, không phải theo một hộp bao quá lớn.
-- Các bề mặt mỏng, lỗ, cửa sổ và cấu trúc dạng khung phải có collision geometry phù hợp.
-
-Tuy nhiên, **không mặc định mọi khoảng trống giữa hai bộ phận đều là không khí có thể đi xuyên qua**. Phải phân biệt khe hở thực sự, bề mặt vật liệu, nội thất, lớp giáp và các bộ phận có thể chặn đạn.
-
-### 4.3. Công cụ kiểm tra collider
-
-Tích hợp chế độ debug có thể bật/tắt để hiển thị:
-
-- Visual mesh và collision mesh đồng thời.
-- Rigidbody bounds và center of mass.
-- Collision layers và hit regions.
-- Raycast, điểm tiếp xúc và hướng pháp tuyến.
-- Những collider chồng lấn bất thường.
-- Các vùng không thể tiếp cận do collider sai.
-- Những khe hở trong visual mesh nhưng bị collider chặn.
-
-Cung cấp khả năng kiểm tra collider của nhân vật, súng, xe, tòa nhà và các asset quan trọng.
-
-## 5. Vũ khí và Physical Animation
-
-Không sử dụng animation như một chuỗi transform cố định hoàn toàn tách biệt khỏi vật lý.
-
-Hệ thống phải kết hợp animation điều khiển chuyển động với mô phỏng động lực học ở những bộ phận cần phản ứng lực.
-
-### 5.1. Cấu trúc vũ khí FPS
-
-Mỗi vũ khí cần hỗ trợ:
-
-- Weapon root và transform.
-- Grip points cho tay thuận và tay hỗ trợ.
-- Các điểm tham chiếu như báng súng, cò, khóa nòng và vị trí thao tác.
-- Skeletal rig hoặc hệ thống transform phân cấp.
-- Weapon mass, center of mass và rotational inertia phù hợp với mô hình gameplay.
-- Các attachment points cho phụ kiện.
-- Collider và các vùng tương tác cần thiết.
-- Animation clips có metadata về điểm bắt đầu, thời điểm tiếp xúc và điểm kết thúc hành động.
-
-### 5.2. Animation kết hợp vật lý
-
-Triển khai cơ chế kết hợp animation với physical response, có thể dùng animation-driven motion, IK, spring-damper, constraints và rigidbody simulation tùy trường hợp.
-
-Ví dụ khi nạp đạn:
-
-1. Tay di chuyển đến vị trí thao tác theo animation.
-2. Tay tiếp cận và tương tác với bộ phận tương ứng trên súng.
-3. Khi đẩy, kéo hoặc tác động vào bộ phận có thể chuyển động, lực và chuyển vị được truyền theo cơ chế đã thiết lập.
-4. Súng có thể xoay, rung hoặc dịch chuyển nhẹ do lực tác dụng, điểm tiếp xúc và quán tính.
-5. Tay và súng được phối hợp để duy trì tư thế cầm hợp lý.
-6. Sau khi thao tác kết thúc, dao động giảm dần theo damping và các ràng buộc vật lý.
-
-Mức độ chuyển động phải phụ thuộc vào khối lượng, mô-men quán tính, lực, vị trí tiếp xúc, độ cứng và damping. Không dùng một giá trị rung ngẫu nhiên cố định cho mọi vũ khí.
-
-### 5.3. Giữ tính ổn định của animation
-
-- Không để mô phỏng vật lý khiến tay xuyên qua súng.
-- Không để tay bị tách khỏi grip point ngoài các hành động có chủ đích.
-- Hạn chế jitter và dao động không kiểm soát.
-- Hỗ trợ blend giữa animation và physical response.
-- Có cơ chế chuyển tiếp mượt giữa trạng thái animation, trạng thái tương tác và trạng thái nghỉ.
-- Cho phép cấu hình mức ảnh hưởng vật lý theo từng hành động và loại vũ khí.
-
-Không bắt buộc mọi xương đều phải là rigidbody động. Chỉ áp dụng mô phỏng vật lý đầy đủ cho những bộ phận có ý nghĩa; các bộ phận còn lại có thể dùng animation và IK.
-
-## 6. Nhân vật và môi trường
-
-### 6.1. Nhân vật
-
-- Collision capsule hoặc shape phù hợp với tư thế hiện tại.
-- Hỗ trợ đứng, đi bộ, chạy, nhảy, ngồi và các trạng thái di chuyển khác.
-- Kiểm tra khoảng trống phía trên khi đứng lên.
-- Xử lý va chạm với tường, cửa, bậc thang, dốc và địa hình.
-- Tách gameplay movement controller khỏi animation presentation.
-- Hỗ trợ ragdoll hoặc partial ragdoll khi cần.
-- Có thể kết hợp animation-driven movement với physical reactions khi bị đẩy hoặc va chạm.
-
-### 6.2. Tương tác môi trường
-
-- Cửa, vật thể có thể đẩy, vật thể có thể nhặt và vật thể có thể phá hủy phải có interaction model rõ ràng.
-- Vật thể không được xuyên tường hoặc tự tạo lực bất thường.
-- Các bề mặt phải có thuộc tính ma sát và phản ứng va chạm phù hợp.
-- Tương tác giữa các vật thể phải dựa trên collider, constraints và quy tắc gameplay.
-- Phân biệt vật thể trang trí không có va chạm với vật thể có thể tương tác.
-
-## 7. Vehicle Physics — Hệ thống phương tiện
-
-Xây dựng hệ thống phương tiện có động lực học phù hợp, không chỉ di chuyển model bằng cách thay đổi tọa độ.
-
-### 7.1. Mô hình phương tiện
-
-Hỗ trợ:
-
-- Rigidbody và center of mass.
-- Linear và angular momentum.
-- Lực kéo, phanh và lực cản.
-- Hệ thống bánh xe và lực tiếp xúc với mặt đất.
-- Hệ thống treo, spring-damper và wheel travel.
-- Lực ma sát lốp theo hướng dọc và ngang.
-- Chuyển tải trọng khi tăng tốc, phanh và vào cua.
-- Mô-men xoắn gây nghiêng thân xe.
-- Va chạm thân xe với tường, địa hình và các phương tiện khác.
-
-Có thể sử dụng vehicle model phù hợp với gameplay, nhưng phải nhất quán về khối lượng, lực, vận tốc, ma sát và phản ứng va chạm.
-
-### 7.2. Lật xe và mất ổn định
-
-Khi xe va chạm, đi qua địa hình không bằng phẳng, bị tác động lệch tâm hoặc di chuyển với vận tốc lớn:
-
-- Xe phải phản ứng theo lực và mô-men xoắn.
-- Thân xe có thể nghiêng, xoay hoặc lật khi điều kiện động lực học dẫn đến điều đó.
-- Hệ thống treo phải ảnh hưởng đến độ ổn định.
-- Bánh xe phải có trạng thái tiếp xúc và mất tiếp xúc với mặt đất.
-- Không tự động giữ xe đứng thẳng bằng cách reset rotation trong khi đang mô phỏng vật lý.
-- Cơ chế hỗ trợ lật lại xe chỉ được kích hoạt khi có hành động gameplay rõ ràng.
-
-### 7.3. Va chạm phương tiện
-
-- Xe phải chặn hoặc đẩy các vật thể theo khối lượng và vận tốc tương đối.
-- Không cho xe xuyên qua tường do collider sai.
-- Xử lý va chạm ở vận tốc cao bằng CCD hoặc giải pháp tương đương khi cần.
-- Phân biệt va chạm thân xe, bánh xe và các bộ phận phụ.
-- Tối ưu collision geometry nhưng không làm mất các hình dạng quan trọng đối với gameplay.
-
-## 8. Ballistics và Projectile System
-
-Phân biệt raycast hitscan và projectile mô phỏng chuyển động.
-
-### Hitscan
-
-- Tạo ray từ nòng súng hoặc vị trí bắn hợp lệ.
-- Truy vấn collision world.
-- Xác định điểm trúng đầu tiên, vật cản, hit region và bề mặt.
-- Không cho ray đi xuyên vật thể đặc chỉ vì visual mesh có chi tiết hoặc collider không chính xác.
-
-### Projectile
-
-- Có vị trí, vận tốc, khối lượng và trạng thái vật lý nếu cần.
-- Có thể chịu trọng lực và lực cản không khí.
-- Xử lý va chạm trên đường bay.
-- Tránh xuyên vật thể ở vận tốc cao.
-- Có quy tắc xuyên vật liệu riêng nếu gameplay hỗ trợ xuyên giáp hoặc xuyên vật thể.
-
-Đạn, vật thể ném và các projectile khác phải sử dụng collision system thống nhất thay vì mỗi hệ thống tự tạo một cơ chế va chạm riêng.
-
-## 9. Rendering Engine và Ray Tracing
-
-Nâng cấp đồ họa nhưng không đánh đồng chất lượng hình ảnh với độ chính xác vật lý.
-
-### 9.1. Visual realism
-
-- PBR materials.
-- Lighting và shadow system.
-- Reflection cho kim loại, kính và mặt nước.
-- Ambient occlusion.
-- Atmospheric effects phù hợp với bối cảnh.
-- Geometry và shading nhất quán.
-- LOD và tối ưu hóa scene cho môi trường có nhiều vật thể.
-
-### 9.2. Ray tracing
-
-Đánh giá khả năng triển khai ray tracing trên Web và Desktop dựa trên renderer, runtime và API thực tế.
-
-- Web: sử dụng giải pháp tương thích với môi trường trình duyệt mục tiêu.
-- Desktop: đánh giá khả năng tận dụng native graphics API như DXR hoặc Vulkan Ray Tracing khi cần hardware ray tracing.
-- Phân biệt hardware ray tracing, ray tracing bằng shader và các kỹ thuật screen-space.
-- Hỗ trợ chế độ đồ họa tùy chọn, kiểm tra capabilities và fallback khi không được hỗ trợ.
-- Không yêu cầu ray tracing nếu nó làm suy giảm nghiêm trọng hiệu năng mà không đem lại lợi ích hình ảnh đủ lớn.
-
-Không để ray tracing trở thành điều kiện bắt buộc để game có hệ thống bóng đổ, vật liệu hoặc chiếu sáng hoạt động.
-
-## 10. Multiplayer và tính nhất quán vật lý
-
-Zion là game multiplayer nên vật lý không được chỉ hoạt động đúng trên máy client.
-
-- Server tiếp tục giữ vai trò authoritative đối với trạng thái gameplay quan trọng.
-- Xác định rõ những tương tác vật lý nào phải được xác nhận bởi server.
-- Client có thể prediction và interpolation để tạo cảm giác điều khiển mượt.
-- Có cơ chế reconciliation khi trạng thái client lệch với server.
-- Không đồng bộ toàn bộ trạng thái của mọi rigidbody ở mọi frame nếu không cần thiết.
-- Sử dụng snapshots, delta updates hoặc cơ chế tương đương theo nhu cầu.
-- Đánh giá tác động của physics simulation đến bandwidth, server CPU và khả năng tái lập kết quả.
-- Phân biệt tính chính xác vật lý với tính nhất quán mạng; không giả định solver cho kết quả giống hệt trên mọi máy.
-
-## 11. Performance và Quality Levels
-
-Hệ thống phải có nhiều mức chất lượng mô phỏng.
-
-### Physics
-
-- High: tương tác gần người chơi, vũ khí, phương tiện và va chạm quan trọng.
-- Medium: vật thể có tương tác nhưng không nằm trong vùng quan sát chính.
-- Low: giảm tần suất cập nhật hoặc đơn giản hóa vật thể ở xa.
-- Static: dùng collision geometry tĩnh cho môi trường không chuyển động.
-
-### Rendering
-
-- Cấu hình chất lượng ánh sáng, bóng đổ, phản chiếu, LOD và các hiệu ứng hậu kỳ độc lập với physics quality.
-- Hỗ trợ fallback theo capabilities.
-- Không tự động giảm độ chính xác va chạm gameplay chỉ vì người chơi giảm chất lượng đồ họa.
-
-### Profiling
-
-Đo ít nhất:
-
-- Render frame time và FPS.
-- Physics simulation time.
-- Số rigidbody đang hoạt động.
-- Số broad-phase candidates và collision contacts nếu engine hỗ trợ.
-- Số raycasts/projectile queries.
-- Số draw calls và GPU memory nếu có thể.
-- CPU/GPU bottlenecks.
-- Chi phí đồng bộ trạng thái multiplayer.
-
-Không đưa ra tuyên bố tăng hiệu năng nếu chưa có benchmark so sánh trong điều kiện tương đương.
-
-## 12. Kiểm thử và tiêu chí nghiệm thu
-
-Mỗi hệ thống phải có test và scene kiểm chứng cụ thể.
-
-### Physics tests
-
-- Vật thể rơi và ổn định trên bề mặt.
-- Hai vật thể có khối lượng khác nhau chịu lực tương đương.
-- Va chạm lệch tâm tạo chuyển động quay.
-- Vật thể trượt và dừng theo ma sát.
-- Vật thể tốc độ cao không xuyên qua collider trong các trường hợp mục tiêu.
-- Vật thể xếp chồng không rung hoặc sụp bất thường trong điều kiện ổn định.
-
-### Geometry tests
-
-- Nhân vật đi qua cửa có kích thước phù hợp.
-- Nhân vật không thể đi xuyên tường đặc.
-- Ray bắn xuyên qua khe hở thực sự.
-- Ray bắn bị chặn bởi hình học vật thể.
-- Xe không bị chặn bởi collider hộp vô hình quá lớn.
-- Collider không lệch khỏi visual model sau khi thay đổi transform hoặc animation.
-
-### Animation tests
-
-- Tay thao tác với súng mà không xuyên qua model.
-- Súng phản ứng với lực đẩy và kéo theo cấu hình vật lý.
-- Dao động giảm dần hợp lý.
-- Chuyển đổi animation không tạo giật hoặc mất grip.
-- Physical response không phá vỡ tư thế ngắm bắn.
-
-### Vehicle tests
-
-- Xe tăng tốc, phanh và vào cua ổn định.
-- Thân xe nghiêng theo động lực học phù hợp.
-- Va chạm lệch tâm tạo mô-men quay.
-- Xe có thể lật trong các tình huống thích hợp.
-- Bánh xe phản ứng với địa hình và mất tiếp xúc.
-- Không có hiện tượng xe tự cân bằng trái với trạng thái vật lý đã mô phỏng.
-
-### Platform tests
-
-- Web vẫn build và chạy được.
-- Desktop vẫn build và khởi động được.
-- Các shared packages không import API chỉ có trên một nền tảng.
-- Multiplayer hoạt động sau khi tích hợp physics.
-- Renderer có fallback khi ray tracing không khả dụng.
-- Không phát sinh regression nghiêm trọng so với phiên bản trước.
-
-## 13. Lộ trình triển khai
-
-Thực hiện theo các giai đoạn có thể nghiệm thu độc lập:
-
-1. **Audit:** khảo sát kiến trúc và báo cáo vấn đề hiện tại.
-2. **Architecture:** thiết kế engine modules và ranh giới shared packages.
-3. **Physics foundation:** timestep, rigidbody, collision world, material properties và debug visualization.
-4. **Geometry pipeline:** chuẩn hóa visual mesh, collision mesh, hit regions và asset validation.
-5. **Character & weapon interaction:** tích hợp physics với animation, IK và vũ khí.
-6. **Vehicle physics:** xây dựng và kiểm chứng hệ thống phương tiện.
-7. **Ballistics & world interaction:** tích hợp projectile, hitscan và collision queries.
-8. **Multiplayer integration:** server authority, prediction, interpolation và reconciliation.
-9. **Rendering & ray tracing:** đánh giá, benchmark và triển khai theo khả năng thực tế của Web/Desktop.
-10. **Optimization & release:** profiling, regression tests, build và tài liệu vận hành.
-
-Sau mỗi giai đoạn, phải có code thực tế, test, kết quả benchmark phù hợp và báo cáo những phần đã hoàn thành, chưa hoàn thành hoặc bị chặn.
-
-## 14. Deliverables cuối cùng
-
-- Engine architecture và module boundaries được tài liệu hóa.
-- Physics engine tích hợp trong game hiện tại.
-- Collision system thống nhất cho nhân vật, vũ khí, đạn, xe và môi trường.
-- Physical animation cho các tương tác quan trọng.
-- Vehicle physics có khả năng nghiêng, trượt và lật theo mô phỏng.
-- Pipeline kiểm tra collider và model geometry.
-- Rendering capabilities và ray tracing implementation được ghi rõ theo từng nền tảng.
-- Bộ kiểm thử physics, collision, animation và vehicle.
-- Benchmark và profiling report.
-- Hướng dẫn tạo asset, cấu hình vật lý và thêm loại vật thể mới.
-- Danh sách giới hạn còn tồn tại và lộ trình cải thiện tiếp theo.
-
-## 15. Yêu cầu báo cáo của AI
-
-Trước khi code, hãy trình bày:
-
-1. Kiến trúc hiện tại của Zion.
-2. Những hệ thống vật lý và đồ họa đã tồn tại.
-3. Những phần có thể tái sử dụng.
-4. Những module cần xây dựng hoặc refactor.
-5. Công nghệ đề xuất cho physics, collision, animation và rendering, kèm lý do.
-6. Rủi ro về hiệu năng, multiplayer và khả năng tương thích Web/Desktop.
-7. Lộ trình triển khai theo từng giai đoạn.
-
-Sau khi audit và đề xuất kiến trúc, hãy bắt đầu triển khai theo thứ tự ưu tiên. Không chỉ trả về kế hoạch, pseudocode hoặc các file scaffold không hoạt động.
-
-**Mục tiêu cuối cùng:** Zion phải có một hệ thống vật lý và tương tác nhất quán, trong đó model, collision geometry, animation, vũ khí, phương tiện và môi trường phối hợp với nhau theo các quy tắc động lực học có thể kiểm chứng, đồng thời duy trì gameplay và multiplayer hiện có.
-
-
-## 18. LOW-END HARDWARE SAFETY & TESTING REQUIREMENTS
-
-**Development and testing must prioritize system stability. The development machine has limited hardware resources. Never assume a high-end CPU, GPU, or large amount of RAM.**
-
-### Mandatory safety rules
-- Before running builds, benchmarks, simulations, stress tests, or the game, inspect the available CPU cores, RAM, GPU, VRAM if available, disk space, and current system resource usage.
-- Start with the smallest viable test scene and a minimal number of physics objects. Increase complexity gradually only when resource usage remains safe.
-- Never run unrestricted stress tests, infinite physics loops, unbounded object spawning, or benchmarks that consume all available CPU, RAM, or GPU resources.
-- Set explicit limits for simulation duration, physics object count, collision checks, worker processes, memory allocation, and test iterations.
-- Use conservative worker counts. Do not automatically spawn a worker per CPU core or launch multiple builds and test suites concurrently.
-- Avoid full-world simulations, maximum-resolution rendering, high-resolution shadow maps, ray tracing, or heavy GPU effects during initial development tests. Use low-resolution assets and simplified scenes first.
-- Monitor resource usage during every long-running test. Stop the test automatically if memory usage approaches a configurable limit, resource consumption rises unexpectedly, or the application becomes unresponsive.
-- Avoid memory leaks, unbounded queues, excessive logging, and repeatedly allocating large temporary buffers. Clean up physics bodies, event listeners, workers, and GPU resources when tests finish.
-- Do not modify system settings, GPU drivers, power limits, BIOS settings, or operating-system configuration to force higher performance.
-- Never delete project files, user data, databases, or existing assets as part of cleanup without explicit approval.
-
-### Safe testing strategy
-1. **Static checks first:** type checking, linting, unit tests, and code inspection before launching expensive builds or simulations.
-2. **Micro-tests:** test a few rigidbodies, simple collisions, one weapon interaction, and one vehicle in isolated scenes.
-3. **Short integration tests:** run for a limited duration with a small object count and low rendering quality.
-4. **Gradual load tests:** increase object counts and simulation complexity in controlled steps, stopping when performance or resource usage becomes unsafe.
-5. **Regression tests:** verify physics correctness and existing gameplay after each implementation phase, rather than running the entire test suite repeatedly without reason.
-6. **Long-running tests:** run only when necessary, with explicit timeouts, resource monitoring, and a reliable termination mechanism.
-
-### Resource budgets and failure handling
-- Establish configurable CPU, RAM, GPU, FPS, and simulation-time budgets based on the actual development machine. Do not invent hardware specifications or assume fixed safe limits before measuring the system.
-- Prefer running physics tests without rendering when visual output is unnecessary.
-- Separate performance tests from functional tests. A test must not be considered successful merely because it completes if it causes excessive resource usage.
-- If a test exceeds its budget, stop it safely, record the failure and resource measurements, and reduce the workload before retrying.
-- Keep the development environment responsive. Never sacrifice operating-system stability to obtain benchmark results.
-- Document the exact test command, workload, duration, resource usage, result, and any known limitations.
-
-**Acceptance criterion:** Every new physics or engine subsystem must have a lightweight test that can run on low-end hardware. Heavy tests must be optional, bounded, and explicitly triggered. The default development workflow must remain safe and usable on a resource-constrained machine.
+| Bảng | Điều kiện |
+|---|---|
+| Solo | 1 người chơi, 0 bot |
+| Duo Bot | 1 người chơi, 1 bot |
+| Trio Bot | 1 người chơi, 2 bot |
+| Squad Bot | 1 người chơi, 3 bot |
+
+### B. Chơi cùng bạn bè — 4 bảng
+
+| Bảng | Điều kiện |
+|---|---|
+| Solo Player | 1 người chơi thật |
+| Duo Players | 2 người chơi thật |
+| Trio Players | 3 người chơi thật |
+| Full Squad | 4 người chơi thật |
+
+Trong nhóm chơi cùng bạn bè, phân loại theo **số lượng người chơi thật thực tế trong trận**. Không tính bot vào số lượng người chơi thật. Nếu hệ thống cho phép bổ sung bot vào phòng bạn bè, phải xác định rõ quy tắc phân loại trước khi triển khai; mặc định nên tách cấu hình đó khỏi bốn bảng bạn bè nêu trên.
+
+### Quy tắc bảng xếp hạng
+
+- Mỗi bản đồ có đủ 8 bảng nói trên.
+- Tổng số bảng được quản lý là `số bản đồ hỗ trợ × 8`.
+- Khi xem bảng xếp hạng, người chơi có thể chọn bản đồ, sau đó chọn một trong 8 loại bảng.
+- Kết quả chỉ được ghi vào bảng tương ứng với bản đồ và cấu hình đội hình của trận.
+- Tiêu chí xếp hạng chính là wave cao nhất đã hoàn thành hoặc wave đạt được theo quy tắc thống nhất. Khi bằng wave, dùng các tiêu chí phụ có thể kiểm chứng như thời gian sống sót hoặc thời gian hoàn thành wave.
+- Lưu thêm các dữ liệu cần thiết để hiển thị thành tích: người chơi hoặc đội, bản đồ, loại đội hình, wave, thời gian sống sót và thời điểm đạt thành tích.
+- Nếu xếp hạng theo đội, xác định rõ cách hiển thị tên đội và thành viên; tránh tạo nhiều bản ghi trùng lặp cho cùng một thành tích.
+- Kết quả phải được xác thực phía server. Không tin dữ liệu wave, thời gian hoặc số lượng zombie do client tự gửi lên.
+- Không được để một trận chơi với 3 bot lọt vào bảng Solo hoặc bảng Full Squad của người chơi thật.
+- Thiết kế schema và API đủ linh hoạt để thêm bản đồ mà không cần tạo thủ công từng bảng vật lý riêng biệt. Dùng các trường phân loại như `mapId`, `playMode` và `teamSize` hoặc cấu trúc tương đương.
+
+## 6. Kết nối gameplay và hệ thống hiện có
+
+- Tái sử dụng hệ thống đăng nhập, bạn bè, party, matchmaking, bản đồ, combat và lưu kết quả hiện có nếu đã tồn tại.
+- Nếu thiếu một phần, triển khai bổ sung theo kiến trúc hiện tại thay vì tạo dữ liệu giả hoặc UI chỉ hoạt động ở frontend.
+- Trận đấu phải có trạng thái rõ ràng: tạo phòng, chờ thành viên, khởi tạo, đang chơi, kết thúc và lưu kết quả.
+- Server là nguồn dữ liệu có thẩm quyền đối với thành viên trong phòng, số lượng bot, tiến trình wave, trạng thái zombie và kết quả xếp hạng.
+- Xử lý các trường hợp rời phòng, mất kết nối, chủ phòng thoát, bắt đầu trận thất bại, bot không khởi tạo được và gửi yêu cầu lặp.
+- Đảm bảo cơ chế wave không phá vỡ tick loop, đồng bộ multiplayer hoặc hiệu năng của game hiện tại.
+
+## 7. Yêu cầu UI/UX và chất lượng
+
+- Giao diện phải đẹp, có chiều sâu, đúng chất game survival và nhất quán với ZION.
+- Modal lập đội cần có phân cấp thị giác rõ: chọn chế độ → đội hình → bản đồ → bắt đầu trận.
+- Không nhồi nhét quá nhiều thông tin, không sử dụng quá nhiều màu nhấn hoặc hiệu ứng gây rối.
+- Animation chuyển tab, chọn slot, thêm bot và chọn bản đồ phải mượt; có trạng thái hover, active, disabled và loading phù hợp.
+- Responsive với độ phân giải mục tiêu của game.
+- Không để modal che khuất các thao tác cần thiết hoặc tạo scroll không hợp lý.
+- Các trạng thái rỗng, lỗi, loading và kết nối phải được thiết kế đầy đủ, không chỉ làm đẹp cho trường hợp thành công.
+
+## 8. Phạm vi chưa triển khai
+
+**Tạm thời bỏ qua hoàn toàn hệ thống nâng cấp dạng quân bài/roguelite**, bao gồm thiết kế card, chọn 1 trong 3 nâng cấp, hiệu ứng meme và combo giữa các nâng cấp. Không xây dựng những thành phần này như một phần của task hiện tại.
+
+Tập trung vào chế độ wave, party lobby, bot, chọn bản đồ và bảng xếp hạng. Giai đoạn nghỉ giữa các wave có thể dùng để loot đạn, súng và medkit theo hệ thống vật phẩm hiện có.
+
+## 9. Tiêu chí nghiệm thu
+
+- [ ] Modal lập đội xuất hiện trực tiếp từ menu chính và bám sát giao diện ZION hiện tại.
+- [ ] Có switch lớn, rõ ràng để chuyển giữa chơi với bạn bè và chơi với bot.
+- [ ] Hiển thị đúng 4 slot; trạng thái thành viên và bot phản ánh dữ liệu thật.
+- [ ] Có thể chơi solo với 0 bot, hoặc chọn 1, 2, 3 bot; không vượt quá 4 nhân vật trong đội.
+- [ ] Có thể tạo đội và chơi cùng bạn bè với tối đa 4 người chơi thật.
+- [ ] Chọn được bản đồ trước khi bắt đầu trận.
+- [ ] Wave tăng độ khó bằng số lượng, nhịp độ, hành vi và thành phần zombie; HP của từng loại zombie không tăng vô hạn theo wave.
+- [ ] Có giai đoạn nghỉ sau wave để loot và chuẩn bị.
+- [ ] Khi đội bị hạ, kết quả được lưu và có thể chơi lại nhanh.
+- [ ] Mỗi bản đồ có đủ 8 bảng xếp hạng, phân loại chính xác theo chế độ và số lượng người chơi.
+- [ ] Kết quả xếp hạng được xác thực phía server và không bị ghi nhầm bảng.
+- [ ] Multiplayer, bot, wave và UI xử lý đầy đủ các trạng thái lỗi cơ bản.
+- [ ] Có kiểm thử cho các cấu hình đội hình, quy tắc phân bảng và luồng kết thúc trận.
+- [ ] Không làm hỏng các chế độ chơi hoặc hệ thống hiện có.
+
+**Cách triển khai:** Kiểm tra codebase và báo cáo ngắn kiến trúc hiện tại trước; sau đó triển khai xuyên suốt từ UI đến server, lưu trữ dữ liệu và kiểm thử. Không dừng ở mockup giao diện hoặc dữ liệu giả. Ưu tiên tái sử dụng code, tránh thay đổi ngoài phạm vi và báo rõ các giới hạn nếu hệ thống hiện tại chưa hỗ trợ một tính năng.

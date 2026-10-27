@@ -24,6 +24,7 @@ import { InstallAppButton } from '@/components/InstallAppButton';
 import { WorldChat } from '@/components/WorldChat';
 import { SQUAD_LIMIT, TEAM_LIMIT, type Appearance, type TeamAction, type TeamLobby as Lobby } from '@zion/shared';
 import { CharacterCreator } from '@/components/CharacterCreator';
+import { WaveLobby } from '@/components/WaveLobby';
 import { cachedLook, loadLook, storeLook } from '@/lib/appearance';
 
 // WebGL: client only.
@@ -34,13 +35,16 @@ const GAME_MODES = [
   { id: 'infection', name: 'mode.infection', sub: 'mode.infection_sub', image: '/images/modes/infection-3.webp', icon: 'game-icons:biohazard', isNew: true },
   { id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub', image: '/images/modes/survival-3.webp', icon: 'game-icons:campfire' },
   { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale-3.webp', icon: 'game-icons:parachute' },
+  { id: 'waves', name: 'mode.waves', sub: 'mode.waves_sub', image: '/images/modes/infection-3.webp', icon: 'game-icons:shambling-zombie', isNew: true },
 ] as const;
 /** Where "Play" goes for a mode (squads only exist in battle royale). */
 const BR_MAP_KEY = 'zion.br.map';
+/** Remembers the wave match URL (map, bots or party) so a dropped tab finds its room again. */
+const waveUrl = (url: string) => { try { sessionStorage.setItem('zion.waves.url', url); } catch { /* storage blocked */ } return url; };
 const chosenMap = () => { try { return localStorage.getItem(BR_MAP_KEY) ?? 'hac-son'; } catch { return 'hac-son'; } };
 const INF_MAP_KEY = 'zion.inf.map';
 const chosenInfectionMap = () => { try { return localStorage.getItem(INF_MAP_KEY) ?? ''; } catch { return ''; } };
-const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : mode === 'waves' ? '/play?mode=waves' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -72,6 +76,8 @@ export default function MainMenu() {
     if (!sessionReady || !session) return;
     const mode = activeMatch();
     if (mode === 'battle-royale' || mode === 'infection') { setBusy(true); router.push(`/play?mode=${mode}`); }
+    // A wave match reconnects through its room (the last URL it was played with).
+    if (mode === 'waves') { try { const url = sessionStorage.getItem('zion.waves.url'); if (url) { setBusy(true); router.push(url); } } catch { /* storage blocked */ } }
   }, [sessionReady, session, router]);
   const [gameMode, setGameModeState] = useState<(typeof GAME_MODES)[number]['id']>('survival');
   // The chosen mode is remembered between visits.
@@ -108,6 +114,9 @@ export default function MainMenu() {
   /** Last squad launch seen, so members follow their leader into the match exactly once. */
   const seenLaunch = useRef<string | null | undefined>(undefined);
   const battleMode = gameMode === 'battle-royale';
+  const wavesMode = gameMode === 'waves';
+  const [waveOpen, setWaveOpen] = useState(false);
+  const closeWaves = useCallback(() => setWaveOpen(false), []);
   const teamWorking = useRef(false);
   /** The account's character look; 'none' = never made (the creator opens before the first match). */
   const [look, setLook] = useState<Appearance | null>(null);
@@ -139,16 +148,31 @@ export default function MainMenu() {
   }, [session, applyLobby, gameMode]);
   // Survival teams and battle royale squads are separate lobbies: switch with the mode.
   useEffect(() => { teamVersion.current++; seenLaunch.current = undefined; setLobby(null); }, [gameMode]);
-  // The squad leader pressed "Tiểu đội xuất phát": everyone in the squad drops in with them.
+  // The squad leader pressed "Tiểu đội xuất phát" (or PLAY in a wave party): everyone follows.
   useEffect(() => {
-    if (!battleMode || !lobby) return;
+    if ((!battleMode && !wavesMode) || !lobby) return;
     const launch = lobby.team?.launchId ?? null;
     if (seenLaunch.current === undefined) { seenLaunch.current = launch; return; }
     if (launch && launch !== seenLaunch.current) {
       seenLaunch.current = launch;
-      if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) { setBusy(true); router.push(playUrl('battle-royale', true)); }
+      if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) {
+        setBusy(true);
+        router.push(wavesMode ? waveUrl(`/play?mode=waves&party=1&map=${encodeURIComponent(lobby.team!.map ?? '')}`) : playUrl('battle-royale', true));
+      }
     } else seenLaunch.current = launch;
-  }, [lobby, battleMode, router]);
+  }, [lobby, battleMode, wavesMode, router]);
+
+  /** Wave party actions: like manageTeam, but hands the new lobby back to the wave modal. */
+  const waveAction = async (action: TeamAction): Promise<Lobby | null> => {
+    if (teamWorking.current) return null;
+    teamWorking.current = true; teamVersion.current++; setTeamBusy(true); setTeamError(null);
+    try {
+      const next = await teamAction(action, 'waves');
+      if (action.op === 'launch') seenLaunch.current = next.team?.launchId ?? null;
+      applyLobby(next); return next;
+    } catch (err) { setTeamError(err instanceof Error ? err.message : 'Không cập nhật được phòng.'); return null; }
+    finally { teamWorking.current = false; setTeamBusy(false); }
+  };
 
   const manageTeam = async (action: TeamAction) => {
     if (teamWorking.current) return;
@@ -254,6 +278,8 @@ export default function MainMenu() {
     finally { teamWorking.current = false; setTeamBusy(false); }
   };
   const play = () => {
+    // Wave survival starts from its party lobby (team, bots, map), not straight into a match.
+    if (wavesMode && session) { if (lookState === 'none') setCreator({ mode: 'first', then: () => setWaveOpen(true) }); else setWaveOpen(true); return; }
     if (session && lookState === 'none') setCreator({ mode: 'first', then: () => { void run(() => Promise.resolve()); } });
     else if (session) void run(() => Promise.resolve());
     else { setEntryIntent('play'); setError(null); setAuthOpen(true); }
@@ -366,10 +392,10 @@ export default function MainMenu() {
         </div>
       </header>
 
-      <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
+      {!wavesMode && <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
         if (!session) { setEntryIntent('team'); setAuthOpen(true); }
         else setTeamOpen(!teamOpen);
-      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>
+      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>}
 
       {authOpen && (
         <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
@@ -446,7 +472,9 @@ export default function MainMenu() {
         </section>
       )}
 
-      {session && teamOpen && <TeamLobby battle={battleMode} lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
+      {session && waveOpen && <WaveLobby lobby={lobby} busy={teamBusy} error={teamError} onAction={waveAction} onClose={closeWaves}
+        onPlay={(url) => { setBusy(true); router.push(waveUrl(url)); }} />}
+      {session && teamOpen && !wavesMode && <TeamLobby battle={battleMode} lobby={lobby} busy={teamBusy} error={teamError} onAction={(action) => { void manageTeam(action); }} />}
 
       <div className="menu-launch">
         <a

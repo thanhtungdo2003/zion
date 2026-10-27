@@ -5,6 +5,7 @@ import { RankPromotion } from './RankPromotion';
 import { LoadingBackdrop } from './LoadingBackdrop';
 import { RedDotReticle, ScopeOverlay } from './ScopeOverlay';
 import { BattleResults } from './BattleResults';
+import { WaveHud } from './WaveHud';
 
 import { itemIcons } from '@/game/inventory/icons';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -65,7 +66,7 @@ function MouseRight() {
 export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
   // Match modes: the server sends everyone back when the match ends; "reconnect" finds a new one.
-  const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over;
+  const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over || state.waves?.phase === 'over';
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -387,6 +388,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
         </div>
       )}
 
+      {state.mode === 'waves' && state.waves && <WaveHud state={state.waves} selfId={state.selfId} dead={state.status === 'dead'} onLeave={onLeave} />}
       {state.status === 'dead' && state.mode === 'battle-royale' && state.battle && state.battle.phase !== 'finished' && !resultsClosed && (
         <BattleResults hud={state} onLeave={onLeave} onSpectate={state.spectating ? () => setResultsClosed(true) : undefined} />
       )}
@@ -397,7 +399,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}
-      {state.status === 'dead' && state.mode !== 'infection' && state.mode !== 'battle-royale' && (
+      {state.status === 'dead' && state.mode !== 'infection' && state.mode !== 'battle-royale' && state.mode !== 'waves' && (
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>

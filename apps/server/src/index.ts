@@ -1,5 +1,7 @@
+import { WaveRooms } from './game/wave-rooms';
+import { WaveScoreRepository } from './repositories/wave-scores';
 import type { LifeWorld } from './game/base-life';
-import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, validateContent } from '@zion/shared';
+import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -158,6 +160,21 @@ async function main(): Promise<void> {
     return pool;
   };
   infectionMaps.onMapChanged = (id) => { void infectionPools.get(id)?.retireIdle(); };
+
+  // Zombie Wave Survival: private rooms on the published Infection maps, parties of up to four,
+  // results on eight boards per map.
+  const waveTeams = new TeamService([], async () => {}, { limit: WAVE_TEAM_LIMIT });
+  const waveScores = new WaveScoreRepository(db);
+  const waveWorld = (id: string) => {
+    if (!infectionMaps.maps.maps.find((m) => m.id === id)?.published) return undefined;
+    return id === infectionMaps.maps.active ? { world: infectionMaps.world, worldId: infectionMaps.worldId } : infectionMaps.builtFor(id);
+  };
+  const waveMapList = () => infectionMaps.list().filter((m) => m.published && waveWorld(m.id));
+  const waveRooms = new WaveRooms((cfg) => {
+    const b = waveWorld(cfg.mapId);
+    if (!b) return null;
+    return new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'waves', waves: { ...cfg, record: (r) => waveScores.record(r) } });
+  }, (accountId) => waveTeams.forAccount(accountId), (id) => waveMapList().find((m) => m.id === id) ?? null, logger.child({ module: 'wave-rooms' }));
   setInterval(() => {
     for (const [id, pool] of infectionPools) if (!infectionMaps.maps.maps.some((m) => m.id === id)) { void pool.stop(); infectionPools.delete(id); }
     void infectionMaps.sweep(new Set([infectionPool, ...infectionPools.values()].flatMap((p) => p.matches.map((m) => m.worldService))));
@@ -211,8 +228,8 @@ async function main(): Promise<void> {
     gearFit,
     handStudio,
     progression,
-    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' ? infectionMaps.atlas(map) : survivalAtlas(),
-    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' || mode === 'waves' ? infectionMaps.atlas(map) : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' || mode === 'waves' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
@@ -230,6 +247,11 @@ async function main(): Promise<void> {
     },
     teams,
     battleTeams,
+    waveTeams,
+    waves: {
+      maps: () => waveMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: waveRooms.players(m.id) })),
+      leaderboard: (mapId, board) => waveScores.top(mapId, board),
+    },
     config,
     logger,
     auth,
@@ -348,10 +370,12 @@ async function main(): Promise<void> {
   gateway = new GameGateway(config, logger, metrics, auth, game, audit, { 'battle-royale': battlePool, infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
   gateway.battleMaps = (id) => battleMaps.pool(id);
   gateway.infectionMaps = infectionPoolFor;
+  gateway.waves = (map, party, bots) => waveRooms.source(map, party, bots);
   gateway.attach(app.server);
   game.start();
   battlePool.start();
   infectionPool.start();
+  waveRooms.start();
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
@@ -376,6 +400,7 @@ async function main(): Promise<void> {
       await battlePool.stop();
       await battleMaps.close();
       await infectionPool.stop();
+      await waveRooms.stop();
       await gateway?.close();
       await app.close();
       await world.close();

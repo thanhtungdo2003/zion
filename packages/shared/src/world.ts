@@ -148,7 +148,7 @@ export const SURFACE_NAMES: Readonly<Record<Surface, string>> = {
 
 /** Public world description sent to clients (never includes the seed). */
 export interface WorldInfo {
-  mode?: 'survival' | 'battle-royale' | 'infection';
+  mode?: 'survival' | 'battle-royale' | 'infection' | 'waves';
   worldId: string;
   sizeChunks: number;
   chunkSize: number;

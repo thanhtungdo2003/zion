@@ -6,10 +6,12 @@ import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPON
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
+import { WaveMatch } from './waves';
+import { WAVE_MAX_BOTS, WAVE_TEAM_LIMIT, waveBoard, waveInventory, waveSupplies, type WavePlayMode, type WaveResult, type WaveStateMessage } from '@zion/shared';
 import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
 import { INFECTION_GROUND, infectionSpawns, infectionZombieSpawns } from '@zion/worldgen';
-import { BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
+import { BOT_ID_BASE, BattleBot, BattleBotDirector, MAX_BATTLE_BOTS } from './battle-bots';
 import { type ThrowSpec, shockwaveDamage, shockwaveFront } from '@zion/shared';
 import { PropKnock } from './prop-knock';
 import { FreeBodies } from './free-bodies';
@@ -176,6 +178,23 @@ export interface GameServerDeps {
   worlds: WorldRepository;
   worldId: string;
   initialWorldTimeMs: number;
+  /** Zombie Wave Survival: this match's map, team make-up and where its result goes. */
+  waves?: WaveRoomConfig;
+}
+
+export interface WaveRoomConfig {
+  matchId: string;
+  mapId: string;
+  mapName: string;
+  playMode: WavePlayMode;
+  /** Bots that fight with the player (bot mode only, 0–3). */
+  bots: number;
+  /** Real players the room waits for before the countdown (the party's size, 1 in bot mode). */
+  expected: number;
+  /** Stores the result; resolves to the team's position on its board. */
+  record?(result: WaveResult): Promise<number | null>;
+  /** The room is finished with (empty after the match): the owner may drop it. */
+  closed?(): void;
 }
 
 /**
@@ -299,18 +318,30 @@ export class GameServer {
   private get infectionRules() { return this.infectionMap.rules; }
   private get infectionCentre(): number { return this.deps.world.generator.worldSize / 2; }
   /** Battle royale or infection: a match server, no persistent survival world. */
-  private get arena(): boolean { return !!this.battle || !!this.infection; }
+  private get arena(): boolean { return !!this.battle || !!this.infection || !!this.waves; }
   /** The world this server plays on. */
   get worldService(): WorldService { return this.deps.world; }
   /** Players in or joining this server (matchmaking load). */
   get headcount(): number { return this.players.size + this.joiningAccounts.size + this.rejoins.size; }
   /** Matchmaking: may one more player join (a match still gathering players, with room)? */
+  /** A wave match whose team is down (no rejoining it; "play again" opens a fresh room). */
+  get waveFinished(): boolean { return this.waves?.phase === 'over'; }
   canAdmit(): boolean {
+    if (this.waves) return (this.waves.phase === 'lobby' || this.waves.phase === 'countdown') && this.headcount < WAVE_TEAM_LIMIT;
     if (this.battle) return this.battle.accepting && this.headcount < BATTLE_MAP.maxPlayers;
     if (this.infection) return this.infection.accepting && this.headcount < this.infectionRules.maxPlayers;
     return true;
   }
-  private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : 'survival'; }
+  private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : this.waves ? 'waves' : 'survival'; }
+  /** Zombie Wave Survival rules (null in other modes). */
+  private waves: WaveMatch | null = null;
+  /** Kills per team member this match, and whether the result went out yet. */
+  private readonly waveKills = new Map<number, number>();
+  private waveResult: WaveStateMessage['result'] | undefined;
+  private waveRecorded = false;
+  private waveBotsAdded = false;
+  /** Who started the match (the board is decided by the team that began, not who is left). */
+  private waveStarters: Array<{ id: number; accountId: string | null; name: string; bot: boolean }> = [];
   private readonly battleChests = new Map<string, ChestData>();
   /** Battle royale bots (null in survival). */
   private readonly bots: BattleBotDirector | null;
@@ -324,6 +355,7 @@ export class GameServer {
   constructor(private readonly deps: GameServerDeps) {
     if (deps.mode === 'battle-royale') this.battle = this.newBattleMatch();
     if (deps.mode === 'infection') this.infection = new InfectionMatch(this.infectionRules, this.infectionMap.name);
+    if (deps.mode === 'waves') this.waves = new WaveMatch();
     if (this.arena) for (const site of allStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
       const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
       this.battleDoors.set(site.gid * 10000 + i, { x: site.x + part.x * c + part.z * s, y: site.y + part.y, z: site.z - part.x * s + part.z * c, yaw: site.yaw + part.yaw, open: false });
@@ -384,10 +416,14 @@ export class GameServer {
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
-      attackPlayer: (z, p, dmg, now) => this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now),
-    });
+      attackPlayer: (z, p, dmg, now) => {
+        // Wave survival: bots stand among the zombies' prey (passed in with the players).
+        if ((p as unknown) instanceof BattleBot) { this.bots?.hit(p as unknown as BattleBot, dmg, 'zombie', z.state, now, 'torso', z.id); return; }
+        this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now);
+      },
+    }, deps.mode !== 'waves');
     // Bots play battle royale only (Infection is people against people).
-    this.bots = this.battle ? new BattleBotDirector(this.collision, {
+    this.bots = this.battle || deps.mode === 'waves' ? new BattleBotDirector(this.collision, {
       shot: (e) => this.broadcastAt(e.ox, e.oz, e),
       projectile: (e) => this.broadcastAt(e.x, e.z, e),
       projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
@@ -399,6 +435,17 @@ export class GameServer {
         botHitsBot: (attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number) => { this.infectionBotDamage(target, damage, attacker.id, attacker.state, zone, now); return true; },
       } : {}),
       ...(deps.mode === 'battle-royale' ? { canHurt: (bot: BattleBot) => !!this.battle?.canFight(bot.id) } : {}),
+      // Wave survival: bots are the team's, they fight only zombies.
+      ...(deps.mode === 'waves' ? {
+        enemy: () => false,
+        targets: () => [...this.zombies.zombies.values()].filter((z) => !z.dead),
+        hitOther: (bot: BattleBot, target: unknown, damage: number, zone: string, x: number, y: number, z: number, now: number) => {
+          if (!(target instanceof Zombie)) return false;
+          const dx = target.state.x - bot.state.x, dz = target.state.z - bot.state.z, l = Math.hypot(dx, dz) || 1;
+          this.hitZombie(null, target, damage, zone, x, y, z, dx / l, dz / l, 1, now, bot.id);
+          return true;
+        },
+      } : {}),
       died: (bot, by, now, killerId) => this.botDied(bot, by, now, killerId),
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
@@ -608,7 +655,7 @@ export class GameServer {
     finally { this.finishQuestMutation(p); }
   }
 
-  private allied(a: Player, b: Player): boolean { return this.infection ? this.infection.allies(a.id, b.id) : this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+  private allied(a: Player, b: Player): boolean { return this.waves ? true : this.infection ? this.infection.allies(a.id, b.id) : this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
   /** Battle royale: only players who dropped in with their squad see and share the team. */
   private squadOf(p: Player) { return this.infection || (this.battle && !p.session.squad) ? undefined : this.deps.teams?.forAccount(p.accountId); }
 
@@ -1199,7 +1246,7 @@ export class GameServer {
       }
       const back = this.arena ? this.rejoins.get(acc.accountId) : undefined;
       if (back) { await this.physics.ensureArea(Math.floor(back.state.x / CHUNK_SIZE), Math.floor(back.state.z / CHUNK_SIZE), 1); pos = { x: back.state.x, y: back.state.y, z: back.state.z }; }
-      else if (this.infection) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
+      else if (this.infection || this.waves) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
       pos ??= await this.spawns.pickSpawn();
       // Battle royale: everyone waits for the drop together, inside the lobby ring.
       if (this.battle && !back) pos = await this.lobbySpot(pos);
@@ -1233,7 +1280,7 @@ export class GameServer {
     if (joinedRank) player.rank = joinedRank;
     if (look) player.look = look;
     this.quests.reset(player, Date.now());
-    player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
+    player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.waves ? waveInventory() : this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
     // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
     player.inv.load({ ...player.inv.toJSON(), items: player.inv.items.filter(item => {
       if (item.itemId !== 'c4_detonator') return true;
@@ -1265,7 +1312,8 @@ export class GameServer {
       this.battleWasOccupied = true;
     }
     if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
-    if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
+    if (this.waves) this.syncLoadout(player);
+    if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
@@ -1288,6 +1336,7 @@ export class GameServer {
     this.sendTeam(player);
     this.sendLife(player);
     if (this.infection) this.broadcastInfection();
+    else if (this.waves) this.broadcastWaves();
     else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
@@ -1350,6 +1399,7 @@ export class GameServer {
     if (this.battle && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
     if (this.infection && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
+    if (this.waves && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'revive', 'pickup', 'drop'].includes(msg.t)) return;
     if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
     if (msg.t === 'loadout') { if (p && this.infection) this.onLoadout(p, msg); return; }
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
@@ -2210,6 +2260,131 @@ export class GameServer {
     if (this.tick % TICK_RATE === 0) this.broadcastInfection();
   }
 
+  /* ------------------------------------ wave survival ------------------------------------ */
+
+  private stepWaves(now: number): void {
+    const m = this.waves!, cfg = this.deps.waves;
+    this.expireRejoins(now);
+    // Everyone gone after the match: the room is done.
+    if (!this.players.size && !this.joiningAccounts.size && !this.rejoins.size) {
+      if (m.phase === 'over' || m.startedAt) { cfg?.closed?.(); return; }
+      if (m.phase === 'lobby') return;
+    }
+    const bots = this.bots?.bots ?? [];
+    // Bot mode: the chosen bots join beside the player as soon as they arrive.
+    if (!this.waveBotsAdded && this.players.size && cfg?.playMode === 'bots') {
+      this.waveBotsAdded = true;
+      const lead = [...this.players.values()][0]!;
+      for (let i = 0; i < Math.min(WAVE_MAX_BOTS, cfg.bots); i++) {
+        const bot = this.bots!.spawn(lead.state.x, lead.state.y, lead.state.z);
+        this.dressBot(bot, false);
+        // Bots carry the same kit as players, keep with their player and fire normal rounds.
+        Object.assign(bot, { squad: 'wave-team', follow: lead.id, infiniteAmmo: true, speedMul: 1, jumpMul: 1 });
+      }
+      this.broadcastWaves();
+    }
+    const humans = [...this.players.values()];
+    const standing = humans.filter((p) => !p.dead).length + bots.filter((b) => !b.dead).length;
+    const before = m.phase;
+    const ev = m.tick(now, { present: humans.length, expected: cfg?.expected ?? 1, alive: standing, team: humans.length + bots.length, zombiesAlive: this.zombies.alive });
+    if (before === 'countdown' && m.phase === 'fighting') {
+      this.waveStarters = [...humans.map((p) => ({ id: p.id, accountId: p.accountId, name: p.username, bot: false })), ...bots.map((b) => ({ id: b.id, accountId: null, name: b.name, bot: true }))];
+    }
+    if (ev.started) this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Đợt ${ev.started}: ${m.plan!.count} xác sống đang kéo đến!` });
+    for (const variant of ev.spawn) this.spawnWaveZombie(variant, m.plan?.sides ?? 1);
+    if (ev.cleared) {
+      this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Đã sống sót qua đợt ${ev.cleared}! Nghỉ ${Math.round((m.endsAt - now) / 1000)} giây: nhặt tiếp tế, hồi máu, nạp đạn.` });
+      this.dropWaveSupplies(ev.cleared, humans.filter((p) => !p.dead).length + bots.filter((b) => !b.dead).length);
+      // Downed teammates get back up between waves; the fallen stay out.
+      for (const p of humans) if (p.downed && !p.dead) { p.downed = false; p.health = 40; p.dirty = true; }
+    }
+    if (ev.over) this.endWaves(now);
+    // Nobody leaves the arena: anyone straying past the walls is brought back inside.
+    const half = this.infectionMap.half - 3, c = this.infectionCentre;
+    for (const p of humans) if (!p.dead && (Math.abs(p.state.x - c) > half || Math.abs(p.state.z - c) > half)) {
+      const pos = this.infectionSpot();
+      this.teleport(p, pos);
+      p.session.sendJson({ t: 'respawn', playerId: p.id, x: pos.x, y: pos.y, z: pos.z });
+      p.session.sendJson({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: 'Khu vực đã bị phong tỏa: không thể rời khỏi đấu trường.' });
+    }
+    // Zombies hunt players and bots alike; bots fight beside the team.
+    if (m.phase === 'fighting' || m.phase === 'break') {
+      const prey = [...this.activeScratch, ...(bots.filter((b) => !b.dead) as unknown as Player[])];
+      this.zombies.step(prey, now, .35);
+    }
+    if (this.bots) {
+      const circle = { x: c, z: c, radius: this.infectionMap.half - 6 };
+      this.bots.step(now, this.tick, { phase: 'running', circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, humans);
+    }
+    if (m.phase !== before || ev.spawn.length || this.tick % TICK_RATE === 0) this.broadcastWaves();
+    // The result stays up a while, then the room closes (the menu offers to play again).
+    if (m.phase === 'over' && now - m.endedAt > 45_000) {
+      this.rejoins.clear();
+      for (const p of [...this.players.values()]) { this.leave(p.session, 'match over'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
+    }
+  }
+
+  /** A zombie of this kind at the edge of the town, on one of `sides` approach sides. */
+  private spawnWaveZombie(variant: ZombieVariant, sides: number): void {
+    const c = this.infectionCentre, half = this.infectionMap.half - 8;
+    const team = [...this.players.values()].filter((p) => !p.dead).map((p) => p.state);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const side = Math.floor(Math.random() * sides), along = (Math.random() * 2 - 1) * half;
+      const [x, z] = side === 0 ? [c + along, c - half] : side === 1 ? [c + half, c + along] : side === 2 ? [c + along, c + half] : [c - half, c + along];
+      // Never right on top of someone.
+      if (team.some((s) => Math.hypot(s.x - x, s.z - z) < 14)) continue;
+      const pos = this.spawns.validateAt(x, z);
+      if (!pos) continue;
+      this.zombies.spawnAt(pos, variant);
+      return;
+    }
+    const spot = this.infectionSpot(true);
+    this.zombies.spawnAt(spot, variant);
+  }
+
+  /** Supplies laid out round the team's position when a wave is cleared. */
+  private dropWaveSupplies(cleared: number, members: number): void {
+    const team = [...this.players.values()].filter((p) => !p.dead);
+    const at = team[0]?.state ?? { x: this.infectionCentre, y: 0, z: this.infectionCentre };
+    waveSupplies(cleared, Math.max(1, members), Math.random).forEach((s, i) => {
+      const a = i / 3, r = 1.6 + i * .25;
+      const pos = this.spawns.validateAt(at.x + Math.cos(a) * r, at.z + Math.sin(a) * r) ?? at;
+      this.spawnGroundItem(s.itemId, s.count, pos.x, pos.y + .1, pos.z);
+    });
+    // Bots pick their share of ammo up at once.
+    for (const bot of this.bots?.bots ?? []) if (!bot.dead) bot.health = Math.min(100, bot.health + 40);
+  }
+
+  /** The whole team is down: record the result on its board once, tell everyone. */
+  private endWaves(now: number): void {
+    const m = this.waves!, cfg = this.deps.waves;
+    const humans = this.waveStarters.filter((s) => !s.bot), bots = this.waveStarters.filter((s) => s.bot);
+    const board = cfg ? waveBoard(cfg.playMode, humans.length, bots.length) : null;
+    this.waveResult = { cleared: m.cleared, survivedMs: m.survivedMs, board, rank: null };
+    this.broadcast({ t: 'chat', from: 'SINH TỒN', fromId: 0, system: true, text: `Cả đội đã gục. Sống sót qua ${m.cleared} đợt trong ${Math.round(m.survivedMs / 1000)} giây.` });
+    if (this.waveRecorded || !cfg?.record || !board || m.cleared <= 0) { this.broadcastWaves(); return; }
+    this.waveRecorded = true;
+    cfg.record({ matchId: cfg.matchId, mapId: cfg.mapId, playMode: cfg.playMode, board, cleared: m.cleared, clearMs: m.clearMs, survivedMs: m.survivedMs, members: this.waveStarters.map(({ accountId, name, bot }) => ({ accountId, name, bot })) })
+      .then((rank) => { if (this.waveResult) this.waveResult.rank = rank; this.broadcastWaves(); })
+      .catch((err: unknown) => { this.log.error({ err }, 'wave result not recorded'); this.broadcastWaves(); });
+    void now;
+  }
+
+  private broadcastWaves(): void {
+    const m = this.waves!, cfg = this.deps.waves;
+    const members = [
+      ...[...this.players.values()].map((p) => ({ id: p.id, name: p.username, bot: false, alive: !p.dead, kills: this.waveKills.get(p.id) ?? 0 })),
+      ...(this.bots?.bots ?? []).map((b) => ({ id: b.id, name: b.name, bot: true, alive: !b.dead, kills: this.waveKills.get(b.id) ?? 0 })),
+    ];
+    const msg: WaveStateMessage = {
+      t: 'waves', map: { id: cfg?.mapId ?? '', name: cfg?.mapName ?? this.infectionMap.name }, playMode: cfg?.playMode ?? 'bots',
+      phase: m.phase, wave: m.phase === 'break' ? m.wave + 1 : Math.max(1, m.wave), cleared: m.cleared,
+      remaining: m.pending + this.zombies.alive, alive: this.zombies.alive, endsAt: Math.round(m.endsAt), msLeft: m.endsAt ? Math.max(0, Math.round(m.endsAt - this.serverTime)) : 0, startedAt: Math.round(m.startedAt), members,
+      ...(this.waveResult ? { result: this.waveResult } : {}),
+    };
+    this.broadcast(msg);
+  }
+
   /** The current match's lobby ring, picked once (an open patch of ground) when the first player comes. */
   private battleLobby: Promise<BattleCircle> | null = null;
   private pickBattleLobby(): Promise<BattleCircle> {
@@ -2298,6 +2473,7 @@ export class GameServer {
     const now = this.serverTime;
     if (this.battle) this.stepBattle(now);
     if (this.infection) this.stepInfection(now);
+    if (this.waves) this.stepWaves(now);
 
     this.chests.step();
 
@@ -2890,6 +3066,7 @@ export class GameServer {
         void this.deps.teams?.progress(attacker.accountId, { x: zb.state.x, z: zb.state.z }).catch((err: unknown) => this.log.error({ err }, 'team kill progress failed'));
       }
       this.broadcastAt(zb.state.x, zb.state.z, { t: 'death', playerId: zb.id, killerId: sourceId || null });
+      if (this.waves) { if (sourceId) this.waveKills.set(sourceId, (this.waveKills.get(sourceId) ?? 0) + 1); return; }
       // Some zombies drop a ZCoin where they fell; whoever picks it up gets it.
       if (firstKill || Math.random() < ZOMBIE_COIN_DROP_CHANCE) this.dropCoin(zb.state.x, zb.state.y, zb.state.z, now);
       if (firstKill && attacker) attacker.session.sendJson({ t: 'tutorialState', ...tutorialProgress(attacker) });
@@ -2919,6 +3096,8 @@ export class GameServer {
     }
     if (t.dead || amount <= 0 || (!this.arena && tutorialProtected(t, this.serverTime))) return;
     if (this.battle && !this.battle.canFight(t.id)) return;
+    // Wave survival: no friendly fire, and nothing hurts before the first wave.
+    if (this.waves && ((attackerId !== null && (this.players.has(attackerId) || attackerId >= BOT_ID_BASE)) || this.waves.phase === 'lobby' || this.waves.phase === 'countdown') && zone !== 'suicide') return;
     if (this.infection) { this.infectionDamage(attackerId, t, amount, zone, x, y, z, now, weapon); return; }
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now, weapon, knock)); return; }
     if (t.downed) {
@@ -2948,7 +3127,7 @@ export class GameServer {
     if (t.health <= 0) {
       const cause = weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined);
       // Battle royale: a squad member with a teammate still standing goes down and waits for a revive.
-      if (zone === 'suicide' || (this.battle && !this.standingAlly(t))) this.killPlayer(t, attackerId, now, cause);
+      if (zone === 'suicide' || ((this.battle || this.waves) && !this.standingAlly(t))) this.killPlayer(t, attackerId, now, cause);
       else { this.knockDown(t, now); t.downedBy = attackerId; }
       this.squadWipe(t, now);
     }
@@ -2956,6 +3135,12 @@ export class GameServer {
 
   /** A teammate of `t` (battle royale squad) who is alive and on their feet. */
   private standingAlly(t: Player): Player | undefined {
+    if (this.waves) {
+      for (const q of this.players.values()) if (q !== t && !q.dead && !q.downed) return q;
+      // A bot still standing keeps a downed player in the fight (a teammate may yet revive).
+      if (this.bots?.bots.some((b) => !b.dead && !b.downed)) return t;
+      return undefined;
+    }
     if (!this.battle) return undefined;
     for (const q of this.players.values()) if (q !== t && !q.dead && !q.downed && this.battle.allies(t.id, q.id)) return q;
     return undefined;

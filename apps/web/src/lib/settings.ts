@@ -119,7 +119,7 @@ export class SettingsStore {
   private loaded = false;
   private manualTouch = false;
   private mode: GameMode = 'survival';
-  private cameras: Record<GameMode, CameraMode> = { survival: 'first-person', 'battle-royale': 'first-person', infection: 'first-person' };
+  private cameras: Record<GameMode, CameraMode> = { survival: 'first-person', 'battle-royale': 'first-person', infection: 'first-person', waves: 'first-person' };
 
   get = (): SettingsState => this.state;
 

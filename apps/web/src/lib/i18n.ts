@@ -101,6 +101,8 @@ const en = {
   'mode.survival_sub': 'Multiplayer · Random spawn',
   'mode.infection': 'Infection',
   'mode.infection_sub': 'Warehouse · Humans vs zombies · Unlimited ammo',
+  'mode.waves': 'Zombie Waves',
+  'mode.waves_sub': 'Party of 4 or bots · Ever-growing hordes · Leaderboards',
   'mode.pick': 'Choose a mode',
   'mode.new': 'New',
 
@@ -630,6 +632,8 @@ const vi: Record<TKey, string> = {
   'mode.survival_sub': 'Nhiều người chơi · Điểm xuất phát ngẫu nhiên',
   'mode.infection': 'Lây Nhiễm',
   'mode.infection_sub': 'Warehouse · Người và zombie · Vô hạn đạn',
+  'mode.waves': 'Sinh tồn theo đợt',
+  'mode.waves_sub': 'Đội 4 người hoặc bot · Xác sống ngày càng đông · Bảng xếp hạng',
   'mode.pick': 'Chọn chế độ',
   'mode.new': 'Mới',
 

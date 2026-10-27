@@ -1,4 +1,4 @@
-import type { BattleState, GameMode, InfectionState, RankTitle } from '@zion/shared';
+import type { BattleState, GameMode, InfectionState, WaveStateMessage, RankTitle } from '@zion/shared';
 import type { BaseLifeMessage, QuestStateMessage, TeamView, TutorialProgress } from '@zion/shared';
 import type { Msg } from '@/lib/i18n';
 
@@ -24,6 +24,8 @@ export interface HudState {
   battle: BattleState | null;
   /** Infection round state (null in the other modes). */
   infection: InfectionState | null;
+  /** Wave survival: the match state (waves, team, result). */
+  waves: WaveStateMessage | null;
   pvpEnabled: boolean;
   pvpRemaining: number;
   rank: RankTitle | null;
@@ -137,6 +139,7 @@ export function initialHud(): HudState {
     mode: 'survival',
     battle: null,
     infection: null,
+    waves: null,
     vehicle: null,
     pvpEnabled: false,
     pvpRemaining: 0,

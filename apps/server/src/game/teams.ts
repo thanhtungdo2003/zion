@@ -87,7 +87,7 @@ export class TeamService {
         const team = structuredClone(current);
         const member = team.members.find((m) => m.accountId === accountId)!;
         const leader = team.leaderId === accountId;
-        if (['kick', 'promote', 'settings', 'launch'].includes(action.op) && !leader) throw new TeamError(403, 'Chỉ đội trưởng có thể thực hiện thao tác này.');
+        if (['kick', 'promote', 'settings', 'launch', 'map'].includes(action.op) && !leader) throw new TeamError(403, 'Chỉ đội trưởng có thể thực hiện thao tác này.');
         if (action.op === 'leave' || action.op === 'kick') {
           const target = action.op === 'leave' ? accountId : action.accountId;
           if (action.op === 'kick' && target === accountId) throw new TeamError(400, 'Dùng nút rời đội để rời đội.');
@@ -99,9 +99,11 @@ export class TeamService {
           if (!team.members.some((m) => m.accountId === action.accountId)) throw new TeamError(404, 'Thành viên không còn trong đội.');
           team.leaderId = action.accountId;
         } else if (action.op === 'settings') { team.name = action.name; team.public = action.public; }
+        else if (action.op === 'map') { team.map = action.map; team.members.forEach((m) => { m.ready = false; }); team.launchId = null; }
         else if (action.op === 'ready') member.ready = action.ready;
         else if (action.op === 'launch') {
-          if (team.members.some((m) => (!m.ready && !this.options.squad) || (Date.now() - (this.seen.get(m.accountId) ?? 0) > 15_000 && !this.positions.has(m.accountId)))) throw new TeamError(409, 'Mọi thành viên cần trực tuyến và sẵn sàng.');
+          // The leader launching is the leader's ready.
+          if (team.members.some((m) => (!m.ready && !this.options.squad && m.accountId !== team.leaderId) || (Date.now() - (this.seen.get(m.accountId) ?? 0) > 15_000 && !this.positions.has(m.accountId)))) throw new TeamError(409, 'Mọi thành viên cần trực tuyến và sẵn sàng.');
           team.launchId = randomUUID(); team.launchedAt = Date.now();
           team.members.forEach((m) => { m.ready = false; });
         } else if (action.op === 'chat') {

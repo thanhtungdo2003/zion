@@ -693,8 +693,8 @@ export class GameEngine {
         if (this.disposed) return;
         // Match modes: a dropped connection (not a refusal from the server) rejoins the same match
         // by itself; the server holds the place for a couple of minutes.
-        const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection';
-        const over = hud.battle?.phase === 'finished' || !!hud.infection?.over || (mode === 'battle-royale' && !!this.local?.dead);
+        const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection' || mode === 'waves';
+        const over = hud.battle?.phase === 'finished' || !!hud.infection?.over || hud.waves?.phase === 'over' || (mode === 'battle-royale' && !!this.local?.dead);
         if (arena && !info.message && !over) {
           const attempt = rejoinAttempt();
           if (attempt <= 8) {
@@ -1242,7 +1242,7 @@ export class GameEngine {
     this.infectedIds.clear(); this.selfInfected = false;
     // Infection: the weapons this browser picked last time.
     if (m.mode === 'infection') this.conn.sendLoadout(loadInfectionLoadout());
-    if (m.mode === 'battle-royale' || m.mode === 'infection') { markActiveMatch(m.mode); rejoinSucceeded(); }
+    if (m.mode === 'battle-royale' || m.mode === 'infection' || m.mode === 'waves') { markActiveMatch(m.mode); rejoinSucceeded(); }
     if (m.mode === 'battle-royale') {
       this.battleZone = new BattleZone(this.scene, (x, z) => this.store?.collision.terrainHeight(x, z) ?? Number.NaN);
       this.battleFlight = new BattleFlightRenderer(this.scene);
@@ -1346,10 +1346,10 @@ export class GameEngine {
   private onSnapshot(s: Snapshot): void {
     // Keep the "playing a match" mark fresh, so a closed tab comes back here from the menu.
     const mode = this.welcome?.mode;
-    if ((mode === 'battle-royale' || mode === 'infection') && performance.now() - this.lastMatchMark > 10_000) {
+    if ((mode === 'battle-royale' || mode === 'infection' || mode === 'waves') && performance.now() - this.lastMatchMark > 10_000) {
       this.lastMatchMark = performance.now();
       const hud = this.hud.get();
-      if (hud.battle?.phase === 'finished' || hud.infection?.over || (mode === 'battle-royale' && this.local?.dead)) clearActiveMatch(); else markActiveMatch(mode);
+      if (hud.battle?.phase === 'finished' || hud.infection?.over || hud.waves?.phase === 'over' || (mode === 'battle-royale' && this.local?.dead)) clearActiveMatch(); else markActiveMatch(mode);
     }
     this.snapshotCount++;
     const local = this.local;
@@ -1564,6 +1564,10 @@ export class GameEngine {
         break;
       case 'pvp':
         this.hud.set({ pvpEnabled: m.enabled, pvpRemaining: Math.ceil(m.remainingMs / 1000) });
+        break;
+      case 'waves':
+        this.hud.set({ waves: m });
+        if (m.phase === 'over') clearActiveMatch();
         break;
       case 'infection': {
         const before = this.hud.get().infection;
@@ -2179,7 +2183,7 @@ export class GameEngine {
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
-    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' ? this.infectionRules.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
+    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' || this.welcome!.mode === 'waves' ? this.infectionRules.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
     this.focus.set(px, py, pz);
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);

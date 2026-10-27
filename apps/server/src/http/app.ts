@@ -28,6 +28,7 @@ import type { GearFitStore } from '../repositories/gear-fit';
 import type { HandStudioStore } from '../repositories/hand-studio';
 import { registerGearFitRoutes } from './routes/gear-fit';
 import { registerDesktopRoutes } from './routes/desktop';
+import { registerWaveRoutes, type WaveBackend } from './routes/waves';
 import type { AppearanceStore } from '../repositories/accounts';
 
 export interface HttpDeps {
@@ -46,10 +47,14 @@ export interface HttpDeps {
   teams?: TeamService;
   /** Battle royale squads (separate lobby, max 3). */
   battleTeams?: TeamService;
+  /** Wave survival parties (separate lobby, max 4, a map picked by the leader). */
+  waveTeams?: TeamService;
   atlas?: (mode?: GameMode, map?: string) => Promise<WorldAtlas>;
   atlasTile?: (x: number, z: number, mode?: GameMode, map?: string) => Promise<AtlasTile>;
   /** Battle royale maps from the World Studio (map picker, publishing). */
   battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void> };
+  /** Zombie Wave Survival maps and leaderboards. */
+  waves?: WaveBackend;
   /** Infection maps for the menu's map picker. */
   infectionMapList?: () => unknown;
   /** Map models uploaded for Infection maps (Studio list / upload, files for everyone). */
@@ -154,6 +159,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerWeaponRoutes(app, deps);
   registerGearFitRoutes(app, deps);
   registerDesktopRoutes(app, config.DESKTOP_UPDATE_DIR);
+  registerWaveRoutes(app, deps);
   if (deps.handStudio) {
     const store = deps.handStudio;
     // The Studio's hand poses and animations for game clients (read-only; saved under /api/studio).

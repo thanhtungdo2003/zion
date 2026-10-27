@@ -63,6 +63,12 @@ export class GameConnection {
       const map = playedBattleMap();
       if (map) url.searchParams.set('map', map);
     }
+    if (this.mode === 'waves' && typeof window !== 'undefined') {
+      // Wave survival: the map, the bots (solo) or the launched party, from the menu's lobby.
+      const q = new URLSearchParams(window.location.search);
+      url.searchParams.set('mode', 'waves');
+      for (const key of ['map', 'bots', 'party'] as const) { const v = q.get(key); if (v) url.searchParams.set(key, v); }
+    }
     if (this.mode === 'battle-royale') {
       url.searchParams.set('mode', this.mode);
       // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.

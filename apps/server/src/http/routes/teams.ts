@@ -15,13 +15,17 @@ const actionSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('promote'), accountId: z.string().uuid() }).strict(),
   z.object({ op: z.literal('settings'), name, public: z.boolean() }).strict(),
   z.object({ op: z.literal('launch') }).strict(),
+  z.object({ op: z.literal('map'), map: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/) }).strict(),
   z.object({ op: z.literal('chat'), text: z.string().trim().min(1).max(200).transform(sanitizeChat).refine((text) => text.length > 0) }).strict(),
 ]);
 
 export function registerTeamRoutes(app: FastifyInstance, deps: HttpDeps): void {
   if (!deps.teams) return;
-  /** `?mode=battle-royale` selects the squad lobby; anything else the survival teams. */
-  const pick = (query: unknown) => ((query as { mode?: string } | undefined)?.mode === 'battle-royale' ? deps.battleTeams : undefined) ?? deps.teams!;
+  /** `?mode=battle-royale` selects the squad lobby, `?mode=waves` the wave parties; anything else the survival teams. */
+  const pick = (query: unknown) => {
+    const mode = (query as { mode?: string } | undefined)?.mode;
+    return (mode === 'battle-royale' ? deps.battleTeams : mode === 'waves' ? deps.waveTeams : undefined) ?? deps.teams!;
+  };
   app.get('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
     const lobby = pick(req.query).lobby(req.claims!.sub);
