@@ -189,7 +189,9 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   shotgun: { url: '/models/weapons/remington-870.bbmodel', length: 0.982, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7.8, 4.5], support: [0, -6.3, 38], muzzle: [0, 0, 62.7], eject: [-1.697, -1.2, 12], rail: [0, 3, 12], sight: { rear: [0, 3, 29], front: [0, 3, 59.5] }, fireClip: 'pump.pump', supportPart: 'pump' },
   gl18: { url: '/models/weapons/glock-18.bbmodel', length: 0.24, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 4, 3.5], muzzle: [0.115, 9.604, -9.1], eject: [1.05, 10.677, -0.739], reloadClip: 'reload', sight: { rear: [0.046, 11.5, 3.866], front: [0.041, 12.5, -7.42] }, rail: [0.028, 11.052, 2.022], attachmentScale: { red_dot: 0.65 } },
   awm: { url: '/models/weapons/awm-338-lapua.bbmodel', length: 1.27, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -10.2, -2.45], support: [0, -7.165, 36.75], muzzle: [0, 0, 90.6], eject: [-2.508, -0.35, 12.75], sight: { rear: [0, 5.1, 7.25], front: [0, 5.1, 88.6] }, rail: [0, 3.6, 13.25] },
-  m4a1: { url: '/models/weapons/m4a1-sopmod.bbmodel', length: 0.83, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -11.1, -0.15], support: [0, -2.6, 26.9], muzzle: [0, 0, 59], eject: [-1.27, 0.1, 9], sight: { rear: [0, 7, 18.77], front: [0, 7, 37.25] }, rail: [0, 4, 26.77] },
+  // Low Poly Weapons VOL.2 M4 (models/sources/lowpoly-weapons-vol2): metres, muzzle → +X, bore on
+  // y = 0; separate magazine, charging handle (bolt), trigger and folding sights; palette PBR.
+  m4a1: { url: '/models/weapons/lp-m4a1.glb', length: 0.8, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-0.15, -0.09, 0], support: [0.12, -0.03, 0], muzzle: [0.371, 0, 0], eject: [-0.03, 0.012, 0.018], sight: { rear: [-0.075, 0.045, 0], front: [0.24, 0.041, 0] }, rail: [-0.02, 0.026, 0] },
   aug: { url: '/models/weapons/steyr-aug-a3.bbmodel', length: 0.732, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -8.25, -0.25], support: [0, -13.9, 16.7], muzzle: [0, 0, 36], eject: [-2.126, 0.75, 8], sight: { rear: [0, 10.05, -5.75], front: [0, 10.05, 34] }, rail: [0, 8.55, 0.25] },
   svd: { url: '/models/weapons/svd-dragunov-v2.bbmodel', length: 1.187, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -7, 1], support: [0, -2.8, 38], muzzle: [0, 0, 92.5], eject: [-1.625, -0.9, 12], sight: { rear: [0, 4, 25], front: [0, 5.5, 80.375] }, rail: [0, 1.5, 12] },
   saiga12: { url: '/models/weapons/saiga-12k.bbmodel', length: 0.94, barrel: [0, 0, 1], up: [0, 1, 0], grip: [0, -12, 5.5], support: [0, -3.59, 42.5], muzzle: [0, 0, 68.25], eject: [-2.575, -2.25, 15], sight: { rear: [0, 8.5, 8.272], front: [0, 8.5, 56.75] }, rail: [0, 6.5, 16.272] },
@@ -232,9 +234,10 @@ const WEAPON_SPECS: Record<string, WeaponSpec> = {
   proj_bolt: { url: '/models/weapons/arrow.bbmodel', length: 0.6, barrel: [0, 1, 0], up: [1, 0, 0], grip: [0, 16, 0] },
   medkit: { url: '/models/tools/first-aid-kit.bbmodel', length: 0.35, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 5.5, 0] },
   zcoin: { url: '/models/materias/gold-coin-z.bbmodel', length: 0.05, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 7, 0] },
-  grenade: { url: '/models/weapons/frag-grenade.bbmodel', length: 0.16, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 5, 0] },
-  flashbang: { url: '/models/weapons/flashbang-grenade.bbmodel', length: 0.13, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 5, 0] },
-  smoke_grenade: { url: '/models/weapons/smoke-grenade.bbmodel', length: 0.15, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 5, 0] },
+  // Low Poly Weapons VOL.2 grenades: body, pin and spoon as separate nodes, palette PBR, metres.
+  grenade: { url: '/models/weapons/lp-grenade-rgd5.glb', length: 0.13, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0.01, 0] },
+  flashbang: { url: '/models/weapons/lp-grenade-stun.glb', length: 0.15, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0.01, 0] },
+  smoke_grenade: { url: '/models/weapons/lp-grenade-smoke.glb', length: 0.15, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 0.01, 0] },
   c4: { url: '/models/weapons/remote-c4-bomb.bbmodel', length: .42, barrel: [1, 0, 0], up: [0, 1, 0], grip: [0, 0, 0] },
   c4_detonator: { url: '/models/weapons/c4-clacker-detonator.bbmodel', length: .1, barrel: [0, 0, -1], up: [0, 1, 0], grip: [0, 6, 0] },
   proj_c4: { url: '/models/weapons/c4-bomb.bbmodel', length: .28, barrel: [1, 0, 0], up: [0, 1, 0], grip: [-3, 0, 0] },

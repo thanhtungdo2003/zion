@@ -34,7 +34,7 @@ function lowest(object: Object3D, axis: Vector3): number {
 }
 
 describe('optics mount on the rail point', () => {
-  for (const [gunId, optic] of [['awm', 'scope_8x'], ['awm', 'scope_10x'], ['m4a1', 'scope_4x'], ['ak47', 'red_dot'], ['kar98k', 'scope_4x']] as const) {
+  for (const [gunId, optic] of [['awm', 'scope_8x'], ['awm', 'scope_10x'], ['aug', 'scope_4x'], ['ak47', 'red_dot'], ['kar98k', 'scope_4x']] as const) {
     it(`${gunId} + ${optic}: the optic's base touches the rail (no gap, no sinking)`, async () => {
       const spec = builtinWeaponVisual(gunId)!;
       const { root } = await buildBBModel(withoutTextures(spec.url));

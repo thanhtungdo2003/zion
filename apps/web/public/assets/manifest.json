@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-27T02:03:40.545Z",
+  "generatedAt": "2026-10-27T02:33:47.181Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -2263,6 +2263,30 @@
       "sha256": "661f6fe752ef25e7ae7c131a8d63cadc8bd9e9dd730f01970a792a2600f21d7e",
       "bytes": 11292,
       "kind": "bbmodel"
+    },
+    "weapons/lp-grenade-rgd5.glb": {
+      "url": "/assets/models/weapons_lp-grenade-rgd5.7c04d898049d.glb",
+      "sha256": "7c04d898049d0f69ce7a8515b671c9c19ab5713550f3896126b8ee561926db32",
+      "bytes": 41972,
+      "kind": "glb"
+    },
+    "weapons/lp-grenade-smoke.glb": {
+      "url": "/assets/models/weapons_lp-grenade-smoke.6127de5802a9.glb",
+      "sha256": "6127de5802a9916bc09aa8cde4070d977dd1260bc7a09976318e94d64ca32628",
+      "bytes": 44568,
+      "kind": "glb"
+    },
+    "weapons/lp-grenade-stun.glb": {
+      "url": "/assets/models/weapons_lp-grenade-stun.7ecb85da09a2.glb",
+      "sha256": "7ecb85da09a23492f4558476269786b0c047704b554940fa89af7cc0c96b7926",
+      "bytes": 80088,
+      "kind": "glb"
+    },
+    "weapons/lp-m4a1.glb": {
+      "url": "/assets/models/weapons_lp-m4a1.8a47e5f91d83.glb",
+      "sha256": "8a47e5f91d839c22f2de7bc00a4d05cb8356a02bde4abffed4c3db852073c10a",
+      "bytes": 485036,
+      "kind": "glb"
     },
     "weapons/m2-flamethrower.bbmodel": {
       "url": "/assets/models/weapons_m2-flamethrower.97657d77c813.bbmodel",
