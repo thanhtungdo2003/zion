@@ -89,6 +89,25 @@ const rotB: [number, number, number] = [0, 0, 0];
 const posA: [number, number, number] = [0, 0, 0];
 const posB: [number, number, number] = [0, 0, 0];
 
+let speakerTexture: CanvasTexture | null = null;
+/** The speaker shown over a player talking on team voice (one texture for everyone). */
+function speakerSprite(): Sprite {
+  if (!speakerTexture) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffb000'; g.strokeStyle = '#ffb000'; g.lineWidth = 4; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(14, 25); g.lineTo(22, 25); g.lineTo(32, 16); g.lineTo(32, 48); g.lineTo(22, 39); g.lineTo(14, 39); g.closePath(); g.fill();
+    g.beginPath(); g.arc(34, 32, 9, -.8, .8); g.stroke();
+    g.beginPath(); g.arc(34, 32, 17, -.8, .8); g.stroke();
+    speakerTexture = new CanvasTexture(c); speakerTexture.minFilter = LinearFilter;
+  }
+  const s = new Sprite(new SpriteMaterial({ map: speakerTexture, depthTest: false, transparent: true }));
+  s.scale.set(.32, .32, 1);
+  s.renderOrder = 10;
+  return s;
+}
+
 /** The character's three sword-slash poses, used in turn. */
 /** Neutral standing pose for empty hands and melee weapons (bind pose, arms lowered). */
 const NEUTRAL_IDLE = STAND_CLIP;
@@ -742,6 +761,15 @@ export class Avatar {
     if (!name) return;
     this.label = labelSprite(name, rank, pvp);
     this.root.add(this.label);
+  }
+
+  private speaker: Sprite | null = null;
+  /** Shows the speaker over the head (team voice), beside the name tag when there is one. */
+  setSpeaking(on: boolean): void {
+    if (!on) { if (this.speaker) this.speaker.visible = false; return; }
+    if (!this.speaker) { this.speaker = speakerSprite(); this.root.add(this.speaker); }
+    this.speaker.visible = true;
+    this.speaker.position.set(0, (this.label?.position.y ?? 2.15) + (this.label ? .34 : 0), 0);
   }
 
   /** Plays a clip to the end, ignoring locomotion until it finishes (throws, punches). */
@@ -2410,6 +2438,7 @@ export class Avatar {
     this.stopFit();
     this.heldMagazine.clear();
     scene.remove(this.root);
+    this.speaker?.material.dispose();
     this.human?.dispose();
     if (this.label) {
       this.label.material.map?.dispose();

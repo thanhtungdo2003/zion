@@ -1,4 +1,5 @@
 import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentModifier, opticOf, unpackAttachments, weaponAttackStaminaCost, type RankTitle } from '@zion/shared';
+import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
 import { VEHICLES, vehicleSeatOf } from '@zion/shared';
@@ -1127,6 +1128,16 @@ export class GameEngine {
   /** Help calls from downed players nearby. */
   private readonly distress = new Map<number, { name: string; x: number; z: number; until: number }>();
 
+  /** A speaker over each teammate talking on team voice (matched by player name). */
+  private showTalking(): void {
+    const talking = voice.speakingNames();
+    for (const [id, r] of this.remotes) {
+      if (r.entity.kind !== EntityKind.Player) continue;
+      const name = this.names.get(id);
+      r.avatar.setSpeaking(!!name && talking.has(name));
+    }
+  }
+
   /** A downed player within reviving reach, if any. */
   private downedNear(): { id: number } | null {
     const s = this.local?.state;
@@ -1935,6 +1946,7 @@ export class GameEngine {
     try {
       this.profiler?.begin();
       this.frameBody(now);
+      this.showTalking();
       this.profiler?.end();
     } catch (err) {
       if (this.frameErrors++ < 5) console.error('frame failed', err);

@@ -34,6 +34,7 @@ export * from './battle-royale';
 export * from './vehicles';
 export * from './infection';
 export * from './waves';
+export * from './voice';
 export * from './infection-maps';
 export * from './building';
 export * from './appearance';

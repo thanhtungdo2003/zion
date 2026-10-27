@@ -20,6 +20,7 @@ import { InfectionHud } from './InfectionHud';
 import { LoadoutPanel } from './LoadoutPanel';
 import { GroundPanel } from './GroundPanel';
 import { clearActiveMatch } from '@/lib/rejoin';
+import { VoiceDock } from './Voice';
 
 export default function GameView() {
   const router = useRouter();
@@ -153,6 +154,7 @@ export default function GameView() {
       {inWorld && hud.battle && <BattleHud hud={hud} state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}
+      <VoiceDock />
       {inWorld && hud.planning && (
         <div className={`build-hint${hud.planning.ok ? '' : ' bad'}`} role="status">
           <b>{hud.planning.name}</b>

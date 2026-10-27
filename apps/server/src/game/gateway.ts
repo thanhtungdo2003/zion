@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
-import { MAX_CLIENT_MESSAGE_BYTES, PROTOCOL_VERSION, parseClientMessage } from '@zion/shared';
+import { MAX_CLIENT_MESSAGE_BYTES, PROTOCOL_VERSION, VOICE_PATH, parseClientMessage } from '@zion/shared';
 import type { AppConfig } from '../config';
 import type { Logger } from '../logger';
 import type { Metrics } from '../metrics';
@@ -11,6 +11,7 @@ import { ConcurrencyCounter, KeyedWindowLimiter } from '../security/rate-limit';
 import type { GameServer } from './game-server';
 import type { MatchPool } from './match-pool';
 import type { MatchSource } from './wave-rooms';
+import type { VoiceHub } from './voice';
 import { ClientSession, CloseCode } from './session';
 
 const AUTH_TIMEOUT_MS = 5_000;
@@ -28,6 +29,8 @@ export class GameGateway {
   infectionMaps: ((id: string) => MatchPool | undefined) | null = null;
   /** Wave survival rooms: (map, party, bots) → where this connection plays, or null. */
   waves?: (mapId: string, party: boolean, bots: number) => MatchSource | null;
+  /** Team voice rooms (`/voice`), when enabled. */
+  voice: VoiceHub | null = null;
   private readonly wss: WebSocketServer;
   private readonly sessions = new Set<ClientSession>();
   private readonly sessionGames = new WeakMap<ClientSession, GameServer>();
@@ -93,6 +96,14 @@ export class GameGateway {
   private onUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     socket.on('error', () => socket.destroy());
     const url = req.url ?? '';
+    // Team voice rooms share the port: same origin and upgrade limits, their own hub.
+    if (this.voice && (url === VOICE_PATH || url.startsWith(`${VOICE_PATH}?`))) {
+      if (!this.accepting) return this.reject(socket, 503, 'shutting_down');
+      const origin = req.headers.origin;
+      if (origin !== undefined && !this.allowedOrigins.has(origin)) return this.reject(socket, 403, 'origin');
+      if (!this.upgradeLimiter.hit(this.clientIp(req))) return this.reject(socket, 429, 'upgrade_rate');
+      return this.voice.upgrade(req, socket, head);
+    }
     if (url !== '/ws' && !url.startsWith('/ws?')) return this.reject(socket, 400, 'path');
     if (!this.accepting) return this.reject(socket, 503, 'shutting_down');
     const origin = req.headers.origin;

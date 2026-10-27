@@ -1,7 +1,7 @@
 'use client';
 import { Icon } from './Icon';
 
-import { ATTACH_KEYS, NV_KEYS, keyLabel, GRAPHICS_PRESETS, GROUND_DETAILS, TEXTURE_QUALITIES, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
+import { ATTACH_KEYS, NV_KEYS, VOICE_KEYS, keyLabel, GRAPHICS_PRESETS, GROUND_DETAILS, TEXTURE_QUALITIES, graphicsPreset, type GraphicsPreset } from '@/lib/settings';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isRollKey, isProneKey, PRONE_KEYS, ROLL_KEYS, rollKeyLabel, settingsStore, useSettings } from '@/lib/settings';
 import type { Lang } from '@/lib/i18n';
@@ -43,7 +43,7 @@ function Choice<T extends string | boolean>({ label, value, options, onChange }:
 export function SettingsModal({ open, onClose, onCameraChange, children }: Props) {
   const [tab, setTab] = useState<'general' | 'controls' | 'display'>('general');
   const settings = useSettings();
-  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, nearBlur, groundDetail, textureQuality, t } = settings;
+  const { lang, volume, brightness, touchControls, cameraMode, mouseSens, rollKey, proneKey, attachKey, nvKey, renderScale, shadows, drawDistance, grassDensity, shaders, nearBlur, groundDetail, textureQuality, voiceVolume, voicePtt, voiceKey, t } = settings;
   const preset = graphicsPreset(settings);
 
   useEffect(() => {
@@ -146,6 +146,15 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
             ))}
           </div>
           <p className="set-camera-hint"><kbd>P</kbd> {t('keys.camera')}</p>
+        </section>
+        <section className="set-section">
+          <h3><span>04</span> Thoại đội</h3>
+          <div className="set-rows">
+            <Range label="Âm lượng đồng đội" min={0} max={100} value={voiceVolume} onChange={(v) => settingsStore.set({ voiceVolume: v })} />
+            <Choice label="Micro" value={voicePtt} onChange={(on) => settingsStore.set({ voicePtt: on })} options={[
+              { id: false, label: 'Tự mở khi nói', hint: 'Micro mở khi bạn cất tiếng' }, { id: true, label: `Giữ ${keyLabel(voiceKey)}`, hint: 'Chỉ truyền tiếng khi giữ phím' }]} />
+            {voicePtt && <Choice label="Phím nói" value={voiceKey} onChange={(k) => settingsStore.set({ voiceKey: k })} options={VOICE_KEYS.map((k) => ({ id: k, label: keyLabel(k), hint: 'Giữ để nói' }))} />}
+          </div>
         </section>
 
         {children}

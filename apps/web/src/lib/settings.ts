@@ -17,7 +17,7 @@ export const ATTACH_KEYS = ['AltLeft', 'KeyB', 'KeyN', 'KeyJ', 'KeyK', 'KeyL', '
 export type AttachKey = typeof ATTACH_KEYS[number];
 export const NV_KEYS = ['KeyM', 'KeyN', 'KeyB', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyY'] as const;
 export type NvKey = typeof NV_KEYS[number];
-export function keyLabel(code: string): string { return code === 'AltLeft' ? 'Alt' : code.replace(/^Key/, ''); }
+export function keyLabel(code: string): string { return code === 'AltLeft' ? 'Alt' : code === 'CapsLock' ? 'Caps' : code.replace(/^Key/, ''); }
 export function cycleCameraMode(): void {
   const modes: CameraMode[] = ['top-down', 'third-person', 'first-person'];
   settingsStore.set({ cameraMode: modes[(modes.indexOf(settingsStore.get().cameraMode) + 1) % modes.length]! });
@@ -51,7 +51,14 @@ export interface SettingsState {
   groundDetail: GroundDetail;
   /** Clothing textures: as shipped (high), or downscaled to 512 / 256 px. */
   textureQuality: TextureQuality;
+  /** Team voice: teammates' loudness 0…1, push-to-talk (else the mic opens on its own) and its key. */
+  voiceVolume: number;
+  voicePtt: boolean;
+  voiceKey: VoiceKey;
 }
+
+export const VOICE_KEYS = ['KeyZ', 'KeyB', 'KeyN', 'CapsLock'] as const;
+export type VoiceKey = (typeof VOICE_KEYS)[number];
 
 export type GroundDetail = 'off' | 'low' | 'medium' | 'high';
 export type TextureQuality = 'low' | 'medium' | 'high';
@@ -71,7 +78,7 @@ export function graphicsPreset(s: SettingsState): GraphicsPreset | null {
 }
 
 const STORAGE_KEY = 'zion.settings.v1';
-const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'first-person', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false, nearBlur: true, textureQuality: 'high',
+const DEFAULTS: SettingsState = { lang: 'vi', volume: 0.8, brightness: 1.15, touchControls: false, cameraMode: 'first-person', mouseSens: 30, rollKey: 'KeyV', proneKey: 'KeyC', attachKey: 'AltLeft', nvKey: 'KeyM', shaders: false, nearBlur: true, textureQuality: 'high', voiceVolume: 1, voicePtt: false, voiceKey: 'KeyZ',
   // The desktop app ships every texture locally: full 1024 px ground; the browser 512 px.
   groundDetail: process.env.NEXT_PUBLIC_API_URL === 'same-origin' ? 'high' : 'medium', ...GRAPHICS_PRESETS.high };
 
@@ -99,6 +106,9 @@ function load(): { state: SettingsState; manualTouch: boolean } {
     if (saved.shadows === 'off' || saved.shadows === 'low' || saved.shadows === 'high') state.shadows = saved.shadows;
     if (typeof saved.shaders === 'boolean') state.shaders = saved.shaders;
     if (typeof saved.nearBlur === 'boolean') state.nearBlur = saved.nearBlur;
+    state.voiceVolume = clamp01(saved.voiceVolume, 0, state.voiceVolume);
+    if (typeof saved.voicePtt === 'boolean') state.voicePtt = saved.voicePtt;
+    if (VOICE_KEYS.some((k) => k === saved.voiceKey)) state.voiceKey = saved.voiceKey!;
     if (GROUND_DETAILS.includes(saved.groundDetail as GroundDetail)) state.groundDetail = saved.groundDetail!;
     if (typeof saved.mouseSens === 'number' && Number.isFinite(saved.mouseSens)) state.mouseSens = Math.min(100, Math.max(1, Math.round(saved.mouseSens)));
     if (saved.cameraMode === 'top-down' || saved.cameraMode === 'first-person' || saved.cameraMode === 'third-person') state.cameraMode = saved.cameraMode;

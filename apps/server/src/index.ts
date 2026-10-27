@@ -21,6 +21,7 @@ import { ProgressionService } from './game/progression';
 import { atlasProvider, atlasTileProvider } from './world/atlas';
 import { buildHttpApp } from './http/app';
 import { CHARACTER_STYLES, type CharacterStyle } from './http/routes/studio';
+import { VoiceHub } from './game/voice';
 import type { HealthReport } from './http/routes/health';
 import { createKeyValueStore } from './infra/kv';
 import { createLogger } from './logger';
@@ -384,6 +385,13 @@ async function main(): Promise<void> {
   gateway.battleMaps = (id) => battleMaps.pool(id);
   gateway.infectionMaps = infectionPoolFor;
   gateway.waves = (map, party, bots) => waveRooms.source(map, party, bots);
+  const voice = new VoiceHub({
+    consumeTicket: async (ticket) => { const t = await auth.consumeTicket(ticket); return t ? { accountId: t.accountId, name: t.username } : null; },
+    teamOf: (kind, accountId) => (kind === 'battle-royale' ? battleTeams : kind === 'waves' ? waveTeams : teams).forAccount(accountId)?.id,
+    ice: { stun: config.VOICE_STUN_URLS, turn: config.TURN_URLS, secret: config.TURN_SECRET },
+  }, logger);
+  voice.start();
+  gateway.voice = voice;
   gateway.attach(app.server);
   game.start();
   battlePool.start();

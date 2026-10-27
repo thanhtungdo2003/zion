@@ -3720,3 +3720,32 @@ kbd {
 .wave-lobby .btn, .wave-boards .btn { width: auto; }
 .wave-lobby > header > :first-child { width: 26px; height: 26px; color: var(--accent); }
 .wave-slot { aspect-ratio: auto; height: clamp(150px, 24vh, 210px); }
+
+/* ------------------------------------------------------------------ team voice */
+.voice-speaking, .voice-muted { display: inline-flex; vertical-align: middle; margin-left: 6px; }
+.voice-speaking svg, .voice-muted svg { width: 15px; height: 15px; }
+.voice-speaking { color: var(--accent); animation: voice-pulse .8s ease-in-out infinite alternate; }
+.voice-muted { color: var(--muted); }
+@keyframes voice-pulse { from { opacity: .55; } to { opacity: 1; } }
+.voice-controls { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.voice-controls .btn { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font: 600 13px var(--sans); letter-spacing: 0; text-transform: none; }
+.voice-controls .btn svg { width: 16px; height: 16px; }
+.voice-controls.on { padding: 4px; border: 1px solid var(--line); background: #0d0f10; }
+.voice-controls.talking { border-color: var(--accent); }
+.voice-mic.off { color: var(--danger); border-color: rgba(255, 90, 70, .5); }
+.voice-state { flex: 1; font-size: 12px; color: var(--muted); }
+.voice-retry { margin-left: 8px; background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+.voice-leave:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.wave-party .voice-controls { margin: 0; }
+.voice-dock { position: absolute; left: 14px; bottom: 120px; z-index: 6; display: flex; align-items: flex-start; gap: 6px; pointer-events: auto; }
+.voice-dock-mic { display: grid; place-items: center; gap: 2px; width: 38px; min-height: 38px; padding: 4px; background: rgba(8, 10, 9, .72); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.voice-dock-mic svg { width: 18px; height: 18px; }
+.voice-dock-mic kbd { font: 700 9px var(--mono); color: var(--muted); }
+.voice-dock-mic.off { color: var(--danger); }
+.voice-dock.talking .voice-dock-mic { border-color: var(--accent); color: var(--accent); }
+.voice-dock ul { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+.voice-dock li { display: flex; align-items: center; gap: 6px; min-width: 120px; padding: 4px 8px; background: rgba(8, 10, 9, .6); border-left: 2px solid transparent; font: 600 12px var(--sans); color: #d6d3c8; }
+.voice-dock li svg { width: 13px; height: 13px; color: var(--muted); }
+.voice-dock li.speaking { border-left-color: var(--accent); color: var(--text); }
+.voice-dock li.speaking svg { color: var(--accent); }
+.voice-dock li small { color: var(--muted); }

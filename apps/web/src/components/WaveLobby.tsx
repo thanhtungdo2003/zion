@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { WAVE_BOARDS, WAVE_MAX_BOTS, WAVE_TEAM_LIMIT, type TeamAction, type TeamLobby, type WaveBoard, type WaveLeaderboard } from '@zion/shared';
 import { getWaveLeaderboard, listWaveMaps, type BattleMapInfo } from '@/lib/api';
 import { currentAccount } from '@/lib/api';
+import { SpeakingIcon, VoiceControls } from './Voice';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
@@ -105,7 +106,7 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
             const member = team ? [team.members.find((m) => m.accountId === team.leaderId)!, ...others][i] : i === 0 ? { accountId: me ?? '', name: self, ready: true, online: true } : undefined;
             if (member) {
               const isLeader = !team || member.accountId === team.leaderId;
-              return <Slot key={i} kind={isLeader ? 'leader' : 'player'} name={member.name} self={member.accountId === me}
+              return <Slot key={i} kind={isLeader ? 'leader' : 'player'} name={member.name} self={member.accountId === me} accountId={team ? member.accountId : undefined}
                 status={!('online' in member) || member.online ? isLeader ? 'Chủ phòng' : member.ready ? 'Đã sẵn sàng' : 'Đang chờ' : 'Mất kết nối'}
                 ready={isLeader || member.ready} offline={'online' in member && !member.online}
                 onRemove={leader && !isLeader ? () => { void onAction({ op: 'kick', accountId: member.accountId }); } : undefined} />;
@@ -125,6 +126,7 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
           </> : <>
             <span>Mã phòng <code>{team.code}</code> {copied && <em>đã chép</em>}</span>
             <small>Gửi mã cho bạn bè để họ vào phòng ở sảnh này.</small>
+            <VoiceControls kind="waves" />
             <button className="btn" disabled={busy} onClick={() => { void onAction({ op: 'leave' }); }}><Icon name="lucide:log-out" /> Rời phòng</button>
           </>}
         </div>}
@@ -160,14 +162,14 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
   );
 }
 
-function Slot({ kind, name, status, self, ready, offline, onClick, onRemove }: {
-  kind: 'leader' | 'player' | 'bot' | 'empty'; name: string; status: string; self?: boolean; ready?: boolean; offline?: boolean;
+function Slot({ kind, name, status, self, ready, offline, onClick, onRemove, accountId }: {
+  kind: 'leader' | 'player' | 'bot' | 'empty'; name: string; status: string; self?: boolean; ready?: boolean; offline?: boolean; accountId?: string;
   onClick?(): void; onRemove?(): void;
 }) {
   const body = <>
     <span className="wave-slot-avatar"><Icon name={kind === 'bot' ? 'lucide:bot' : kind === 'empty' ? 'lucide:plus' : 'lucide:user-round'} /></span>
     {kind === 'leader' && <Icon name="lucide:crown" className="wave-slot-crown" />}
-    <b>{name}</b>
+    <b>{name}{accountId && <SpeakingIcon accountId={accountId} />}</b>
     <small>{status}</small>
     {kind === 'bot' && <i>BOT</i>}
     {self && <i className="you">BẠN</i>}
