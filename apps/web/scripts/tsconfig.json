@@ -1,6 +1,6 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": { "incremental": false, "types": ["node"] },
-  "include": ["render-upgrade-scene.ts"],
+  "include": ["render-upgrade-scene.ts", "building-preview-scene.ts"],
   "exclude": ["node_modules"]
 }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-27T02:33:47.181Z",
+  "generatedAt": "2026-10-27T02:54:29.371Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -487,6 +487,48 @@
       "sha256": "fee10debfc8edc7fd9477db1ffa842d20f0b8b747126229c9dd2a0a7a6e75731",
       "bytes": 13243,
       "kind": "bbmodel"
+    },
+    "furniture/chair-metal.glb": {
+      "url": "/assets/models/furniture_chair-metal.509d2d778784.glb",
+      "sha256": "509d2d778784567fe46474acebadb43cd894ea3958709b5877366bdda0d854dd",
+      "bytes": 16472,
+      "kind": "glb"
+    },
+    "furniture/chair-wood.glb": {
+      "url": "/assets/models/furniture_chair-wood.9bdab4242df8.glb",
+      "sha256": "9bdab4242df8522981dbadad042b3b5f1eb293cbfd47df03c62745881c658f67",
+      "bytes": 48720,
+      "kind": "glb"
+    },
+    "furniture/table-dark.glb": {
+      "url": "/assets/models/furniture_table-dark.df05a0c5f4ae.glb",
+      "sha256": "df05a0c5f4ae7e545b6567009934274fa523ee166b21f2b3e87b8a42acb98730",
+      "bytes": 32460,
+      "kind": "glb"
+    },
+    "furniture/table-long.glb": {
+      "url": "/assets/models/furniture_table-long.f4c398cb2a6e.glb",
+      "sha256": "f4c398cb2a6e03d0d8c65716e08087de564e995e9a2e5d8ee42bd215d1267dea",
+      "bytes": 32128,
+      "kind": "glb"
+    },
+    "furniture/table-red.glb": {
+      "url": "/assets/models/furniture_table-red.7940041f4b9b.glb",
+      "sha256": "7940041f4b9ba59b5d9ea4f169bc1c4a5ded2339a48e461044636c727e9ed813",
+      "bytes": 7988,
+      "kind": "glb"
+    },
+    "furniture/table-round.glb": {
+      "url": "/assets/models/furniture_table-round.0ea8507eb59f.glb",
+      "sha256": "0ea8507eb59fb83fc44db6179c46e540f806d23e223166da064f23c631f2a932",
+      "bytes": 28572,
+      "kind": "glb"
+    },
+    "furniture/table-wood.glb": {
+      "url": "/assets/models/furniture_table-wood.3fdd8d36faeb.glb",
+      "sha256": "3fdd8d36faebf3a768ff44d1ca9ebfdb9b8a116ae2f565760f834197302375d5",
+      "bytes": 19740,
+      "kind": "glb"
     },
     "gear/armor/combat-helmet-k63.glb": {
       "url": "/assets/models/gear_armor_combat-helmet-k63.106352917b4f.glb",

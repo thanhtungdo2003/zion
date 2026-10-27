@@ -17,4 +17,5 @@ export * from './hit-meshes';
 export * from './material-assets';
 export * from './road-assets';
 export * from './rock-assets';
+export * from './furniture-assets';
 export * from './uploaded-maps';

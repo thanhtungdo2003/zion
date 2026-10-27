@@ -624,8 +624,10 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
         // Scaled up so its windows are tall enough to jump and climb through.
         case 'apartment': k.house(BUILDING_ASSET.apartment, 0, 0, turn + Math.PI / 2, 1.3); break;
         case 'tower': k.tower(0, 0, true); break;
-        case 'brick': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'brick', w: 10, d: 10, floors: 1 + Math.floor(rand.next() * 2) }, gid * 7 + 1, rand); break;
-        case 'concrete': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'concrete', finish: (['ivory', 'gray', 'darkred'] as const)[Math.floor(rand.next() * 3)]!, w: 18, d: 12, floors: 3 + Math.floor(rand.next() * 3) }, gid * 7 + 1, rand); break;
+        // Houses and blocks are lived in: rooms, tables and chairs, a wide railed stair, few crates;
+        // about half are L-shaped round a yard.
+        case 'brick': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'brick', w: 10, d: 10, floors: 1 + Math.floor(rand.next() * 2), shape: rand.next() < .5 ? 'L' : 'rect', interior: true }, gid * 7 + 1, rand); break;
+        case 'concrete': masonryBuilding(k.parts, [], 0, 0, turn, { material: 'concrete', finish: (['ivory', 'gray', 'darkred'] as const)[Math.floor(rand.next() * 3)]!, w: 18, d: 12, floors: 3 + Math.floor(rand.next() * 3), shape: rand.next() < .4 ? 'L' : 'rect', interior: true }, gid * 7 + 1, rand); break;
         case 'site': constructionSite(k.parts, [], 0, 0, turn, gid * 7 + 1, rand); break;
       }
       const [depth, width] = size[lot];

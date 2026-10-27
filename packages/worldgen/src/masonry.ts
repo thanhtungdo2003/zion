@@ -1,4 +1,4 @@
-import { CAMP_ASSET, MATERIAL_ASSET, STREET_ASSET, type ConcreteFinish } from '@zion/assets';
+import { CAMP_ASSET, FURNITURE_ASSET, MATERIAL_ASSET, STREET_ASSET, type ConcreteFinish } from '@zion/assets';
 import type { Rng } from '@zion/shared';
 import type { CampPart } from './camp';
 
@@ -20,11 +20,21 @@ export interface MasonryOptions {
   floors: number;
   /** Upper floors left open (a building site): no walls above the first storey, no roof parapet. */
   unfinished?: boolean;
+  /** 'L': the front-right corner left out (brick 4 × 4 m, concrete 6 × 6 m): a wing round a yard. */
+  shape?: 'rect' | 'L';
+  /**
+   * Lived-in interior: a partition wall with a doorway makes rooms, each room may hold a table
+   * with chairs, the stair is two step blocks wide (1.8 m) with a rail along its opening on every
+   * upper floor, and a loot crate stands on some floors only (one at most), not on every floor.
+   */
+  interior?: boolean;
 }
 
 const STOREY = 3.2, SLAB = .2;
 
 export function masonryBuilding(parts: CampPart[], spawns: SpawnSpot[], cx: number, cz: number, yaw: number, o: MasonryOptions, group: number, rng: Rng): void {
+  // The plain block keeps its exact original layout (and random draws): saved worlds stay put.
+  if (o.interior || o.shape === 'L') { livedInBuilding(parts, spawns, cx, cz, yaw, o, group, rng); return; }
   const c = Math.cos(yaw), s = Math.sin(yaw);
   const put = (asset: number, lx: number, y: number, lz: number, partYaw = 0, scale = 1) =>
     parts.push({ asset, x: cx + lx * c + lz * s, y, z: cz - lx * s + lz * c, yaw: partYaw + yaw, scale, group });
@@ -90,6 +100,144 @@ export function masonryBuilding(parts: CampPart[], spawns: SpawnSpot[], cx: numb
       const lz = -d / 2 + module / 2 + j * module, edgeRow = j === 0 || j === deep - 1;
       segment('wall', -w / 2 + .15, y, lz, Math.PI / 2);
       segment(!edgeRow && j % 2 === 1 ? 'window' : 'wall', w / 2 - .15, y, lz, Math.PI / 2);
+    }
+  }
+}
+
+const TABLES = [FURNITURE_ASSET.tableLong, FURNITURE_ASSET.tableDark, FURNITURE_ASSET.tableWood, FURNITURE_ASSET.tableRed, FURNITURE_ASSET.tableRound] as const;
+/** Table footprints (length along local x, width across), matching the furniture assets. */
+const TABLE_SIZE: Record<number, readonly [number, number]> = {
+  [FURNITURE_ASSET.tableLong]: [2.95, 1], [FURNITURE_ASSET.tableDark]: [1.9, .9], [FURNITURE_ASSET.tableWood]: [2.03, .91],
+  [FURNITURE_ASSET.tableRed]: [1.42, .71], [FURNITURE_ASSET.tableRound]: [.9, .9],
+};
+
+/** A straight wall line along x (z fixed) or along z (x fixed); `out` is the outside's sign. */
+interface WallRun { along: 'x' | 'z'; at: number; from: number; to: number; out: 1 | -1; role: 'front' | 'back' | 'left' | 'side' | 'inner' }
+interface Room { x0: number; x1: number; z0: number; z1: number }
+
+/** The lived-in variant of masonryBuilding: L footprint, rooms, furniture, wide railed stair. */
+function livedInBuilding(parts: CampPart[], spawns: SpawnSpot[], cx: number, cz: number, yaw: number, o: MasonryOptions, group: number, rng: Rng): void {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const put = (asset: number, lx: number, y: number, lz: number, partYaw = 0, scale = 1) =>
+    parts.push({ asset, x: cx + lx * c + lz * s, y, z: cz - lx * s + lz * c, yaw: partYaw + yaw, scale, group });
+  const { w, d } = o, tilesX = w / 2, tilesZ = d / 2;
+  const brick = o.material === 'brick', module = brick ? 2 : 3, finish = o.finish ?? 'ivory';
+  const steps = 16, run = .3, holeFront = -d / 2 + 2 * (tilesZ - 3);
+  // Two 1.2 m step blocks side by side fill the 2 m stairwell (1.8 m clear), no gap to the wall.
+  const stairXs = o.interior ? [-w / 2 + .8, -w / 2 + 1.4] : [-w / 2 + .8];
+  const inStairwell = (i: number, j: number) => i === 0 && j >= tilesZ - 3;
+  // The L's missing corner (front right), a multiple of both the slab tile and the wall module.
+  const cutW = o.shape === 'L' ? (brick ? 4 : 6) : 0, cutD = cutW;
+  const present = (lx: number, lz: number) => !(cutW && lx > w / 2 - cutW && lz < -d / 2 + cutD);
+  const runs: WallRun[] = cutW ? [
+    { along: 'x', at: -d / 2, from: -w / 2, to: w / 2 - cutW, out: -1, role: 'front' },
+    { along: 'x', at: -d / 2 + cutD, from: w / 2 - cutW, to: w / 2, out: -1, role: 'side' },
+    { along: 'z', at: w / 2 - cutW, from: -d / 2, to: -d / 2 + cutD, out: 1, role: 'side' },
+    { along: 'z', at: w / 2, from: -d / 2 + cutD, to: d / 2, out: 1, role: 'side' },
+    { along: 'x', at: d / 2, from: -w / 2, to: w / 2, out: 1, role: 'back' },
+    { along: 'z', at: -w / 2, from: -d / 2, to: d / 2, out: -1, role: 'left' },
+  ] : [
+    { along: 'x', at: -d / 2, from: -w / 2, to: w / 2, out: -1, role: 'front' },
+    { along: 'x', at: d / 2, from: -w / 2, to: w / 2, out: 1, role: 'back' },
+    { along: 'z', at: -w / 2, from: -d / 2, to: d / 2, out: -1, role: 'left' },
+    { along: 'z', at: w / 2, from: -d / 2, to: d / 2, out: 1, role: 'side' },
+  ];
+  // A partition (with one doorway) splits the main body from the side room or the L's wing.
+  const split = w / 2 - (cutW || (brick ? 4 : 6)), wingFront = cutW ? -d / 2 + cutD : -d / 2;
+  const partitions: WallRun[] = o.interior ? [{ along: 'z', at: split, from: wingFront, to: d / 2, out: 1, role: 'inner' }] : [];
+  const rooms: Room[] = o.interior ? [
+    { x0: -w / 2 + 2.3, x1: split - .3, z0: -d / 2 + .5, z1: d / 2 - .5 },
+    { x0: split + .3, x1: w / 2 - .5, z0: wingFront + .5, z1: d / 2 - .5 },
+  ] : [];
+  /** One wall module centred at (lx, lz) on floor y, turned by `wy`. */
+  const segment = (kind: 'wall' | 'window' | 'door', lx: number, y: number, lz: number, wy: number) => {
+    const base = y + SLAB;
+    if (brick) {
+      if (kind === 'wall' || kind === 'window') put(MATERIAL_ASSET.brick, lx, base, lz, wy);
+      if (kind === 'wall') put(MATERIAL_ASSET.brick, lx, base + 1, lz, wy);
+      put(MATERIAL_ASSET.brick, lx, base + 2, lz, wy);
+      return;
+    }
+    if (kind === 'wall') { put(MATERIAL_ASSET.panel[finish], lx, base, lz, wy); return; }
+    if (kind === 'window') put(MATERIAL_ASSET.sill[finish], lx, base, lz, wy);
+    put(MATERIAL_ASSET.lintel[finish], lx, base + 2.5, lz, wy);
+  };
+  /** Module centres along a run, and where a piece on it sits (`inset` towards the inside). */
+  const modules = (r: WallRun) => Array.from({ length: Math.round((r.to - r.from) / module) }, (_, k) => r.from + module / 2 + k * module);
+  const place = (r: WallRun, t: number, inset: number): [number, number, number] =>
+    r.along === 'x' ? [t, r.at - r.out * inset, 0] : [r.at - r.out * inset, t, Math.PI / 2];
+  const walled = (f: number) => !o.unfinished || f === 0;
+  const band = (y: number) => {
+    const asset = brick ? MATERIAL_ASSET.band.brick : MATERIAL_ASSET.band.concrete, out = brick ? .1 : .05;
+    for (const r of runs) for (const t of modules(r)) { const [lx, lz, wy] = place(r, t, -out); put(asset, lx, y - .06, lz, wy); }
+  };
+  const rail = (y: number) => { for (let z = holeFront + .5; z < d / 2 - .2; z += 1) put(STREET_ASSET.parapetB, -w / 2 + 2.1, y + SLAB, z, Math.PI / 2); };
+  // Loot crates on about a third of the floors (at least one), one crate each.
+  const crateFloors = new Set<number>();
+  for (let f = 0; f < o.floors; f++) if (rng.next() < .35) crateFloors.add(f);
+  if (!crateFloors.size) crateFloors.add(Math.floor(rng.next() * o.floors));
+
+  /** A table in the middle of a room, turned along its long side, chairs drawn up round it. */
+  const furnish = (room: Room, y: number) => {
+    const rw = room.x1 - room.x0, rd = room.z1 - room.z0, long = Math.max(rw, rd), short = Math.min(rw, rd);
+    const fits = TABLES.filter((t) => TABLE_SIZE[t]![0] + 1.6 < long && TABLE_SIZE[t]![1] + 1.6 < short);
+    if (!fits.length) return;
+    const table = fits[Math.floor(rng.next() * fits.length)]!, [tl, tw] = TABLE_SIZE[table]!;
+    const turned = rd > rw, mx = (room.x0 + room.x1) / 2, mz = (room.z0 + room.z1) / 2;
+    put(table, mx, y, mz, turned ? Math.PI / 2 : 0);
+    const chair = rng.next() < .5 ? FURNITURE_ASSET.chairMetal : FURNITURE_ASSET.chairWood;
+    const per = tl > 1.6 ? 2 : 1;
+    for (const side of [-1, 1]) for (let k = 0; k < per; k++) {
+      const skip = rng.next() < .2, jitter = (rng.next() - .5) * .35;
+      if (skip) continue;
+      const along = per === 1 ? 0 : (k - .5) * tl * .5, away = tw / 2 + .38;
+      // A chair faces +z: turned to face the table, a little askew.
+      if (turned) put(chair, mx + side * away, y, mz + along, (side < 0 ? Math.PI / 2 : -Math.PI / 2) + jitter);
+      else put(chair, mx + along, y, mz + side * away, (side < 0 ? 0 : Math.PI) + jitter);
+    }
+  };
+
+  for (let f = 0; f <= o.floors; f++) {
+    const y = f * STOREY;
+    if (f > 0 && (walled(f) || f === 1)) band(y);
+    for (let i = 0; i < tilesX; i++) for (let j = 0; j < tilesZ; j++) {
+      const lx = -w / 2 + 1 + i * 2, lz = -d / 2 + 1 + j * 2;
+      if ((f > 0 && inStairwell(i, j)) || !present(lx, lz)) continue;
+      put(f === o.floors ? STREET_ASSET.roof : STREET_ASSET.slab, lx, y, lz);
+    }
+    if (f === o.floors) {
+      if (o.unfinished) break;
+      for (const r of runs) for (const t of modules(r)) { const [lx, lz, wy] = place(r, t, .15); put(brick ? MATERIAL_ASSET.brick : MATERIAL_ASSET.sill[finish], lx, y + SLAB, lz, wy); }
+      rail(y);
+      break;
+    }
+    for (let n = 0; n < steps; n++) for (const sx of stairXs) put(STREET_ASSET.step, sx, y + SLAB + n * .2, holeFront + .16 + (steps - 1 - n) * run);
+    if (f > 0) rail(y);
+    if (o.interior) {
+      if (crateFloors.has(f)) {
+        const room = rooms[Math.floor(rng.next() * rooms.length)]!;
+        put(rng.next() < .5 ? CAMP_ASSET['military-wooden-crate'] : CAMP_ASSET['old-wooden-crate'], room.x1 - .7, y + SLAB, room.z0 + .7, rng.next() * .4);
+      }
+      for (const room of rooms) if (rng.next() < .8) furnish(room, y + SLAB);
+    } else if (crateFloors.has(f)) put(CAMP_ASSET['old-wooden-crate'], w / 2 - cutW - 1.2, y + SLAB, d / 2 - 1.4, rng.next() * .4);
+    spawns.push([cx + 1 * c, y + .3, cz - 1 * s], [cx - (w / 4) * c + (d / 4) * s, y + .3, cz + (w / 4) * s + (d / 4) * c]);
+    if (!walled(f)) continue;
+    for (const r of runs) {
+      const ts = modules(r), mid = Math.floor(ts.length / 2);
+      ts.forEach((t, k) => {
+        const edge = k === 0 || k === ts.length - 1;
+        // Front: a door in the middle of the ground floor; back: a door; the stair side blind.
+        const kind = r.role === 'left' || edge ? 'wall'
+          : r.role === 'front' ? f === 0 && k === mid ? 'door' : (k % 2 === 1 || rng.next() < .3) ? 'window' : 'wall'
+          : r.role === 'back' ? f === 0 && k === ts.length - 2 ? 'door' : k % 2 === 0 ? 'window' : 'wall'
+          : k % 2 === 1 ? 'window' : 'wall';
+        const [lx, lz, wy] = place(r, t, .15);
+        segment(kind, lx, y, lz, wy);
+      });
+    }
+    for (const r of partitions) {
+      const ts = modules(r), door = Math.max(0, Math.floor(ts.length / 2) - (f % 2));
+      ts.forEach((t, k) => { const [lx, lz, wy] = place(r, t, 0); segment(k === door ? 'door' : 'wall', lx, y, lz, wy); });
     }
   }
 }

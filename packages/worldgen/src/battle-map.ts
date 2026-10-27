@@ -1,4 +1,4 @@
-import { CAMP_ASSET, BRIDGE_ASSET, BATTLE_ASSET, BUILDING_ASSET } from '@zion/assets';
+import { CAMP_ASSET, BRIDGE_ASSET, BATTLE_ASSET, BUILDING_ASSET, FURNITURE_ASSET } from '@zion/assets';
 import { Rng, hashCombine, smoothstep } from '@zion/shared';
 import type { CampPart } from './camp';
 import type { WorldGenerator } from './generator';
@@ -64,11 +64,25 @@ export function modularBuilding(parts: CampPart[], x: number, z: number, floors:
       for (let offset = -3.6; offset <= 3.61; offset += 1.2) put(CAMP_ASSET['concrete-wall'], offset, y, -10, 0, .3);
       for (const side of [-1, 1]) for (const fz of [-6.6, -7.8, -9]) put(CAMP_ASSET['concrete-wall'], side * 4, y, fz, Math.PI / 2, .3);
     }
-    for (let step = 0; step < 16; step++) {
-      put(BRIDGE_ASSET.woodenDeck, 5, y + (step + 1) * .2, -3.75 + step * .5, 0, .5);
+    // Two 1 m step columns fill the whole 2 m stairwell: no gap beside the stair to fall through.
+    for (let step = 0; step < 16; step++) for (const sx of [4.5, 5.5]) {
+      put(BRIDGE_ASSET.woodenDeck, sx, y + (step + 1) * .2, -3.75 + step * .5, 0, .5);
     }
-    if (chance(level, 0) < 45) put(CAMP_ASSET['military-wooden-crate'], -3, y, -3);
-    if (chance(level, 1) < 30) put(CAMP_ASSET['old-wooden-crate'], -3, y, 3);
+    // Upper floors: a rail along the stairwell's open side (the top of the flight stays open).
+    if (level > 0) for (let fz = -3.6; fz <= 3.61; fz += 1.2) put(CAMP_ASSET['concrete-wall'], 4, y, fz, Math.PI / 2, .3);
+    // Loot on some floors only; a table and chairs on most.
+    if (chance(level, 0) < 22) put(CAMP_ASSET['military-wooden-crate'], -3, y, -3);
+    else if (chance(level, 1) < 12) put(CAMP_ASSET['old-wooden-crate'], -3, y, 3);
+    if (!unfinished && chance(level, 2) < 75) {
+      const table = [FURNITURE_ASSET.tableDark, FURNITURE_ASSET.tableWood, FURNITURE_ASSET.tableRed, FURNITURE_ASSET.tableRound][chance(level, 3) % 4]!;
+      const chair = chance(level, 4) < 50 ? FURNITURE_ASSET.chairMetal : FURNITURE_ASSET.chairWood;
+      // Turned along z in the open floor, left of the doorway line; chairs face the table.
+      put(table, -1.9, y, 0, Math.PI / 2);
+      for (const [dz, k] of [[-.55, 5], [.55, 6]] as const) {
+        if (chance(level, k) < 80) put(chair, -2.8, y, dz, Math.PI / 2 + (chance(level, k + 2) - 50) / 300);
+        if (chance(level, k + 4) < 80) put(chair, -1, y, dz, -Math.PI / 2 + (chance(level, k + 6) - 50) / 300);
+      }
+    }
     if (unfinished) put(CAMP_ASSET['rusty-oil-barrel'], 1, y, -2);
   }
 }
