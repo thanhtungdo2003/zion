@@ -82,21 +82,38 @@ class Plates {
       this.seeds.push({ x: rng.next() * 1.2 - .1, z: rng.next() * 1.2 - .1, vx: Math.cos(a), vz: Math.sin(a), base: rng.next() < oceanic ? -.15 : .18 + rng.next() * .14 });
     }
   }
-  /** Uplift along convergent boundaries (0..1), rifting (≤0) and the plate's base level. */
-  sample(u: number, v: number): { uplift: number; base: number; boundary: number } {
-    let a = -1, b = -1, da = Infinity, db = Infinity;
-    this.seeds.forEach((s, i) => { const d = (s.x - u) ** 2 + (s.z - v) ** 2; if (d < da) { db = da; b = a; da = d; a = i; } else if (d < db) { db = d; b = i; } });
-    const A = this.seeds[a]!, B = this.seeds[b]!;
-    const nx = B.x - A.x, nz = B.z - A.z, nl = Math.hypot(nx, nz) || 1;
-    // Distance to the bisector between the two nearest seeds = distance to the plate boundary.
-    const dist = (db - da) / (2 * nl);
-    const converge = ((A.vx - B.vx) * nx + (A.vz - B.vz) * nz) / nl;
-    const w = .07, near = Math.exp(-((dist / w) ** 2)), wide = Math.exp(-((dist / (w * 3)) ** 2));
-    const uplift = converge > 0 ? converge * (near * .85 + wide * .3) : converge * near * .35;
-    // Plate bases blend across the boundary so the shelf is not a step.
-    const t = smoothstep(-.06, .06, -dist);
-    return { uplift, base: A.base + (B.base - A.base) * t * .5, boundary: dist };
+  /**
+   * Uplift along convergent boundaries (0..1), rifting (≤0) and the plate's base level. Every
+   * pair of plates adds the ridge of its own boundary and the bases blend by closeness, so the
+   * ground is continuous everywhere — also where three plates meet (taking only the two nearest
+   * plates left walls hundreds of metres high where the second-nearest one changed).
+   */
+  sample(u: number, v: number): { uplift: number; base: number } {
+    const d = this.d, seeds = this.seeds, count = seeds.length;
+    let min = Infinity;
+    for (let i = 0; i < count; i++) { d[i] = (seeds[i]!.x - u) ** 2 + (seeds[i]!.z - v) ** 2; if (d[i]! < min) min = d[i]!; }
+    const w = .07;
+    let uplift = 0, base = 0, weights = 0;
+    for (let i = 0; i < count; i++) {
+      const A = seeds[i]!, ei = d[i]! - min;
+      // Bases: a soft nearest plate (a shelf ≈ 300 m wide on a 4 km map, not a seam).
+      const wi = Math.exp(-((ei / .14) ** 2));
+      base += A.base * wi; weights += wi;
+      for (let j = i + 1; j < count; j++) {
+        const B = seeds[j]!, nx = B.x - A.x, nz = B.z - A.z, nl = Math.hypot(nx, nz) || 1;
+        // Distance to the i–j boundary where those two plates are the nearest (exact there), and
+        // growing away from it: continuous across every cell switch.
+        const dist = (ei + d[j]! - min) / (2 * nl);
+        if (dist > w * 9) continue;
+        const converge = ((A.vx - B.vx) * nx + (A.vz - B.vz) * nz) / nl * .5;
+        const near = Math.exp(-((dist / w) ** 2)), wide = Math.exp(-((dist / (w * 3)) ** 2));
+        uplift += converge > 0 ? converge * (near * .85 + wide * .3) : converge * near * .35;
+      }
+    }
+    // Where ranges cross they rise a little more, not twice as high.
+    return { uplift: Math.tanh(uplift / 1.1) * 1.1, base: base / weights };
   }
+  private readonly d = new Float64Array(16);
 }
 
 /** Multi-octave noise sampler for one seed. */
@@ -170,7 +187,8 @@ export function reliefAt(n: TerrainNoise, s: TerrainSettings, u: number, v: numb
   }
   if (s.seaEdge || s.preset === 'island') {
     // Distance to the edge, wobbled so the coast is not a square.
-    const edge = Math.min(u, v, 1 - u, 1 - v) + n.low(u * 3 + 7, v * 3 - 2) * .05;
+    // (A soft minimum: a hard one leaves a straight crease running in from each corner.)
+    const k = .03, edge = -k * Math.log(Math.exp(-u / k) + Math.exp(-v / k) + Math.exp(-(1 - u) / k) + Math.exp(-(1 - v) / k)) + n.low(u * 3 + 7, v * 3 - 2) * .05;
     const cx = u - .5, cz = v - .5, radial = 1 - Math.hypot(cx, cz) * 2 + n.low(u * 2.5, v * 2.5) * .12;
     const land = s.preset === 'island' ? smoothstep(.0, .35, radial) : smoothstep(.02, .14, edge);
     h = h * land - (1 - land) * .12;
@@ -202,7 +220,7 @@ export function* generateTerrain(s: TerrainSettings, hf: Heightfield): Generator
 export function* erodeTerrain(hf: Heightfield, seaLevel: number, amount: number, seed: string): Generator<number, void> {
   // The shared erosion (Gaussian brush, slope-capped carving, eight-way scree): the same as the
   // generated worlds use.
-  erodeGrid({ cols: hf.cols, rows: hf.rows, cell: hf.cell, heights: hf.heights }, { seed: seedNumber(seed, 'erosion'), seaLevel: seaLevel - 2, density: .35 * amount, talus: .85, thermalPasses: 4 });
+  erodeGrid({ cols: hf.cols, rows: hf.rows, cell: hf.cell, heights: hf.heights }, { seed: seedNumber(seed, 'erosion'), seaLevel: seaLevel - 2, density: .35 * amount, talus: .85, thermalPasses: 20 });
   yield 1;
 }
 
