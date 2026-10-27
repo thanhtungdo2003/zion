@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BoxGeometry, Frustum, Group, Matrix4, Mesh, PerspectiveCamera, Quaternion, Scene, Vector3 } from 'three';
 import { DEFAULT_APPEARANCE, EntityFlags, randomAppearance } from '@zion/shared';
-import { Avatar } from './avatars';
+import { Avatar, stepLoops } from './avatars';
 import { BB_UNITS_PER_METER, buildBBModel, mirrorCharacter, survivorTemplate, type CharacterTemplate, type RawModel } from './character-model';
 import { HumanBody, SURVIVOR_SIZE, parseHumanAssets, type HumanAssets } from './human-rig';
 import { builtinWeaponVisual, fittedSpec, fitToHand, standaloneVisual, type WeaponLibrary, type WeaponVisual } from './weapons';
@@ -446,8 +446,10 @@ describe('survivor model', () => {
     }
     const duration = assets.clips.get('walk_forward')!.duration;
     const stride = assets.clips.get('walk_forward')!.stride;
-    // Startup filtering contributes at most 15 cm; no cadence clamp or frame-rate-dependent drift.
-    expect(lastPhase / duration * stride).toBeCloseTo(6.8, 0);
+    // 2 s at 3.4 m/s: the walk steps at its brisk cadence cap (not 3× the recording), the same at
+    // every frame rate; startup filtering costs a few hundredths of a loop.
+    expect(lastPhase / duration).toBeCloseTo(Math.min(6.8 / stride, 2 * 1.35 / duration), 0);
+    expect(stepLoops(assets.clips.get('walk_forward')!, 1)).toBeCloseTo(1 / stride, 6);
     avatar.update(1000, 0, 1000, 0, EntityFlags.Grounded, 1 / fps, 3);
     expect((avatar as unknown as { frame: { speed: number } }).frame.speed).toBe(0);
   });

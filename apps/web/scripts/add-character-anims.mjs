@@ -61,7 +61,9 @@ const CLIPS = {
   // Pistol: drawing it from the hip (ends one-handed, the left hand free) and the two-handed firing stance.
   pistol_draw: { loop: false, source: 'Drawing Gun.fbx' },
   pistol_shoot: { loop: true, source: 'Shooting.fbx' },
-  melee_walk: { loop: true, stride: 1.4 },
+  // The recording walks with the body turned into a fighting stance (pelvis ~36°, shoulders ~50°
+  // off the line of travel): straightened so the feet, hips and chest face where it walks.
+  melee_walk: { loop: true, stride: 1.4, straighten: true },
   roll: { loop: false },
   // Long-hafted weapons (the quắm): two slashes in turn; heavy blunt weapons (sledgehammer, bat): one swing.
   long_melee_slash: { loop: false, source: 'long-melee-slash.fbx' },
@@ -94,7 +96,33 @@ const gltf = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8'));
 let bin = buf.subarray(20 + jsonLen + 8, 20 + jsonLen + 8 + buf.readUInt32LE(20 + jsonLen));
 // Replace only animation data previously appended by this script. Geometry and skin bindings
 // remain byte-identical, and rerunning the importer cannot keep growing the GLB.
-if (gltf.animations?.length) {
+const animAccessors = new Set((gltf.animations ?? []).flatMap((a) => a.samplers.flatMap((s) => [s.input, s.output])));
+if (animAccessors.size && gltf.meshes.some((m) => m.primitives.some((p) => [p.indices, ...Object.values(p.attributes)].some((a) => a > Math.min(...animAccessors))))) {
+  // Later steps (gloves, garments) appended geometry after the animations: rebuild the buffer
+  // with every accessor and image the model still uses, in order, and drop the old clips.
+  const keepAcc = gltf.accessors.map((_, i) => !animAccessors.has(i));
+  const accMap = new Map(), viewMap = new Map(), views = [], accessors = [], parts = [];
+  let size = 0;
+  const keepView = (v) => {
+    if (viewMap.has(v)) return viewMap.get(v);
+    const view = gltf.bufferViews[v], pad = (4 - (size % 4)) % 4;
+    if (pad) { parts.push(Buffer.alloc(pad)); size += pad; }
+    parts.push(bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength));
+    views.push({ ...view, byteOffset: size }); size += view.byteLength;
+    viewMap.set(v, views.length - 1);
+    return views.length - 1;
+  };
+  gltf.accessors.forEach((a, i) => { if (keepAcc[i]) { accessors.push({ ...a, bufferView: keepView(a.bufferView) }); accMap.set(i, accessors.length - 1); } });
+  for (const img of gltf.images ?? []) if (img.bufferView !== undefined) img.bufferView = keepView(img.bufferView);
+  for (const m of gltf.meshes) for (const p of m.primitives) {
+    if (p.indices !== undefined) p.indices = accMap.get(p.indices);
+    for (const k of Object.keys(p.attributes)) p.attributes[k] = accMap.get(p.attributes[k]);
+    for (const t of p.targets ?? []) for (const k of Object.keys(t)) t[k] = accMap.get(t[k]);
+  }
+  for (const s of gltf.skins ?? []) if (s.inverseBindMatrices !== undefined) s.inverseBindMatrices = accMap.get(s.inverseBindMatrices);
+  gltf.accessors = accessors; gltf.bufferViews = views; gltf.animations = [];
+  bin = Buffer.concat(parts);
+} else if (gltf.animations?.length) {
   const firstAccessor = Math.min(...gltf.animations.flatMap((a) => a.samplers.flatMap((s) => [s.input, s.output])));
   const firstView = Math.min(...gltf.accessors.slice(firstAccessor).map((a) => a.bufferView));
   const offset = Math.min(...gltf.bufferViews.slice(firstView).map((v) => v.byteOffset ?? 0));
@@ -150,6 +178,28 @@ for (const file of readdirSync(mocapDir).filter((f) => f.endsWith('.fbx') && CLI
   const action = mixer.clipAction(clip);
   action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play();
   const frames = Math.max(2, Math.round(clip.duration * 30) + 1), times = [];
+  // Mean pelvis and shoulder yaw over the loop (0 = facing the travel direction, +Z).
+  let straighten = null;
+  if (spec.straighten) {
+    let ps = 0, pc = 0, ss = 0, sc = 0;
+    for (let f = 0; f < frames; f++) {
+      mixer.setTime(clip.duration * f / (frames - 1)); src.updateMatrixWorld(true);
+      const hip = worldP(bones.get('LeftUpLeg')).sub(worldP(bones.get('RightUpLeg'))), sh = worldP(bones.get('LeftArm')).sub(worldP(bones.get('RightArm')));
+      const a = Math.atan2(-hip.z, hip.x), b = Math.atan2(-sh.z, sh.x);
+      ps += Math.sin(a); pc += Math.cos(a); ss += Math.sin(b); sc += Math.cos(b);
+    }
+    const pelvis = Math.atan2(ps, pc), chest = Math.atan2(ss, sc);
+    // Lower body and pelvis turn back by the pelvis' mean; the spine unwinds the rest up to the chest.
+    const share = { spine_001: 1 / 3, spine_002: 2 / 3 };
+    const upper = new Set(); for (const k of order) { const n = nodes[joints[k]].name, p = parentJ[k]; if (n === 'spine_001' || (p >= 0 && upper.has(p))) upper.add(k); }
+    straighten = joints.map((_, k) => {
+      const n = nodes[joints[k]].name, w = !upper.has(k) ? 0 : share[n] ?? 1;
+      return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -(pelvis + w * (chest - pelvis)));
+    });
+    // The pass played the one-shot action to its end: rewind it for the bake below.
+    action.reset().play();
+    console.log(`${id}: straightened pelvis ${(pelvis * 180 / Math.PI).toFixed(1)}°, chest ${(chest * 180 / Math.PI).toFixed(1)}°`);
+  }
   const rot = joints.map(() => []), hipsY = [], travel = [];
   const world = [];
   for (let f = 0; f < frames; f++) {
@@ -157,6 +207,7 @@ for (const file of readdirSync(mocapDir).filter((f) => f.endsWith('.fbx') && CLI
     times.push(t);
     mixer.setTime(t); src.updateMatrixWorld(true);
     const target = new Map(pairs.map(([s, tn]) => [byName.get(tn), worldQ(bones.get(s)).multiply(offset.get(byName.get(tn)))]));
+    if (straighten) for (const [k, q] of target) q.premultiply(straighten[k]);
     if (spec.turn) {
       // Gameplay owns heading. Keep the turn's limb motion but remove its accumulated yaw,
       // otherwise the root and the recorded pelvis would turn the character twice.

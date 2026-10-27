@@ -167,7 +167,15 @@ function easeWeight(w: number): number {
  * times over reads as frantic pumping; feet may slide a little instead).
  */
 function cadence(clip: Mocap, speed: number): number {
-  return speed / Math.max(.3, clip.stride) * clip.duration;
+  return stepLoops(clip, speed) * clip.duration;
+}
+
+/** A walk never steps quicker than this many times its recorded cadence; beyond it the stride carries. */
+const WALK_CADENCE_MAX = 1.35;
+/** Loops per second for moving at `speed`: distance-matched, except a walk capped at a brisk pace. */
+export function stepLoops(clip: Mocap, speed: number): number {
+  const loops = speed / Math.max(.3, clip.stride);
+  return clip.name.startsWith('walk_') ? Math.min(loops, WALK_CADENCE_MAX / clip.duration) : loops;
 }
 
 /**
@@ -1292,7 +1300,8 @@ export class Avatar {
     // Fully recorded and nothing to reach for: the clip as it was captured.
     if (recorded && recorded.arms && recorded.weight > .98 && !grasp.L && !grasp.R && !reach.L && !reach.R) {
       human.poseMocap(recorded, dt);
-      if (!limp && recorded.clip === NEUTRAL_IDLE && recorded.weight > .98) {
+      // Walking and running carry the head level too: the walk recording looks down at the ground.
+      if (!limp && (recorded.clip === NEUTRAL_IDLE || /^(walk_|jog_|fast_run)/.test(recorded.clip)) && recorded.weight > .98) {
         // Standing relaxed: the head carried level (the source frame tips it back), turned to the look.
         const ly = this.root.rotation.y + this.lookYaw, lp = Math.max(-.6, Math.min(.6, this.lookPitch));
         human.headUp(new Vector3(-Math.sin(ly) * Math.cos(lp), Math.sin(lp), -Math.cos(ly) * Math.cos(lp)), .9);
@@ -1907,7 +1916,7 @@ export class Avatar {
     }
     const reference = active ?? previous;
     if (reference && turnRate === undefined) {
-      this.stepPhase += speed * dt / Math.max(.3, clips.get(reference.clip)!.stride) * (reverse ? -1 : 1);
+      this.stepPhase += stepLoops(clips.get(reference.clip)!, speed) * dt * (reverse ? -1 : 1);
     }
     for (const layer of this.legLayers) {
       const clip = clips.get(layer.clip)!;
