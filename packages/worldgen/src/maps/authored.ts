@@ -9,6 +9,8 @@ import { battleTower as guardTower, modularBuilding } from '../battle-map';
 
 /** Prepared island assets (see apps/web/scripts/prepare-world-assets.mjs). */
 import { FLORA_ASSET, fromStand, standValue } from '../flora';
+import { erodeWorld, type ErodedWorld } from '../erosion';
+import { ecologyAt, groveDensity, makeEcology, suitability, type Ecology, type EcologySource } from '../ecology';
 import { constructionSite, masonryBuilding } from '../masonry';
 import { CIVIC_ASSET, ROAD_ASSET, SIGN_ASSET, type SignKind } from '@zion/assets';
 import { BedrockRelief } from '../geology';
@@ -196,9 +198,48 @@ export class AuthoredWorld {
     return out;
   }
 
-  /** Natural ground height before districts and roads level it. */
+  /** Natural ground height before districts and roads level it (eroded from generator v9). */
   terrain(x: number, z: number): number {
     if (this.heightGrid) return this.gridHeight(x, z);
+    const eroded = this.eroded();
+    return this.shape(x, z) + (eroded ? eroded.delta.at(x, z) : 0);
+  }
+
+  private erosionField: ErodedWorld | null | undefined;
+  /**
+   * The island worn down by rain (generator v9): gullies down the hills, sediment in the hollows
+   * and on the lower slopes, scree under the crags. The shore stays as drawn (beaches, harbours),
+   * so do the district pads and roads, which level the ground on top of it. Computed once per map
+   * and seed on an 8 m grid (≈1–2 s on the server).
+   */
+  eroded(): ErodedWorld | null {
+    if (this.erosionField !== undefined) return this.erosionField;
+    if (this.heightGrid || (this.host.config?.generatorVersion ?? 0) < 9) return (this.erosionField = null);
+    const size = this.host.worldSize, sea = this.host.seaLevel;
+    this.erosionField = erodeWorld(`${this.map.id}:${this.host.seed}:${size}`, size, 8, (x, z) => this.shape(x, z), {
+      seed: this.host.seed ^ 0xe205, seaLevel: sea + .5, density: .6, talus: .85,
+      // The shore and its first rise keep their drawn shape, so do the districts (towns, base,
+      // airfield…): their pads, streets and sight lines stay as designed.
+      keep: (x, z) => {
+        let k = smoothstep(40, 160, this.coastDistance(x, z));
+        for (const zone of this.map.zones) k = Math.min(k, smoothstep(zone.radius + 20, zone.radius + 140, Math.hypot(x - zone.x, z - zone.z)));
+        return k;
+      },
+    });
+    return this.erosionField;
+  }
+
+  /** The habitat (wetness, sun, soil, rock) at a point of the natural ground. */
+  ecology(x: number, z: number, out?: Ecology, h?: number): Ecology {
+    const eroded = this.eroded();
+    this.ecoSource ??= { height: (px, pz) => this.terrain(px, pz), ...(eroded ? { flow: (px: number, pz: number) => eroded.flow.at(px, pz), sediment: (px: number, pz: number) => eroded.sediment.at(px, pz), ridge: (px: number, pz: number) => eroded.ridge.at(px, pz) } : {}) };
+    return ecologyAt(this.ecoSource, x, z, out, h ?? this.terrain(x, z));
+  }
+  private ecoSource: EcologySource | null = null;
+  private readonly ecoScratch = makeEcology();
+
+  /** The island's drawn shape: coast, hills, ridges and rolling ground, before erosion. */
+  private shape(x: number, z: number): number {
     const sea = this.host.seaLevel, d = this.coastDistance(x, z);
     // The shore: a gentle beach running down under the water (wade out and back), then the
     // sea bed falls away further out.
@@ -393,8 +434,20 @@ export class AuthoredWorld {
     const d = this.coastDistance(x, z);
     if (d < 26 && rel < 4) return slope > .6 ? Surface.Rock : Surface.Sand;
     if (slope > .95) return Surface.Rock;
-    if (slope > .6) return rel > 80 ? Surface.Gravel : Surface.Dirt;
     const patch = this.noise.noise(x * .03 + 7, z * .03 - 3);
+    if (this.eroded()) {
+      // Ground cover from the eroded landform: stream beds of washed gravel, fans of fresh silt
+      // below them, scoured rock on crests and scarps, damp forest floor in the hollows.
+      const e = this.ecology(x, z, this.ecoScratch), flow = this.erosionField!.flow.at(x, z), sed = this.erosionField!.sediment.at(x, z);
+      if (flow > .72 && slope > .14) return patch > .1 && rel > 40 ? Surface.Gravel : Surface.Dirt;
+      if (e.rocky > .7) return Surface.Rock;
+      if (e.rocky > .5) return rel > 110 && patch > -.3 ? Surface.Gravel : Surface.Dirt;
+      if (sed > 1.4 && slope < .3) return e.wetness > .7 ? Surface.Mud : patch > .3 ? Surface.Dirt : Surface.Grass;
+      if (rel > 140) return patch > .1 || e.soil < .35 ? Surface.Gravel : Surface.DryGrass;
+      if (this.forestDensity(x, z) > .5 || e.wetness > .72) return patch > .3 && e.sun > .55 ? Surface.Grass : Surface.ForestFloor;
+      return e.sun > .78 && e.wetness < .3 ? Surface.DryGrass : patch < -.6 ? Surface.Dirt : Surface.Grass;
+    }
+    if (slope > .6) return rel > 80 ? Surface.Gravel : Surface.Dirt;
     if (rel > 140) return patch > 0 ? Surface.Gravel : Surface.DryGrass;
     if (this.forestDensity(x, z) > .5) return patch > .3 ? Surface.Grass : Surface.ForestFloor;
     return patch > .5 ? Surface.DryGrass : patch < -.6 ? Surface.Dirt : Surface.Grass;
@@ -440,8 +493,16 @@ export class AuthoredWorld {
     for (let gz = 0; gz < CHUNK_SIZE; gz += 6.4) for (let gx = 0; gx < CHUNK_SIZE; gx += 6.4) {
       const x = ox + gx + rng.next() * 5.6, z = oz + gz + rng.next() * 5.6, roll = rng.next(), species = rng.next(), size = rng.next(), turn = rng.next() * Math.PI * 2;
       const density = this.forestDensity(x, z);
-      if (roll > density * density * 1.25) continue;
       const g = ground(x, z), rel = g.height - sea;
+      let habitat: ReturnType<typeof suitability> | null = null;
+      if (this.eroded()) {
+        // Woods grow where the ground suits them and spread from mother trees: groves with ragged
+        // edges and glades instead of an even sprinkle.
+        habitat = suitability(this.ecology(x, z, this.ecoScratch, g.height));
+      }
+      // About as many trees as before overall; the designed woods stay dense at their core.
+      const fit = habitat ? (.55 + .9 * groveDensity(this.host.seed, x, z)) * (.55 + .8 * Math.max(habitat.broadleaf, habitat.conifer)) : 1;
+      if (roll > density * density * 1.25 * (fit + (1 - fit) * smoothstep(.75, .95, density))) continue;
       if (rel < 2 || g.slope > 1.1 || !clear(x, z, 5, g.road, 7)) continue;
       const coast = this.coastDistance(x, z);
       // Stands: neighbouring trees are mostly one species; young growth where `size` is small.
@@ -451,6 +512,8 @@ export class AuthoredWorld {
       let asset: number;
       if (coast < 90) asset = species < .5 ? ISLAND_ASSET.banana : pick(ISLAND_ASSET.treeSmall);
       else if (rel > 110) asset = fromStand(pines, stand, species);
+      // Dry crests and poor soil: pines; damp hollows and deep soil: broadleaves.
+      else if (habitat && Math.abs(habitat.conifer - habitat.broadleaf) > .18) asset = habitat.conifer > habitat.broadleaf ? fromStand(pines, stand, species) : fromStand(broad, stand, species);
       // Mid slopes: the pine / broadleaf mix shifts from stand to stand, not tree by tree.
       else if (rel > 60) asset = stand < .62 ? fromStand(pines, stand / .62, species) : fromStand(broad, (stand - .62) / .38, species);
       else asset = species > .965 ? (species < .985 ? ISLAND_ASSET.deadTree : ISLAND_ASSET.deadPine) : stand < .78 ? fromStand(broad, stand / .78, species) : fromStand(pines, (stand - .78) / .22, species);
@@ -461,11 +524,12 @@ export class AuthoredWorld {
       const x = ox + gx + rng.next() * 10, z = oz + gz + rng.next() * 10, roll = rng.next(), kind = rng.next(), size = rng.next(), turn = rng.next() * Math.PI * 2;
       const g = ground(x, z), rel = g.height - sea;
       if (rel < 1 || !clear(x, z, 3, g.road, 5)) continue;
-      if (g.slope > .55 || (rel > 120 && roll < .25)) {
+      const eco = this.eroded() ? this.ecology(x, z, this.ecoScratch, g.height) : null;
+      if (eco ? eco.rocky > .45 || (eco.rocky > .25 && roll < .35) : g.slope > .55 || (rel > 120 && roll < .25)) {
         // Boulders of one kind lie together, sunk into the slope.
         const rocks = standValue(this.host.seed, x, z, 30, 0x70c4);
         if (roll < .55) put(kind < .6 ? fromStand([...ISLAND_ASSET.rockMedium, ...FLORA_ASSET.rockMedium], rocks, kind) : kind < .9 ? fromStand([...ISLAND_ASSET.stone, ...FLORA_ASSET.rockSmall], rocks, kind) : fromStand([...ISLAND_ASSET.rockBig, ...FLORA_ASSET.rockBig], rocks, kind), x, g.height - .45, z, turn, .6 + size * .6);
-      } else if (roll < this.forestDensity(x, z) * .5 + .08) {
+      } else if (roll < (eco ? Math.min(.85, suitability(eco).shrub * (.2 + this.forestDensity(x, z) * .5 + Math.abs(groveDensity(this.host.seed, x, z) - .45) * -.4 + .2)) : this.forestDensity(x, z) * .5 + .08)) {
         const shrubs = [...ISLAND_ASSET.bush, ...FLORA_ASSET.shrub, FLORA_ASSET.sapling];
         put(kind < .85 ? fromStand(shrubs, standValue(this.host.seed, x, z, 24, 0xb05), kind) : pick(ISLAND_ASSET.stone), x, g.height - .1, z, turn, .7 + size * .5);
       }

@@ -16,6 +16,7 @@ import { makeColumnSample, type ColumnSample, type WorldGenerator } from './gene
 import { insideStructure } from './structures';
 import { ISLAND_ASSET } from './maps/authored';
 import { FLORA_ASSET, fromStand, standValue } from './flora';
+import { groveDensity, makeEcology, suitability } from './ecology';
 
 /**
  * Placement layers, processed in order. Each layer scatters at most one candidate per world-aligned
@@ -58,6 +59,7 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
   const sample = makeColumnSample();
   const probe = makeColumnSample();
   const weights: number[] = [];
+  const eco = makeEcology();
   // Only imported models: procedural trees, bushes and rocks are swapped for the island's.
   const flora = true;
 
@@ -106,10 +108,18 @@ export function scatterChunkProps(gen: WorldGenerator, cx: number, cz: number): 
         };
 
         const cluster = smoothstep(-0.4, 0.4, gen.fields.clusterNoise(x, z)) * 1.5;
+        // The habitat: trees in groves spread from mother trees, on deep damp soil (broadleaves)
+        // or dry crests (conifers); shrubs at wood edges and in the sun; rocks where it is scoured.
+        const habitat = spec.layer === 'decor' ? null : suitability(gen.ecology(x, z, sample.height, eco));
+        const grove = spec.layer === 'trees' || spec.layer === 'shrubs' ? groveDensity(seed, x, z) : 0;
+        const fit = !habitat ? 1
+          : spec.layer === 'trees' ? (.3 + 1.05 * grove) * (.35 + .85 * Math.max(habitat.broadleaf, habitat.conifer))
+            : spec.layer === 'shrubs' ? (.45 + .9 * (1 - Math.abs(grove - .45) * 1.6)) * (.4 + .8 * habitat.shrub)
+              : .35 + 1.3 * habitat.rock;
         let total = 0;
         weights.length = 0;
         for (const a of assets) {
-          const w = assetWeight(gen, a, cand, cluster);
+          const w = assetWeight(gen, a, cand, cluster) * fit;
           weights.push(w);
           total += w;
         }

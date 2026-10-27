@@ -14,6 +14,8 @@ import {
   type ChunkData,
   type PropInstance,
 } from '@zion/shared';
+import { erodeWorld, type ErodedWorld } from './erosion';
+import { ecologyAt, type Ecology, type EcologySource } from './ecology';
 import type { AssetRegistry } from '@zion/assets';
 import { parseWorldConfig, type WorldConfig, type WorldConfigInput } from './config';
 import { WorldFields, makeBaseSample, type BaseSample } from './fields';
@@ -171,6 +173,9 @@ export class WorldGenerator {
       const exposure = b.mountain * smoothstep(14, 42, macro - sea);
       h += this.bedrock.displacement(x, z, h, exposure, b.desert) * damp;
     }
+    // v9: the land worn down by rain (gullies, sediment, scree); rivers and lakes keep their beds.
+    const eroded = this.eroded();
+    if (eroded) h += eroded.delta.at(x, z) * damp;
 
     let water = Number.NaN;
     let kind = WaterKind.None;
@@ -240,6 +245,49 @@ export class WorldGenerator {
     out.humidity = clamp01(b.humBase + 0.22 * this.hydrology.proximityAt(x, z));
     return out;
   }
+
+  private erosionField: ErodedWorld | null | undefined;
+  /**
+   * Generator v9: the whole world eroded once (8 m grid) from its natural relief — mountains,
+   * hills and their bedrock, before rivers, roads, the camp and structures, which are laid on top
+   * as before. Worlds made by earlier generators keep their ground exactly.
+   */
+  eroded(): ErodedWorld | null {
+    if (this.erosionField !== undefined) return this.erosionField;
+    if (this.config.generatorVersion < 9 || (this.config.mode ?? 'survival') !== 'survival') return (this.erosionField = null);
+    this.erosionField = null; // (the natural relief below must not see a half-built field)
+    const sea = this.seaLevel, base = makeColumnSample().base;
+    const natural = (x: number, z: number) => {
+      const b = this.fields.base(x, z, base), macro = sea + b.rel;
+      let h = macro + this.fields.detail(x, z, b.mountain);
+      if (macro > sea + 14) h += this.bedrock.displacement(x, z, h, b.mountain * smoothstep(14, 42, macro - sea), b.desert);
+      return h;
+    };
+    this.erosionField = erodeWorld(`survival:${this.config.seed}:${this.worldSize}`, this.worldSize, 8, natural, {
+      seed: this.config.seed ^ 0xe205, seaLevel: sea + .3, density: .55, talus: .85,
+      // Low coasts keep their beaches, lakes their shores (lowered shore ground would let a lake
+      // spill round a bridge abutment): fading out over ~50 m around them.
+      keep: (x, z) => {
+        const lake = (px: number, pz: number) => !Number.isNaN(this.hydrology.lakeLevelNear(px, pz));
+        let shore = lake(x, z) ? 1 : 0;
+        for (let k = 0; k < 8 && shore < 1; k++) {
+          const a = k * Math.PI / 4, c = Math.cos(a), s = Math.sin(a);
+          if (lake(x + c * 20, z + s * 20)) shore = 1;
+          else if (lake(x + c * 44, z + s * 44)) shore = Math.max(shore, .6);
+        }
+        return smoothstep(sea + 1, sea + 9, natural(x, z)) * (1 - shore);
+      },
+    });
+    return this.erosionField;
+  }
+
+  /** The habitat (wetness, sun, soil, rock) at a point, for plants and ground cover. */
+  ecology(x: number, z: number, h: number, out?: Ecology): Ecology {
+    const eroded = this.eroded();
+    this.ecoSource ??= { height: (px, pz) => this.heightAt(px, pz), ...(eroded ? { flow: (px: number, pz: number) => eroded.flow.at(px, pz), sediment: (px: number, pz: number) => eroded.sediment.at(px, pz), ridge: (px: number, pz: number) => eroded.ridge.at(px, pz) } : {}) };
+    return ecologyAt(this.ecoSource, x, z, out, h);
+  }
+  private ecoSource: EcologySource | null = null;
 
   heightAt(x: number, z: number): number {
     return this.sampleColumn(x, z, this.scratch).height;

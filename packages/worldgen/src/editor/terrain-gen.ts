@@ -1,3 +1,4 @@
+import { erodeGrid } from '../erosion';
 import { Rng, Surface, smoothstep } from '@zion/shared';
 import { Simplex2 } from '../noise';
 import { type Heightfield, seedNumber } from './heightfield';
@@ -199,57 +200,10 @@ export function* generateTerrain(s: TerrainSettings, hf: Heightfield): Generator
  * and slopes steeper than the talus angle crumble. Deterministic for the seed.
  */
 export function* erodeTerrain(hf: Heightfield, seaLevel: number, amount: number, seed: string): Generator<number, void> {
-  const { cols, rows, cell } = hf, h = hf.heights, rng = new Rng(seedNumber(seed, 'erosion'));
-  const drops = Math.round(cols * rows * .35 * amount), scale = Math.max(1, 4 / cell);
-  const inertia = .05, capacity = 4 * scale, deposition = .3, erosion = .3, evaporation = .015, gravity = 4, minSlope = .01, radius = 2;
-  for (let n = 0; n < drops; n++) {
-    let px = 1 + rng.next() * (cols - 3), pz = 1 + rng.next() * (rows - 3);
-    let dx = 0, dz = 0, speed = 1, water = 1, sediment = 0;
-    for (let life = 0; life < 48; life++) {
-      const i = Math.floor(px), j = Math.floor(pz), u = px - i, v = pz - j, k = j * cols + i;
-      const a = h[k]!, b = h[k + 1]!, c = h[k + cols]!, d = h[k + cols + 1]!;
-      const gx = (b - a) * (1 - v) + (d - c) * v, gz = (c - a) * (1 - u) + (d - b) * u, here = a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
-      if (here < seaLevel - 2) break;
-      dx = dx * inertia - gx * (1 - inertia); dz = dz * inertia - gz * (1 - inertia);
-      const len = Math.hypot(dx, dz);
-      if (len < 1e-6) break;
-      dx /= len; dz /= len; px += dx; pz += dz;
-      if (px < 1 || pz < 1 || px >= cols - 2 || pz >= rows - 2) break;
-      const ni = Math.floor(px), nj = Math.floor(pz), nu = px - ni, nv = pz - nj, nk = nj * cols + ni;
-      const next = h[nk]! * (1 - nu) * (1 - nv) + h[nk + 1]! * nu * (1 - nv) + h[nk + cols]! * (1 - nu) * nv + h[nk + cols + 1]! * nu * nv;
-      const dh = next - here, cap = Math.max(-dh, minSlope) * speed * water * capacity;
-      if (sediment > cap || dh > 0) {
-        const amountD = dh > 0 ? Math.min(dh, sediment) : (sediment - cap) * deposition;
-        sediment -= amountD;
-        h[k] = h[k]! + amountD * (1 - u) * (1 - v); h[k + 1] = h[k + 1]! + amountD * u * (1 - v); h[k + cols] = h[k + cols]! + amountD * (1 - u) * v; h[k + cols + 1] = h[k + cols + 1]! + amountD * u * v;
-      } else {
-        // Erode from a small disc so gullies are not one cell wide.
-        const amountE = Math.min((cap - sediment) * erosion, -dh);
-        let wsum = 0;
-        for (let oj = -radius; oj <= radius; oj++) for (let oi = -radius; oi <= radius; oi++) wsum += Math.max(0, radius + .5 - Math.hypot(oi, oj));
-        for (let oj = -radius; oj <= radius; oj++) for (let oi = -radius; oi <= radius; oi++) {
-          const ii = i + oi, jj = j + oj, w = Math.max(0, radius + .5 - Math.hypot(oi, oj)) / wsum;
-          if (w > 0 && ii >= 0 && jj >= 0 && ii < cols && jj < rows) h[jj * cols + ii] = h[jj * cols + ii]! - amountE * w;
-        }
-        sediment += amountE;
-      }
-      speed = Math.sqrt(Math.max(0, speed * speed + -dh * gravity));
-      water *= 1 - evaporation;
-    }
-    if (n % 20000 === 19999) yield n / drops * .85;
-  }
-  // Thermal: material slides off slopes steeper than ~40°.
-  const talus = cell * .85;
-  for (let pass = 0; pass < 3; pass++) {
-    for (let j = 1; j < rows - 1; j++) for (let i = 1; i < cols - 1; i++) {
-      const k = j * cols + i;
-      for (const o of [1, -1, cols, -cols]) {
-        const diff = h[k]! - h[k + o]!;
-        if (diff > talus) { const m = (diff - talus) * .25; h[k] = h[k]! - m; h[k + o] = h[k + o]! + m; }
-      }
-    }
-    yield .85 + pass * .05;
-  }
+  // The shared erosion (Gaussian brush, slope-capped carving, eight-way scree): the same as the
+  // generated worlds use.
+  erodeGrid({ cols: hf.cols, rows: hf.rows, cell: hf.cell, heights: hf.heights }, { seed: seedNumber(seed, 'erosion'), seaLevel: seaLevel - 2, density: .35 * amount, talus: .85, thermalPasses: 4 });
+  yield 1;
 }
 
 /**
