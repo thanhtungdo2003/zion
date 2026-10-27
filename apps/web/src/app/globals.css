@@ -1806,6 +1806,8 @@ kbd {
 .studio-gate { display: grid; place-items: center; grid-template-columns: 1fr; grid-template-rows: 1fr; grid-template-areas: none; }
 .studio-gate .overlay-card { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .studio-jolt.on { border-color: var(--accent); color: var(--accent); }
+.studio-select { cursor: default; }
+.studio-select select { margin-left: 2px; padding: 2px 4px; background: #0d0f10; border: 1px solid var(--line); color: inherit; font: inherit; cursor: pointer; }
 .studio-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel-solid); }
 .studio-bar h1 { font: 700 18px var(--cond); letter-spacing: 0.06em; text-transform: uppercase; margin: 0 6px 0 0; }
 .studio-back { color: var(--muted); text-decoration: none; font-size: 20px; padding: 0 6px; }

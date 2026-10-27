@@ -19,6 +19,7 @@ import { BackpackInstance } from './backpack-model';
 import { HumanBody, STAND_CLIP, armorAnchors, SURVIVOR_SIZE, type RifleFit, type HumanAssets, type Mocap, type MocapPose, type MocapLayer, type DriverRig, type Grasp, type HandPreset, type Side } from './human-rig';
 import { PostureMotion, type Posture } from './posture-motion';
 import { ReloadMagazine } from './reload-magazine';
+import { MixamoSkin } from './mixamo-body';
 import { locomotionClip, locomotionGait, type Gait } from './locomotion';
 
 const DEG = Math.PI / 180;
@@ -387,6 +388,8 @@ export class Avatar {
 
   /** The skinned survivor following the rig (player characters), and the rig as it sees it. */
   private readonly human: HumanBody | null = null;
+  /** The survivor's skin on the Mixamo skeleton (Studio switch), posed after the survivor's own. */
+  private readonly mixamo: MixamoSkin | null = null;
   private readonly rig: DriverRig | null = null;
   /** The rig moved since the survivor was last posed (posed lazily, just before rendering). */
   private poseDirty = false;
@@ -439,6 +442,7 @@ export class Avatar {
       const human = new HumanBody(template.human, { shadows: true, receiveShadows: !isLocal });
       this.model.add(human.group);
       this.human = human;
+      if (template.mixamo) this.mixamo = new MixamoSkin(human, template.mixamo);
       // Bind hooks to the survivor's actual chest/pelvis, including recorded trunk motion.
       // Preserve the fitted model-space pose while changing from the driver to the skin bones.
       this.model.updateWorldMatrix(true, true);
@@ -474,7 +478,8 @@ export class Avatar {
           const hook = this.carryHooks.get('back_center');
           if (this.backpack && hook) this.backpack.update(hook, this.frame.dt);
           for (const list of this.armorTails.values()) for (const { tail, frame } of list) tail.update(frame, this.frame.dt);
-        }
+          this.poseMixamo();
+        } else if (this.humanRagdoll) this.poseMixamo();
       };
     }
     // Rest positions of the bones in model space: armour pieces are placed relative to them.
@@ -1309,6 +1314,20 @@ export class Avatar {
     }
     else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
     human.group.updateMatrixWorld(true);
+  }
+
+  /** The Mixamo skeleton: the recorded walk when walking forward on foot, else the survivor's pose. */
+  private poseMixamo(): void {
+    if (!this.mixamo) return;
+    const { flags, speed, dt, dx, dz } = this.frame;
+    const has = (f: number) => (flags & f) !== 0;
+    const yaw = this.root.rotation.y, len = Math.hypot(dx, dz);
+    const forward = len < 1e-6 || (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / len > .7;
+    const walking = !this.humanRagdoll && has(EntityFlags.Grounded) && forward && speed > .3 && speed < 4.2
+      && !has(EntityFlags.Crouching | EntityFlags.Prone | EntityFlags.Swimming | EntityFlags.Climbing | EntityFlags.Sprinting | EntityFlags.Dead | EntityFlags.Downed | EntityFlags.Knocked | EntityFlags.Attacking)
+      && !this.drivingActive && !this.flightActive && !this.mantleGrip && !this.reloadAnim && this.cur.clip?.name !== 'roll';
+    const held = this.weaponKey ? this.weaponObjects.get(this.weaponKey) : undefined;
+    this.mixamo.update({ dt, speed, walking, armsBusy: !!held?.obj.visible });
   }
 
   private pointBlend = 0;

@@ -16,7 +16,8 @@ import {
 import { FACES, type FaceName } from './bbmodel-loader';
 import { surfaceMaterial, surfaceOf, type Surface } from './material-labels';
 import { cachedFetch } from '@/lib/preload';
-import { blockyCharacters } from '../character-style';
+import { characterStyle } from '../character-style';
+import { loadMixamoMotion, type MixamoMotion } from './mixamo-body';
 import { HUMAN_SCALE, fetchBinary, loadHumanAssets, type HumanAssets } from './human-rig';
 
 /** Served from apps/web/public/models (copy of /models/characters/teen-wasteland-survivor.bbmodel). */
@@ -97,6 +98,8 @@ export interface CharacterTemplate {
   weapon?: ModelWeaponFitting;
   /** The skinned survivor that follows this rig (player characters). */
   human?: HumanAssets;
+  /** The survivor's skin plays on the Mixamo skeleton (Studio switch). */
+  mixamo?: MixamoMotion;
 }
 
 /** `zion_attachment` of a ModelGen accessory: points in the file's pixels, +Z forward, +Y up. */
@@ -436,13 +439,18 @@ const HAND_GRIP_HEIGHT = 2 / UNITS_PER_METER;
  * the survivor cannot load. Fitting tools pass 'survivor' to always get the survivor.
  */
 export async function loadPlayerCharacter(url = CHARACTER_MODEL_URL, onProgress?: (p: number) => void, style: 'auto' | 'survivor' = 'auto'): Promise<CharacterTemplate> {
-  const blocky = url === CHARACTER_MODEL_URL && style === 'auto' && await blockyCharacters();
+  const look = url === CHARACTER_MODEL_URL && style === 'auto' ? await characterStyle() : 'survivor';
+  const blocky = look === 'blocky';
   const rig = mirrorCharacter(await loadCharacterModel(url, (p) => onProgress?.(url === CHARACTER_MODEL_URL && !blocky ? p * .1 : p)));
   if (url !== CHARACTER_MODEL_URL || blocky) return rig;
   try {
     const human = await loadHumanAssets((u) => fetchBinary(cachedFetch, u, (p) => onProgress?.(.1 + p * .9)));
     const template = survivorTemplate(rig, human);
     rig.root.traverse((o) => { if (o instanceof Mesh) (o.geometry as BufferGeometry).dispose(); });
+    if (look === 'mixamo') {
+      try { template.mixamo = await loadMixamoMotion(human, (u) => fetchBinary(cachedFetch, u)); }
+      catch (err) { console.warn('Mixamo skeleton unavailable, using the survivor skeleton', err); }
+    }
     return template;
   } catch (err) {
     console.warn('survivor model unavailable, using the block character', err);

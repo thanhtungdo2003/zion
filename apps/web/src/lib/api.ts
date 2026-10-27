@@ -420,7 +420,7 @@ export function studioDeleteInfectionMap(id: string): Promise<InfectionMaps> { r
 export function studioPreviewInfectionMap(map: InfectionMapDef): Promise<InfectionMapPreview> { return studioRequest('/api/studio/infection-maps/preview', { method: 'POST', body: JSON.stringify(map) }); }
 export function studioVehiclePhysics(): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics'); }
 export function studioSetVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics', { method: 'POST', body: JSON.stringify({ jolt }) }); }
-export function studioSetCharacterStyle(blocky: boolean): Promise<{ blocky: boolean }> { return studioRequest('/api/studio/character-style', { method: 'POST', body: JSON.stringify({ blocky }) }); }
+export function studioSetCharacterStyle(style: 'survivor' | 'mixamo' | 'blocky'): Promise<{ style: 'survivor' | 'mixamo' | 'blocky'; blocky: boolean }> { return studioRequest('/api/studio/character-style', { method: 'POST', body: JSON.stringify({ style }) }); }
 export type StudioWeapon = CustomWeapon & { modelUrl: string | null };
 export function studioWeapons(): Promise<{ weapons: StudioWeapon[] }> { return studioRequest('/api/studio/weapons'); }
 /** Saves a Studio weapon; `model` is the file as base64 (required when creating). */

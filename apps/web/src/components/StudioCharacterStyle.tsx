@@ -2,22 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { studioSetCharacterStyle } from '@/lib/api';
-import { blockyCharacters, resetCharacterStyle } from '@/game/character-style';
+import { CHARACTER_STYLES, characterStyle, resetCharacterStyle, type CharacterStyle } from '@/game/character-style';
 import { Icon } from './Icon';
 
-/** Switch between the survivor model and the old block (Minecraft-style) character for every player. */
+const LABELS: Record<CharacterStyle, string> = { survivor: 'Người', mixamo: 'Người · xương Mixamo', blocky: 'Khối' };
+
+/** Which character every player sees: the survivor, the survivor on the Mixamo skeleton (trial), or the old block character. */
 export function StudioCharacterStyle() {
-  const [blocky, setBlocky] = useState<boolean | null>(null);
+  const [style, setStyle] = useState<CharacterStyle | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  useEffect(() => { void blockyCharacters().then(setBlocky); }, []);
-  const toggle = () => {
-    if (blocky === null) return;
+  useEffect(() => { void characterStyle().then(setStyle); }, []);
+  const choose = (next: CharacterStyle) => {
     setBusy(true);
-    void studioSetCharacterStyle(!blocky).then(r => { resetCharacterStyle(); setBlocky(r.blocky); setFailed(false); }).catch(() => setFailed(true)).finally(() => setBusy(false));
+    void studioSetCharacterStyle(next).then(r => { resetCharacterStyle(); setStyle(r.style); setFailed(false); }).catch(() => setFailed(true)).finally(() => setBusy(false));
   };
-  return <button className={`btn studio-jolt ${blocky ? 'on' : ''}`} aria-pressed={!!blocky} disabled={busy || blocky === null} onClick={toggle}
-    title={failed ? 'Không đổi được kiểu nhân vật' : 'Nhân vật: mô hình người thật hoặc nhân vật khối vuông kiểu cũ. Áp dụng khi người chơi tải lại trang/vào trận mới.'}>
-    <Icon name="lucide:box" /> Nhân vật {blocky === null ? '…' : blocky ? 'KHỐI' : 'NGƯỜI'}
-  </button>;
+  return <label className={`btn studio-jolt studio-select ${style && style !== 'survivor' ? 'on' : ''}`}
+    title={failed ? 'Không đổi được khung xương nhân vật' : 'Khung xương nhân vật cho mọi người chơi. "Xương Mixamo" (thử nghiệm): đi bộ phát đúng bản ghi Walking.fbx. Áp dụng khi tải lại trang hoặc vào trận mới.'}>
+    <Icon name="lucide:bone" /> Nhân vật
+    <select value={style ?? ''} disabled={busy || style === null} onChange={(e) => choose(e.target.value as CharacterStyle)}>
+      {style === null && <option value="">…</option>}
+      {CHARACTER_STYLES.map((s) => <option key={s} value={s}>{LABELS[s]}</option>)}
+    </select>
+  </label>;
 }
