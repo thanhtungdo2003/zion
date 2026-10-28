@@ -4,6 +4,7 @@ import type { HttpDeps } from '../app';
 import { studioGuard } from './studio';
 import type { ModelAgent } from '../../model-studio/agent';
 import type { AiSettings } from '../../model-studio/ai-settings';
+import type { TextureLibrary } from '../../model-studio/textures';
 import { MAX_FILE_BYTES, type ModelStudioStore } from '../../model-studio/store';
 
 /** What the Model Studio routes need. */
@@ -12,6 +13,8 @@ export interface ModelStudioDeps {
   agent: ModelAgent;
   /** The agent's AI connection (key, endpoint, model) as set in the Studio. */
   ai?: AiSettings;
+  /** Real texture sets (library and AI painting). */
+  textures?: TextureLibrary;
   /** Model Studio houses on trial on the built-in battle royale island (applied at server start). */
   trial?: { get(): { active: number[]; saved: number[] }; set(assets: number[]): Promise<{ active: number[]; saved: number[]; restartRequired: boolean }> };
 }
@@ -158,6 +161,7 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
         apiKey: z.string().max(400).regex(/^[!-~]*$/, 'API key chỉ gồm ký tự in được, không có khoảng trắng.').optional(),
         baseUrl: z.union([z.literal(''), z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'Địa chỉ phải là http(s).')]).optional(),
         model: z.string().max(120).regex(/^[\w.:/@-]*$/, 'Tên model không hợp lệ.').optional(),
+        imageModel: z.string().max(120).regex(/^[\w.:/@-]*$/, 'Tên model không hợp lệ.').optional(),
       }).strict().parse(req.body);
       const status = await ms.ai.update(body);
       req.log.info({ source: status.source, model: status.model, baseUrl: status.baseUrl, keyChanged: body.apiKey !== undefined }, 'model studio: AI settings changed');
@@ -167,6 +171,33 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   app.get('/api/studio/models/ai/models', { ...pre, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (_req, reply) => {
     reply.header('cache-control', 'no-store');
     return ms.ai ? ms.ai.listModels() : { models: agent.model ? [agent.model] : [], error: null };
+  });
+
+  // --- Texture library (search, thumbnails, download into a project) and AI painting.
+  app.get<{ Querystring: { q?: string; limit?: string } }>('/api/studio/models/textures', pre, async (req, reply) => {
+    if (!ms.textures) return reply.code(501).send({ error: 'unavailable', message: 'Không hỗ trợ.' });
+    try { return { results: await ms.textures.search(String(req.query.q ?? '').slice(0, 120), Number(req.query.limit) || 24), canPaint: ms.textures.canPaint }; }
+    catch (err) { return fail(reply, err); }
+  });
+  app.get<{ Params: { id: string } }>('/api/studio/models/textures/:id/thumb', { ...pre, config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const img = await ms.textures?.thumbnail(req.params.id).catch(() => null);
+    if (!img) return reply.code(404).send({ error: 'not_found', message: 'Không có ảnh.' });
+    reply.header('cache-control', 'private, max-age=86400').type('image/png');
+    return reply.send(img);
+  });
+  app.post('/api/studio/models/textures/download', { ...pre, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    if (!ms.textures) return reply.code(501).send({ error: 'unavailable', message: 'Không hỗ trợ.' });
+    try {
+      const body = z.object({ project: id, id: z.string().regex(/^[a-z0-9_]{2,80}$/), resolution: z.enum(['1k', '2k']).optional() }).strict().parse(req.body);
+      return await ms.textures.download(body.project, body.id, body.resolution ?? '1k');
+    } catch (err) { return fail(reply, err); }
+  });
+  app.post('/api/studio/models/textures/paint', { ...pre, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    if (!ms.textures) return reply.code(501).send({ error: 'unavailable', message: 'Không hỗ trợ.' });
+    try {
+      const body = z.object({ project: id, prompt: z.string().min(8).max(600), roughness: z.number().min(0).max(1).optional(), metalness: z.number().min(0).max(1).optional() }).strict().parse(req.body);
+      return await ms.textures.paint(body.project, body.prompt, { ...(body.roughness !== undefined ? { roughness: body.roughness } : {}), ...(body.metalness !== undefined ? { metalness: body.metalness } : {}) });
+    } catch (err) { return fail(reply, err); }
   });
 
   // --- Trial on the built-in battle royale island.

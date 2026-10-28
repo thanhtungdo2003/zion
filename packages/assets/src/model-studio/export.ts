@@ -40,25 +40,30 @@ function materialTable(doc: ModelDoc, scene: GltfScene, opts: ExportOptions, war
   const table = new Map<string, { index: number; scale: number; noCollide: number }>();
   for (const m of doc.materials) {
     const size = m.resolution ?? opts.textureSize ?? 512;
-    const set = materialTextures(m, size);
+    let generated: ReturnType<typeof materialTextures> | null = null;
+    const set = () => (generated ??= materialTextures(m, size));
     const blend = m.opacity < .99;
     const img = (bytes: Uint8Array, name: string) => { scene.images.push({ mime: 'image/png', bytes, name }); return scene.images.length - 1; };
-    let albedo: number;
-    const custom = m.albedoFile ? opts.imageFile?.(m.albedoFile) : undefined;
-    if (m.albedoFile && !custom) warnings.push(`Vật liệu "${m.name}": thiếu ảnh ${m.albedoFile}, dùng texture sinh tự động.`);
-    if (custom) { scene.images.push({ mime: custom.mime, bytes: custom.bytes, name: `${m.id}_albedo` }); albedo = scene.images.length - 1; }
-    else albedo = img(encodePng(set.size, set.size, set.albedo, opts.deflate, blend), `${m.id}_albedo`);
-    const normal = img(encodePng(set.size, set.size, set.normal, opts.deflate, false), `${m.id}_normal`);
-    const orm = img(encodePng(set.size, set.size, set.orm, opts.deflate, false), `${m.id}_orm`);
+    // A real texture set (downloaded or painted) when its files are there, else the generated one.
+    const file = (id: string | undefined, name: string, what: string) => {
+      if (!id) return null;
+      const f = opts.imageFile?.(id);
+      if (!f) { warnings.push(`Vật liệu "${m.name}": thiếu ảnh ${what} (${id}), dùng texture sinh tự động.`); return null; }
+      scene.images.push({ mime: f.mime, bytes: f.bytes, name: `${m.id}_${name}` });
+      return scene.images.length - 1;
+    };
+    const albedo = file(m.maps?.albedo ?? m.albedoFile, 'albedo', 'màu') ?? img(encodePng(set().size, set().size, set().albedo, opts.deflate, blend), `${m.id}_albedo`);
+    const normal = file(m.maps?.normal, 'normal', 'normal') ?? img(encodePng(set().size, set().size, set().normal, opts.deflate, false), `${m.id}_normal`);
+    const orm = file(m.maps?.orm, 'orm', 'AO/độ nhám/kim loại') ?? img(encodePng(set().size, set().size, set().orm, opts.deflate, false), `${m.id}_orm`);
     const base: GltfMaterial = {
       name: m.name,
-      baseColorFactor: [1, 1, 1, blend ? 1 : 1],
+      baseColorFactor: [1, 1, 1, m.maps ? m.opacity : 1],
       metallicFactor: 1, roughnessFactor: 1,
       baseColorTexture: { image: albedo }, normalTexture: { image: normal, scale: 1 },
       metallicRoughnessTexture: { image: orm }, occlusionTexture: { image: orm, strength: m.aoStrength },
       ...(m.emissive ? { emissiveFactor: hexLinear(m.emissive, m.emissiveIntensity ?? 1) } : {}),
       alphaMode: blend ? 'BLEND' : 'OPAQUE', doubleSided: m.doubleSided ?? false,
-      extras: { zionMaterial: m.id, preset: m.preset ?? null },
+      extras: { zionMaterial: m.id, preset: m.preset ?? null, ...(m.source ? { source: m.source } : {}) },
     };
     scene.materials.push(base);
     const index = scene.materials.length - 1;

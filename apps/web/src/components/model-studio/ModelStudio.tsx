@@ -458,7 +458,7 @@ export default function ModelStudio() {
           ))}
         </div>
         {doc && right === 'props' && <Inspector doc={doc} nodes={selectedNodes} mutate={mutate} />}
-        {doc && right === 'material' && <MaterialPanel doc={doc} nodes={selectedNodes} mutate={mutate} files={project?.files ?? []} />}
+        {doc && right === 'material' && <MaterialPanel doc={doc} nodes={selectedNodes} mutate={mutate} files={project?.files ?? []} projectId={project?.id ?? ''} addFiles={(f) => setProject((p) => (p ? { ...p, files: [...p.files, ...f.filter((x) => !p.files.some((y) => y.id === x.id))] } : p))} />}
         {doc && right === 'checks' && <ChecksPanel report={report} server={serverReport} select={(id) => setSelected([id])}
           fix={() => { if (!report) return; let done: string[] = []; mutate('Tự sửa', (d) => { done = autoFix(d, validateDoc(d)); }); setServerReport(null); flash(done.length ? done.join(' ') : 'Không có gì để tự sửa.'); }}
           runServer={() => void withBusy(async () => setServerReport(await msApi.validate(doc, project?.id)))} />}
@@ -567,6 +567,7 @@ function AiDialog({ close, saved }: { close(): void; saved(st: AiStatus): void }
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [custom, setCustom] = useState(false);
+  const [imageModel, setImageModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -577,10 +578,10 @@ function AiDialog({ close, saved }: { close(): void; saved(st: AiStatus): void }
   }, []);
   useEffect(() => {
     void (async () => {
-      try { const a = await msApi.ai(); setSt(a); setBaseUrl(a.baseUrl); setModel(a.model); await loadModels(); } catch (e) { setErr((e as Error).message); }
+      try { const a = await msApi.ai(); setSt(a); setBaseUrl(a.baseUrl); setModel(a.model); setImageModel(a.imageModel ?? ''); await loadModels(); } catch (e) { setErr((e as Error).message); }
     })();
   }, [loadModels]);
-  const save = async (body: { apiKey?: string; baseUrl?: string; model?: string }) => {
+  const save = async (body: { apiKey?: string; baseUrl?: string; model?: string; imageModel?: string }) => {
     setBusy(true); setErr(null);
     try {
       const a = await msApi.setAi(body);
@@ -619,6 +620,12 @@ function AiDialog({ close, saved }: { close(): void; saved(st: AiStatus): void }
           </div>
           {listError && <p className={s.muted}>⚠ {listError}</p>}
           {!listError && models.length > 0 && <p className={s.muted}>{models.length} model từ máy chủ AI.</p>}
+        </div>
+        <div className={s.section}>
+          <h3>Model vẽ texture</h3>
+          <div className={s.row}><label>Model ảnh</label><input className={s.text} value={imageModel} placeholder="cx/gpt-image-2.5" onChange={(e) => setImageModel(e.target.value)} />
+            <button type="button" className={s.tbtn} disabled={busy || !imageModel || imageModel === st?.imageModel} onClick={() => void save({ imageModel })}>Lưu</button></div>
+          <p className={s.muted}>Dùng khi AI tự vẽ texture (paint_texture). Cùng API key và địa chỉ ở trên.</p>
         </div>
         {err && <p style={{ color: '#ff8b80' }}>{err}</p>}
         <div className={s.modalActions}>

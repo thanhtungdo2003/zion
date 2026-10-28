@@ -4,6 +4,7 @@ import { TOOLS, runTool, summarizeReport, validateDoc, type CatalogAsset, type M
 import { LlmError, parseJsonObject, type ChatMessage, type LlmClient } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
+import type { TextureLibrary } from './textures';
 
 /**
  * The Model Studio agent: reads the admin's request, plans, calls the studio's tools on a copy
@@ -44,6 +45,10 @@ const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Mod
 
 Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch các phần độc lập; (4) gọi tool để tạo/lắp ghép/gán vật liệu PBR; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
 
+Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
+
+Texture: mỗi bề mặt chính (tường ngoài, tường trong, sàn, mái, khung, đồ gỗ, kim loại) PHẢI có bộ texture thật hợp phong cách của yêu cầu — tự suy ra vẻ ngoài cần có rồi find_texture (query tiếng Anh) → download_texture, hoặc paint_texture khi thư viện không có. Ví dụ: biệt thự → "smooth white plaster", "polished concrete", "marble floor", "dark wood"; nhà xưởng bỏ hoang → "cracked dirty concrete", "rusty corrugated metal", "peeling paint"; nhà gỗ → "weathered wood planks". Không để bề mặt chính dùng texture sinh tự động của preset; mỗi dự án chọn texture riêng theo yêu cầu, không lặp lại một bộ quen thuộc.
+
 Nguyên tắc: nhà ở dùng create_geometry type "house" (đủ phòng, cửa, cửa sổ, cầu thang, mái, nội thất, sân vườn) rồi tinh chỉnh; tái dùng model game (cây, bàn ghế, xe…) bằng assemble_model; vật liệu chọn từ preset thật rồi chỉnh roughness/metalness theo vật liệu thực (metalness gần như 0 hoặc 1), thêm wear/dirt/moss/cracks theo tuổi và phong cách — không chỉ đổi màu; giữ số vật liệu ít để giảm draw call; cửa ≥ 0.9×2.1 m, bậc ≤ 0.19 m. Không xóa phần ngoài phạm vi yêu cầu. Không bao giờ tự xuất bản vào game.
 
 Mỗi lượt trả về DUY NHẤT một JSON object:
@@ -70,6 +75,9 @@ export class ModelAgent {
 
   /** `llm`: the client, or where to get the current one (the key and model can change at runtime). */
   constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger, private readonly retryDelayMs = 2000, private readonly fallbackModels: () => string[] = () => []) {}
+
+  /** Real texture sets (library and AI painting) for the agent's materials. */
+  textures: TextureLibrary | null = null;
 
   private client(): LlmClient | null { return typeof this.llm === 'function' ? this.llm() : this.llm; }
   get configured(): boolean { return !!this.client(); }
@@ -134,6 +142,12 @@ export class ModelAgent {
         const out = await this.store.exportDoc(doc, mode);
         return { bytes: out.glb.length, triangles: out.triangles, warnings: out.warnings };
       },
+      ...(this.textures ? { textures: ((lib) => ({
+        canPaint: lib.canPaint,
+        search: (q: string, limit: number) => lib.search(q, limit),
+        download: (id: string, res: '1k' | '2k') => lib.download(job.projectId, id, res),
+        paint: (prompt: string, o: { roughness?: number; metalness?: number; scale?: number }) => lib.paint(job.projectId, prompt, o),
+      }))(this.textures) } : {}),
       requestPublish: async (doc, o) => {
         const req: PublishRequest = { id: randomUUID(), note: o.note, doc: structuredClone(doc), ...(o.lotClass ? { lotClass: o.lotClass } : {}), ...(o.replaceAsset ? { replaceAsset: o.replaceAsset } : {}) };
         job.publishRequests.push(req);
@@ -158,7 +172,13 @@ export class ModelAgent {
       const plan = offlinePlan(job.prompt, state.host.assets);
       if (!plan.steps.length) throw new Error(plan.reason ?? 'Không hiểu yêu cầu ở chế độ offline. Cấu hình AI_API_KEY để dùng agent đầy đủ.');
       this.step(job, 'plan', plan.plan.map((p, i) => `${i + 1}. ${p}`).join('\n'));
+      let noTextures = false;
       for (const s of plan.steps) {
+        if (['download_texture', 'find_texture', 'paint_texture'].includes(s.tool) && !state.host.textures) {
+          if (!noTextures) this.step(job, 'info', 'Thư viện texture không khả dụng: giữ texture sinh tự động.');
+          noTextures = true;
+          continue;
+        }
         if (s.thought) this.step(job, 'thought', s.thought);
         await this.exec(job, state, s.tool, typeof s.args === 'function' ? s.args(state.doc) : s.args, signal);
       }

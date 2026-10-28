@@ -1,7 +1,7 @@
 import {
   ACESFilmicToneMapping, AmbientLight, Box3, Box3Helper, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight, DoubleSide, Euler, FrontSide,
   GridHelper, Group, HemisphereLight, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshBasicMaterial, MeshStandardMaterial, NoColorSpace, type Object3D, PCFSoftShadowMap, PerspectiveCamera,
-  PlaneGeometry, PMREMGenerator, Raycaster, RepeatWrapping, RGBAFormat, Scene, ShadowMaterial, SRGBColorSpace, Vector2, Vector3, WebGLRenderer, type Material,
+  PlaneGeometry, PMREMGenerator, Raycaster, RepeatWrapping, RGBAFormat, Scene, ShadowMaterial, SRGBColorSpace, Texture, Vector2, Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -208,6 +208,41 @@ export class ModelViewport {
     return mat;
   }
 
+  private readonly fileTextures = new Map<string, Promise<Texture | null>>();
+
+  /** An image file of the project as a texture (fetched once, shared by every material). */
+  private fileTexture(id: string, srgb: boolean): Promise<Texture | null> {
+    const key = `${id}:${srgb ? 's' : 'l'}`;
+    let p = this.fileTextures.get(key);
+    if (!p) {
+      p = studioFetch(`/api/studio/models/files/${id}`).then((r) => r.blob()).then((b) => createImageBitmap(b, { imageOrientation: 'none' })).then((bmp) => {
+        const t = new Texture(bmp);
+        t.flipY = false; // glTF convention, as the exported GLB reads it
+        t.wrapS = t.wrapT = RepeatWrapping;
+        t.anisotropy = 8;
+        t.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
+        t.needsUpdate = true;
+        return t;
+      }).catch(() => null);
+      this.fileTextures.set(key, p);
+    }
+    return p;
+  }
+
+  /** A real texture set (downloaded or painted) on a material, once its images have loaded. */
+  private async applyFiles(m: ModelMaterial, key: string): Promise<void> {
+    const [albedo, normal, orm] = await Promise.all([this.fileTexture(m.maps!.albedo, true), m.maps!.normal ? this.fileTexture(m.maps!.normal, false) : null, m.maps!.orm ? this.fileTexture(m.maps!.orm, false) : null]);
+    const entry = this.materials.get(m.id);
+    if (!entry || entry.key !== key || this.disposed) return;
+    const mat = entry.material;
+    disposeGenerated(mat);
+    mat.map = albedo; mat.normalMap = normal; mat.roughnessMap = orm; mat.metalnessMap = orm; mat.aoMap = orm;
+    mat.color.set(0xffffff);
+    mat.roughness = orm ? 1 : m.roughness; mat.metalness = orm ? 1 : m.metalness; mat.aoMapIntensity = m.aoStrength;
+    mat.needsUpdate = true;
+    entry.textured = true;
+  }
+
   /** Generates queued texture sets, a time slice per frame. */
   private pumpTextures(): void {
     const start = performance.now();
@@ -215,9 +250,10 @@ export class ModelViewport {
       const id = this.textureQueue.shift()!;
       const m = this.doc?.materials.find((x) => x.id === id), entry = this.materials.get(id);
       if (!m || !entry) continue;
+      if (m.maps) { void this.applyFiles(m, entry.key); continue; }
       const set = materialTextures(m, PREVIEW_TEX);
       const mat = entry.material;
-      mat.map?.dispose(); mat.normalMap?.dispose(); mat.roughnessMap?.dispose();
+      disposeGenerated(mat);
       const orm = dataTexture(set.orm, set.size, false);
       mat.map = dataTexture(set.albedo, set.size, true);
       mat.normalMap = dataTexture(set.normal, set.size, false);
@@ -425,3 +461,8 @@ export class ModelViewport {
 }
 
 const r4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/** Frees a material's generated maps (file textures are shared and stay). */
+function disposeGenerated(mat: MeshStandardMaterial): void {
+  for (const t of new Set([mat.map, mat.normalMap, mat.roughnessMap])) if (t instanceof DataTexture) t.dispose();
+}

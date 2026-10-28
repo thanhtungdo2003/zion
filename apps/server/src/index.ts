@@ -41,6 +41,7 @@ import { WorldService } from './world/world-service';
 import { ModelStudioStore } from './model-studio/store';
 import { ModelAgent } from './model-studio/agent';
 import { AiSettings } from './model-studio/ai-settings';
+import { TextureLibrary } from './model-studio/textures';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL, config.LOG_PRETTY);
@@ -243,11 +244,14 @@ async function main(): Promise<void> {
   const aiSettings = new AiSettings(db, config.JWT_SECRET, { ...(config.AI_API_KEY ? { apiKey: config.AI_API_KEY } : {}), baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, timeoutMs: config.AI_TIMEOUT_MS, retries: config.AI_MAX_RETRIES });
   await aiSettings.load().catch((err: unknown) => logger.warn({ err }, 'model studio AI settings not loaded'));
   const modelAgent = new ModelAgent(modelStudio, () => aiSettings.client(), () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }), 2000, () => aiSettings.fallbackModels());
+  // Real texture sets: the Poly Haven library (CC0) and AI painting through the gateway.
+  const textureLibrary = new TextureLibrary(modelStudio, aiSettings);
+  modelAgent.textures = textureLibrary;
   logger.info({ ai: aiSettings.status().configured, source: aiSettings.status().source, model: aiSettings.status().model }, 'model studio agent ready');
 
   const app = await buildHttpApp({
     modelStudio: {
-      store: modelStudio, agent: modelAgent, ai: aiSettings,
+      store: modelStudio, agent: modelAgent, ai: aiSettings, textures: textureLibrary,
       trial: {
         get: () => ({ active: trialAssets, saved: trialAssets }),
         set: async (assets: number[]) => {

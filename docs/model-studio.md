@@ -46,6 +46,22 @@ Server environment (fallback):
 
 The key is sent only in the Authorization header and is redacted from errors.
 
+## Textures
+
+Each material uses one of these:
+- **A real texture set**, through the agent's tools:
+  - `find_texture` / `download_texture` search and download the [Poly Haven](https://polyhaven.com) library (CC0, about 870 scanned PBR sets). Each set has colour, OpenGL normal and packed AO/roughness/metal maps at 1K/2K, plus the real-world tile size. A map another project already downloaded is copied from the database, not fetched again.
+  - `paint_texture` has the AI image model paint a seamless colour texture from a description (`/images/generations` on the gateway, model set in Cấu hình AI). Normal and AO/roughness are derived from it on the server, and it is made tileable.
+- **Otherwise the procedural pattern** of its preset.
+
+The agent is told to give every main surface a set that fits the request, chosen per project. Examples: a villa gets smooth plaster, polished concrete and marble; an abandoned factory gets cracked concrete and rusty corrugated metal.
+
+The material panel has the same library browser (thumbnails, 1K/2K) and an AI paint field.
+
+## Asset variety
+
+`search_assets` groups variants of a kind (tree_small_a…e, table_dark/wood/red…) and ranks by relevance. In each group the variants the project uses least come first, with usage counts. The agent is told to rotate variants, rotation and scale instead of repeating one model.
+
 ## Into the game
 
 - **Publish** builds a game GLB: procedural geometry merged per material, one draw call per material.

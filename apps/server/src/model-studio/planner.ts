@@ -36,8 +36,20 @@ export function offlinePlan(prompt: string, assets: CatalogAsset[]): Plan {
 
 function housePlan(t: string): Plan {
   const years = num(t, /(\d+)\s*(?:năm|years?)/) ?? (has(t, 'bỏ hoang', 'abandoned', 'đổ nát', 'ruin') ? 120 : has(t, 'cũ', 'old') ? 40 : 0);
-  const style = has(t, 'hậu tận thế', 'post-apoc', 'postapoc', 'apocalyp', 'sinh tồn', 'survival') || years >= 100 ? 'postapoc' : has(t, 'hiện đại', 'modern') ? 'modern' : has(t, 'đá', 'stone', 'cottage', 'nhà gỗ') ? 'cottage' : 'rural';
-  const floors = has(t, '2 tầng', 'hai tầng', 'two-storey', 'two story', '2-storey', 'upstairs', 'tầng lầu') ? 2 : has(t, '1 tầng', 'một tầng', 'nhà cấp 4', 'single-storey', 'bungalow') ? 1 : undefined;
+  const villa = has(t, 'biệt thự', 'villa', 'mansion', 'sang trọng', 'luxury', 'cao cấp');
+  const factory = has(t, 'xưởng', 'nhà máy', 'factory', 'warehouse', 'kho hàng', 'industrial');
+  const style = has(t, 'hậu tận thế', 'post-apoc', 'postapoc', 'apocalyp', 'sinh tồn', 'survival') || years >= 100 || (factory && years > 0) ? 'postapoc' : villa || has(t, 'hiện đại', 'modern') ? 'modern' : has(t, 'đá', 'stone', 'cottage', 'nhà gỗ') ? 'cottage' : 'rural';
+  const floors = has(t, '2 tầng', 'hai tầng', 'two-storey', 'two story', '2-storey', 'upstairs', 'tầng lầu') || villa ? 2 : has(t, '1 tầng', 'một tầng', 'nhà cấp 4', 'single-storey', 'bungalow') ? 1 : undefined;
+  // Real texture sets that fit the request (the house generator's material ids).
+  const ruined = years >= 60 || style === 'postapoc';
+  const looks: Array<[string, string, string]> = villa
+    ? [['tuong-ngoai', 'smooth white plaster wall', 'Tường vữa trắng mịn'], ['tuong-trong', 'clean painted plaster', 'Tường trong sơn'], ['san-go', 'marble floor tiles', 'Sàn đá cẩm thạch'], ['mai', 'polished concrete', 'Mái bê tông mịn'], ['go-vien', 'dark wood', 'Gỗ tối màu']]
+    : ruined
+      ? [['tuong-ngoai', factory ? 'cracked dirty concrete wall' : 'dirty damaged brick wall', 'Tường cũ nứt bẩn'], ['tuong-trong', 'peeling paint plaster wall', 'Tường trong bong tróc'], ['san-go', 'dirty concrete floor', 'Sàn bê tông bẩn'], ['mai', 'rusty corrugated metal', 'Mái tôn gỉ'], ['go-vien', 'weathered wood planks', 'Gỗ phong hóa']]
+      : style === 'cottage'
+        ? [['tuong-ngoai', 'stone wall', 'Tường đá'], ['san-go', 'wood floor planks', 'Sàn gỗ'], ['mai', 'roof shingles', 'Mái ngói'], ['go-vien', 'wood planks', 'Gỗ']]
+        : [['tuong-ngoai', 'plaster wall', 'Tường vữa'], ['san-go', 'wood floor', 'Sàn gỗ'], ['mai', 'roof tiles', 'Mái ngói'], ['go-vien', 'wood planks', 'Gỗ']];
+  const textureSteps: PlannedStep[] = looks.map(([material, query, name], i) => ({ ...(i === 0 ? { thought: 'Chọn bộ texture thật hợp phong cách cho từng bề mặt chính.' } : {}), tool: 'download_texture', args: { material, query, name } }));
   const rooms: string[] = [];
   if (has(t, 'phòng khách', 'living')) rooms.push('living');
   const bedrooms = count(t, ['phòng ngủ', 'bedroom', 'bedrooms']);
@@ -65,6 +77,7 @@ function housePlan(t: string): Plan {
       { thought: 'Lấy chuẩn kích thước phòng, cửa, cầu thang và giới hạn nhân vật trước khi dựng.', tool: 'research', args: { query: 'house room door stairs player' } },
       { tool: 'research', args: { query: years > 50 ? 'abandoned ruin moss damage' : 'pbr material wood plaster brick' } },
       { thought: 'Dựng toàn bộ căn nhà bằng bộ sinh nhà (phòng nối bằng cửa, cửa sổ theo phòng, sàn, trần, mái, nội thất, sân vườn).', tool: 'create_geometry', args: { type: 'house', name: years >= 100 ? 'Nhà bỏ hoang' : 'Ngôi nhà', params: { style, ...(floors ? { floors } : {}), rooms: roomList, abandonedYears: years, furniture, yard, fence, garden, seed } } },
+      ...textureSteps,
       { tool: 'set_model_info', args: { kind: 'building', lotClass: years >= 60 ? 'abandoned' : 'residential' } },
       { thought: 'Kiểm tra như game sẽ dùng.', tool: 'validate_asset', args: {} },
       { tool: 'auto_fix', args: {} },

@@ -24,7 +24,7 @@ describe('Model Studio AI settings', () => {
     expect(a.status()).toMatchObject({ configured: false, source: null, keyHint: null });
     expect(a.client()).toBeNull();
     const st = await a.update({ apiKey: 'sk-test-SECRET-9876', model: 'cx/gpt-6-astra' });
-    expect(st).toEqual({ configured: true, source: 'studio', keyHint: '…9876', baseUrl: env.baseUrl, model: 'cx/gpt-6-astra' });
+    expect(st).toEqual({ configured: true, source: 'studio', keyHint: '…9876', baseUrl: env.baseUrl, model: 'cx/gpt-6-astra', imageModel: 'cx/gpt-image-2.5' });
     expect(JSON.stringify([...rows.values()])).not.toContain('SECRET');
     expect(JSON.stringify(st)).not.toContain('SECRET');
     expect(a.client()!.config).toMatchObject({ apiKey: 'sk-test-SECRET-9876', model: 'cx/gpt-6-astra' });

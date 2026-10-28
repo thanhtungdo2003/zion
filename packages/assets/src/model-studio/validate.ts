@@ -70,6 +70,7 @@ export function validateDoc(input: unknown, ctx: ValidationContext = {}): Valida
   for (const m of doc.materials) {
     if (m.metalness > .5 && m.roughness < .02) issues.push({ level: 'info', code: 'mirror', message: `"${m.name}" là kim loại gương hoàn hảo (hiếm gặp ngoài thực tế).` });
     if (m.metalness > 0 && m.metalness < 1 && !['rust', 'corrugated'].includes(m.texture.pattern)) issues.push({ level: 'info', code: 'half-metal', message: `"${m.name}" metalness ${m.metalness}: bề mặt thật là kim loại (1) hoặc không (0); giá trị giữa chỉ hợp với vùng chuyển tiếp (gỉ, bụi).` });
+    for (const [what, id] of Object.entries(m.maps ?? {})) if (id && ctx.files && !ctx.files.has(id)) issues.push({ level: 'error', code: 'missing-texture', message: `"${m.name}": thiếu ảnh texture ${what} (${id}).` });
     if (m.albedoFile && ctx.files && !ctx.files.has(m.albedoFile)) issues.push({ level: 'error', code: 'missing-texture', message: `"${m.name}": thiếu file texture ${m.albedoFile}.`, fixable: true });
   }
 

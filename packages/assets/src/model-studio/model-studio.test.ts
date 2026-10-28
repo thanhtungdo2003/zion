@@ -1,4 +1,4 @@
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { createDefaultRegistry } from '../builtin';
 import { glbTriangles, solidMaterial } from '../uploaded-maps';
@@ -9,6 +9,8 @@ import { readGltf } from './gltf';
 import { generateHouse } from './house';
 import { materialFromPreset } from './materials';
 import { materialTextures } from './textures';
+import { encodePng } from './png';
+import { decodePng, deriveMaps, makeTileable } from './texture-maps';
 import { runTool, type CatalogAsset, type ToolState } from './tools';
 import { validateDoc } from './validate';
 import { studioModelAsset } from './game-asset';
@@ -49,6 +51,26 @@ describe('model studio: house generator', () => {
     generateHouse(a, { seed: 7, floors: 2 });
     generateHouse(b, { seed: 7, floors: 2 });
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+});
+
+describe('model studio: texture sets from an image', () => {
+  it('decodes a PNG, tiles it seamlessly and derives normal and AO/roughness maps', () => {
+    const n = 32, rgba = new Uint8Array(n * n * 4);
+    for (let i = 0; i < n * n; i++) { const v = (i % n) * 8; rgba[i * 4] = v; rgba[i * 4 + 1] = 255 - v; rgba[i * 4 + 2] = 90; rgba[i * 4 + 3] = 255; }
+    const png = encodePng(n, n, rgba, deflate, false);
+    const img = decodePng(png, (b) => new Uint8Array(inflateSync(b)));
+    expect(img.width).toBe(n);
+    expect(Array.from(img.data.subarray(0, 8))).toEqual(Array.from(rgba.subarray(0, 8)));
+    const tiled = makeTileable(img);
+    // Opposite edges now match closely (a gradient across the tile has a hard seam before).
+    const edge = (x: number) => tiled.data[(5 * n + x) * 4]!;
+    expect(Math.abs(edge(0) - edge(n - 1))).toBeLessThan(Math.abs(img.data[(5 * n) * 4]! - img.data[(5 * n + n - 1) * 4]!));
+    const maps = deriveMaps(tiled, { roughness: .7, metalness: 0, normalStrength: 1 });
+    expect(maps.normal).toHaveLength(n * n * 4);
+    let rough = 0;
+    for (let i = 0; i < n * n; i++) rough += maps.orm[i * 4 + 1]!;
+    expect(rough / n / n / 255).toBeGreaterThan(.55);
   });
 });
 
@@ -126,7 +148,51 @@ describe('model studio: tools', () => {
     expect((await runTool('edit_transform', { node: 'nope' }, s)).ok).toBe(false);
     expect((await runTool('create_geometry', { type: 'castle' }, s)).ok).toBe(false);
     const found = await runTool('search_assets', { query: 'chair' }, s);
-    expect(found.ok && (found.result as { assets: Array<{ id: number }> }).assets.some((a) => a.id === 2856)).toBe(true);
+    expect(found.ok && (found.result as { groups: Array<{ variants: Array<{ id: number }> }> }).groups.some((g) => g.variants.some((a) => a.id === 2856))).toBe(true);
+  });
+
+  it('groups variants of a kind and puts the ones the project uses least first', async () => {
+    const s = state();
+    const first = (await runTool('search_assets', { query: 'tree' }, s)) as { ok: true; result: { groups: Array<{ group: string; variants: Array<{ id: number; usedInProject?: number }> }> } };
+    const group = first.result.groups.find((g) => g.variants.length >= 4)!;
+    expect(group).toBeDefined();
+    const top = group.variants[0]!.id;
+    await runTool('assemble_model', { parts: [{ asset: top, position: [0, 0, 0] }, { asset: top, position: [3, 0, 0] }] }, s);
+    const again = (await runTool('search_assets', { query: 'tree' }, s)) as typeof first;
+    const same = again.result.groups.find((g) => g.group === group.group)!;
+    expect(same.variants[0]!.id).not.toBe(top);
+    expect(same.variants.find((v) => v.id === top)!.usedInProject).toBe(2);
+  });
+
+  it('finds, downloads and paints real texture sets onto materials', async () => {
+    const s = state();
+    s.doc.nodes.push({ id: 'w', name: 'Tường', kind: 'primitive', shape: 'box', params: { width: 1, height: 1, depth: 1 }, material: 'tuong', parent: null, transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } });
+    s.doc.materials.push(materialFromPreset('tuong', 'concrete'));
+    const set = (id: string, kind: 'polyhaven' | 'ai') => ({ maps: { albedo: `${id}-a`, normal: `${id}-n`, orm: `${id}-o` }, scale: 2.5, source: { kind, id, name: id }, files: ['a', 'n', 'o'].map((k) => ({ id: `${id}-${k}`, name: `${id}/${k}`, mime: 'image/jpeg', size: 1 })) });
+    s.host.textures = {
+      canPaint: true,
+      search: async (q) => (q.includes('concrete') ? [{ id: 'smooth_concrete', name: 'Smooth Concrete', categories: ['concrete'], tags: ['smooth'], sizeM: 2.5, description: '' }] : []),
+      download: async (id) => set(id, 'polyhaven'),
+      paint: async () => set('painted', 'ai'),
+    };
+    const found = await runTool('find_texture', { query: 'smooth polished concrete' }, s);
+    expect(found.ok && (found.result as { results: Array<{ id: string }> }).results[0]!.id).toBe('smooth_concrete');
+    const got = await runTool('download_texture', { query: 'smooth concrete', material: 'tuong' }, s);
+    expect(got.ok).toBe(true);
+    const m = s.doc.materials.find((x) => x.id === 'tuong')!;
+    expect(m.maps).toEqual({ albedo: 'smooth_concrete-a', normal: 'smooth_concrete-n', orm: 'smooth_concrete-o' });
+    expect(m.texture.scale).toBe(2.5);
+    expect(m.source?.kind).toBe('polyhaven');
+    // The files are known to validation (no missing-texture error).
+    const v = await runTool('validate_asset', {}, s);
+    expect(JSON.stringify(v)).not.toContain('missing-texture');
+    const painted = await runTool('paint_texture', { prompt: 'rusty green painted steel with flaking paint', material: 'son', name: 'Thép sơn', assign_to: ['w'] }, s);
+    expect(painted.ok).toBe(true);
+    expect(s.doc.nodes.find((n) => n.id === 'w')).toMatchObject({ material: 'son' });
+    expect(s.doc.materials.find((x) => x.id === 'son')?.source?.kind).toBe('ai');
+    // Exported with the real maps (not the generated ones).
+    const out = exportModel(s.doc, { mode: 'editable', deflate, textureSize: 16, imageFile: (id) => ({ mime: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, id.length]) }) });
+    expect(readGltf(out.glb).images.filter((i) => i.mime === 'image/jpeg')).toHaveLength(6);
   });
 
   it('builds a house through the tool and reports its rooms', async () => {

@@ -53,6 +53,14 @@ export const materialSchema = z.object({
   resolution: z.union([z.literal(256), z.literal(512), z.literal(1024)]).optional(),
   /** An imported image file (Model Studio file id) used as the colour map instead of the pattern's. */
   albedoFile: z.string().max(64).optional(),
+  /**
+   * A real texture set (Model Studio file ids): colour, tangent-space normal (OpenGL / glTF),
+   * and occlusion-roughness-metalness packed in R/G/B as glTF reads it. Downloaded from a PBR
+   * library or painted by the AI; replaces the procedural pattern.
+   */
+  maps: z.object({ albedo: z.string().max(64), normal: z.string().max(64).optional(), orm: z.string().max(64).optional() }).strict().optional(),
+  /** Where the texture set came from (shown to the admin, kept with exports). */
+  source: z.object({ kind: z.enum(['polyhaven', 'ai', 'upload']), id: z.string().max(120), name: z.string().max(200), license: z.string().max(40).optional(), url: z.string().max(400).optional() }).strict().optional(),
 }).strict();
 export type ModelMaterial = z.infer<typeof materialSchema>;
 

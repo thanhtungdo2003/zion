@@ -9,13 +9,15 @@ import { LlmClient, redact } from './llm';
  * logged. A key set in the Studio wins over AI_API_KEY from the environment.
  */
 export interface AiEnv { apiKey?: string; baseUrl: string; model: string; timeoutMs: number; retries: number }
-export interface AiStatus { configured: boolean; source: 'studio' | 'env' | null; keyHint: string | null; baseUrl: string; model: string }
+export interface AiStatus { configured: boolean; source: 'studio' | 'env' | null; keyHint: string | null; baseUrl: string; model: string; imageModel: string }
 
 const KEY = 'model_studio_ai';
 /** The gateway's models as model-generator configures them (shown when the list can't be fetched). */
 export const DEFAULT_MODELS = ['cx/gpt-5.6-sol', 'cx/gpt-6-astra'];
+/** The gateway's image model as model-generator configures it (PIXEL_IMAGE_MODEL). */
+export const DEFAULT_IMAGE_MODEL = 'cx/gpt-image-2.5';
 
-interface Stored { key?: string; baseUrl?: string; model?: string }
+interface Stored { key?: string; baseUrl?: string; model?: string; imageModel?: string }
 
 export class AiSettings {
   private stored: Stored = {};
@@ -56,11 +58,11 @@ export class AiSettings {
 
   status(): AiStatus {
     const k = this.key();
-    return { configured: !!k, source: k?.source ?? null, keyHint: k ? `…${k.key.slice(-4)}` : null, baseUrl: this.stored.baseUrl ?? this.env.baseUrl, model: this.stored.model ?? this.env.model };
+    return { configured: !!k, source: k?.source ?? null, keyHint: k ? `…${k.key.slice(-4)}` : null, baseUrl: this.stored.baseUrl ?? this.env.baseUrl, model: this.stored.model ?? this.env.model, imageModel: this.stored.imageModel ?? DEFAULT_IMAGE_MODEL };
   }
 
   /** Changes the connection; `apiKey: ''` removes the Studio key (the environment's applies again). */
-  async update(input: { apiKey?: string; baseUrl?: string; model?: string }): Promise<AiStatus> {
+  async update(input: { apiKey?: string; baseUrl?: string; model?: string; imageModel?: string }): Promise<AiStatus> {
     const next: Stored = { ...this.stored };
     if (input.apiKey !== undefined) {
       if (input.apiKey === '') { delete next.key; this.apiKey = null; }
@@ -68,10 +70,17 @@ export class AiSettings {
     }
     if (input.baseUrl !== undefined) { if (input.baseUrl) next.baseUrl = input.baseUrl.replace(/\/$/, ''); else delete next.baseUrl; }
     if (input.model !== undefined) { if (input.model) next.model = input.model; else delete next.model; }
+    if (input.imageModel !== undefined) { if (input.imageModel) next.imageModel = input.imageModel; else delete next.imageModel; }
     await this.db.query(`INSERT INTO server_settings (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [KEY, JSON.stringify(next)]);
     this.stored = next;
     this.cached = null; this.models = null;
     return this.status();
+  }
+
+  /** Key, endpoint and image model for image generation (null without a key). */
+  imageAccess(): { key: string; baseUrl: string; model: string } | null {
+    const k = this.key();
+    return k ? { key: k.key, baseUrl: this.status().baseUrl, model: this.status().imageModel } : null;
   }
 
   /** The client for the current settings (null without a key). */

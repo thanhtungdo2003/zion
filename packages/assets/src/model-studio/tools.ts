@@ -32,6 +32,40 @@ export interface ToolHost {
   requestPublish?: (doc: ModelDoc, options: { lotClass?: string; replaceAsset?: number; note: string }) => Promise<{ request: string }>;
   /** Optional external research (documentation search). */
   research?: (query: string) => Promise<string[]>;
+  /** Real texture sets: a PBR library to search and download, and AI painting. */
+  textures?: {
+    canPaint: boolean;
+    search(query: string, limit: number): Promise<Array<{ id: string; name: string; categories: string[]; tags: string[]; sizeM: number | null; description: string }>>;
+    download(id: string, res: '1k' | '2k'): Promise<TextureSetResult>;
+    paint(prompt: string, opts: { roughness?: number; metalness?: number; scale?: number }): Promise<TextureSetResult>;
+  };
+}
+
+export interface TextureSetResult {
+  maps: { albedo: string; normal?: string; orm?: string };
+  scale: number;
+  source: { kind: 'polyhaven' | 'ai'; id: string; name: string; license?: string; url?: string };
+  files: Array<{ id: string; name: string; mime: string; size: number }>;
+}
+
+/** Puts a texture set on a material (and the material on parts). */
+function applySet(state: ToolState, materialId: string, set: TextureSetResult, opts: { scale?: number; assignTo?: string[]; name?: string; preset?: string }): Record<string, unknown> {
+  let m = state.doc.materials.find((x) => x.id === materialId);
+  if (!m) {
+    m = materialFromPreset(materialId, opts.preset ?? 'concrete', { name: opts.name ?? set.source.name });
+    state.doc.materials.push(m);
+  }
+  m.maps = set.maps;
+  m.source = set.source;
+  m.texture.scale = Math.max(.1, Math.min(50, opts.scale ?? set.scale));
+  // The maps carry colour, roughness and metalness; factors stay neutral.
+  m.color = '#ffffff';
+  if (opts.name) m.name = opts.name;
+  let assigned = 0;
+  for (const id of opts.assignTo ?? []) for (const n of subtree(state.doc, node(state.doc, id).id)) if ('material' in n) { (n as { material: string }).material = m.id; assigned++; }
+  state.host.files = [...(state.host.files ?? []), ...set.files.map((f) => ({ id: f.id, name: f.name, kind: f.mime }))];
+  state.changed = true;
+  return { material: m.id, source: set.source, tileMetres: m.texture.scale, maps: Object.keys(set.maps), assigned };
 }
 
 export interface ToolState { doc: ModelDoc; host: ToolHost; changed: boolean }
@@ -66,16 +100,45 @@ const textureArgs = z.object({
 export const TOOLS: ToolDefinition<never>[] = [
   defineTool({
     name: 'search_assets', permission: 'read',
-    description: 'Tìm model có sẵn trong game (cây, bụi, bàn ghế, hàng rào, xe, nhà, đá…), preset vật liệu PBR và file đã import của dự án. Trả về id số để dùng với assemble_model.',
-    params: { query: 'string — từ khóa (vi/en)', category: 'tree|vegetation|rock|decor|structure|block (tùy chọn)', limit: 'number ≤ 40' },
-    schema: z.object({ query: z.string().max(120), category: z.string().max(20).optional(), limit: z.number().int().min(1).max(40).optional() }).strict(),
+    description: 'Tìm model có sẵn trong game (cây, bụi, bàn ghế, hàng rào, xe, nhà, đá…), preset vật liệu PBR và file đã import. Kết quả gom theo NHÓM (cùng loại, khác màu/kiểu/kích thước) với mọi biến thể và số lần dự án đã dùng mỗi model — hãy dùng nhiều biến thể khác nhau, không lặp một model. Từ khóa tiếng Anh khớp tốt nhất (tree, bush, chair, table, car, crate, barrel, fence, lamp, rock…).',
+    params: { query: 'string — từ khóa (en/vi)', category: 'tree|vegetation|rock|decor|structure|block (tùy chọn)', limit: 'số nhóm ≤ 30', exclude: '[id] bỏ qua' },
+    schema: z.object({ query: z.string().max(120), category: z.string().max(20).optional(), limit: z.number().int().min(1).max(40).optional(), exclude: z.array(z.number().int()).max(200).optional() }).strict(),
     run: (a, s) => {
-      const words = a.query.toLowerCase().split(/\s+/).filter(Boolean);
-      const hits = s.host.assets.filter((x) => (!a.category || x.category === a.category) && (!words.length || words.some((w) => `${x.key} ${x.name} ${x.tags.join(' ')}`.toLowerCase().includes(w))));
+      const words = a.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+      const used = new Map<number, number>();
+      for (const n of s.doc.nodes) if (n.kind === 'asset') used.set(n.asset, (used.get(n.asset) ?? 0) + 1);
+      const skip = new Set(a.exclude ?? []);
+      const scored = s.host.assets.filter((x) => (!a.category || x.category === a.category) && !skip.has(x.id)).map((x) => {
+        const hay = `${x.key} ${x.name} ${x.tags.join(' ')} ${x.category}`.toLowerCase().replace(/[_.]/g, ' ');
+        let score = 0, all = true;
+        for (const w of words) {
+          const hit = new RegExp(`(^|\\s)${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(hay) ? 3 : hay.includes(w) ? 1 : 0;
+          if (!hit) all = false;
+          score += hit;
+        }
+        if (all && words.length > 1) score += 3;
+        return { x, score };
+      }).filter((r) => !words.length || r.score > 0);
+      // Variants of one thing (tree_small_a…e, table_dark/wood/red, wall_a/b/c): one group each.
+      const family = (key: string) => key.replace(/^[a-z]+\./, '').replace(/([_-](?:[a-z]|\d+|dark|wood|red|metal|long|round|big|small|large|old|new|green|blue|white|black|grey|brown))+$/i, '') || key;
+      const groups = new Map<string, { score: number; items: typeof scored }>();
+      for (const r of scored) {
+        const g = groups.get(family(r.x.key)) ?? { score: 0, items: [] };
+        g.score = Math.max(g.score, r.score); g.items.push(r);
+        groups.set(family(r.x.key), g);
+      }
+      const list = [...groups.entries()].sort((p, q) => q[1].score - p[1].score || q[1].items.length - p[1].items.length).slice(0, a.limit ?? 16);
       return {
-        assets: hits.slice(0, a.limit ?? 20).map((x) => ({ id: x.id, key: x.key, name: x.name, category: x.category, format: x.model, size: `r ${x.radius.toFixed(2)} m, cao ${x.height.toFixed(2)} m` })),
-        materials: MATERIAL_PRESETS.filter((p) => !words.length || words.some((w) => p.keywords.some((k) => k.includes(w)) || p.id.includes(w))).slice(0, 8).map((p) => ({ preset: p.id, name: p.name, note: p.note })),
+        groups: list.map(([name, g]) => ({
+          group: name, category: g.items[0]!.x.category,
+          // Least used first: the next placement should take one of these.
+          variants: [...g.items].sort((p, q) => (used.get(p.x.id) ?? 0) - (used.get(q.x.id) ?? 0) || q.score - p.score).slice(0, 12)
+            .map(({ x }) => ({ id: x.id, name: x.name, size: `r ${x.radius.toFixed(2)} m, cao ${x.height.toFixed(2)} m`, ...(used.get(x.id) ? { usedInProject: used.get(x.id) } : {}) })),
+        })),
+        totalMatches: scored.length,
+        materials: MATERIAL_PRESETS.filter((p) => !words.length || words.some((w) => p.keywords.some((k) => k.includes(w)) || p.id.includes(w))).slice(0, 6).map((p) => ({ preset: p.id, name: p.name })),
         files: (s.host.files ?? []).filter((f) => !words.length || words.some((w) => f.name.toLowerCase().includes(w))).slice(0, 10),
+        hint: 'Đặt nhiều vật cùng loại: xoay vòng các biến thể trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ 0.85–1.15.',
       };
     },
   }),
@@ -267,6 +330,41 @@ export const TOOLS: ToolDefinition<never>[] = [
       for (let i = 0; i < n; i++) { r += t.albedo[i * 4]!; g += t.albedo[i * 4 + 1]!; bl += t.albedo[i * 4 + 2]!; rough += t.orm[i * 4 + 1]!; metal += t.orm[i * 4 + 2]!; }
       const hex = (v: number) => Math.round(v / n).toString(16).padStart(2, '0');
       return { material: m.id, texture: m.texture, meanColor: `#${hex(r)}${hex(g)}${hex(bl)}`, meanRoughness: +(rough / n / 255).toFixed(2), meanMetalness: +(metal / n / 255).toFixed(2), maps: ['baseColor', 'normal', 'occlusion', 'roughness', 'metallic'] };
+    },
+  }),
+  defineTool({
+    name: 'find_texture', permission: 'read',
+    description: 'Tìm bộ texture PBR thật (ảnh chụp/scan, CC0: màu + normal + AO/độ nhám/kim loại, kèm kích thước thật một ô) cho một bề mặt. Viết query TIẾNG ANH theo đúng vẻ ngoài cần có, vd "smooth polished concrete", "white painted plaster", "cracked dirty concrete wall", "rusty corrugated metal", "weathered wood planks", "terracotta roof tiles", "marble floor". Trả về id để download_texture.',
+    params: { query: 'string (tiếng Anh)', limit: 'number ≤ 20' },
+    schema: z.object({ query: z.string().min(2).max(120), limit: z.number().int().min(1).max(20).optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.textures) throw new Error('Thư viện texture không khả dụng ở đây.');
+      const hits = await s.host.textures.search(a.query, a.limit ?? 10);
+      return { results: hits.map((h) => ({ id: h.id, name: h.name, categories: h.categories.slice(0, 5), tags: h.tags.slice(0, 8), tileMetres: h.sizeM, about: h.description })), canPaint: s.host.textures.canPaint, hint: hits.length ? 'Chọn bộ khớp nhất rồi download_texture.' : 'Không thấy: thử từ khác, hoặc paint_texture để AI tự vẽ.' };
+    },
+  }),
+  defineTool({
+    name: 'download_texture', permission: 'edit',
+    description: 'Tải bộ texture tìm được (find_texture) về dự án và gắn vào một vật liệu (tạo mới nếu chưa có id đó), gán cho các phần assign_to. Cho id (từ find_texture) hoặc query (lấy bộ khớp nhất). Kích thước ô lấy theo kích thước thật của texture (đổi bằng scale).',
+    params: { id: 'id từ find_texture', query: 'hoặc mô tả tiếng Anh', material: 'id vật liệu (mới hoặc có sẵn)', name: 'tên vật liệu', resolution: '1k|2k', scale: 'm mỗi ô (tùy chọn)', assign_to: '[node id]' },
+    schema: z.object({ id: z.string().min(2).max(80).optional(), query: z.string().min(2).max(120).optional(), material: z.string().min(1).max(64), name: z.string().max(80).optional(), resolution: z.enum(['1k', '2k']).optional(), scale: z.number().min(.1).max(50).optional(), assign_to: z.array(z.string()).max(400).optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.textures) throw new Error('Thư viện texture không khả dụng ở đây.');
+      const id = a.id ?? (a.query ? (await s.host.textures.search(a.query, 1))[0]?.id : undefined);
+      if (!id) throw new Error(a.query ? `Không tìm thấy texture cho "${a.query}" — thử từ khác hoặc paint_texture.` : 'Cần id hoặc query.');
+      const set = await s.host.textures.download(id, a.resolution ?? '1k');
+      return applySet(s, a.material, set, { ...(a.scale ? { scale: a.scale } : {}), ...(a.assign_to ? { assignTo: a.assign_to } : {}), ...(a.name ? { name: a.name } : {}) });
+    },
+  }),
+  defineTool({
+    name: 'paint_texture', permission: 'edit',
+    description: 'AI vẽ một texture liền mạch (tileable) theo mô tả — dùng khi thư viện không có vẻ ngoài cần (hoa văn riêng, sơn đặc biệt, biển hiệu…). Mô tả TIẾNG ANH chi tiết về bề mặt (màu, chất liệu, độ cũ, vết bẩn). Normal và AO/độ nhám được suy ra từ ảnh; đặt roughness/metalness nền theo vật liệu thật.',
+    params: { prompt: 'string (tiếng Anh)', material: 'id vật liệu', name: 'tên', roughness: '0–1', metalness: '0 hoặc 1', scale: 'm mỗi ô', assign_to: '[node id]' },
+    schema: z.object({ prompt: z.string().min(8).max(600), material: z.string().min(1).max(64), name: z.string().max(80).optional(), roughness: z.number().min(0).max(1).optional(), metalness: z.number().min(0).max(1).optional(), scale: z.number().min(.1).max(50).optional(), assign_to: z.array(z.string()).max(400).optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.textures?.canPaint) throw new Error('Không vẽ được texture (chưa có API key hoặc model ảnh). Dùng find_texture/download_texture.');
+      const set = await s.host.textures.paint(a.prompt, { ...(a.roughness !== undefined ? { roughness: a.roughness } : {}), ...(a.metalness !== undefined ? { metalness: a.metalness } : {}), ...(a.scale ? { scale: a.scale } : {}) });
+      return applySet(s, a.material, set, { ...(a.scale ? { scale: a.scale } : {}), ...(a.assign_to ? { assignTo: a.assign_to } : {}), ...(a.name ? { name: a.name } : {}) });
     },
   }),
   defineTool({

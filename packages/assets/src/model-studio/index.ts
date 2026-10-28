@@ -9,6 +9,7 @@ export * from './furniture';
 export * from './house';
 export * from './validate';
 export * from './png';
+export * from './texture-maps';
 export * from './gltf';
 export * from './export';
 export * from './game-asset';

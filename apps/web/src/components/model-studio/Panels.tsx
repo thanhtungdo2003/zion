@@ -7,7 +7,7 @@ import {
   type Issue, type ModelDoc, type ModelMaterial, type ModelNode, type ValidationReport,
 } from '@zion/assets/model-studio';
 import { Icon } from '@/components/Icon';
-import type { ProjectFile, ProjectSummary, PublishedModel, VersionInfo } from '@/lib/model-studio-api';
+import { msApi, type ProjectFile, type ProjectSummary, type PublishedModel, type TextureHit, type TextureSet, type VersionInfo } from '@/lib/model-studio-api';
 import s from './model-studio.module.css';
 
 export type Mutate = (label: string, fn: (doc: ModelDoc) => void) => void;
@@ -317,7 +317,7 @@ function Swatch({ m }: { m: ModelMaterial }) {
   return <canvas ref={ref} width={128} height={128} className={s.swatch} />;
 }
 
-export function MaterialPanel({ doc, nodes, mutate, files }: { doc: ModelDoc; nodes: ModelNode[]; mutate: Mutate; files: ProjectFile[] }) {
+export function MaterialPanel({ doc, nodes, mutate, files, projectId, addFiles }: { doc: ModelDoc; nodes: ModelNode[]; mutate: Mutate; files: ProjectFile[]; projectId: string; addFiles(f: ProjectFile[]): void }) {
   const withMat = nodes.filter((n) => 'material' in n) as Array<ModelNode & { material: string }>;
   const [picked, setPicked] = useState<string | null>(null);
   const id = withMat[0]?.material ?? picked ?? doc.materials[0]?.id ?? null;
@@ -340,6 +340,7 @@ export function MaterialPanel({ doc, nodes, mutate, files }: { doc: ModelDoc; no
           </select>
         </div>
       </div>
+      {m && <TextureBrowser projectId={projectId} material={m} apply={(set) => { addFiles(set.files); edit(`Texture ${set.source.name}`, (x) => { x.maps = set.maps; x.source = set.source; x.texture.scale = set.scale; x.color = '#ffffff'; }); }} clear={() => edit('Bỏ texture thật', (x) => { delete x.maps; delete x.source; })} />}
       {m && <>
         <div className={s.grid2} style={{ marginBottom: 10 }}>
           <Swatch m={m} />
@@ -476,6 +477,71 @@ export function VersionsPanel(p: {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- texture sets */
+
+function Thumb({ id }: { id: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true, made: string | null = null;
+    msApi.textureThumb(id).then((u) => { made = u; if (alive) setUrl(u); else URL.revokeObjectURL(u); }).catch(() => undefined);
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [id]);
+  return url ? <img src={url} alt="" style={{ width: '100%', aspectRatio: '1', borderRadius: 4, display: 'block' }} /> : <div style={{ width: '100%', aspectRatio: '1', background: '#22262a', borderRadius: 4 }} />;
+}
+
+/**
+ * Real texture sets for the selected material: search the PBR library (scanned, CC0) and apply
+ * a set, or have the AI paint one from a description.
+ */
+function TextureBrowser({ projectId, material, apply, clear }: { projectId: string; material: ModelMaterial; apply(set: TextureSet): void; clear(): void }) {
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<TextureHit[] | null>(null);
+  const [canPaint, setCanPaint] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [paint, setPaint] = useState('');
+  const [res, setRes] = useState<'1k' | '2k'>('1k');
+  const search = async (text: string) => {
+    if (!text.trim()) return;
+    setBusy('search'); setErr(null);
+    try { const r = await msApi.textures(text.trim()); setHits(r.results); setCanPaint(r.canPaint); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  };
+  useEffect(() => { msApi.textures('concrete').then((r) => setCanPaint(r.canPaint)).catch(() => undefined); }, []);
+  const run = async (what: string, fn: () => Promise<TextureSet>) => {
+    setBusy(what); setErr(null);
+    try { apply(await fn()); } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  };
+  return (
+    <div className={s.section}>
+      <h3><Icon name="lucide:images" /> Texture thật</h3>
+      {material.source
+        ? <div className={s.row}><span className={s.muted} style={{ flex: 1 }}>{material.source.kind === 'polyhaven' ? 'Thư viện' : 'AI vẽ'}: {material.source.name}{material.source.license ? ` · ${material.source.license}` : ''}</span><button className={s.tbtn} onClick={clear}>Bỏ</button></div>
+        : <p className={s.muted}>Đang dùng texture sinh tự động. Tìm bộ texture thật (ảnh scan PBR) hoặc để AI vẽ.</p>}
+      <form className={s.row} onSubmit={(e) => { e.preventDefault(); void search(q); }}>
+        <input className={s.text} value={q} placeholder="vd: smooth concrete, rusty metal, marble…" onChange={(e) => setQ(e.target.value)} />
+        <select className={s.select} style={{ flex: 'none', width: 56 }} value={res} onChange={(e) => setRes(e.target.value as '1k')}><option value="1k">1K</option><option value="2k">2K</option></select>
+        <button className={s.tbtn} disabled={!!busy}>{busy === 'search' ? '…' : 'Tìm'}</button>
+      </form>
+      {hits && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+          {hits.map((h) => (
+            <button key={h.id} className={s.card} style={{ padding: 4, margin: 0, cursor: 'pointer', textAlign: 'left', opacity: busy && busy !== h.id ? .6 : 1 }} disabled={!!busy} title={`${h.name}${h.sizeM ? ` · ô ${h.sizeM.toFixed(1)} m` : ''}\n${h.description}`} onClick={() => void run(h.id, () => msApi.downloadTexture(projectId, h.id, res))}>
+              <Thumb id={h.id} />
+              <div style={{ fontSize: 11, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{busy === h.id ? 'Đang tải…' : h.name}</div>
+            </button>
+          ))}
+          {!hits.length && <p className={s.muted}>Không thấy — thử từ tiếng Anh khác.</p>}
+        </div>
+      )}
+      <div className={s.row}>
+        <input className={s.text} value={paint} disabled={!canPaint} placeholder={canPaint ? 'AI vẽ: weathered green painted wood with peeling paint…' : 'AI vẽ texture cần API key (Cấu hình AI)'} onChange={(e) => setPaint(e.target.value)} />
+        <button className={s.tbtn} disabled={!canPaint || paint.trim().length < 8 || !!busy} onClick={() => void run('paint', () => msApi.paintTexture(projectId, paint.trim(), material.roughness, material.metalness))}>{busy === 'paint' ? 'Đang vẽ…' : 'Vẽ'}</button>
+      </div>
+      {err && <p style={{ color: '#ff8b80', fontSize: 12 }}>{err}</p>}
     </div>
   );
 }

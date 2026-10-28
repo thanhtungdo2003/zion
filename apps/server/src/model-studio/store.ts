@@ -174,6 +174,18 @@ export class ModelStudioStore {
     return { id, name, mime, size: bytes.length };
   }
 
+  /**
+   * A library file (a downloaded texture map) in a project: the project's own copy, or a copy of
+   * one another project already has (no second download), or null when nobody has it yet.
+   */
+  async reuseFile(projectId: string | null, name: string): Promise<{ id: string; name: string; mime: string; size: number } | null> {
+    const own = await this.db.query<{ id: string; mime: string; size: number }>('SELECT id, mime, size FROM model_files WHERE name = $1 AND project_id IS NOT DISTINCT FROM $2 LIMIT 1', [name, projectId]);
+    if (own.rows[0]) return { ...own.rows[0], name };
+    const id = randomUUID();
+    const { rows } = await this.db.query<{ mime: string; size: number }>('INSERT INTO model_files (id, project_id, name, mime, bytes, size) SELECT $1, $2, name, mime, bytes, size FROM model_files WHERE name = $3 LIMIT 1 RETURNING mime, size', [id, projectId, name]);
+    return rows[0] ? { id, name, ...rows[0] } : null;
+  }
+
   async files(projectId: string): Promise<Array<{ id: string; name: string; mime: string; size: number; createdAt: string }>> {
     const { rows } = await this.db.query<{ id: string; name: string; mime: string; size: number; created_at: Date }>('SELECT id, name, mime, size, created_at FROM model_files WHERE project_id = $1 ORDER BY created_at', [projectId]);
     return rows.map((r) => ({ id: r.id, name: r.name, mime: r.mime, size: r.size, createdAt: new Date(r.created_at).toISOString() }));
@@ -191,7 +203,7 @@ export class ModelStudioStore {
   private async docFiles(doc: ModelDoc): Promise<Map<string, { mime: string; bytes: Uint8Array }>> {
     const ids = new Set<string>();
     for (const n of doc.nodes) if (n.kind === 'import') ids.add(n.file);
-    for (const m of doc.materials) if (m.albedoFile) ids.add(m.albedoFile);
+    for (const m of doc.materials) { if (m.albedoFile) ids.add(m.albedoFile); for (const id of Object.values(m.maps ?? {})) if (id) ids.add(id); }
     const out = new Map<string, { mime: string; bytes: Uint8Array }>();
     for (const id of ids) { const f = await this.file(id); if (f) out.set(id, { mime: f.mime, bytes: new Uint8Array(f.bytes.buffer, f.bytes.byteOffset, f.bytes.byteLength) }); }
     return out;

@@ -16,7 +16,9 @@ export interface AgentJob {
   doc?: ModelDoc;
 }
 
-export interface AiStatus { configured: boolean; source: 'studio' | 'env' | null; keyHint: string | null; baseUrl: string; model: string }
+export interface AiStatus { configured: boolean; source: 'studio' | 'env' | null; keyHint: string | null; baseUrl: string; model: string; imageModel: string }
+export interface TextureHit { id: string; name: string; categories: string[]; tags: string[]; sizeM: number | null; description: string }
+export interface TextureSet { maps: { albedo: string; normal?: string; orm?: string }; scale: number; source: { kind: 'polyhaven' | 'ai'; id: string; name: string; license?: string; url?: string }; files: ProjectFile[] }
 
 const P = '/api/studio/models';
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: JSON.stringify(body) });
@@ -24,7 +26,11 @@ const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: J
 export const msApi = {
   status: () => studioJson<{ ai: boolean; model: string | null; published: number }>(`${P}/status`),
   ai: () => studioJson<AiStatus>(`${P}/ai`),
-  setAi: (body: { apiKey?: string; baseUrl?: string; model?: string }) => studioJson<AiStatus>(`${P}/ai`, json(body, 'PUT')),
+  setAi: (body: { apiKey?: string; baseUrl?: string; model?: string; imageModel?: string }) => studioJson<AiStatus>(`${P}/ai`, json(body, 'PUT')),
+  textures: (q: string) => studioJson<{ results: TextureHit[]; canPaint: boolean }>(`${P}/textures?q=${encodeURIComponent(q)}&limit=24`),
+  textureThumb: async (id: string): Promise<string> => URL.createObjectURL(await (await studioFetch(`${P}/textures/${id}/thumb`)).blob()),
+  downloadTexture: (project: string, id: string, resolution: '1k' | '2k') => studioJson<TextureSet>(`${P}/textures/download`, json({ project, id, resolution })),
+  paintTexture: (project: string, prompt: string, roughness?: number, metalness?: number) => studioJson<TextureSet>(`${P}/textures/paint`, json({ project, prompt, ...(roughness !== undefined ? { roughness } : {}), ...(metalness !== undefined ? { metalness } : {}) })),
   aiModels: () => studioJson<{ models: string[]; error: string | null }>(`${P}/ai/models`),
   list: (deleted = false) => studioJson<ProjectSummary[]>(`${P}/projects${deleted ? '?deleted=1' : ''}`),
   get: (id: string) => studioJson<Project>(`${P}/projects/${id}`),
