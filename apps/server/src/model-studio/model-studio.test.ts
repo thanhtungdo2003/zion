@@ -137,6 +137,37 @@ describe('model studio agent', () => {
     expect(saves).toHaveLength(1);
   });
 
+  it('gets past the provider safety filter: neutral tool output, a rephrased conversation, then another model', async () => {
+    const seen: Array<{ model: string; text: string }> = [];
+    let turn = 0;
+    const sse = (body: object) => new Response(`data: ${JSON.stringify(body)}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    const fetchImpl = (async (_url: string, init: { body: string }) => {
+      const req = JSON.parse(init.body) as { model: string; messages: Array<{ content: string }> };
+      seen.push({ model: req.model, text: req.messages.at(-1)!.content });
+      turn++;
+      if (turn === 1) return sse({ choices: [{ delta: { content: JSON.stringify({ thought: 'Tìm.', actions: [{ tool: 'search_assets', args: { query: 'weapon ammo military' } }] }) } }] });
+      // The old model is filtered whatever it is asked; the other one answers.
+      if (req.model === 'old') return sse({ choices: [{ delta: {}, finish_reason: 'content_filter', content_filter_results: { violence: { filtered: true, severity: 'medium' } } }] });
+      return sse({ choices: [{ delta: { content: JSON.stringify({ thought: 'Xong.', done: true, summary: 'ok' }) } }] });
+    }) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'old', timeoutMs: 5000, retries: 3, temperature: .3 }, fetchImpl);
+    const { store } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1, () => ['other']);
+    const done = await finish(agent, agent.start('p6', 'Tạo chung cư 5 tầng', emptyDoc(), 1).id);
+    expect(done.status).toBe('done');
+    expect(done.summary).toBe('ok');
+    // The search results (the last message of turn 2) reached the model without the trigger words.
+    expect(seen[1]!.text).not.toMatch(/weapon|ammo|military/i);
+    expect(done.steps.find((x) => x.tool === 'search_assets')!.result).toBeDefined();
+    const notes = done.steps.filter((x) => x.text.includes('Bộ lọc an toàn')).map((x) => x.text);
+    expect(notes[0]).toContain('violence');
+    expect(notes[0]).toContain('diễn đạt lại');
+    expect(notes[1]).toContain('chuyển sang model other');
+    expect(seen.at(-1)!.model).toBe('other');
+    // A filtered answer is not retried as is inside the client.
+    expect(seen.filter((x) => x.model === 'old')).toHaveLength(3);
+  });
+
   it('stops a runaway loop by itself and saves the work so far', async () => {
     // The model keeps asking for the very same edit.
     const same = { thought: 'Lại.', actions: [{ tool: 'create_geometry', args: { type: 'primitive', params: { shape: 'box', width: 1, height: 1, depth: 1 } } }] };

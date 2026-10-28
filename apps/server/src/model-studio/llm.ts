@@ -11,7 +11,8 @@ export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: s
 export interface ChatResult { text: string; model: string; usage?: { prompt: number; completion: number; total: number } }
 
 export class LlmError extends Error {
-  constructor(message: string, readonly status?: number, readonly retryable = false) { super(message); this.name = 'LlmError'; }
+  /** `filtered`: the provider's safety filter withheld the answer (with the categories it named). */
+  constructor(message: string, readonly status?: number, readonly retryable = false, readonly filtered?: string) { super(message); this.name = 'LlmError'; }
 }
 
 const RETRYABLE = new Set([408, 409, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]);
@@ -26,7 +27,7 @@ function reasoningEffort(model: string): string | undefined { return /claude/i.t
 export class LlmClient {
   constructor(readonly config: LlmConfig, private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async complete(messages: ChatMessage[], opts: { signal?: AbortSignal; maxTokens?: number; onProgress?: (chars: number) => void } = {}): Promise<ChatResult> {
+  async complete(messages: ChatMessage[], opts: CallOptions = {}): Promise<ChatResult> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < Math.max(1, this.config.retries); attempt++) {
       if (opts.signal?.aborted) throw new LlmError('Đã hủy.');
@@ -42,17 +43,17 @@ export class LlmClient {
     throw lastErr instanceof LlmError ? lastErr : new LlmError(redact(String((lastErr as Error)?.message ?? lastErr), this.config.apiKey), undefined, false);
   }
 
-  private async once(messages: ChatMessage[], opts: { signal?: AbortSignal; maxTokens?: number; onProgress?: (chars: number) => void }): Promise<ChatResult> {
+  private async once(messages: ChatMessage[], opts: CallOptions): Promise<ChatResult> {
     const timeout = AbortSignal.timeout(this.config.timeoutMs);
     const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
-    const effort = reasoningEffort(this.config.model);
+    const modelId = opts.model ?? this.config.model, effort = reasoningEffort(modelId);
     let res: Response;
     try {
       res = await this.fetchImpl(`${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${this.config.apiKey}`, accept: 'text/event-stream' },
         body: JSON.stringify({
-          model: this.config.model, messages, temperature: this.config.temperature,
+          model: modelId, messages, temperature: opts.temperature ?? this.config.temperature,
           response_format: { type: 'json_object' }, stream: true, stream_options: { include_usage: true },
           ...(opts.maxTokens ? { max_completion_tokens: opts.maxTokens } : {}), ...(effort ? { reasoning_effort: effort } : {}),
         }),
@@ -68,13 +69,14 @@ export class LlmClient {
     const type = res.headers.get('content-type') ?? '';
     // A gateway may ignore `stream` and answer with one JSON body.
     if (!type.includes('event-stream')) {
-      const json = await res.json() as { choices?: Array<{ message?: { content?: string } }>; model?: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+      const json = await res.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string; content_filter_results?: unknown }>; prompt_filter_results?: unknown; model?: string; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
       const text = json.choices?.[0]?.message?.content ?? '';
+      if (json.choices?.[0]?.finish_reason === 'content_filter') throw filterError(filterCategories(json.choices[0].content_filter_results, json.prompt_filter_results));
       if (!text) throw new LlmError('AI trả về rỗng.', undefined, true);
       return { text, model: json.model ?? this.config.model, ...(json.usage ? { usage: { prompt: json.usage.prompt_tokens, completion: json.usage.completion_tokens, total: json.usage.total_tokens } } : {}) };
     }
     const reader = res.body!.getReader(), decoder = new TextDecoder();
-    let buf = '', text = '', reasoning = '', model = this.config.model, usage: ChatResult['usage'], seen = 0, finish = '';
+    let buf = '', text = '', reasoning = '', model = modelId, usage: ChatResult['usage'], seen = 0, finish = '', filters: unknown = null, promptFilters: unknown = null;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -87,7 +89,9 @@ export class LlmClient {
         const data = line.slice(5).trim();
         if (data === '[DONE]') continue;
         try {
-          const chunk = JSON.parse(data) as { model?: string; choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }>; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+          const chunk = JSON.parse(data) as { model?: string; choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null; content_filter_results?: unknown }>; prompt_filter_results?: unknown; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+          if (chunk.choices?.[0]?.content_filter_results) filters = chunk.choices[0].content_filter_results;
+          if (chunk.prompt_filter_results) promptFilters = chunk.prompt_filter_results;
           if (chunk.model) model = chunk.model;
           const d = chunk.choices?.[0]?.delta;
           if (d?.content) text += d.content;
@@ -101,9 +105,31 @@ export class LlmClient {
     }
     // Some gateways leave the answer in the reasoning stream: use it when it holds the JSON.
     if (!text.trim() && reasoning.includes('{')) text = reasoning.slice(reasoning.indexOf('{'));
+    if (finish === 'content_filter') throw filterError(filterCategories(filters, promptFilters));
     if (!text.trim()) throw new LlmError(`AI trả về rỗng${finish === 'length' ? ' (hết giới hạn token khi đang suy nghĩ)' : finish ? ` (${finish})` : ''}.`, undefined, true);
     return { text, model, ...(usage ? { usage } : {}) };
   }
+}
+
+export interface CallOptions { signal?: AbortSignal; maxTokens?: number; onProgress?: (chars: number) => void; model?: string; temperature?: number }
+
+/** Which safety categories were flagged (Azure-style filter results on the answer or the prompt). */
+export function filterCategories(answer: unknown, prompt: unknown): string {
+  const out = new Set<string>();
+  const scan = (v: unknown, where: string) => {
+    if (!v || typeof v !== 'object') return;
+    if (Array.isArray(v)) { for (const x of v) scan((x as { content_filter_results?: unknown }).content_filter_results ?? x, where); return; }
+    for (const [k, r] of Object.entries(v as Record<string, { filtered?: boolean; detected?: boolean; severity?: string }>)) {
+      if (r && typeof r === 'object' && (r.filtered || r.detected || (r.severity && r.severity !== 'safe'))) out.add(`${where}${k}${r.severity && r.severity !== 'safe' ? `:${r.severity}` : ''}`);
+    }
+  };
+  scan(answer, '');
+  scan(prompt, 'prompt/');
+  return [...out].join(', ');
+}
+
+function filterError(categories: string): LlmError {
+  return new LlmError(`Bộ lọc an toàn của nhà cung cấp AI chặn câu trả lời${categories ? ` (${categories})` : ''}.`, undefined, false, categories || 'unspecified');
 }
 
 /**

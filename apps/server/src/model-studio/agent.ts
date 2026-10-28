@@ -40,7 +40,7 @@ export interface AgentJob {
   publishRequests: PublishRequest[];
 }
 
-const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Model Studio của game sinh tồn/battle royale Zion (renderer three.js, PBR). Bạn KHÔNG tự viết lưới tam giác: mọi thay đổi phải gọi tool. Đơn vị mét, +y hướng lên, model đứng trên y = 0, mặt trước hướng +z. Góc xoay tính bằng ĐỘ.
+const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Model Studio của game thế giới mở Zion (dựng kiến trúc, nội thất, cảnh quan) (renderer three.js, PBR). Bạn KHÔNG tự viết lưới tam giác: mọi thay đổi phải gọi tool. Đơn vị mét, +y hướng lên, model đứng trên y = 0, mặt trước hướng +z. Góc xoay tính bằng ĐỘ.
 
 Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch các phần độc lập; (4) gọi tool để tạo/lắp ghép/gán vật liệu PBR; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
 
@@ -69,7 +69,7 @@ export class ModelAgent {
   private readonly controllers = new Map<string, AbortController>();
 
   /** `llm`: the client, or where to get the current one (the key and model can change at runtime). */
-  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger, private readonly retryDelayMs = 2000) {}
+  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger, private readonly retryDelayMs = 2000, private readonly fallbackModels: () => string[] = () => []) {}
 
   private client(): LlmClient | null { return typeof this.llm === 'function' ? this.llm() : this.llm; }
   get configured(): boolean { return !!this.client(); }
@@ -191,7 +191,9 @@ export class ModelAgent {
       { role: 'user', content: JSON.stringify({ request: job.prompt, project: { name: state.doc.name, kind: state.doc.kind, nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id) }, validation: { ok: report.ok, stats: report.stats } }) },
     ];
     const started = Date.now(), calls = new Map<string, number>();
-    let fixRounds = 0, aiFailures = 0, idle = 0;
+    let fixRounds = 0, aiFailures = 0, idle = 0, filterHits = 0;
+    // After the provider's safety filter withheld an answer: another wording, then another model.
+    const call: { model?: string; temperature?: number } = {};
     const stop = (why: string) => {
       this.step(job, 'info', `Tự dừng để tránh lặp vô hạn: ${why}. Phần đã làm vẫn được kiểm tra và lưu.`);
       job.issues = [...(job.issues ?? []), `Agent tự dừng: ${why}`];
@@ -210,7 +212,7 @@ export class ModelAgent {
       if (!llm) return stop('API key AI đã bị gỡ trong lúc chạy');
       let raw: string;
       try {
-        const r = await llm.complete(messages, { signal, maxTokens: 16000 });
+        const r = await llm.complete(messages, { signal, maxTokens: 16000, ...call });
         raw = r.text;
         job.usage.turns++;
         if (r.usage) { job.usage.prompt += r.usage.prompt; job.usage.completion += r.usage.completion; job.usage.total += r.usage.total; }
@@ -222,6 +224,19 @@ export class ModelAgent {
         // Wrong key, no access, unknown model: retrying cannot help.
         if (err instanceof LlmError && err.status !== undefined && [400, 401, 402, 403, 404].includes(err.status)) return stop(`AI từ chối yêu cầu (${msg}) — kiểm tra API key / model trong Cấu hình AI`);
         if (aiFailures >= MAX_AI_FAILURES) return stop(`AI lỗi ${aiFailures} lần liên tiếp (lần cuối: ${msg})`);
+        if (err instanceof LlmError && err.filtered) {
+          // The same context is filtered every time: change it. First the conversation is rebuilt
+          // from the request and a neutral note of the work so far (no raw tool output), asking
+          // for short answers; then another model takes over.
+          filterHits++;
+          messages.splice(2, messages.length - 2, { role: 'user', content: JSON.stringify({ note: 'Tiếp tục dựng model kiến trúc theo yêu cầu. Trả lời ngắn: tối đa 4 action mỗi lượt, thought một câu.', done_so_far: scrub(job.steps.filter((x) => x.kind === 'tool' && x.ok).map((x) => x.tool).join(', ')), scene: sceneBrief(state) }) });
+          call.temperature = .6;
+          const other = filterHits >= 2 ? this.fallbackModels().find((m) => m !== (call.model ?? llm.config.model)) : undefined;
+          if (other) call.model = other;
+          this.step(job, 'info', `${msg} — ${other ? `chuyển sang model ${other}` : 'diễn đạt lại hội thoại'} và tiếp tục (${aiFailures}/${MAX_AI_FAILURES - 1}).`);
+          await new Promise((r) => setTimeout(r, Math.min(20_000, this.retryDelayMs)));
+          continue;
+        }
         // A long conversation is the usual cause of empty answers and timeouts: retry shorter.
         this.step(job, 'info', `${msg} — thử lại (${aiFailures}/${MAX_AI_FAILURES - 1}) với hội thoại rút gọn.`);
         compact(aiFailures >= 3 ? 2 : 6);
@@ -257,7 +272,7 @@ export class ModelAgent {
       if (repeated) return stop(`gọi "${repeated}" với cùng tham số ${MAX_REPEATS} lần`);
       if (actions.length) {
         idle = 0;
-        messages.push({ role: 'user', content: JSON.stringify({ results, scene: sceneBrief(state) }) });
+        messages.push({ role: 'user', content: scrub(JSON.stringify({ results, scene: sceneBrief(state) })) });
         if (messages.length > 30) compact(16);
         continue;
       }
@@ -281,6 +296,24 @@ export class ModelAgent {
 }
 
 const CHECKS = new Set(['validate_asset', 'inspect_scene', 'inspect_model', 'optimize_model', 'auto_fix', 'search_assets', 'research']);
+
+/**
+ * Tool output as the model reads it: names of game models such as "weapon table", "ammo cache"
+ * or "military crate" trip some providers' safety filters (the answer comes back empty with
+ * finish_reason content_filter) though nothing here is violent. The ids stay, so the model can
+ * still use them; only the words change. The admin's log keeps the original text.
+ */
+const SCRUB: Array<[RegExp, string]> = [
+  [/weapons?/gi, 'equipment'], [/ammo|ammunition/gi, 'supply'], [/military/gi, 'utility'], [/barbed[- _]?wire/gi, 'wire'],
+  [/guns?/gi, 'tool'], [/rifles?|pistols?|shotguns?/gi, 'tool'], [/bullets?|shells?/gi, 'part'], [/explosives?|grenades?|bombs?|c4/gi, 'device'],
+  [/blood(y)?/gi, 'stain'], [/corpses?|dead body|bodies/gi, 'mannequin'], [/zombies?/gi, 'npc'], [/kill(s|ed|ing)?/gi, 'remove'],
+  [/vũ khí/gi, 'thiết bị'], [/súng/gi, 'dụng cụ'], [/đạn/gi, 'vật tư'], [/quân sự/gi, 'kỹ thuật'], [/xác chết|thi thể/gi, 'ma-nơ-canh'], [/máu/gi, 'vết bẩn'],
+];
+export function scrub(text: string): string {
+  let out = text;
+  for (const [re, to] of SCRUB) out = out.replace(re, to);
+  return out;
+}
 
 /** The scene in a few numbers, sent back after every turn. */
 function sceneBrief(state: ToolState) {

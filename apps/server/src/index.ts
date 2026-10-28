@@ -242,7 +242,7 @@ async function main(): Promise<void> {
   // The agent's AI connection: set in the Studio (key stored encrypted) or from AI_* in the environment.
   const aiSettings = new AiSettings(db, config.JWT_SECRET, { ...(config.AI_API_KEY ? { apiKey: config.AI_API_KEY } : {}), baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, timeoutMs: config.AI_TIMEOUT_MS, retries: config.AI_MAX_RETRIES });
   await aiSettings.load().catch((err: unknown) => logger.warn({ err }, 'model studio AI settings not loaded'));
-  const modelAgent = new ModelAgent(modelStudio, () => aiSettings.client(), () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }));
+  const modelAgent = new ModelAgent(modelStudio, () => aiSettings.client(), () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }), 2000, () => aiSettings.fallbackModels());
   logger.info({ ai: aiSettings.status().configured, source: aiSettings.status().source, model: aiSettings.status().model }, 'model studio agent ready');
 
   const app = await buildHttpApp({

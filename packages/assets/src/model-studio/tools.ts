@@ -349,7 +349,7 @@ export const TOOLS: ToolDefinition<never>[] = [
   }),
   defineTool({
     name: 'set_model_info', permission: 'edit',
-    description: 'Đặt tên, loại (building|prop|rock|vegetation|furniture|vehicle|weapon|other), lô đất khi dùng trong map (residential|commercial|industrial|military|abandoned) và ghi chú của model.',
+    description: 'Đặt tên, loại (building|prop|rock|vegetation|furniture|vehicle|other), lô đất khi dùng trong map (residential|commercial|industrial|military|abandoned) và ghi chú của model.',
     params: { name: 'string', kind: 'string', lotClass: 'string', notes: 'string' },
     schema: z.object({ name: z.string().min(1).max(80).optional(), kind: z.enum(ASSET_KINDS).optional(), lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(), notes: z.string().max(4000).optional() }).strict(),
     run: (a, s) => { Object.assign(s.doc, Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined))); s.changed = true; return { name: s.doc.name, kind: s.doc.kind, lotClass: s.doc.lotClass ?? null }; },

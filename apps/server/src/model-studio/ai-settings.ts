@@ -83,6 +83,13 @@ export class AiSettings {
     return this.cached.client;
   }
 
+  /** Models to switch to when the current one keeps failing (listed by the endpoint, else known). */
+  fallbackModels(): string[] {
+    const current = this.status().model;
+    const known = this.models?.list ?? [];
+    return [...new Set([...DEFAULT_MODELS.filter((m) => known.length === 0 || known.includes(m)), ...known.filter((m) => /gpt|claude|sonnet|opus|gemini/i.test(m))])].filter((m) => m !== current);
+  }
+
   /**
    * The models the endpoint offers (OpenAI-compatible `GET /models`), cached five minutes; the
    * known defaults when it cannot be listed. `error` says why it could not.
