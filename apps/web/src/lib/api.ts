@@ -357,6 +357,24 @@ async function studioRequest<T>(path: string, init: RequestInit = {}): Promise<T
   return request<T>(path, { ...init, auth: true });
 }
 
+/** A Studio JSON request (Model Studio and other studio modules). */
+export function studioJson<T>(path: string, init: RequestInit = {}): Promise<T> { return studioRequest<T>(path, init); }
+
+/** A raw Studio request (binary uploads and downloads) with the same credentials. */
+export async function studioFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = studioToken() ?? memoryStudioToken;
+  const headers = new Headers(init.headers);
+  if (token) headers.set('x-studio-token', token);
+  else { await ensureAccess(); if (accessToken) headers.set('authorization', `Bearer ${accessToken}`); }
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: 'include', cache: 'no-store' });
+  if (!res.ok) {
+    let b: { error?: string; message?: string } = {};
+    try { b = await res.json() as typeof b; } catch { /* not JSON */ }
+    throw new ApiError(res.status, b.error ?? 'error', b.message ?? `request failed (${res.status})`);
+  }
+  return res;
+}
+
 export function studioLoad(): Promise<StudioLayout> {
   return studioRequest<StudioLayout>('/api/studio/layout');
 }

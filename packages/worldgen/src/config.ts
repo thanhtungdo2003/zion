@@ -17,6 +17,12 @@ export const worldConfigSchema = z
     infection: infectionMapSchema.optional(),
     /** Explicit editor revision; absent means the original island, including legacy matches. */
     battleIsland: authoredMapSchema.optional(),
+    /**
+     * Battle royale trial of Model Studio houses on the built-in island: these published models
+     * (id, footprint radius) take every other outskirts home plot, the rest keep their houses —
+     * side by side for comparison, before any wider switch.
+     */
+    studioHouses: z.array(z.object({ asset: z.number().int().min(3000).max(3999), radius: z.number().positive().max(60) }).strict()).max(16).optional(),
     /** World edge length in chunks (32 m each). 128 → 4.096 km. */
     sizeChunks: z.number().int().min(16).max(512),
     seaLevel: z.number().min(0).max(100).default(20),

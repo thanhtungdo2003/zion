@@ -25,6 +25,7 @@ import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
 import { gltfLoader } from './gltf-loader';
 import { API_URL } from '@/lib/api';
+import { uploadedModelUrl } from '@zion/assets';
 import { mossyRock, naturalMaterial } from './natural-material';
 import { ResourceDisposer } from './resources';
 
@@ -229,8 +230,8 @@ export class AssetLibrary {
         try {
         if (this.disposed) throw new Error('asset library disposed');
         // A map model uploaded in the Studio is served by the API, not the asset manifest.
-        const uploaded = /^uploads\/infection-map-(\d+)\.glb$/.exec(model.path);
-        const entry = uploaded ? { url: `${API_URL}/api/infection-maps/models/${uploaded[1]}.glb` } : (await this.getManifest()).files[model.path];
+        const uploaded = uploadedModelUrl(def.numericId, model.path);
+        const entry = uploaded ? { url: `${API_URL}${uploaded}` } : (await this.getManifest()).files[model.path];
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
         const gltf = await this.gltf.loadAsync(entry.url);
         const parts = flattenScene(gltf.scene, model.scale, model.offset);

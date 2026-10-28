@@ -105,6 +105,20 @@ function samePassword(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
+/** The Studio's access check (password session or an editor account), for other Studio routes too. */
+export function studioGuard(app: FastifyInstance, deps: HttpDeps) {
+  const production = deps.config.NODE_ENV === 'production';
+  const password = deps.config.STUDIO_PASSWORD;
+  const secret = deps.config.JWT_SECRET;
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const token = req.headers['x-studio-token'];
+    if (password && validToken(secret, typeof token === 'string' ? token : undefined)) return;
+    await app.requireAuth(req, reply);
+    if (reply.sent) return;
+    if (!canEdit(req, production)) return reply.code(403).send({ error: 'forbidden', message: 'Studio requires the studio password' });
+  };
+}
+
 export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void {
   const studio = deps.studio;
   if (!studio) return;

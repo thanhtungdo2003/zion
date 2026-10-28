@@ -7,6 +7,7 @@ import {
 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
+import { registerStudioModels } from '@/lib/studio-models';
 import { Surface } from '@zion/shared';
 import { climateTint, compositeParts, floraGroup, riverLevels, type FloraItem, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
 import { AssetLibrary } from '@/game/render/asset-library';
@@ -63,7 +64,9 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     sc.add(objects, water);
     const cursor = new Line(new BufferGeometry(), new LineBasicMaterial({ color: '#ffb000', depthTest: false }));
     cursor.renderOrder = 10; cursor.visible = false; sc.add(cursor);
-    const library = new AssetLibrary(createDefaultRegistry());
+    const registry = createDefaultRegistry();
+    void registerStudioModels(registry);
+    const library = new AssetLibrary(registry);
     scene.current = { renderer, scene: sc, camera, controls, ground, step, n, objects, water, cursor, library, dirty: true };
     const resize = () => { const r = el.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();

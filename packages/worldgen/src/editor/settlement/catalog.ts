@@ -86,7 +86,9 @@ export function buildCatalog(registry: AssetRegistry): Catalog {
     byAsset.set(id, item);
     return [item];
   });
-  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take(ids).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
+  // Models published from the Model Studio fill the lot class they were published for.
+  const studio = (k: string) => registry.all().filter((a) => a.tags.includes('model-studio') && a.tags.includes(`lot:${k}`) && a.category === 'structure').map((a) => a.numericId);
+  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take([...ids, ...studio(k)]).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
   const props = Object.fromEntries(Object.entries(PROPS).map(([k, ids]) => [k, take(ids)])) as Catalog['props'];
   return { buildings, props, byAsset };
 }

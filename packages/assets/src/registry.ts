@@ -20,6 +20,7 @@ export class AssetRegistryError extends Error {
  * MUST stay stable forever: never renumber or reuse an id; retire assets by tagging them instead.
  */
 import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN } from './uploaded-maps';
+import { STUDIO_MODEL_ASSET_MAX, STUDIO_MODEL_ASSET_MIN } from './model-studio/game-asset';
 
 export class AssetRegistry {
   private readonly byId = new Map<string, AssetDefinition>();
@@ -65,7 +66,8 @@ export class AssetRegistry {
    * replaces an earlier upload under the same id.
    */
   registerUploaded(input: AssetDefinitionInput): AssetDefinition {
-    if (input.numericId < UPLOADED_MAP_ASSET_MIN || input.numericId > UPLOADED_MAP_ASSET_MAX) throw new AssetRegistryError(`uploaded asset id ${input.numericId} outside its range`);
+    const studio = input.numericId >= STUDIO_MODEL_ASSET_MIN && input.numericId <= STUDIO_MODEL_ASSET_MAX;
+    if (!studio && (input.numericId < UPLOADED_MAP_ASSET_MIN || input.numericId > UPLOADED_MAP_ASSET_MAX)) throw new AssetRegistryError(`uploaded asset id ${input.numericId} outside its range`);
     const old = this.byNumeric.get(input.numericId);
     if (old) { this.byNumeric.delete(old.numericId); this.byId.delete(old.id); }
     const frozen = this.frozen;

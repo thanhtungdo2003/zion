@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AssetRegistry } from '@zion/assets';
+import type { AssetDefinitionInput, AssetRegistry } from '@zion/assets';
 import { BATTLE_MAP } from '@zion/shared';
 import { GENERATOR_VERSION, authoredMapSchema, normalizeSeed, type AuthoredMap } from '@zion/worldgen';
 import type { Db } from '../db/pool';
@@ -39,7 +39,16 @@ export class BattleMapService {
     private readonly cacheSize: number,
     private readonly log: Logger,
     private readonly createMatch: (world: WorldService, worldId: string) => GameServer,
+    /** Runtime-registered models a map may place (Model Studio): its workers and players get them. */
+    private readonly extraAssets: () => AssetDefinitionInput[] = () => [],
   ) {}
+
+  /** The runtime models a map places (its parts or their composites). */
+  private usedAssets(map: AuthoredMap): AssetDefinitionInput[] {
+    const ids = new Set<number>();
+    for (const p of map.placed ?? []) for (const q of p.parts) ids.add(q.asset);
+    return this.extraAssets().filter((d) => ids.has(d.numericId));
+  }
 
   async load(): Promise<void> {
     try {
@@ -55,7 +64,7 @@ export class BattleMapService {
 
   private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string): Promise<Entry> {
     const size = map.terrainGrid?.size ?? BATTLE_MAP.sizeChunks * 32;
-    const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, 1, this.cacheSize, this.log);
+    const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, 1, this.cacheSize, this.log, this.usedAssets(map));
     await world.start();
     const worldId = `br-${id}-${updatedAt.replace(/\D/g, '').slice(0, 14)}`;
     const pool = new MatchPool(() => this.createMatch(world, worldId), this.log.child({ module: `battle-map-${id}` }), 6);

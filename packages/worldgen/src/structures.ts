@@ -605,6 +605,21 @@ export function structureChunkProps(gen: WorldGenerator, cx: number, cz: number)
       const group = p.group ? (hash3(s.gid, p.group, 0, 0x9e1) & 0x7fffffff) || 1 : 0;
       out.push({ asset: p.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(y), rot: quantizeRotation(p.yaw + s.yaw), scale: quantizeScale(p.scale), group });
     }
+    // Models placed with a part wherever it goes (a Model Studio house's furniture and garden):
+    // checked per chunk on their own, they may stand in a neighbouring chunk of their part.
+    for (const p of s.parts) {
+      const composite = gen.registry.byNumericId(p.asset)?.composite;
+      if (!composite) continue;
+      const px = s.x + p.x * c + p.z * sn, pz = s.z - p.x * sn + p.z * c;
+      const yaw = p.yaw + s.yaw, cy = Math.cos(yaw), sy = Math.sin(yaw);
+      for (const q of composite) {
+        const x = px + (q.x * cy + q.z * sy) * p.scale, z = pz + (-q.x * sy + q.z * cy) * p.scale;
+        if (x < ox || x >= ox + CHUNK_SIZE || z < oz || z >= oz + CHUNK_SIZE) continue;
+        const rel = p.y + q.y * p.scale;
+        const y = rel > 0.05 ? s.y + rel : gen.heightAt(x, z);
+        out.push({ asset: q.asset, lx: quantizeLocal(x - ox), lz: quantizeLocal(z - oz), yq: quantizeHeight(y), rot: quantizeRotation(q.yaw + yaw), scale: quantizeScale(Math.max(.5, Math.min(2, q.scale * p.scale))), group: 0 });
+      }
+    }
   }
   return out;
 }

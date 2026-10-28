@@ -29,6 +29,7 @@ import type { HandStudioStore } from '../repositories/hand-studio';
 import { registerGearFitRoutes } from './routes/gear-fit';
 import { registerDesktopRoutes } from './routes/desktop';
 import { registerWaveRoutes, type WaveBackend } from './routes/waves';
+import { registerModelStudioRoutes, type ModelStudioDeps } from './routes/model-studio';
 import type { AppearanceStore } from '../repositories/accounts';
 
 export interface HttpDeps {
@@ -64,6 +65,8 @@ export interface HttpDeps {
   health: HealthProvider;
   /** Camp Studio backend (absent = studio routes disabled). */
   studio?: StudioBackend;
+  /** Model Studio (projects, AI agent, published models). */
+  modelStudio?: ModelStudioDeps;
 }
 
 declare module 'fastify' {
@@ -169,6 +172,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     });
   }
   registerStudioRoutes(app, deps);
+  if (deps.modelStudio) registerModelStudioRoutes(app, deps, deps.modelStudio);
   return app;
 }
 

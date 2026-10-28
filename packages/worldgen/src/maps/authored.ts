@@ -36,7 +36,7 @@ export interface MapArea { id: string; name: string; kind: MapZone['kind']; x: n
 
 interface RoadProbe { roadDistance: number; roadHeight: number; roadAlong: number; roadHalfWidth?: number }
 interface Host {
-  readonly config?: { battleIsland?: AuthoredMap; generatorVersion?: number };
+  readonly config?: { battleIsland?: AuthoredMap; generatorVersion?: number; studioHouses?: ReadonlyArray<{ asset: number; radius: number }> };
   readonly worldSize: number; readonly seaLevel: number; readonly seed: number; heightAt(x: number, z: number): number;
   readonly roads?: { query(x: number, z: number, out: RoadProbe): void } | null;
 }
@@ -774,7 +774,14 @@ function buildDistricts(map: AuthoredMap, world: AuthoredWorld): GroundStructure
       [BUILDING_ASSET.houseSmall, 1750, 2560, .4], [BUILDING_ASSET.house, 1700, 2500, .5], [BUILDING_ASSET.favela, 2200, 2470, 2.6],
       [BUILDING_ASSET.houseLarge, 1930, 2915, .3], [BUILDING_ASSET.houseSmall, 2040, 2930, 2.8], [BUILDING_ASSET.house, 1780, 2880, 1.2],
     ];
-    for (const [asset, x, z, yaw] of homes) { const k = new Kit(); k.house(asset, 0, 0, yaw); site('house_small', x, z, 14, k); }
+    const trial = world.host.config?.studioHouses ?? [];
+    homes.forEach(([asset, x, z, yaw], i) => {
+      const k = new Kit();
+      // Model Studio houses on trial take every other plot (their own footprint and yard).
+      const studio = trial.length && i % 2 === 0 ? trial[(i / 2) % trial.length]! : null;
+      if (studio) { k.house(studio.asset, 0, 0, yaw); site('house_small', x, z, Math.max(14, studio.radius + 1), k); return; }
+      k.house(asset, 0, 0, yaw); site('house_small', x, z, 14, k);
+    });
   }
 
   /* --- Military base: walled compound on the northern shoulder of the spine. */

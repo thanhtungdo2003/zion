@@ -49,6 +49,16 @@ const envSchema = z
     TURN_URLS: csv.optional(),
     TURN_SECRET: z.string().min(16).optional(),
 
+    /**
+     * Model Studio AI agent: an OpenAI-compatible chat endpoint (as model-generator uses). Unset
+     * key = the agent runs its built-in planner only. Never sent to browsers.
+     */
+    AI_API_KEY: z.string().min(8).optional(),
+    AI_BASE_URL: z.string().url().default('https://ai.mangso.net/v1'),
+    AI_MODEL: z.string().min(1).max(120).default('cx/gpt-5.6-sol'),
+    AI_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(900_000).default(180_000),
+    AI_MAX_RETRIES: z.coerce.number().int().min(1).max(6).default(3),
+
     WORLD_ID: z.string().regex(/^[a-z0-9_-]{1,32}$/).default('main'),
     WORLD_SEED: z.string().max(128).optional(),
     WORLD_SIZE_CHUNKS: z.coerce.number().int().min(16).max(512).default(128),

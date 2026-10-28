@@ -19,3 +19,4 @@ export * from './road-assets';
 export * from './rock-assets';
 export * from './furniture-assets';
 export * from './uploaded-maps';
+export * from './model-studio/game-asset';

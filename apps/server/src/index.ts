@@ -38,6 +38,9 @@ import { GUARD_POSTS } from './game/camp-guards';
 import { AuthService } from './security/auth-service';
 import { TokenService } from './security/tokens';
 import { WorldService } from './world/world-service';
+import { ModelStudioStore } from './model-studio/store';
+import { ModelAgent } from './model-studio/agent';
+import { LlmClient } from './model-studio/llm';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL, config.LOG_PRETTY);
@@ -118,7 +121,16 @@ async function main(): Promise<void> {
     initialWorldTimeMs: record.worldTimeMs,
   });
 
-  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale' }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger);
+  // Model Studio: published models join the registry (and their collision) before any world.
+  const modelStudio = new ModelStudioStore(db, registry);
+  await modelStudio.load((asset, err) => logger.warn({ asset, err }, 'model studio asset skipped (invalid)')).catch((err: unknown) => logger.warn({ err }, 'model studio not loaded'));
+  // Trial of Model Studio houses on the built-in island (Studio setting; applied at start).
+  const trialRow = await db.query<{ value: { assets?: number[] } }>(`SELECT value FROM server_settings WHERE key = 'model_studio_trial'`).catch(() => ({ rows: [] as Array<{ value: { assets?: number[] } }> }));
+  const trialAssets = (trialRow.rows[0]?.value.assets ?? []).filter((a) => modelStudio.publishedModel(a)).slice(0, 16);
+  const studioHouses = trialAssets.map((asset) => ({ asset, radius: (modelStudio.publishedModel(asset)!.def as { bounds: { radius: number } }).bounds.radius }));
+  const battleWorldId = studioHouses.length ? `${BATTLE_MAP.id}-trial-${trialAssets.join('-')}` : BATTLE_MAP.id;
+  if (studioHouses.length) logger.info({ assets: trialAssets }, 'battle royale island: Model Studio houses on trial');
+  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', ...(studioHouses.length ? { studioHouses } : {}) }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger, modelStudio.definitions());
   await battleWorld.start();
   // Battle royale squads are separate from survival teams: three players, kept in memory.
   const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
@@ -126,7 +138,7 @@ async function main(): Promise<void> {
   // "Play" is matched into a match still gathering players (see MatchPool).
   let vehicleJolt: boolean | null = null;
   const battlePool = new MatchPool(() => {
-    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: BATTLE_MAP.id, initialWorldTimeMs: 0, mode: 'battle-royale' });
+    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: battleWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   }, logger.child({ module: 'battle-matches' }));
@@ -135,7 +147,7 @@ async function main(): Promise<void> {
     const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
-  });
+  }, () => modelStudio.definitions());
   await battleMaps.load();
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
   // Infection maps come from the Studio; new matches are built on the active one.
@@ -182,9 +194,9 @@ async function main(): Promise<void> {
     void infectionMaps.sweep(new Set([infectionPool, ...infectionPools.values()].flatMap((p) => p.matches.map((m) => m.worldService))));
   }, 60_000).unref();
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
-  const battleAtlas = atlasProvider(battleWorld.generator, BATTLE_MAP.id);
+  const battleAtlas = atlasProvider(battleWorld.generator, battleWorldId);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
-  const battleTiles = atlasTileProvider(battleWorld.generator, BATTLE_MAP.id);
+  const battleTiles = atlasTileProvider(battleWorld.generator, battleWorldId);
 
   const savedLife = await db.query<{ state: LifeWorld }>('SELECT state FROM world_base_life WHERE world_id = $1', [config.WORLD_ID]);
   if (savedLife.rows[0]) game.lifeWorld = savedLife.rows[0].state;
@@ -227,7 +239,21 @@ async function main(): Promise<void> {
     logger.error({ err }, 'failed to load camp studio layout (using default)');
   }
 
+  const llm = config.AI_API_KEY ? new LlmClient({ apiKey: config.AI_API_KEY, baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, timeoutMs: config.AI_TIMEOUT_MS, retries: config.AI_MAX_RETRIES, temperature: .3 }) : null;
+  const modelAgent = new ModelAgent(modelStudio, llm, () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }));
+  logger.info({ ai: !!llm, model: llm ? config.AI_MODEL : null }, 'model studio agent ready');
+
   const app = await buildHttpApp({
+    modelStudio: {
+      store: modelStudio, agent: modelAgent,
+      trial: {
+        get: () => ({ active: trialAssets, saved: trialAssets }),
+        set: async (assets: number[]) => {
+          await db.query(`INSERT INTO server_settings (key, value) VALUES ('model_studio_trial', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ assets })]);
+          return { active: trialAssets, saved: assets, restartRequired: JSON.stringify(assets) !== JSON.stringify(trialAssets) };
+        },
+      },
+    },
     appearances: accounts,
     news: new NewsRepository(db),
     customWeapons,

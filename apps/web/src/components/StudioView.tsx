@@ -526,6 +526,7 @@ export default function StudioView() {
           <nav className="studio-nav" aria-label="Các xưởng">
             <span className="on" aria-current="page"><Icon name="lucide:tent" /> Căn cứ</span>
             <Link href="/studio/world"><Icon name="lucide:map" /> Thế giới</Link>
+            <Link href="/studio/models"><Icon name="lucide:box" /> Model</Link>
             <Link href="/studio/weapons"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
             <Link href="/studio/gear"><Icon name="game-icons:backpack" /> Trang bị</Link>
             <Link href="/studio/hands"><Icon name="lucide:hand" /> Bàn tay</Link>

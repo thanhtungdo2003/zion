@@ -129,6 +129,11 @@ export const assetDefinitionSchema = z
       .default({}),
     placement: placementRuleSchema.optional(),
     tags: z.array(z.string().max(32)).max(16).default([]),
+    /**
+     * Other models placed with this one wherever it is placed (a Model Studio house's furniture
+     * and garden trees: shared game models drawn instanced), relative to its origin.
+     */
+    composite: z.array(z.object({ asset: z.number().int().min(1).max(65535), x: z.number().finite(), y: z.number().finite(), z: z.number().finite(), yaw: z.number().finite(), scale: z.number().min(.5).max(2) }).strict()).max(512).optional(),
   })
   .strict();
 
