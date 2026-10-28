@@ -7,6 +7,7 @@ export * from './evaluate';
 export * from './build';
 export * from './furniture';
 export * from './house';
+export * from './plans';
 export * from './validate';
 export * from './png';
 export * from './texture-maps';

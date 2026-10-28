@@ -441,3 +441,117 @@ export function roofMesh(style: string, width: number, depth: number, rise: numb
   }
   return b.build();
 }
+
+/** A planar face wound so its normal points along `out` (no winding mistakes in built shapes). */
+function orientedFace(b: MeshBuilder, pts: V3[], out: V3): void {
+  const n = faceNormal(pts);
+  if (!n) return;
+  b.face(n[0] * out[0] + n[1] * out[1] + n[2] * out[2] < 0 ? [...pts].reverse() : pts);
+}
+
+/** A vertical prism over a convex footprint (x, z corners), from `y0` up to `y1`. */
+function prism(b: MeshBuilder, foot: Array<[number, number]>, y0: number, y1: number): void {
+  if (y1 - y0 < 1e-4) return;
+  const cx = foot.reduce((s, p) => s + p[0], 0) / foot.length, cz = foot.reduce((s, p) => s + p[1], 0) / foot.length;
+  orientedFace(b, foot.map(([x, z]) => [x, y1, z] as V3), [0, 1, 0]);
+  orientedFace(b, foot.map(([x, z]) => [x, y0, z] as V3), [0, -1, 0]);
+  for (let i = 0; i < foot.length; i++) {
+    const [ax, az] = foot[i]!, [bx, bz] = foot[(i + 1) % foot.length]!;
+    orientedFace(b, [[ax, y0, az], [bx, y0, bz], [bx, y1, bz], [ax, y1, az]], [(ax + bx) / 2 - cx, 0, (az + bz) / 2 - cz]);
+  }
+}
+
+/** A sloped beam from (x0, z0) at top height y0 to (x1, z1) at y1: `w` wide, `d` deep below its top. */
+function slopedBeam(b: MeshBuilder, x0: number, z0: number, y0: number, x1: number, z1: number, y1: number, w: number, d: number): void {
+  const len = Math.hypot(x1 - x0, z1 - z0) || 1, px = -(z1 - z0) / len * w / 2, pz = (x1 - x0) / len * w / 2;
+  const tl: V3 = [x0 - px, y0, z0 - pz], tr: V3 = [x0 + px, y0, z0 + pz], tl1: V3 = [x1 - px, y1, z1 - pz], tr1: V3 = [x1 + px, y1, z1 + pz];
+  const dn = (p: V3): V3 => [p[0], p[1] - d, p[2]];
+  const mid: V3 = [(x0 + x1) / 2, (y0 + y1) / 2 - d / 2, (z0 + z1) / 2];
+  const face = (pts: V3[]) => {
+    const c = pts.reduce((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length, s[2] + p[2] / pts.length] as V3, [0, 0, 0] as V3);
+    orientedFace(b, pts, [c[0] - mid[0], c[1] - mid[1], c[2] - mid[2]]);
+  };
+  face([tl, tr, tr1, tl1]); face([dn(tl), dn(tr), dn(tr1), dn(tl1)]);
+  face([tl, tl1, dn(tl1), dn(tl)]); face([tr, tr1, dn(tr1), dn(tr)]);
+  face([tl, tr, dn(tr), dn(tl)]); face([tl1, tr1, dn(tr1), dn(tl1)]);
+}
+
+export interface StairDesign {
+  width: number; rise: number; run: number; steps: number;
+  shape?: 'straight' | 'l' | 'u' | 'spiral'; style?: 'solid' | 'stringer' | 'open';
+  turn?: 'left' | 'right'; landing?: number; treadThickness?: number; railing?: boolean;
+}
+
+/** Footprint of a spiral flight (post at its centre): the square it needs. */
+export const spiralRadius = (width: number) => Math.max(.9, width + .15);
+
+/**
+ * A designed flight of stairs climbing from z = 0 toward +z (x across, centred), its first tread
+ * edge at the origin: straight, L (quarter turn on a square landing), U (half turn, the second
+ * flight beside the first) or spiral round a post; solid (filled under), stringer (treads
+ * between side beams) or open (floating treads on a central beam); with a handrail on posts.
+ * `run` is the horizontal length of one tread times the steps (the treads' depth comes from it).
+ * Slot 'main' is the treads, landings and fill, 'rail' the beams, post and handrail.
+ */
+export function stairsDesign(d: StairDesign): MeshPart[] {
+  const main = new MeshBuilder(), rail = new MeshBuilder();
+  const n = Math.max(1, Math.round(d.steps)), r = d.rise / n, W = d.width / 2, style = d.style ?? 'solid', shape = d.shape ?? 'straight';
+  const t = Math.min(d.treadThickness ?? .05, r), turn = d.turn === 'left' ? -1 : 1;
+  const g = d.run / n;
+  const pieces: Array<{ foot: Array<[number, number]>; top: number }> = [];
+  const flights: Array<{ x: number; z: number; dx: number; dz: number; count: number; first: number }> = [];
+  const rect = (cx: number, cz: number, dx: number, dz: number, along: number, across: number): Array<[number, number]> => {
+    const px = -dz, pz = dx, a = along / 2, c = across / 2;
+    return [[cx - dx * a - px * c, cz - dz * a - pz * c], [cx + dx * a - px * c, cz + dz * a - pz * c], [cx + dx * a + px * c, cz + dz * a + pz * c], [cx - dx * a + px * c, cz - dz * a + pz * c]];
+  };
+  const flight = (x: number, z: number, dx: number, dz: number, count: number, first: number) => {
+    if (count < 1) return;
+    flights.push({ x, z, dx, dz, count, first });
+    for (let i = 0; i < count; i++) pieces.push({ foot: rect(x + dx * (i + .5) * g, z + dz * (i + .5) * g, dx, dz, g, d.width), top: (first + i + 1) * r });
+  };
+  const R = spiralRadius(d.width), spiralStep = Math.PI * 2 / Math.max(10, Math.min(16, n)) * turn;
+  if (shape === 'spiral') {
+    const r0 = .12;
+    for (let i = 0; i < n; i++) {
+      const a0 = i * spiralStep - Math.PI / 2, a1 = a0 + spiralStep * 1.04;
+      pieces.push({ foot: [[Math.cos(a0) * r0, R + Math.sin(a0) * r0], [Math.cos(a0) * R, R + Math.sin(a0) * R], [Math.cos(a1) * R, R + Math.sin(a1) * R], [Math.cos(a1) * r0, R + Math.sin(a1) * r0]], top: (i + 1) * r });
+    }
+    prism(rail, Array.from({ length: 8 }, (_, k) => [Math.cos(k * Math.PI / 4) * r0, R + Math.sin(k * Math.PI / 4) * r0] as [number, number]), 0, d.rise + 1);
+  } else if (shape === 'straight') flight(0, 0, 0, 1, n, 0);
+  else {
+    const n1 = Math.ceil((n - 1) / 2), n2 = n - 1 - n1, L = d.landing ?? d.width, lz = n1 * g, ly = (n1 + 1) * r;
+    flight(0, 0, 0, 1, n1, 0);
+    if (shape === 'l') {
+      // A square landing, then the second flight leaves it sideways.
+      pieces.push({ foot: rect(0, lz + L / 2, 0, 1, L, d.width), top: ly });
+      flight(turn * W, lz + L / 2, turn, 0, n2, n1 + 1);
+    } else {
+      const gap = .1, off = turn * (d.width + gap);
+      pieces.push({ foot: rect(off / 2, lz + L / 2, 0, 1, L, d.width * 2 + gap), top: ly });
+      flight(off, lz, 0, -1, n2, n1 + 1);
+    }
+  }
+  for (const p of pieces) prism(main, p.foot, style === 'solid' ? 0 : p.top - t, p.top);
+  for (const f of flights) {
+    const len = f.count * g, x1 = f.x + f.dx * len, z1 = f.z + f.dz * len, y0 = f.first * r, y1 = (f.first + f.count) * r, px = -f.dz, pz = f.dx;
+    if (style === 'stringer') for (const side of [-1, 1]) {
+      const ox = px * side * (W + .03), oz = pz * side * (W + .03);
+      slopedBeam(rail, f.x + ox, f.z + oz, y0 + .12, x1 + ox, z1 + oz, y1 + .12, .06, .3);
+    }
+    if (style === 'open') slopedBeam(rail, f.x, f.z, y0 + r - t, x1, z1, y1 - t, .16, .22);
+  }
+  if (d.railing !== false) {
+    if (shape === 'spiral') {
+      for (let i = 0; i < n; i += 2) { const a = i * spiralStep - Math.PI / 2 + spiralStep / 2, x = Math.cos(a) * (R - .05), z = R + Math.sin(a) * (R - .05), y = (i + 1) * r; prism(rail, rect(x, z, 1, 0, .04, .04), y - t, y + .9); }
+    } else for (const f of flights) {
+      // Handrail on the outside of the turn: posts every other tread, the rail 0.9 m above the nosings.
+      const side = shape === 'straight' ? 1 : -turn, px = -f.dz * side * (W - .04), pz = f.dx * side * (W - .04), len = f.count * g;
+      for (let i = 0; i <= f.count; i += 2) {
+        const k = Math.min(i, f.count - 1), x = f.x + f.dx * (k + .5) * g + px, z = f.z + f.dz * (k + .5) * g + pz, y = (f.first + k + 1) * r;
+        prism(rail, rect(x, z, 1, 0, .04, .04), y, y + .9);
+      }
+      slopedBeam(rail, f.x + px, f.z + pz, (f.first + 1) * r + .95, f.x + f.dx * len + px, f.z + f.dz * len + pz, (f.first + f.count) * r + .95, .05, .05);
+    }
+  }
+  return [{ slot: 'main', mesh: main.build() }, { slot: 'rail', mesh: rail.build() }];
+}

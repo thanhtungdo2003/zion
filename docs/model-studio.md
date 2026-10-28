@@ -46,6 +46,27 @@ Server environment (fallback):
 
 The key is sent only in the Authorization header and is redacted from errors.
 
+## Buildings: floor plans first
+
+With the language model, the agent designs every building itself. The whole-house generator stays for the "Sinh nhà" button and the offline planner. It works storey by storey from the ground up:
+
+1. **`draw_floor_plan`** draws one storey:
+   - Rooms are rectangles; an L-shaped room is several rectangles with one name.
+   - Walls are centre lines with material, thickness and openings measured along them.
+   - Stairs: straight/L/U/spiral × solid/stringer/open, with a railing. Step count and run follow the storey height.
+   - Voids are stairwells over the flight below.
+2. **The review** comes back with the plan. It checks:
+   - rooms that are too small or overlap, or are missing a wall;
+   - doors a person cannot pass, and rooms nobody can reach from the entrance or the arrival of the stairs;
+   - an exterior outline that is not closed;
+   - stairs outside the rooms, a missing stairwell above them, or an arrival point stuck against a wall;
+   - an elevation that does not match the storey below.
+3. **`build_floor`** builds exactly the plan: a slab per room with the wells cut, walls with their openings (exterior walls turn their outer material outside), and the stairs. It refuses while the plan has errors.
+
+Plans live in the project (`doc.plans`) and are drawn in the 3D view at their storey's height: rooms tinted by use with name and area, walls, doors (green), windows (blue), stairs (orange, climb arrow), wells (red). Drawn storeys not built yet are bright; built ones fade. A toolbar button toggles them, and the inspector lists each storey with its review errors.
+
+While the agent runs, the view follows its work live, plans included. Editing waits until it ends. Stopping it keeps what it built as a version, and undo brings back what was there before.
+
 ## Textures
 
 Each material uses one of these:

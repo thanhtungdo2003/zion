@@ -70,6 +70,9 @@ export type Transform = z.infer<typeof transformSchema>;
 export const PRIMITIVE_SHAPES = ['box', 'cylinder', 'cone', 'sphere', 'plane', 'wedge', 'torus', 'capsule'] as const;
 export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number];
 
+export const STAIR_SHAPES = ['straight', 'l', 'u', 'spiral'] as const;
+export const STAIR_STYLES = ['solid', 'stringer', 'open'] as const;
+
 export const OPENING_KINDS = ['door', 'window', 'arch', 'hole'] as const;
 export const openingSchema = z.object({
   kind: z.enum(OPENING_KINDS),
@@ -121,6 +124,18 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     ...nodeBase, kind: z.literal('stairs'),
     width: finite.min(.3).max(20), rise: finite.min(.05).max(40), run: finite.min(.1).max(80), steps: z.number().int().min(1).max(200),
     material: z.string().max(64),
+    /** Plan of the flight: straight; L (quarter turn at a landing); U (half turn); spiral round a post. */
+    shape: z.enum(STAIR_SHAPES).optional(),
+    /** solid (filled under), stringer (treads between two side beams), open (floating treads on a central beam). */
+    style: z.enum(STAIR_STYLES).optional(),
+    /** Which way an L/U/spiral turns going up. */
+    turn: z.enum(['left', 'right']).optional(),
+    /** Landing depth at the turn (m). */
+    landing: finite.min(.5).max(6).optional(),
+    treadThickness: finite.min(.02).max(.4).optional(),
+    railing: z.boolean().optional(),
+    /** Railing and beams material (else the stairs material). */
+    railMaterial: z.string().max(64).optional(),
   }).strict(),
   z.object({
     ...nodeBase, kind: z.literal('slab'),
@@ -135,6 +150,42 @@ export const nodeSchema = z.discriminatedUnion('kind', [
   z.object({ ...nodeBase, kind: z.literal('import'), file: z.string().min(1).max(64), fileName: z.string().max(200).optional() }).strict(),
 ]);
 export type ModelNode = z.infer<typeof nodeSchema>;
+
+const pt = z.tuple([finite, finite]);
+/**
+ * A floor plan: the layout of one storey drawn before it is built — rooms (rectangles in plan,
+ * x/z metres, several per L-shaped room), walls as centre lines with their openings, stairs and
+ * the voids left for stairwells. The plan is shown in the 3D view at its elevation, checked
+ * (closed rooms, reachable doors, climbable stairs, wells over flights), then built into parts.
+ */
+export const planSchema = z.object({
+  level: z.number().int().min(-5).max(80),
+  name: z.string().min(1).max(80),
+  /** Height of this storey's finished floor (m). */
+  elevation: finite.min(-20).max(400),
+  /** Floor to ceiling (m). */
+  height: finite.min(1.8).max(20),
+  slab: finite.min(.05).max(1),
+  rooms: z.array(z.object({ id: z.string().min(1).max(40), name: z.string().min(1).max(60), type: z.string().max(30), x0: finite, z0: finite, x1: finite, z1: finite, floorMaterial: z.string().max(64).optional() }).strict()).max(60),
+  walls: z.array(z.object({
+    id: z.string().min(1).max(40), a: pt, b: pt, thickness: finite.min(.05).max(2), height: finite.min(.3).max(30).optional(),
+    material: z.string().max(64), innerMaterial: z.string().max(64).optional(), exterior: z.boolean(),
+    openings: z.array(z.object({ kind: z.enum(OPENING_KINDS), at: finite, width: finite.min(.2).max(20), height: finite.min(.2).max(20), sill: finite.min(0).max(20) }).strict()).max(24),
+  }).strict()).max(200),
+  stairs: z.array(z.object({
+    id: z.string().min(1).max(40), x: finite, z: finite, width: finite.min(.6).max(6),
+    /** Compass direction the flight climbs: +z (s), −z (n), +x (e), −x (w). */
+    direction: z.enum(['n', 's', 'e', 'w']),
+    shape: z.enum(STAIR_SHAPES), style: z.enum(STAIR_STYLES), turn: z.enum(['left', 'right']).optional(),
+    material: z.string().max(64), railing: z.boolean().optional(),
+  }).strict()).max(8),
+  /** Openings in this floor (stairwells over the flight below). */
+  voids: z.array(z.object({ x0: finite, z0: finite, x1: finite, z1: finite }).strict()).max(12),
+  notes: z.string().max(2000).optional(),
+  /** The group the plan was built into (absent: drawn, not built yet). */
+  built: z.string().max(64).optional(),
+}).strict();
+export type FloorPlan = z.infer<typeof planSchema>;
 export type NodeKind = ModelNode['kind'];
 
 export const ASSET_KINDS = ['building', 'prop', 'rock', 'vegetation', 'furniture', 'vehicle', 'weapon', 'other'] as const;
@@ -148,6 +199,8 @@ export const modelDocSchema = z.object({
   materials: z.array(materialSchema).max(128),
   /** Settlement lot class a published building fills (World Studio, map generation). */
   lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(),
+  /** Floor plans, one per storey (drawn first, then built). */
+  plans: z.array(planSchema).max(80).optional(),
   notes: z.string().max(4000).optional(),
 }).strict().superRefine((doc, ctx) => {
   const ids = new Set<string>();

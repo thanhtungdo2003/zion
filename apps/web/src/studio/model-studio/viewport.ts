@@ -11,6 +11,7 @@ import { createDefaultRegistry, type AssetRegistry } from '@zion/assets';
 import { collides, materialTextures, nodeMeshes, type MeshData, type ModelDoc, type ModelMaterial, type ModelNode, type Transform } from '@zion/assets/model-studio';
 import { AssetLibrary } from '@/game/render/asset-library';
 import { studioFetch } from '@/lib/api';
+import { buildPlanOverlay, disposeOverlay } from './plan-overlay';
 
 /**
  * The Model Studio's 3D view: the project drawn as the game will draw it (PBR materials with
@@ -318,7 +319,22 @@ export class ModelViewport {
     }
     this.applyMode();
     this.refreshSelection();
+    this.updatePlans(doc);
   }
+
+  private planKey = '';
+  private planOverlay: Group | null = null;
+  private plansVisible = true;
+  /** The floor plans in the view (rebuilt only when they change). */
+  private updatePlans(doc: ModelDoc): void {
+    const key = JSON.stringify(doc.plans ?? []);
+    if (key === this.planKey) return;
+    this.planKey = key;
+    if (this.planOverlay) { this.planOverlay.removeFromParent(); disposeOverlay(this.planOverlay); }
+    this.planOverlay = doc.plans?.length ? buildPlanOverlay(doc) : null;
+    if (this.planOverlay) { this.planOverlay.visible = this.plansVisible; this.scene.add(this.planOverlay); }
+  }
+  setPlansVisible(on: boolean): void { this.plansVisible = on; if (this.planOverlay) this.planOverlay.visible = on; }
 
   private addAsset(target: Group, asset: number): void {
     const fill = () => {

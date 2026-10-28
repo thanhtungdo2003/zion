@@ -68,6 +68,8 @@ export default function ModelStudio() {
   const undo = useRef<ModelDoc[]>([]), redo = useRef<ModelDoc[]>([]);
   const view = useRef<ModelViewport | null>(null), host = useRef<HTMLDivElement>(null);
   const docRef = useRef<ModelDoc | null>(null);
+  const agentRunning = useRef(false);
+  const [plansOn, setPlansOn] = useState(true);
   docRef.current = doc;
 
   const flash = useCallback((text: string, bad = false) => { setToast({ text, bad }); window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), bad ? 9000 : 4500); }, []);
@@ -118,6 +120,8 @@ export default function ModelStudio() {
   const mutate: Mutate = useCallback((labelText, fn) => {
     const cur = docRef.current;
     if (!cur || preview !== null) return;
+    // The agent is building: the view follows its work; edits wait until it ends or is stopped.
+    if (agentRunning.current) { flash('AI đang dựng — chờ xong hoặc bấm Dừng rồi sửa.', true); return; }
     const next = structuredClone(cur);
     fn(next);
     try { parseDoc(next); } catch (err) { flash(`Thay đổi không hợp lệ (${labelText}): ${(err as Error).message}`, true); return; }
@@ -174,6 +178,8 @@ export default function ModelStudio() {
   useEffect(() => { if (doc) view.current?.setDoc(doc); }, [doc]);
   useEffect(() => { view.current?.select(selected, gizmo, space, snapOn ? snap : null); }, [selected, gizmo, space, snapOn, snap, doc]);
   useEffect(() => { view.current?.setMode(mode); }, [mode]);
+  useEffect(() => { view.current?.setPlansVisible(plansOn); }, [plansOn]);
+  useEffect(() => { agentRunning.current = !!job && !job.finished; }, [job]);
   useEffect(() => { view.current?.setGrid(grid, snapOn ? Math.max(.1, snap.move) * 4 : 1); }, [grid, snapOn, snap.move]);
 
   const report = useMemo(() => (doc ? validateDoc(doc, { asset: (id) => view.current?.registry.byNumericId(id), files: new Set(project?.files.map((f) => f.id) ?? []) }) : null), [doc, project?.files]);
@@ -300,29 +306,34 @@ export default function ModelStudio() {
       if (dirty) await save();
       const r = await msApi.agentStart(project.id, prompt.trim());
       setSteps([]); setAgentOpen(true);
-      setJob({ id: r.job, status: 'running', mode: r.mode as 'ai', model: r.model, prompt: prompt.trim(), steps: [], total: 0, summary: null, issues: [], savedVersion: null, saveError: null, usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, publishRequests: [] });
+      setJob({ id: r.job, status: 'running', mode: r.mode as 'ai', model: r.model, prompt: prompt.trim(), steps: [], total: 0, summary: null, issues: [], savedVersion: null, saveError: null, usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, publishRequests: [], revision: 0, finished: false });
     } catch (err) { fail(err); }
   })();
   useEffect(() => {
-    if (!job || job.status !== 'running') return;
-    let stop = false, after = 0;
+    if (!job || job.finished) return;
+    let stop = false, after = 0, rev = 0;
+    // What was there before: one undo brings it back, however much the agent built.
+    const before = docRef.current;
     const poll = async () => {
       while (!stop) {
         try {
-          const j = await msApi.agentGet(job.id, after);
+          const j = await msApi.agentGet(job.id, after, false, rev);
           after = j.total;
           if (j.steps.length) setSteps((cur) => [...cur, ...j.steps]);
-          if (j.status !== 'running') {
+          // The work in progress, live: each floor plan and storey as the agent makes it.
+          if (j.doc && !j.finished) { rev = j.revision; setDoc(j.doc); }
+          if (j.status !== 'running') setJob((cur) => (cur && cur.status !== j.status ? { ...cur, status: j.status } : cur));
+          if (j.finished) {
             setJob(j);
             // The agent's work: saved as a version on the server (undo still brings back what was before).
             if (j.savedVersion && project) {
               const p = await msApi.get(project.id);
-              if (docRef.current) { undo.current.push(docRef.current); redo.current = []; }
+              if (before) { undo.current.push(before); redo.current = []; }
               setDoc(p.doc); setVersion(p.version); setDirty(false); setVersions(await msApi.versions(project.id));
               requestAnimationFrame(() => view.current?.focusSelection());
-            } else if (j.status === 'done' && j.saveError) {
+            } else if (j.saveError) {
               const full = await msApi.agentGet(job.id, j.total, true);
-              if (full.doc && docRef.current) { undo.current.push(docRef.current); setDoc(full.doc); setDirty(true); }
+              if (full.doc && before) { undo.current.push(before); setDoc(full.doc); setDirty(true); }
               flash(`Agent xong nhưng chưa lưu được: ${j.saveError}`, true);
             }
             return;
@@ -334,7 +345,7 @@ export default function ModelStudio() {
     void poll();
     return () => { stop = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.id, job?.status]);
+  }, [job?.id, job?.finished]);
 
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [steps.length]);
@@ -410,6 +421,7 @@ export default function ModelStudio() {
                 <option value="lit">PBR</option><option value="clay">Đất sét</option><option value="wire">Khung lưới</option><option value="uv">Kiểm tra UV</option><option value="collision">Va chạm</option>
               </select>
               <button className={`${s.ibtn} ${grid ? s.on : ''}`} title="Lưới" onClick={() => setGrid(!grid)}><Icon name="lucide:grid-3x3" /></button>
+              <button className={`${s.ibtn} ${plansOn ? s.on : ''}`} title="Bản vẽ mặt bằng" onClick={() => setPlansOn(!plansOn)}><Icon name="lucide:map" /></button>
             </div>
           </div>
         )}

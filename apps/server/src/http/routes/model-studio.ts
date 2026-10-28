@@ -221,7 +221,7 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
       return { job: job.id, mode: job.mode, model: job.model ?? null };
     } catch (err) { return fail(reply, err); }
   });
-  app.get<{ Params: { job: string }; Querystring: { after?: string; doc?: string } }>('/api/studio/models/agent/:job', pre, async (req, reply) => {
+  app.get<{ Params: { job: string }; Querystring: { after?: string; doc?: string; rev?: string } }>('/api/studio/models/agent/:job', pre, async (req, reply) => {
     const job = agent.get(req.params.job);
     if (!job) return reply.code(404).send({ error: 'not_found', message: 'Không có tác vụ.' });
     reply.header('cache-control', 'no-store');
@@ -231,7 +231,9 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
       steps: job.steps.slice(after), total: job.steps.length, summary: job.summary ?? null, issues: job.issues ?? [],
       savedVersion: job.savedVersion ?? null, saveError: job.saveError ?? null, usage: job.usage,
       publishRequests: job.publishRequests.map((r) => ({ id: r.id, lotClass: r.lotClass ?? null, replaceAsset: r.replaceAsset ?? null, note: r.note })),
-      ...(req.query.doc === '1' && job.status !== 'running' ? { doc: job.doc } : {}),
+      revision: job.revision, finished: job.finishedAt !== undefined,
+      // The work in progress while it runs (only when it changed since the caller's revision), the result after.
+      ...((req.query.doc === '1' && job.status !== 'running') || (req.query.rev !== undefined && Number(req.query.rev) < job.revision) ? { doc: job.doc } : {}),
     };
   });
   app.post<{ Params: { job: string } }>('/api/studio/models/agent/:job/cancel', pre, async (req) => ({ ok: agent.cancel(req.params.job) }));

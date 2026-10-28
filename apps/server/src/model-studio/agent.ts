@@ -38,18 +38,22 @@ export interface AgentJob {
   steps: AgentStep[]; doc: ModelDoc; startedAt: number; finishedAt?: number;
   summary?: string; issues?: string[]; savedVersion?: number; saveError?: string;
   usage: { prompt: number; completion: number; total: number; turns: number };
+  /** Bumped whenever the work-in-progress document changes (the Studio shows it live). */
+  revision: number;
   publishRequests: PublishRequest[];
 }
 
 const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Model Studio của game thế giới mở Zion (dựng kiến trúc, nội thất, cảnh quan) (renderer three.js, PBR). Bạn KHÔNG tự viết lưới tam giác: mọi thay đổi phải gọi tool. Đơn vị mét, +y hướng lên, model đứng trên y = 0, mặt trước hướng +z. Góc xoay tính bằng ĐỘ.
 
-Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch các phần độc lập; (4) gọi tool để tạo/lắp ghép/gán vật liệu PBR; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
+Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch; (4) dựng bằng tool; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
+
+CÔNG TRÌNH (nhà, chung cư, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ kiến trúc, không có mẫu dựng sẵn. Làm TỪNG TẦNG TỪ DƯỚI LÊN: với mỗi tầng, draw_floor_plan trước (phòng nào ở đâu, kích thước, tường nào bằng vật liệu gì, cửa đi/cửa sổ ở đâu, cầu thang kiểu gì, giếng thang trên cầu thang tầng dưới) → đọc phần kiểm tra, vẽ lại cho tới khi hết lỗi → build_floor → rồi mới sang bản vẽ tầng kế. Bản vẽ hiện lên khung 3D cho người dùng theo dõi, nên mỗi lượt chỉ làm một tầng. Thiết kế cho đúng công năng và phong cách của yêu cầu: hình khối (chữ nhật, chữ L, chữ U, lệch tầng), bố cục phòng, kích thước, cửa sổ theo mặt đứng — mỗi công trình khác nhau. Cầu thang chọn dạng và kiểu theo công trình (straight/l/u/spiral × solid/stringer/open, có lan can), không dùng mãi một kiểu. Sau các tầng: mái/tầng thượng (create_geometry roof hoặc slab + lan can), cửa cánh (box mỏng trong lỗ cửa), nội thất (create_geometry furniture hoặc model game), texture thật cho mọi bề mặt chính.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
 
 Texture: mỗi bề mặt chính (tường ngoài, tường trong, sàn, mái, khung, đồ gỗ, kim loại) PHẢI có bộ texture thật hợp phong cách của yêu cầu — tự suy ra vẻ ngoài cần có rồi find_texture (query tiếng Anh) → download_texture, hoặc paint_texture khi thư viện không có. Ví dụ: biệt thự → "smooth white plaster", "polished concrete", "marble floor", "dark wood"; nhà xưởng bỏ hoang → "cracked dirty concrete", "rusty corrugated metal", "peeling paint"; nhà gỗ → "weathered wood planks". Không để bề mặt chính dùng texture sinh tự động của preset; mỗi dự án chọn texture riêng theo yêu cầu, không lặp lại một bộ quen thuộc.
 
-Nguyên tắc: nhà ở dùng create_geometry type "house" (đủ phòng, cửa, cửa sổ, cầu thang, mái, nội thất, sân vườn) rồi tinh chỉnh; tái dùng model game (cây, bàn ghế, xe…) bằng assemble_model; vật liệu chọn từ preset thật rồi chỉnh roughness/metalness theo vật liệu thực (metalness gần như 0 hoặc 1), thêm wear/dirt/moss/cracks theo tuổi và phong cách — không chỉ đổi màu; giữ số vật liệu ít để giảm draw call; cửa ≥ 0.9×2.1 m, bậc ≤ 0.19 m. Không xóa phần ngoài phạm vi yêu cầu. Không bao giờ tự xuất bản vào game.
+Nguyên tắc: tái dùng model game (cây, bàn ghế, xe…) bằng assemble_model; vật liệu chọn từ preset thật rồi chỉnh roughness/metalness theo vật liệu thực (metalness gần như 0 hoặc 1), thêm wear/dirt/moss/cracks theo tuổi và phong cách — không chỉ đổi màu; giữ số vật liệu ít để giảm draw call; cửa ≥ 0.9×2.1 m, bậc ≤ 0.19 m. Không xóa phần ngoài phạm vi yêu cầu. Không bao giờ tự xuất bản vào game.
 
 Mỗi lượt trả về DUY NHẤT một JSON object:
 {"thought": "suy luận ngắn", "plan": ["bước…"] (lượt đầu), "actions": [{"tool": "tên", "args": {…}}], "done": false}
@@ -89,7 +93,7 @@ export class ModelAgent {
     const llm = this.client();
     const job: AgentJob = {
       id: randomUUID(), projectId, prompt, status: 'running', mode: llm && !opts.offline ? 'ai' : 'offline', ...(llm && !opts.offline ? { model: llm.config.model } : {}),
-      steps: [], doc: structuredClone(doc), startedAt: Date.now(), usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, publishRequests: [],
+      steps: [], doc: structuredClone(doc), startedAt: Date.now(), usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, revision: 0, publishRequests: [],
     };
     this.jobs.set(job.id, job);
     const ctrl = new AbortController();
@@ -109,7 +113,7 @@ export class ModelAgent {
     if (!job || job.status !== 'running') return false;
     this.controllers.get(id)?.abort();
     job.status = 'cancelled';
-    this.step(job, 'info', 'Admin đã dừng agent; thay đổi chưa được lưu.');
+    this.step(job, 'info', 'Admin đã dừng agent; phần đã làm được lưu thành một phiên bản (hoàn tác được).');
     return true;
   }
 
@@ -132,6 +136,8 @@ export class ModelAgent {
   private host(job: AgentJob, version: { current: number }): ToolHost {
     return {
       assets: this.catalog(),
+      // The language model designs every building itself; the built-in planner keeps the house generator.
+      designOnly: job.mode === 'ai',
       save: async (doc, note) => {
         const r = await this.store.save(job.projectId, doc, version.current, { snapshot: true, note: `AI: ${note}`.slice(0, 200), author: 'agent' });
         version.current = r.version;
@@ -159,6 +165,7 @@ export class ModelAgent {
   private async exec(job: AgentJob, state: ToolState, tool: string, args: unknown, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) throw new Error('cancelled');
     const r = await runTool(tool, args, state);
+    if (r.ok && state.changed) { job.doc = state.doc; job.revision++; }
     this.step(job, 'tool', r.ok ? `${tool} ✓` : `${tool} ✗ ${r.error}`, { tool, args, ok: r.ok, result: r.ok ? clip(r.result) : r.error });
     return r.ok ? clip(r.result) : { error: r.error };
   }
@@ -194,11 +201,12 @@ export class ModelAgent {
     // Final check, and the agent's work saved as a version the admin can roll back.
     const final = summarizeReport(validateDoc(state.doc, { asset: (id) => { const a = state.host.assets.find((x) => x.id === id); return a ? { name: a.name, model: { kind: a.model }, bounds: { radius: a.radius, height: a.height } } : undefined; } }));
     job.issues = [...(job.issues ?? []), ...final.errors, ...final.warnings].slice(0, 30);
-    if (job.status === 'cancelled') return;
+    const stopped = job.status === 'cancelled';
     if (state.changed) {
-      try { const r = await this.store.save(job.projectId, state.doc, version.current, { snapshot: true, note: `AI: ${job.prompt}`.slice(0, 200), author: 'agent' }); job.savedVersion = r.version; }
+      try { const r = await this.store.save(job.projectId, state.doc, version.current, { snapshot: true, note: `AI${stopped ? ' (dừng giữa chừng)' : ''}: ${job.prompt}`.slice(0, 200), author: 'agent' }); job.savedVersion = r.version; }
       catch (err) { job.saveError = (err as Error).message; }
     }
+    if (stopped) return;
     job.summary ??= offlineSummary(state.doc, final);
     job.status = 'done';
     this.step(job, 'done', job.summary);

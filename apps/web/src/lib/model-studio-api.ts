@@ -13,6 +13,8 @@ export interface AgentJob {
   steps: AgentStep[]; total: number; summary: string | null; issues: string[]; savedVersion: number | null; saveError: string | null;
   usage: { prompt: number; completion: number; total: number; turns: number };
   publishRequests: Array<{ id: string; lotClass: string | null; replaceAsset: number | null; note: string }>;
+  revision: number;
+  finished: boolean;
   doc?: ModelDoc;
 }
 
@@ -60,7 +62,7 @@ export const msApi = {
   trial: () => studioJson<{ active: number[]; saved: number[] }>(`${P}/trial`),
   setTrial: (assets: number[]) => studioJson<{ active: number[]; saved: number[]; restartRequired: boolean }>(`${P}/trial`, json({ assets, confirm: true })),
   agentStart: (project: string, prompt: string, offline?: boolean) => studioJson<{ job: string; mode: string; model: string | null }>(`${P}/agent`, json({ project, prompt, ...(offline ? { offline: true } : {}) })),
-  agentGet: (job: string, after: number, doc = false) => studioJson<AgentJob>(`${P}/agent/${job}?after=${after}${doc ? '&doc=1' : ''}`),
+  agentGet: (job: string, after: number, doc = false, rev?: number) => studioJson<AgentJob>(`${P}/agent/${job}?after=${after}${doc ? '&doc=1' : ''}${rev !== undefined ? `&rev=${rev}` : ''}`),
   agentCancel: (job: string) => studioJson<{ ok: boolean }>(`${P}/agent/${job}/cancel`, json({})),
   agentPublish: (job: string, request: string, confirm: boolean) => studioJson<unknown>(`${P}/agent/${job}/publish/${request}`, json({ confirm })),
 };

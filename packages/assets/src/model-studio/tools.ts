@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
-import { ASSET_KINDS, PRIMITIVE_SHAPES, TEXTURE_PATTERNS, subtree, type ModelDoc, type ModelNode } from './doc';
+import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type ModelDoc, type ModelNode } from './doc';
+import { buildPlan, checkPlan, planSummary } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
@@ -32,6 +33,8 @@ export interface ToolHost {
   requestPublish?: (doc: ModelDoc, options: { lotClass?: string; replaceAsset?: number; note: string }) => Promise<{ request: string }>;
   /** Optional external research (documentation search). */
   research?: (query: string) => Promise<string[]>;
+  /** The AI designs every building itself: the whole-house generator is not offered. */
+  designOnly?: boolean;
   /** Real texture sets: a PBR library to search and download, and AI painting. */
   textures?: {
     canPaint: boolean;
@@ -172,12 +175,12 @@ export const TOOLS: ToolDefinition<never>[] = [
     name: 'create_geometry', permission: 'edit',
     description: [
       'Tạo hình học procedural. type:',
-      '- house: cả ngôi nhà (phòng, tường có cửa/cửa sổ, sàn, cầu thang, trần, mái, nội thất, sân vườn, hàng rào). params: { style: rural|modern|postapoc|cottage, floors: 1|2, rooms: [living|kitchen|dining|bedroom|bathroom|storage…], abandonedYears: 0–300, furniture, yard, fence, garden: boolean, seed }',
+      '- house (chỉ khi người dùng muốn nhà mẫu nhanh; KHÔNG dùng khi thiết kế công trình): cả ngôi nhà (phòng, tường có cửa/cửa sổ, sàn, cầu thang, trần, mái, nội thất, sân vườn, hàng rào). params: { style: rural|modern|postapoc|cottage, floors: 1|2, rooms: [living|kitchen|dining|bedroom|bathroom|storage…], abandonedYears: 0–300, furniture, yard, fence, garden: boolean, seed }',
       '- rock: một tảng đá tự nhiên. params: { width, height, depth, roughness 0–1, layers 0–1, detail 1–5, seed }',
       '- rock_formation: cụm đá (một tảng chính + đá vệ tinh). params: { size (m), count, seed, roughness, layers }',
       `- primitive: params.shape ∈ ${PRIMITIVE_SHAPES.join('|')}; box {width,height,depth}, cylinder {radius,height,segments}, cone {radius,radiusTop,height}, sphere {radius}, plane {width,depth}, wedge {width,height,depth,ridge}, torus {radius,tube}, capsule {radius,height}`,
       '- wall: { length, height, thickness, openings: [{kind: door|window|arch|hole, offset, width, height, sill}] } (dọc trục x, mặt +z là mặt ngoài)',
-      '- slab: { width, depth, thickness, holes: [{x,z,width,depth}] }; stairs: { width, rise, run, steps } (đi lên theo +z); roof: { style: gable|hip|shed|flat, width, depth, rise, overhang, thickness, damage, seed }',
+      '- slab: { width, depth, thickness, holes: [{x,z,width,depth}] }; stairs: { width, rise, run, steps, shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, landing, railing, railMaterial } (đi lên theo +z); roof: { style: gable|hip|shed|flat, width, depth, rise, overhang, thickness, damage, seed }',
       `- furniture: params.kind ∈ ${FURNITURE_KINDS.join('|')} (gốc ở giữa mép sau, quay mặt +z)`,
       'Mọi kiểu đều nhận name, parent, material (id vật liệu đã có hoặc tên preset), position [x,y,z] m, rotation [x,y,z] độ, scale.',
     ].join('\n'),
@@ -202,6 +205,7 @@ export const TOOLS: ToolDefinition<never>[] = [
       s.changed = true;
       switch (a.type) {
         case 'house': {
+          if (s.host.designOnly) throw new Error('Không dùng bộ sinh nhà dựng sẵn: tự thiết kế từng tầng bằng draw_floor_plan rồi build_floor.');
           const rooms = Array.isArray(p.rooms) ? (p.rooms as string[]).filter((r): r is typeof ROOM_TYPES[number] => (ROOM_TYPES as readonly string[]).includes(r)) : undefined;
           const r = generateHouse(s.doc, {
             seed: num('seed', Date.now() % 100000), style: (['rural', 'modern', 'postapoc', 'cottage'] as const).find((x) => x === p.style) ?? 'rural',
@@ -240,7 +244,14 @@ export const TOOLS: ToolDefinition<never>[] = [
         case 'slab': return { node: b.slab(a.name ?? 'Sàn', parent, num('width', 4), num('depth', 4), num('thickness', .15), Array.isArray(p.holes) ? p.holes as never : [], mat('concrete'), at) };
         case 'stairs': {
           const rise = num('rise', 2.9), steps = Math.max(1, Math.round(num('steps', Math.round(rise / .18))));
-          return { node: b.stairs(a.name ?? 'Cầu thang', parent, num('width', 1), rise, num('run', steps * .27), steps, mat('wood_oak'), at) };
+          const id = b.stairs(a.name ?? 'Cầu thang', parent, num('width', 1), rise, num('run', steps * .27), steps, mat('wood_oak'), at);
+          const n = s.doc.nodes.find((x) => x.id === id);
+          const pick = <T extends string>(v: unknown, list: readonly T[]) => (list as readonly unknown[]).includes(v) ? v as T : undefined;
+          if (n && n.kind === 'stairs') {
+            const shape = pick(p.shape, STAIR_SHAPES), style = pick(p.style, STAIR_STYLES), turn = pick(p.turn, ['left', 'right'] as const);
+            Object.assign(n, { ...(shape ? { shape } : {}), ...(style ? { style } : {}), ...(turn ? { turn } : {}), ...(typeof p.landing === 'number' ? { landing: p.landing } : {}), railing: p.railing !== false, ...(typeof p.railMaterial === 'string' ? { railMaterial: p.railMaterial } : {}) });
+          }
+          return { node: id };
         }
         case 'roof': {
           const style = (['gable', 'hip', 'shed', 'flat'] as const).find((x) => x === p.style) ?? 'gable';
@@ -330,6 +341,56 @@ export const TOOLS: ToolDefinition<never>[] = [
       for (let i = 0; i < n; i++) { r += t.albedo[i * 4]!; g += t.albedo[i * 4 + 1]!; bl += t.albedo[i * 4 + 2]!; rough += t.orm[i * 4 + 1]!; metal += t.orm[i * 4 + 2]!; }
       const hex = (v: number) => Math.round(v / n).toString(16).padStart(2, '0');
       return { material: m.id, texture: m.texture, meanColor: `#${hex(r)}${hex(g)}${hex(bl)}`, meanRoughness: +(rough / n / 255).toFixed(2), meanMetalness: +(metal / n / 255).toFixed(2), maps: ['baseColor', 'normal', 'occlusion', 'roughness', 'metallic'] };
+    },
+  }),
+  defineTool({
+    name: 'draw_floor_plan', permission: 'edit',
+    description: [
+      'Vẽ (hoặc vẽ lại) bản vẽ mặt bằng một tầng TRƯỚC khi dựng; bản vẽ hiện ngay trong khung 3D ở cao độ của tầng. Trả về phần kiểm tra của kiến trúc sư: phòng chồng nhau/thiếu tường, cửa không đi qua được, phòng không tới được, cầu thang không vừa/thiếu giếng thang, cao độ lệch. Sửa đến khi hết lỗi rồi build_floor.',
+      'Toạ độ mặt bằng x, z (mét), y lên. level 0 = tầng trệt. elevation = cao độ mặt sàn hoàn thiện (mặc định: tầng dưới + chiều cao + sàn). height = sàn tới trần. slab = dày sàn.',
+      'rooms: [{id, name, type (living|bedroom|kitchen|bathroom|hall|stair|office|storage|shop|…), x0, z0, x1, z1, floorMaterial}] — phòng chữ L = nhiều hình chữ nhật cùng name.',
+      'walls: [{id, a:[x,z], b:[x,z], thickness, exterior, material, innerMaterial?, height?, openings:[{kind: door|window|arch|hole, at (m tính từ a tới tâm lỗ), width, height, sill}]}] — đường tim tường; tường ngoài tự quay mặt material ra ngoài.',
+      'stairs: [{id, x, z (điểm giữa mép bậc đầu tiên), width, direction: n|s|e|w (hướng đi lên; s = +z, e = +x), shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, material, railing}] — số bậc và chiều dài tự tính theo chiều cao lên tầng trên (bậc ≤ 18 cm, mặt bậc 27 cm); kết quả trả về chỗ cầu thang chiếm và nơi lên tới.',
+      'voids: [{x0, z0, x1, z1}] — lỗ sàn (giếng thang trên cầu thang của tầng dưới).',
+      'Vật liệu: id vật liệu đã có hoặc tên preset (concrete, brick_red, plaster_white, wood_planks, ceramic_tiles…); thay bằng texture thật sau bằng download_texture.',
+    ].join('\n'),
+    params: { level: 'int', name: 'string', elevation: 'm (tùy chọn)', height: 'm', slab: 'm', rooms: '[...]', walls: '[...]', stairs: '[...]', voids: '[...]', notes: 'string' },
+    schema: z.object({
+      level: z.number().int().min(-5).max(80), name: z.string().min(1).max(80), elevation: z.number().finite().optional(), height: z.number().min(1.8).max(20).optional(), slab: z.number().min(.05).max(1).optional(),
+      rooms: z.array(z.record(z.unknown())).max(60), walls: z.array(z.record(z.unknown())).max(200), stairs: z.array(z.record(z.unknown())).max(8).optional(), voids: z.array(z.record(z.unknown())).max(12).optional(), notes: z.string().max(2000).optional(),
+    }).strict(),
+    run: (a, s) => {
+      const plans = s.doc.plans ?? [];
+      const low = plans.find((p) => p.level === a.level - 1), old = plans.find((p) => p.level === a.level);
+      const slab = a.slab ?? old?.slab ?? (a.level === 0 ? .15 : .2), height = a.height ?? old?.height ?? 2.8;
+      const elevation = a.elevation ?? (low ? low.elevation + low.height + slab : a.level === 0 ? slab : old?.elevation ?? 0);
+      const parsed = planSchema.safeParse({
+        level: a.level, name: a.name, elevation, height, slab,
+        rooms: a.rooms, walls: (a.walls as Array<Record<string, unknown>>).map((w) => ({ openings: [], ...w })), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
+        ...(old?.built ? { built: old.built } : {}),
+      });
+      if (!parsed.success) throw new Error(`Bản vẽ sai cấu trúc: ${parsed.error.issues.slice(0, 6).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+      s.doc.plans = [...plans.filter((p) => p.level !== a.level), parsed.data].sort((x, y) => x.level - y.level);
+      s.changed = true;
+      const issues = checkPlan(s.doc, parsed.data);
+      // Redrawing a storey also changes what the storeys around it need (wells, arrivals).
+      const neighbours = s.doc.plans.filter((p) => Math.abs(p.level - a.level) === 1).flatMap((p) => checkPlan(s.doc, p).filter((i) => i.level === 'error').map((i) => `[${p.name}] ${i.message}`));
+      return { plan: planSummary(s.doc, parsed.data), errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours, next: issues.some((i) => i.level === 'error') ? 'Sửa lỗi rồi vẽ lại tầng này.' : 'Bản vẽ ổn: build_floor để dựng.' };
+    },
+  }),
+  defineTool({
+    name: 'build_floor', permission: 'edit',
+    description: 'Dựng một tầng đúng theo bản vẽ đã kiểm tra: sàn từng phòng (chừa giếng thang), tường có cửa/cửa sổ, cầu thang. Dựng lại sẽ thay phần cũ của tầng đó. Không dựng khi bản vẽ còn lỗi (trừ force).',
+    params: { level: 'int', force: 'boolean' },
+    schema: z.object({ level: z.number().int(), force: z.boolean().optional() }).strict(),
+    run: (a, s) => {
+      const plan = s.doc.plans?.find((p) => p.level === a.level);
+      if (!plan) throw new Error(`Chưa có bản vẽ tầng ${a.level}: draw_floor_plan trước.`);
+      const errors = checkPlan(s.doc, plan).filter((i) => i.level === 'error').map((i) => i.message);
+      if (errors.length && !a.force) throw new Error(`Bản vẽ còn lỗi, chưa dựng: ${errors.slice(0, 6).join(' | ')}`);
+      const r = buildPlan(s.doc, plan);
+      s.changed = true;
+      return { level: a.level, group: r.group, parts: r.parts, next: 'inspect_scene / validate_asset, rồi vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
     },
   }),
   defineTool({

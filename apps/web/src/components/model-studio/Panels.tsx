@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
-  ASSET_KINDS, MATERIAL_PRESETS, OPENING_KINDS, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
+  ASSET_KINDS, MATERIAL_PRESETS, checkPlan, OPENING_KINDS, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
   type Issue, type ModelDoc, type ModelMaterial, type ModelNode, type ValidationReport,
 } from '@zion/assets/model-studio';
 import { Icon } from '@/components/Icon';
@@ -296,6 +296,21 @@ function ModelInfo({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
       </select></div>
       <div className={s.row}><label>Ghi chú</label><textarea className={s.text} rows={3} value={doc.notes ?? ''} onChange={(e) => mutate('Ghi chú', (d) => { d.notes = e.target.value.slice(0, 4000); })} /></div>
       <p className={s.muted}>Chọn một phần trong khung 3D hoặc tab Cảnh để sửa nó.</p>
+      {!!doc.plans?.length && (
+        <div className={s.section} style={{ marginTop: 12 }}>
+          <h3>Bản vẽ mặt bằng ({doc.plans.length} tầng)</h3>
+          {[...doc.plans].sort((a, b) => b.level - a.level).map((p) => {
+            const issues = checkPlan(doc, p), errors = issues.filter((i) => i.level === 'error');
+            return (
+              <div key={p.level} className={s.card}>
+                <div className={s.row}><b>Tầng {p.level + 1}</b><span className={s.grow} style={{ flex: 1 }}>{p.name}</span><small className={s.muted}>{p.built ? 'đã dựng' : 'bản vẽ'} · +{p.elevation.toFixed(2)} m</small></div>
+                <div className={s.muted}>{p.rooms.length} phòng · {p.walls.length} tường · {p.stairs.length} cầu thang</div>
+                {errors.map((i, k) => <div key={k} className={`${s.issue} ${s.error}`}>✕ {i.message}</div>)}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
