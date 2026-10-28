@@ -305,7 +305,7 @@ const CHECKS = new Set(['validate_asset', 'inspect_scene', 'inspect_model', 'opt
  */
 const SCRUB: Array<[RegExp, string]> = [
   [/weapons?/gi, 'equipment'], [/ammo|ammunition/gi, 'supply'], [/military/gi, 'utility'], [/barbed[- _]?wire/gi, 'wire'],
-  [/guns?/gi, 'tool'], [/rifles?|pistols?|shotguns?/gi, 'tool'], [/bullets?|shells?/gi, 'part'], [/explosives?|grenades?|bombs?|c4/gi, 'device'],
+  [/guns?\b/gi, 'tool'], [/rifles?|pistols?|shotguns?/gi, 'tool'], [/bullets?|shells?\b/gi, 'part'], [/explosives?|grenades?|bombs?|c4\b/gi, 'device'],
   [/blood(y)?/gi, 'stain'], [/corpses?|dead body|bodies/gi, 'mannequin'], [/zombies?/gi, 'npc'], [/kill(s|ed|ing)?/gi, 'remove'],
   [/vũ khí/gi, 'thiết bị'], [/súng/gi, 'dụng cụ'], [/đạn/gi, 'vật tư'], [/quân sự/gi, 'kỹ thuật'], [/xác chết|thi thể/gi, 'ma-nơ-canh'], [/máu/gi, 'vết bẩn'],
 ];
