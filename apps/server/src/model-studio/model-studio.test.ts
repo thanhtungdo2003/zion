@@ -106,11 +106,51 @@ describe('model studio agent', () => {
     const { store } = fakeStore();
     const agent = new ModelAgent(store, llm, () => catalog, log);
     const done = await finish(agent, agent.start('p3', 'Tạo một cái ghế', emptyDoc(), 1).id);
-    expect(done.status).toBe('failed');
+    // A refused key stops the AI at once, but the job still ends normally (nothing is thrown away).
+    expect(done.status).toBe('done');
     expect(calls).toBe(1);
-    const err = done.steps.find((s) => s.kind === 'error')!.text;
-    expect(err).toContain('401');
-    expect(err).not.toContain('test-key-123456');
+    const why = done.steps.find((s) => s.text.includes('Tự dừng'))!.text;
+    expect(why).toContain('401');
+    expect(JSON.stringify(done)).not.toContain('test-key-123456');
+  });
+
+  it('keeps working through empty and broken AI answers, and keeps what it built', async () => {
+    // Turn 1 builds a rock; then the AI answers empty, garbage, empty; then it finishes.
+    const replies: Array<string | object> = [
+      { thought: 'Đá trước.', actions: [{ tool: 'create_geometry', args: { type: 'rock', params: { width: 2, height: 1.5, depth: 2, seed: 3 } } }] },
+      '', 'blah', '',
+      { thought: 'Xong.', done: true, summary: 'Một tảng đá.' },
+    ];
+    let turn = 0;
+    const fetchImpl = (async () => {
+      const r = replies[turn++] ?? '';
+      return new Response(JSON.stringify({ choices: [{ message: { content: typeof r === 'string' ? r : JSON.stringify(r) } }] }), { headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store, saves } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const done = await finish(agent, agent.start('p4', 'Tạo một tảng đá', emptyDoc(), 1).id);
+    expect(done.status).toBe('done');
+    expect(done.summary).toBe('Một tảng đá.');
+    expect(done.steps.filter((s) => s.text.includes('thử lại')).length).toBe(2);
+    expect(done.doc.nodes.some((n) => n.kind === 'rock')).toBe(true);
+    expect(saves).toHaveLength(1);
+  });
+
+  it('stops a runaway loop by itself and saves the work so far', async () => {
+    // The model keeps asking for the very same edit.
+    const same = { thought: 'Lại.', actions: [{ tool: 'create_geometry', args: { type: 'primitive', params: { shape: 'box', width: 1, height: 1, depth: 1 } } }] };
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(same) } }] }), { headers: { 'content-type': 'application/json' } }); }) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store, saves } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const done = await finish(agent, agent.start('p5', 'Tạo hộp', emptyDoc(), 1).id);
+    expect(done.status).toBe('done');
+    expect(calls).toBe(4);
+    expect(done.issues!.some((i) => i.includes('Agent tự dừng'))).toBe(true);
+    expect(done.doc.nodes.filter((n) => n.kind === 'primitive')).toHaveLength(3);
+    expect(saves).toHaveLength(1);
   });
 
   it('parses JSON from fenced or wrapped answers', () => {

@@ -15,7 +15,14 @@ The project document holds parameters, not baked triangles: every part stays edi
 ## Agent
 
 - The language model reasons in JSON turns: `thought`, `plan`, `actions: [{tool, args}]`, then `done`. Every change goes through a tool in `tools.ts`; results go back to the model.
-- Limits: 24 turns, 8 actions per turn, 2 repair rounds after the final validation, one job per project.
+- Errors never end a job. A failed tool goes back to the model. An empty, broken or failed AI answer is retried with a shortened conversation. Whatever was built is validated and saved as a version at the end in any case.
+- Runaway guards: the job stops by itself and keeps its work after any of these:
+  - 40 turns, 600k tokens or 25 minutes;
+  - 6 failed AI calls in a row;
+  - 3 turns in a row without a usable answer or action;
+  - the same edit repeated 4 times;
+  - the AI refusing the key or model (400/401/402/403/404).
+- Other limits: 8 actions per turn, 3 repair rounds after the final validation, one job per project.
 - The agent's result is saved as a project version (author `agent`), and undo restores what was there before.
 - Permissions: the agent edits only its project. `export_asset` with `publish: true` files a request; the admin confirms it in the Studio.
 - Without `AI_API_KEY` the built-in planner runs the same tools for houses, rocks and kit assemblies.

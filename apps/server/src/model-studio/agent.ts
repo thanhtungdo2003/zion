@@ -13,11 +13,18 @@ import type { ModelStudioStore } from './store';
  * tools. Without an AI key a built-in planner runs the same tools for the common requests
  * (houses, rocks, kit assemblies), so the studio works offline too.
  *
- * Limits: 24 turns, 8 tool calls per turn, 2 repair rounds after the final validation, one job
- * per project at a time. The agent cannot publish into the game or delete anything outside the
- * project: `export_asset` with publish only files a request the admin confirms in the Studio.
+ * Errors never end a job: a failed tool, an empty or broken AI answer, a dropped connection —
+ * each is logged, told to the model (or retried with a shorter conversation) and the work goes
+ * on; whatever was built is validated and saved as a version at the end in any case.
+ *
+ * Runaway guards (the job stops by itself, keeping its work): 40 turns, 600k tokens, 25 minutes,
+ * 6 failed AI calls in a row, 3 turns in a row without a usable answer or action, the same call
+ * repeated 4 times. Also 8 tool calls per turn, 3 repair rounds after the final validation, one
+ * job per project at a time. The agent cannot publish into the game or delete anything outside
+ * the project: `export_asset` with publish only files a request the admin confirms in the Studio.
  */
-const MAX_TURNS = 24, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 2, MAX_RESULT_CHARS = 5000;
+const MAX_TURNS = 40, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_RESULT_CHARS = 5000;
+const MAX_TOKENS = 600_000, MAX_MS = 25 * 60_000, MAX_AI_FAILURES = 6, MAX_IDLE_TURNS = 3, MAX_REPEATS = 4;
 const JOB_TTL_MS = 60 * 60 * 1000;
 
 export type StepKind = 'plan' | 'thought' | 'tool' | 'error' | 'info' | 'done';
@@ -62,7 +69,7 @@ export class ModelAgent {
   private readonly controllers = new Map<string, AbortController>();
 
   /** `llm`: the client, or where to get the current one (the key and model can change at runtime). */
-  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger) {}
+  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger, private readonly retryDelayMs = 2000) {}
 
   private client(): LlmClient | null { return typeof this.llm === 'function' ? this.llm() : this.llm; }
   get configured(): boolean { return !!this.client(); }
@@ -156,7 +163,12 @@ export class ModelAgent {
         await this.exec(job, state, s.tool, typeof s.args === 'function' ? s.args(state.doc) : s.args, signal);
       }
     } else {
-      await this.converse(job, state, signal);
+      try { await this.converse(job, state, signal); }
+      catch (err) {
+        // Unexpected: the work so far is still checked and saved below.
+        this.step(job, 'error', `Agent gặp lỗi ngoài dự kiến: ${(err as Error).message}. Giữ lại phần đã làm.`);
+        job.issues = [...(job.issues ?? []), `Agent dừng sớm: ${(err as Error).message}`];
+      }
     }
     job.doc = state.doc;
     // Final check, and the agent's work saved as a version the admin can roll back.
@@ -173,45 +185,80 @@ export class ModelAgent {
   }
 
   private async converse(job: AgentJob, state: ToolState, signal: AbortSignal): Promise<void> {
-    const llm = this.client()!;
     const report = summarizeReport(validateDoc(state.doc));
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM(toolCatalog()) },
       { role: 'user', content: JSON.stringify({ request: job.prompt, project: { name: state.doc.name, kind: state.doc.kind, nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id) }, validation: { ok: report.ok, stats: report.stats } }) },
     ];
-    let fixRounds = 0, badJson = 0;
+    const started = Date.now(), calls = new Map<string, number>();
+    let fixRounds = 0, aiFailures = 0, idle = 0;
+    const stop = (why: string) => {
+      this.step(job, 'info', `Tự dừng để tránh lặp vô hạn: ${why}. Phần đã làm vẫn được kiểm tra và lưu.`);
+      job.issues = [...(job.issues ?? []), `Agent tự dừng: ${why}`];
+    };
+    /** A shorter conversation: the request, a note of what is done so far, the last exchanges. */
+    const compact = (keep: number) => {
+      if (messages.length <= keep + 2) return;
+      const done = job.steps.filter((x) => x.kind === 'tool').map((x) => x.text).slice(-30).join('; ');
+      messages.splice(2, messages.length - 2 - keep, { role: 'user', content: JSON.stringify({ note: 'Lịch sử cũ đã được rút gọn; tiếp tục từ chỗ đang làm.', done_so_far: done, scene: sceneBrief(state) }) });
+    };
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (signal.aborted) return;
-      let reply: Record<string, unknown> | null;
+      if (job.usage.total > MAX_TOKENS) return stop(`đã dùng ${job.usage.total.toLocaleString('vi-VN')} token (giới hạn ${MAX_TOKENS.toLocaleString('vi-VN')})`);
+      if (Date.now() - started > MAX_MS) return stop(`chạy quá ${MAX_MS / 60_000} phút`);
+      const llm = this.client();
+      if (!llm) return stop('API key AI đã bị gỡ trong lúc chạy');
       let raw: string;
       try {
-        const r = await llm.complete(messages, { signal, maxTokens: 6000 });
+        const r = await llm.complete(messages, { signal, maxTokens: 16000 });
         raw = r.text;
         job.usage.turns++;
         if (r.usage) { job.usage.prompt += r.usage.prompt; job.usage.completion += r.usage.completion; job.usage.total += r.usage.total; }
-        reply = parseJsonObject(raw);
+        aiFailures = 0;
       } catch (err) {
         if (signal.aborted) return;
-        throw new Error(err instanceof LlmError ? err.message : `AI lỗi: ${(err as Error).message}`);
+        aiFailures++;
+        const msg = err instanceof LlmError ? err.message : `AI lỗi: ${(err as Error).message}`;
+        // Wrong key, no access, unknown model: retrying cannot help.
+        if (err instanceof LlmError && err.status !== undefined && [400, 401, 402, 403, 404].includes(err.status)) return stop(`AI từ chối yêu cầu (${msg}) — kiểm tra API key / model trong Cấu hình AI`);
+        if (aiFailures >= MAX_AI_FAILURES) return stop(`AI lỗi ${aiFailures} lần liên tiếp (lần cuối: ${msg})`);
+        // A long conversation is the usual cause of empty answers and timeouts: retry shorter.
+        this.step(job, 'info', `${msg} — thử lại (${aiFailures}/${MAX_AI_FAILURES - 1}) với hội thoại rút gọn.`);
+        compact(aiFailures >= 3 ? 2 : 6);
+        await new Promise((r) => setTimeout(r, Math.min(20_000, this.retryDelayMs * aiFailures)));
+        continue;
       }
+      const reply = parseJsonObject(raw);
       messages.push({ role: 'assistant', content: raw.slice(0, 12000) });
       if (!reply) {
-        if (++badJson > 2) throw new Error('AI không trả JSON hợp lệ sau 3 lần.');
-        messages.push({ role: 'user', content: 'Câu trả lời phải là MỘT JSON object đúng định dạng đã nêu, không kèm chữ khác.' });
+        if (++idle >= MAX_IDLE_TURNS) return stop(`${idle} lượt liền không có câu trả lời dùng được`);
+        this.step(job, 'info', 'AI trả lời sai định dạng JSON — nhắc lại định dạng và tiếp tục.');
+        messages.push({ role: 'user', content: 'Câu trả lời phải là MỘT JSON object đúng định dạng đã nêu, không kèm chữ khác. Tiếp tục từ chỗ đang làm.' });
         continue;
       }
       if (typeof reply.thought === 'string' && reply.thought) this.step(job, 'thought', reply.thought);
       if (Array.isArray(reply.plan) && reply.plan.length) this.step(job, 'plan', reply.plan.map((p, i) => `${i + 1}. ${String(p)}`).join('\n'));
       const actions = Array.isArray(reply.actions) ? reply.actions.slice(0, MAX_ACTIONS) as Array<{ tool?: unknown; args?: unknown }> : [];
       const results: unknown[] = [];
+      let repeated: string | null = null;
       for (const a of actions) {
         if (signal.aborted) return;
         const tool = String(a.tool ?? '');
-        results.push({ tool, result: await this.exec(job, state, tool, a.args ?? {}, signal) });
+        const sig = `${tool}:${JSON.stringify(a.args ?? {})}`, n = (calls.get(sig) ?? 0) + 1;
+        calls.set(sig, n);
+        // Checks may run again after changes; the same edit over and over is a loop.
+        if (n >= MAX_REPEATS && !CHECKS.has(tool)) { repeated = tool; break; }
+        try { results.push({ tool, result: await this.exec(job, state, tool, a.args ?? {}, signal) }); }
+        catch (err) {
+          this.step(job, 'tool', `${tool} ✗ ${(err as Error).message}`, { tool, args: a.args, ok: false });
+          results.push({ tool, result: { error: (err as Error).message } });
+        }
       }
+      if (repeated) return stop(`gọi "${repeated}" với cùng tham số ${MAX_REPEATS} lần`);
       if (actions.length) {
-        const v = summarizeReport(validateDoc(state.doc));
-        messages.push({ role: 'user', content: JSON.stringify({ results, scene: { nodes: state.doc.nodes.length, materials: state.doc.materials.length, triangles: v.stats.triangles, size: v.stats.size, errors: v.errors.slice(0, 6) } }) });
+        idle = 0;
+        messages.push({ role: 'user', content: JSON.stringify({ results, scene: sceneBrief(state) }) });
+        if (messages.length > 30) compact(16);
         continue;
       }
       if (reply.done === true) {
@@ -223,15 +270,22 @@ export class ModelAgent {
           continue;
         }
         job.summary = typeof reply.summary === 'string' ? reply.summary : undefined;
-        if (Array.isArray(reply.issues)) job.issues = reply.issues.map(String).slice(0, 20);
+        if (Array.isArray(reply.issues)) job.issues = [...(job.issues ?? []), ...reply.issues.map(String)].slice(0, 30);
         return;
       }
+      if (++idle >= MAX_IDLE_TURNS) return stop(`${idle} lượt liền không có hành động`);
       messages.push({ role: 'user', content: 'Không có action nào: gọi tool cần thiết hoặc trả {"done": true, "summary": …}.' });
-      // Keep the conversation within reach: drop old tool results, keep the system and request.
-      if (messages.length > 40) messages.splice(2, messages.length - 30);
     }
-    this.step(job, 'info', `Dừng sau ${MAX_TURNS} lượt.`);
+    stop(`đủ ${MAX_TURNS} lượt`);
   }
+}
+
+const CHECKS = new Set(['validate_asset', 'inspect_scene', 'inspect_model', 'optimize_model', 'auto_fix', 'search_assets', 'research']);
+
+/** The scene in a few numbers, sent back after every turn. */
+function sceneBrief(state: ToolState) {
+  const v = summarizeReport(validateDoc(state.doc));
+  return { nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id), triangles: v.stats.triangles, size: v.stats.size, errors: v.errors.slice(0, 6) };
 }
 
 function offlineSummary(doc: ModelDoc, v: ReturnType<typeof summarizeReport>): string {

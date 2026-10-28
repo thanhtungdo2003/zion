@@ -74,7 +74,7 @@ export class LlmClient {
       return { text, model: json.model ?? this.config.model, ...(json.usage ? { usage: { prompt: json.usage.prompt_tokens, completion: json.usage.completion_tokens, total: json.usage.total_tokens } } : {}) };
     }
     const reader = res.body!.getReader(), decoder = new TextDecoder();
-    let buf = '', text = '', model = this.config.model, usage: ChatResult['usage'], seen = 0;
+    let buf = '', text = '', reasoning = '', model = this.config.model, usage: ChatResult['usage'], seen = 0, finish = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -87,17 +87,21 @@ export class LlmClient {
         const data = line.slice(5).trim();
         if (data === '[DONE]') continue;
         try {
-          const chunk = JSON.parse(data) as { model?: string; choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+          const chunk = JSON.parse(data) as { model?: string; choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }>; usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
           if (chunk.model) model = chunk.model;
           const d = chunk.choices?.[0]?.delta;
           if (d?.content) text += d.content;
+          if (d?.reasoning_content && reasoning.length < 200_000) reasoning += d.reasoning_content;
+          if (chunk.choices?.[0]?.finish_reason) finish = chunk.choices[0].finish_reason;
           seen += (d?.content?.length ?? 0) + (d?.reasoning_content?.length ?? 0);
           if (chunk.usage) usage = { prompt: chunk.usage.prompt_tokens, completion: chunk.usage.completion_tokens, total: chunk.usage.total_tokens };
         } catch { /* keep-alive or partial line */ }
       }
       opts.onProgress?.(seen);
     }
-    if (!text.trim()) throw new LlmError('AI trả về rỗng.', undefined, true);
+    // Some gateways leave the answer in the reasoning stream: use it when it holds the JSON.
+    if (!text.trim() && reasoning.includes('{')) text = reasoning.slice(reasoning.indexOf('{'));
+    if (!text.trim()) throw new LlmError(`AI trả về rỗng${finish === 'length' ? ' (hết giới hạn token khi đang suy nghĩ)' : finish ? ` (${finish})` : ''}.`, undefined, true);
     return { text, model, ...(usage ? { usage } : {}) };
   }
 }
