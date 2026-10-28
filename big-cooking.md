@@ -1,175 +1,256 @@
-# TASK: Implement Zombie Wave Survival Mode — Party Lobby, Bot System & Leaderboards
+# TASK: BUILD AN AI-POWERED 3D MODEL STUDIO FOR GAME ADMIN
 
 ## 1. Mục tiêu
 
-Phát triển chế độ **Zombie Wave Survival** cho ZION, cho phép người chơi lập đội với bạn bè hoặc chơi một mình cùng bot. Trải nghiệm cần có nhịp độ chiến đấu nhanh, zombie ngày càng nguy hiểm theo từng wave nhưng vẫn giữ cảm giác bắn súng đã tay.
+Phân tích codebase hiện tại và trực tiếp triển khai một **AI-powered 3D Model Studio** tích hợp vào Game Admin Studio, hoạt động như một công cụ xây dựng và quản lý tài nguyên 3D chuyên nghiệp ngay trên trình duyệt.
 
-Trước khi triển khai, hãy nghiên cứu cấu trúc code, hệ thống multiplayer, menu chính, UI design system, bản đồ, combat, AI zombie và dữ liệu người chơi hiện có. Tái sử dụng kiến trúc và component phù hợp, không xây dựng một hệ thống độc lập gây trùng lặp logic.
+Bắt đầu bằng tab **Model Management**, tạo nền tảng để mở rộng AI Agent sang các hệ thống quản lý bản đồ, địa hình, animation, vũ khí và gameplay mode trong tương lai.
 
-## 2. Game mode và cơ chế Wave
+Đây phải là hệ thống hoạt động thực tế, có khả năng tạo, chỉnh sửa, lắp ghép, kiểm tra và xuất model 3D để sử dụng trực tiếp trong game. Không chỉ xây dựng UI mockup hoặc demo với dữ liệu giả.
 
-- Người chơi chiến đấu với các đợt zombie liên tiếp trên một bản đồ được chọn trước.
-- Khi bắt đầu wave, khu vực chiến đấu được khóa để ngăn người chơi rời khỏi arena.
-- Zombie xuất hiện theo từng đợt. Khi tiêu diệt toàn bộ zombie, chuyển sang giai đoạn nghỉ ngắn để người chơi loot súng, đạn, medkit và chuẩn bị cho wave tiếp theo.
-- Độ khó tăng dần qua số lượng zombie, tốc độ tiếp cận, tần suất tấn công, cách phối hợp, hướng tiếp cận và thành phần zombie.
-- Có thể bổ sung các biến thể zombie với hành vi, tốc độ, tầm tấn công hoặc kỹ năng khác nhau để tạo áp lực chiến thuật.
-- **Giữ HP cố định cho từng loại zombie.** Không tăng HP vô hạn theo wave. Người chơi cần duy trì cảm giác bắn trúng, gây sát thương rõ ràng và tiêu diệt zombie trong thời gian hợp lý.
-- Tăng độ khó chủ yếu bằng số lượng, mật độ, nhịp spawn, khả năng bao vây, sự đa dạng của kẻ địch và áp lực tài nguyên. Điều chỉnh các thông số dựa trên thời gian sống sót, tỷ lệ tiêu diệt và khả năng phối hợp của đội.
-- Khi toàn đội bị hạ, kết thúc lượt chơi, lưu kết quả và cung cấp nút chơi lại nhanh.
+## 2. Nghiên cứu codebase và tái sử dụng công nghệ hiện có
 
-## 3. Party System — Chơi cùng bạn bè hoặc bot
+Trước khi code:
 
-Người chơi có thể chọn một trong hai chế độ trước khi bắt đầu trận:
+- Phân tích kiến trúc Game Admin Studio, game engine, hệ thống render 3D, asset pipeline, định dạng model và cơ chế tải tài nguyên hiện tại.
+- Nghiên cứu dự án `D:\AEMINE_PROJECT\model-generator` để tái sử dụng cách cấu hình API key, tích hợp AI, prompt pipeline và các công nghệ tạo model đã có.
+- Tìm kiếm các thư viện, thuật toán, GitHub repositories và công cụ mã nguồn mở phù hợp với việc tạo hình học 3D, procedural modeling, UV mapping, PBR materials, texture generation và xử lý mesh.
+- Ưu tiên tái sử dụng hoặc tích hợp code thực sự hữu ích từ các dự án mã nguồn mở có giấy phép phù hợp. Đọc tài liệu, kiểm tra khả năng tương thích và tích hợp vào kiến trúc hiện tại thay vì chỉ liệt kê các thư viện.
+- Tận dụng toàn bộ thuật toán tạo địa hình, tạo bản đồ, procedural generation, hệ thống vật liệu và các AI tools/skills hiện có trong dự án.
 
-### A. Chơi cùng bạn bè
-- Cho phép tạo đội, mời bạn bè và tham gia phòng thông qua hệ thống multiplayer hiện có.
-- Đội có tối đa **4 người chơi**, bao gồm chủ phòng.
-- Bốn slot hiển thị trạng thái rõ ràng: chủ phòng, người chơi đã tham gia, slot trống và trạng thái sẵn sàng nếu hệ thống hỗ trợ.
-- Chủ phòng có quyền chọn bản đồ, bắt đầu trận và quản lý thành viên theo cơ chế quyền hạn hiện có.
-- Các thành viên phải đồng bộ cùng bản đồ, chế độ chơi và cấu hình trận.
-- Không cho bắt đầu khi chưa đáp ứng điều kiện của phòng hoặc khi trạng thái kết nối của thành viên không hợp lệ.
+Không viết lại những hệ thống đã hoạt động tốt nếu có thể mở rộng chúng an toàn.
 
-### B. Chơi cùng bot
-- Hỗ trợ chơi solo không bot hoặc thêm từ **1 đến 3 bot**.
-- Tổng số nhân vật trong đội tối đa là 4, tính cả người chơi thật và bot.
-- Có thể thêm hoặc bỏ bot trước khi bắt đầu trận.
-- Bot phải được thể hiện trực tiếp trong các slot của đội; phân biệt rõ bot và người chơi thật.
-- Bot cần có AI hỗ trợ chiến đấu thực tế: di chuyển cùng đội, tìm và tấn công zombie, phản ứng với nguy hiểm, tránh bị mắc kẹt, hỗ trợ đồng đội khi phù hợp và sử dụng tài nguyên theo khả năng của hệ thống.
-- Bot không được chỉ đứng yên, chạy theo người chơi một cách máy móc hoặc tự động tiêu diệt zombie bằng các hành vi gian lận không hợp lý.
-- Độ khó của bot nên được điều chỉnh thông qua độ chính xác, phản ứng, hành vi chiến đấu và khả năng hỗ trợ, không phải bằng cách tăng sức mạnh vô lý.
+## 3. Xây dựng tab Model Management
 
-## 4. Main Menu — Party Lobby Modal
+Thiết kế một môi trường làm việc 3D chuyên nghiệp, lấy cảm hứng từ các công cụ như Blender, Unreal Engine và các phần mềm quản lý tài nguyên game, nhưng được tối ưu để chạy trực tiếp trên trình duyệt.
 
-Thiết kế một **modal lớn xuất hiện ngay tại menu chính**, đóng vai trò là điểm bắt đầu của chế độ Zombie Wave Survival.
+### 3.1. Quản lý dự án và tài nguyên
 
-### Bố cục chính
+Admin có thể:
 
-- Modal đủ rộng để tạo cảm giác đây là một màn hình lập đội hoàn chỉnh, không phải popup nhỏ.
-- Bố cục tham khảo cách tổ chức phòng chờ của Liên Quân Mobile: đội hình thành viên là trọng tâm, thông tin trận đấu rõ ràng, các thao tác quan trọng dễ tìm.
-- Chỉ tham khảo cấu trúc và trải nghiệm sử dụng, không sao chép giao diện, hình ảnh hoặc nhận diện thương hiệu của Liên Quân.
-- Bám sát DNA giao diện hiện tại của ZION: màu sắc, typography, nền, hiệu ứng, đường viền, icon, độ tương phản, phong cách military/survival và ngôn ngữ thiết kế đang sử dụng.
-- Không tự ý đổi design system toàn game hoặc tạo ra một giao diện lạc tông.
+- Tạo, mở, đổi tên, nhân bản và xóa dự án model.
+- Import model từ GLB/GLTF và các định dạng phù hợp với pipeline hiện tại.
+- Duyệt, tìm kiếm, lọc và xem trước toàn bộ model, mesh, vật liệu, texture và asset có sẵn trong game.
+- Tạo model mới từ đầu hoặc kết hợp nhiều model, mesh và vật liệu hiện có.
+- Chỉnh sửa, thay thế, tái sử dụng và lưu phiên bản tài nguyên.
+- Quản lý dependencies giữa model, material, texture và các asset thành phần.
+- Lưu dự án, tự động lưu thay đổi và hỗ trợ undo/redo.
+- Preview model trong môi trường 3D tương tác với orbit camera, zoom, pan, ánh sáng và các chế độ hiển thị phù hợp.
 
-### A. Switch chọn chế độ
+### 3.2. 3D Editor chuyên nghiệp
 
-Đặt một **switch/segmented control lớn, nổi bật, dễ nhận biết** ở phần đầu modal để chuyển giữa:
+Xây dựng các công cụ chỉnh sửa thiết yếu:
 
-- Chơi cùng bạn bè.
-- Chơi cùng bot.
+- Scene hierarchy và quản lý các đối tượng trong scene.
+- Chọn, di chuyển, xoay, thay đổi tỷ lệ và căn chỉnh đối tượng.
+- Snap theo grid, trục tọa độ và bề mặt.
+- Ghép các thành phần thành một model hoàn chỉnh, giữ đúng transform và cấu trúc phân cấp.
+- Quản lý mesh, pivot, bounding box, collision proxy và LOD khi pipeline hỗ trợ.
+- Chỉnh sửa vật liệu, UV/texture và thông số render.
+- Hỗ trợ ánh sáng, môi trường, camera và chế độ kiểm tra chất lượng model.
 
-Trạng thái đang chọn phải có độ tương phản rõ ràng, animation chuyển trạng thái mượt và phản hồi tương tác tốt. Khi chuyển chế độ, nội dung bốn slot, các thao tác và thông tin liên quan phải cập nhật tương ứng mà không đóng modal.
+Phân biệt rõ giữa model có nhiều mesh, model lắp ghép từ nhiều asset và geometry thực sự được hợp nhất. Không tự động merge mesh nếu việc đó làm mất material, UV, hierarchy hoặc khả năng chỉnh sửa.
 
-### B. Bốn slot đội hình
+Ưu tiên hiệu năng trình duyệt, tải tài nguyên theo nhu cầu và xử lý các model lớn mà không gây treo toàn bộ Admin Studio.
 
-Hiển thị chính xác **4 ô vuông đại diện cho 4 vị trí trong đội**, có kích thước đủ lớn và bố cục cân đối.
+## 4. AI Agent – Trợ lý xây dựng model bằng ngôn ngữ tự nhiên
 
-Mỗi slot cần có:
+Đây là chức năng trọng tâm của hệ thống.
 
-- Avatar hoặc hình đại diện nhân vật.
-- Tên người chơi hoặc tên bot.
-- Trạng thái slot: trống, đang chờ, đã sẵn sàng hoặc trạng thái tương ứng.
-- Nhận diện trực quan người chơi thật, bot và chủ phòng.
-- Hiệu ứng hover, selected và transition nhất quán với UI hiện tại.
+Tích hợp một AI Agent có khả năng phân tích yêu cầu, lập kế hoạch, lựa chọn công cụ, thực thi từng bước, kiểm tra kết quả và tự sửa lỗi khi cần.
 
-Ở chế độ bạn bè, slot trống có thể dùng để mời thành viên. Ở chế độ bot, slot trống cho phép thêm bot nếu đội chưa đủ bốn vị trí. Slot phải phản ánh đúng trạng thái thực tế của phòng, không chỉ là hình ảnh trang trí.
+Cung cấp một ô nhập prompt nổi bật trong Model Studio. Admin có thể mô tả model mong muốn bằng tiếng Việt hoặc tiếng Anh.
 
-### C. Chọn bản đồ
+Ví dụ:
 
-Bổ sung khu vực chọn bản đồ ngay trong modal.
+- “Tạo một ngôi nhà hoàn chỉnh gồm phòng khách, phòng ngủ, nhà bếp và phòng ăn, sử dụng các vật liệu hiện có trong game.”
+- “Tạo một căn nhà sinh tồn có sân trước, vườn cây, hàng rào, sân sau và nội thất cơ bản. Phong cách phù hợp với bản đồ battle royale hậu tận thế.”
+- “Tạo một tảng đá lớn có hình dạng tự nhiên, bề mặt lởm chởm, nhiều lớp đá, texture chi tiết và vật liệu PBR.”
+- “Tạo một căn nhà bỏ hoang sau 200 năm, có mái hư hỏng, tường nứt, rêu, bụi bẩn và các chi tiết phù hợp với thế giới sinh tồn của game.”
+- “Từ các model tường, cửa, cửa sổ và mái nhà đang có, lắp ghép thành một căn nhà hoàn chỉnh, tối ưu số draw calls nhưng vẫn giữ chất lượng hình ảnh.”
 
-- Hiển thị danh sách hoặc các thẻ bản đồ bằng hình ảnh xem trước phù hợp.
-- Làm nổi bật bản đồ đang được chọn.
-- Có thể xem tên bản đồ và thông tin ngắn cần thiết.
-- Việc đổi bản đồ phải cập nhật cấu hình phòng và được đồng bộ với các thành viên trong đội.
-- Chỉ cho phép chọn những bản đồ được hỗ trợ bởi chế độ Wave Survival.
-- Có thể mở rộng để mỗi bản đồ có đặc trưng chiến đấu riêng, nhưng không bắt buộc tạo bản đồ mới trong task này.
+### 4.1. Quy trình hoạt động của AI Agent
 
-### D. Nút Play
+Khi nhận prompt, Agent phải:
 
-- Đặt nút **PLAY** ở vị trí dễ thấy, là hành động chính của modal.
-- Nút có kích thước, độ tương phản và trạng thái tương tác nổi bật theo design system hiện tại.
-- Ở chế độ bạn bè, chỉ chủ phòng được bắt đầu trận; các điều kiện sẵn sàng và kết nối phải được xác thực.
-- Ở chế độ bot, nút bắt đầu trận với cấu hình số lượng bot hiện tại.
-- Hiển thị trạng thái loading trong quá trình khởi tạo trận; không cho phép gửi nhiều yêu cầu bắt đầu liên tiếp.
-- Khi bắt đầu, truyền chính xác bản đồ, đội hình, chế độ chơi và số lượng bot sang hệ thống tạo trận.
+1. **Phân tích yêu cầu:** Xác định loại asset, kích thước dự kiến, phong cách, cấu trúc, mức độ chi tiết và mục đích sử dụng trong game.
+2. **Kiểm tra tài nguyên:** Tìm kiếm asset, mesh, texture, material, thuật toán và công cụ có sẵn trong dự án.
+3. **Nghiên cứu khi cần:** Tra cứu tài liệu kỹ thuật, các dự án GitHub, phương pháp procedural modeling và nguồn tham khảo trực tuyến để xác định phương pháp phù hợp.
+4. **Lập kế hoạch:** Chia model thành các thành phần có thể chỉnh sửa độc lập, xác định vật liệu, hình học, texture, ánh sáng và cách lắp ghép.
+5. **Thực thi:** Gọi các tools phù hợp để tạo geometry, ghép asset, sinh texture, cấu hình material và xây dựng scene.
+6. **Hiển thị kết quả:** Đưa model vào viewport để admin xem trực tiếp, kiểm tra và chỉnh sửa.
+7. **Tự kiểm tra:** Phát hiện mesh lỗi, mặt bị đảo, vật liệu thiếu, texture sai, tỷ lệ bất hợp lý, lỗi va chạm hoặc vấn đề tương thích với game.
+8. **Cải thiện:** Tự sửa các lỗi có thể khắc phục, sau đó hiển thị kết quả và báo cáo những vấn đề còn tồn tại.
 
-## 5. Hệ thống bảng xếp hạng — 8 bảng riêng biệt
+Agent phải thực sự thao tác trên các công cụ của hệ thống thông qua tool-calling hoặc cơ chế tương đương. Không được giả lập việc tạo model bằng cách chỉ trả về mô tả văn bản.
 
-Xây dựng hệ thống xếp hạng cho Zombie Wave Survival với **8 bảng độc lập cho mỗi bản đồ**. Không gộp kết quả của các kiểu đội hình khác nhau vào cùng một bảng.
+### 4.2. Kiến trúc Agent và bộ công cụ
 
-### A. Chơi cùng bot — 4 bảng
+Xây dựng kiến trúc mở rộng được, tách biệt phần suy luận AI khỏi các công cụ thực thi.
 
-| Bảng | Điều kiện |
-|---|---|
-| Solo | 1 người chơi, 0 bot |
-| Duo Bot | 1 người chơi, 1 bot |
-| Trio Bot | 1 người chơi, 2 bot |
-| Squad Bot | 1 người chơi, 3 bot |
+Cung cấp cho Agent những tools phù hợp như:
 
-### B. Chơi cùng bạn bè — 4 bảng
+- `search_assets`: Tìm kiếm model, mesh, texture và material hiện có.
+- `inspect_model`: Phân tích cấu trúc, kích thước, mesh, material và thông số model.
+- `create_geometry`: Tạo hình học 3D bằng procedural modeling.
+- `assemble_model`: Lắp ghép các asset thành một model hoàn chỉnh.
+- `create_or_edit_material`: Tạo và chỉnh sửa vật liệu PBR.
+- `generate_or_apply_texture`: Tạo, xử lý hoặc áp dụng texture.
+- `edit_transform`: Thay đổi vị trí, góc xoay và tỷ lệ đối tượng.
+- `inspect_scene`: Kiểm tra cấu trúc scene và các thành phần.
+- `validate_asset`: Kiểm tra tính hợp lệ và khả năng sử dụng trong game.
+- `optimize_model`: Đề xuất hoặc thực hiện các tối ưu mesh, LOD và draw calls khi phù hợp.
+- `save_project`: Lưu dự án và các thay đổi đã được phê duyệt.
+- `export_asset`: Xuất model sang định dạng tương thích với pipeline game.
 
-| Bảng | Điều kiện |
-|---|---|
-| Solo Player | 1 người chơi thật |
-| Duo Players | 2 người chơi thật |
-| Trio Players | 3 người chơi thật |
-| Full Squad | 4 người chơi thật |
+Đây là danh sách chức năng mục tiêu. Phải triển khai và kết nối từng tool với hệ thống thực tế, không chỉ tạo tên hàm hoặc giao diện giả.
 
-Trong nhóm chơi cùng bạn bè, phân loại theo **số lượng người chơi thật thực tế trong trận**. Không tính bot vào số lượng người chơi thật. Nếu hệ thống cho phép bổ sung bot vào phòng bạn bè, phải xác định rõ quy tắc phân loại trước khi triển khai; mặc định nên tách cấu hình đó khỏi bốn bảng bạn bè nêu trên.
+Agent cần có khả năng kết hợp nhiều tools trong một workflow, theo dõi trạng thái thực thi, xử lý lỗi, thử lại có giới hạn và lưu lại lịch sử thao tác để admin kiểm tra.
 
-### Quy tắc bảng xếp hạng
+## 5. Xây dựng hệ thống vật liệu PBR và texture
 
-- Mỗi bản đồ có đủ 8 bảng nói trên.
-- Tổng số bảng được quản lý là `số bản đồ hỗ trợ × 8`.
-- Khi xem bảng xếp hạng, người chơi có thể chọn bản đồ, sau đó chọn một trong 8 loại bảng.
-- Kết quả chỉ được ghi vào bảng tương ứng với bản đồ và cấu hình đội hình của trận.
-- Tiêu chí xếp hạng chính là wave cao nhất đã hoàn thành hoặc wave đạt được theo quy tắc thống nhất. Khi bằng wave, dùng các tiêu chí phụ có thể kiểm chứng như thời gian sống sót hoặc thời gian hoàn thành wave.
-- Lưu thêm các dữ liệu cần thiết để hiển thị thành tích: người chơi hoặc đội, bản đồ, loại đội hình, wave, thời gian sống sót và thời điểm đạt thành tích.
-- Nếu xếp hạng theo đội, xác định rõ cách hiển thị tên đội và thành viên; tránh tạo nhiều bản ghi trùng lặp cho cùng một thành tích.
-- Kết quả phải được xác thực phía server. Không tin dữ liệu wave, thời gian hoặc số lượng zombie do client tự gửi lên.
-- Không được để một trận chơi với 3 bot lọt vào bảng Solo hoặc bảng Full Squad của người chơi thật.
-- Thiết kế schema và API đủ linh hoạt để thêm bản đồ mà không cần tạo thủ công từng bảng vật lý riêng biệt. Dùng các trường phân loại như `mapId`, `playMode` và `teamSize` hoặc cấu trúc tương đương.
+Model phải được tạo ra với vật liệu phù hợp, không chỉ có hình khối đơn giản hoặc màu sắc phẳng.
 
-## 6. Kết nối gameplay và hệ thống hiện có
+Tích hợp hệ thống vật liệu dựa trên pipeline render hiện có, ưu tiên các thông số PBR:
 
-- Tái sử dụng hệ thống đăng nhập, bạn bè, party, matchmaking, bản đồ, combat và lưu kết quả hiện có nếu đã tồn tại.
-- Nếu thiếu một phần, triển khai bổ sung theo kiến trúc hiện tại thay vì tạo dữ liệu giả hoặc UI chỉ hoạt động ở frontend.
-- Trận đấu phải có trạng thái rõ ràng: tạo phòng, chờ thành viên, khởi tạo, đang chơi, kết thúc và lưu kết quả.
-- Server là nguồn dữ liệu có thẩm quyền đối với thành viên trong phòng, số lượng bot, tiến trình wave, trạng thái zombie và kết quả xếp hạng.
-- Xử lý các trường hợp rời phòng, mất kết nối, chủ phòng thoát, bắt đầu trận thất bại, bot không khởi tạo được và gửi yêu cầu lặp.
-- Đảm bảo cơ chế wave không phá vỡ tick loop, đồng bộ multiplayer hoặc hiệu năng của game hiện tại.
+- Base Color / Albedo.
+- Normal Map.
+- Roughness.
+- Metallic.
+- Ambient Occlusion.
+- Height hoặc Displacement nếu pipeline hỗ trợ.
+- Opacity và các thiết lập trong suốt khi cần.
 
-## 7. Yêu cầu UI/UX và chất lượng
+AI Agent phải hiểu đặc tính vật liệu thực tế để chọn thông số phù hợp.
 
-- Giao diện phải đẹp, có chiều sâu, đúng chất game survival và nhất quán với ZION.
-- Modal lập đội cần có phân cấp thị giác rõ: chọn chế độ → đội hình → bản đồ → bắt đầu trận.
-- Không nhồi nhét quá nhiều thông tin, không sử dụng quá nhiều màu nhấn hoặc hiệu ứng gây rối.
-- Animation chuyển tab, chọn slot, thêm bot và chọn bản đồ phải mượt; có trạng thái hover, active, disabled và loading phù hợp.
-- Responsive với độ phân giải mục tiêu của game.
-- Không để modal che khuất các thao tác cần thiết hoặc tạo scroll không hợp lý.
-- Các trạng thái rỗng, lỗi, loading và kết nối phải được thiết kế đầy đủ, không chỉ làm đẹp cho trường hợp thành công.
+Ví dụ:
 
-## 8. Phạm vi chưa triển khai
+- Đá tự nhiên: roughness cao, metallic gần 0, bề mặt không đồng nhất.
+- Kim loại: metallic phù hợp với loại kim loại, roughness thay đổi theo độ đánh bóng và tình trạng bề mặt.
+- Gỗ: có vân gỗ, độ nhám và màu sắc biến thiên tự nhiên.
+- Bê tông: bề mặt nhám, các vết nứt, bụi bẩn và biến thiên màu sắc.
+- Kính: sử dụng thiết lập truyền sáng hoặc trong suốt phù hợp với render pipeline.
 
-**Tạm thời bỏ qua hoàn toàn hệ thống nâng cấp dạng quân bài/roguelite**, bao gồm thiết kế card, chọn 1 trong 3 nâng cấp, hiệu ứng meme và combo giữa các nâng cấp. Không xây dựng những thành phần này như một phần của task hiện tại.
+Các giá trị trên chỉ là định hướng. Agent cần chọn thông số theo vật liệu, phong cách nghệ thuật và khả năng render thực tế, không áp dụng cứng nhắc một bộ giá trị cho mọi asset.
 
-Tập trung vào chế độ wave, party lobby, bot, chọn bản đồ và bảng xếp hạng. Giai đoạn nghỉ giữa các wave có thể dùng để loot đạn, súng và medkit theo hệ thống vật phẩm hiện có.
+Cho phép import texture pack, tái sử dụng texture hiện có, tự động gán vật liệu và kiểm tra texture bị thiếu hoặc sai định dạng.
 
-## 9. Tiêu chí nghiệm thu
+Khi tạo model mới, ưu tiên texture có độ phân giải phù hợp, UV hợp lệ và khả năng tái sử dụng material để giảm chi phí bộ nhớ.
 
-- [ ] Modal lập đội xuất hiện trực tiếp từ menu chính và bám sát giao diện ZION hiện tại.
-- [ ] Có switch lớn, rõ ràng để chuyển giữa chơi với bạn bè và chơi với bot.
-- [ ] Hiển thị đúng 4 slot; trạng thái thành viên và bot phản ánh dữ liệu thật.
-- [ ] Có thể chơi solo với 0 bot, hoặc chọn 1, 2, 3 bot; không vượt quá 4 nhân vật trong đội.
-- [ ] Có thể tạo đội và chơi cùng bạn bè với tối đa 4 người chơi thật.
-- [ ] Chọn được bản đồ trước khi bắt đầu trận.
-- [ ] Wave tăng độ khó bằng số lượng, nhịp độ, hành vi và thành phần zombie; HP của từng loại zombie không tăng vô hạn theo wave.
-- [ ] Có giai đoạn nghỉ sau wave để loot và chuẩn bị.
-- [ ] Khi đội bị hạ, kết quả được lưu và có thể chơi lại nhanh.
-- [ ] Mỗi bản đồ có đủ 8 bảng xếp hạng, phân loại chính xác theo chế độ và số lượng người chơi.
-- [ ] Kết quả xếp hạng được xác thực phía server và không bị ghi nhầm bảng.
-- [ ] Multiplayer, bot, wave và UI xử lý đầy đủ các trạng thái lỗi cơ bản.
-- [ ] Có kiểm thử cho các cấu hình đội hình, quy tắc phân bảng và luồng kết thúc trận.
-- [ ] Không làm hỏng các chế độ chơi hoặc hệ thống hiện có.
+Không được chỉ gắn một texture màu lên model rồi coi đó là vật liệu PBR hoàn chỉnh.
 
-**Cách triển khai:** Kiểm tra codebase và báo cáo ngắn kiến trúc hiện tại trước; sau đó triển khai xuyên suốt từ UI đến server, lưu trữ dữ liệu và kiểm thử. Không dừng ở mockup giao diện hoặc dữ liệu giả. Ưu tiên tái sử dụng code, tránh thay đổi ngoài phạm vi và báo rõ các giới hạn nếu hệ thống hiện tại chưa hỗ trợ một tính năng.
+## 6. Xử lý vấn đề nhà cửa hiện tại trong Battle Royale
+
+Đây là use case đầu tiên cần được giải quyết bằng hệ thống mới.
+
+Hiện tại, nhà cửa trong chế độ Battle Royale được tạo từ nhiều model mảng tường nhỏ ghép lại, khiến công trình thiếu tính tự nhiên, sai tỷ lệ, nhiều khe nối và chất lượng tổng thể thấp.
+
+Hãy kiểm tra cách các căn nhà đang được tạo, lưu trữ và render trong codebase. Sau đó xây dựng workflow để:
+
+- Tạo các căn nhà hoàn chỉnh với kiến trúc hợp lý, thay vì chỉ ghép tường một cách máy móc.
+- Tạo cấu trúc có tường, sàn, mái, cửa, cửa sổ, cầu thang và các phòng liên kết đúng không gian.
+- Tạo nội thất cơ bản theo yêu cầu như phòng khách, phòng ngủ, bếp và phòng ăn.
+- Tạo các biến thể về hình dạng, kích thước, vật liệu, mức độ hư hỏng và chi tiết trang trí.
+- Đảm bảo cửa ra vào, cửa sổ, cầu thang, sàn và mái có tỷ lệ hợp lý, không bị xuyên nhau hoặc tạo ra khoảng trống vô lý.
+- Hỗ trợ tạo sân vườn, hàng rào, cây cối, đá, đường đi và các thành phần ngoại thất.
+- Sinh collision phù hợp để nhân vật di chuyển, đi qua cửa, leo cầu thang và tương tác đúng với môi trường.
+- Đảm bảo model có thể được sử dụng trực tiếp trong hệ thống sinh bản đồ Battle Royale hiện tại.
+
+**Không phá vỡ hệ thống bản đồ hiện tại.** Hãy tạo một pipeline thay thế hoặc nâng cấp tương thích, cho phép kiểm thử các model mới trên bản đồ hiện có trước khi chuyển đổi hàng loạt.
+
+## 7. Quyền truy cập của AI Agent
+
+AI Agent cần được phép sử dụng các năng lực kỹ thuật đã có trong dự án:
+
+- Thuật toán procedural terrain và procedural map generation.
+- Hệ thống tạo geometry, mesh và các khối 3D.
+- Công cụ tạo và chỉnh sửa texture/material.
+- Asset registry và thư viện model.
+- Các AI tools, skills và workflow liên quan.
+- Tài liệu kỹ thuật và nguồn tham khảo trực tuyến.
+- Hệ thống kiểm tra, tối ưu và xuất tài nguyên.
+
+Khi cần công nghệ mới, Agent có thể nghiên cứu thư viện hoặc GitHub repository, kiểm tra license và khả năng tích hợp, sau đó đề xuất hoặc thực hiện cài đặt trong phạm vi được cho phép.
+
+Phải có ranh giới quyền hạn rõ ràng. Agent không được tự ý xóa asset gốc, ghi đè hàng loạt tài nguyên đang sử dụng hoặc thay đổi production map mà không có bước xác nhận của admin.
+
+Các thao tác phá hủy, ghi đè hoặc ảnh hưởng tới nhiều tài nguyên phải có preview, phương án rollback và xác nhận phù hợp.
+
+## 8. Tích hợp API key và AI backend
+
+Tái sử dụng cơ chế tích hợp AI từ dự án:
+
+`D:\AEMINE_PROJECT\model-generator`
+
+Trước tiên, kiểm tra cách dự án này cấu hình API key, lựa chọn model AI, gọi API và quản lý các prompt/workflow hiện có. Sau đó tái sử dụng hoặc trích xuất thành module dùng chung nếu kiến trúc cho phép.
+
+Yêu cầu:
+
+- Không hardcode API key.
+- Không để API key trong frontend hoặc bundle trình duyệt.
+- Gọi các API cần bảo mật thông qua backend.
+- Hỗ trợ cấu hình model, provider và các tính năng AI theo kiến trúc hiện tại.
+- Có timeout, xử lý lỗi, giới hạn số lần thử lại và theo dõi trạng thái tác vụ.
+- Tách riêng AI reasoning, tool execution, procedural generation và asset persistence.
+- Không giả định mô hình ngôn ngữ có thể tự sinh mesh hoặc texture nếu không có công cụ hỗ trợ tương ứng.
+- Nếu cần model tạo ảnh, texture hoặc geometry chuyên dụng, hãy kiểm tra các API và công cụ có thể sử dụng trước khi quyết định kiến trúc.
+
+Không được sao chép nguyên văn cấu hình bí mật từ dự án khác hoặc làm lộ thông tin xác thực trong log.
+
+## 9. Lưu trữ, xuất bản và tương thích game
+
+Mọi model được tạo ra phải có khả năng đi qua pipeline asset thực tế:
+
+- Lưu cấu trúc dự án, model, material, texture và metadata.
+- Theo dõi phiên bản, nguồn asset và lịch sử thay đổi.
+- Preview trước khi lưu hoặc xuất bản.
+- Validate model trước khi đưa vào game.
+- Export GLB/GLTF hoặc định dạng mà game engine hiện tại hỗ trợ.
+- Đảm bảo transform, UV, material, texture, hierarchy và collision được giữ đúng theo khả năng của định dạng.
+- Có thể đăng ký model mới vào asset registry hoặc pipeline sinh bản đồ nếu kiến trúc hiện tại hỗ trợ.
+
+Không được coi việc hiển thị được model trong viewport là bằng chứng rằng model đã sẵn sàng cho game.
+
+## 10. Tiêu chí nghiệm thu
+
+Chỉ coi task hoàn thành khi các luồng quan trọng đã hoạt động thực tế:
+
+1. Admin tạo được một dự án model mới.
+2. Admin import và xem được một model 3D thực tế.
+3. Admin có thể tìm và tái sử dụng các asset hiện có.
+4. Admin nhập prompt và AI Agent thực sự thực thi các tool để tạo hoặc lắp ghép model.
+5. Model được tạo có geometry, material và texture hợp lệ theo khả năng của pipeline.
+6. Admin có thể chỉnh sửa, lưu, tải lại và export model.
+7. Model export có thể được import trở lại mà không mất các thuộc tính quan trọng được hỗ trợ.
+8. Có thể tạo một căn nhà hoàn chỉnh với nhiều phòng, cửa, cửa sổ, mái và vật liệu phù hợp.
+9. Model có thể được kiểm tra trong môi trường Battle Royale hiện tại mà không phá vỡ bản đồ hoặc các chức năng đang hoạt động.
+10. Các lỗi, trường hợp không hỗ trợ và giới hạn kỹ thuật được báo cáo rõ ràng.
+11. Các chức năng cốt lõi có test phù hợp và không làm hỏng những chức năng hiện có.
+
+## 11. Cách triển khai
+
+Thực hiện theo thứ tự:
+
+**Phase 1 — Audit:** Phân tích codebase, dự án model-generator, renderer, asset pipeline và các thuật toán hiện có. Xác định chính xác phần có thể tái sử dụng.
+
+**Phase 2 — Core Studio:** Triển khai tab Model Management, quản lý dự án, asset browser, viewport 3D và các công cụ chỉnh sửa cốt lõi.
+
+**Phase 3 — AI Agent:** Triển khai backend Agent, tool registry, workflow execution, prompt interface, logging và cơ chế kiểm soát quyền hạn.
+
+**Phase 4 — Model Pipeline:** Hoàn thiện procedural modeling, vật liệu PBR, texture, validate, lưu trữ và export.
+
+**Phase 5 — Battle Royale Integration:** Dùng pipeline mới tạo các căn nhà hoàn chỉnh, kiểm thử trên bản đồ hiện tại và đánh giá chất lượng, hiệu năng.
+
+**Phase 6 — Testing:** Chạy test, sửa lỗi, kiểm tra khả năng tương thích và ghi lại kết quả.
+
+Sau mỗi phase, hãy kiểm tra các thay đổi và giữ hệ thống ở trạng thái có thể chạy được.
+
+## Yêu cầu cuối cùng
+
+Hãy trực tiếp đọc code, nghiên cứu công nghệ phù hợp, triển khai và kiểm thử. Không dừng lại ở việc đưa ra kế hoạch, viết tài liệu hoặc tạo một giao diện minh họa.
+
+Ưu tiên một hệ thống thực sự có thể tạo ra các model 3D chất lượng cao, có cấu trúc rõ ràng, vật liệu hợp lý, dễ chỉnh sửa và dùng được trong game.
+
+Thiết kế kiến trúc ngay từ đầu để sau này có thể mở rộng cùng AI Agent sang các tab **Map & Terrain, Animation Studio, Weapon Studio và Game Mode Management**, nhưng trước mắt phải hoàn thiện Model Management thành một module có giá trị sử dụng thực tế.
+
+Nếu gặp giới hạn kỹ thuật, hãy xác định nguyên nhân, nghiên cứu phương án thay thế và triển khai phương án khả thi nhất thay vì âm thầm bỏ qua chức năng.
