@@ -61,16 +61,19 @@ export class ModelAgent {
   private readonly jobs = new Map<string, AgentJob>();
   private readonly controllers = new Map<string, AbortController>();
 
-  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null, private readonly catalog: () => CatalogAsset[], private readonly log: Logger) {}
+  /** `llm`: the client, or where to get the current one (the key and model can change at runtime). */
+  constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger) {}
 
-  get configured(): boolean { return !!this.llm; }
-  get model(): string | null { return this.llm?.config.model ?? null; }
+  private client(): LlmClient | null { return typeof this.llm === 'function' ? this.llm() : this.llm; }
+  get configured(): boolean { return !!this.client(); }
+  get model(): string | null { return this.client()?.config.model ?? null; }
 
   start(projectId: string, prompt: string, doc: ModelDoc, baseVersion: number, opts: { offline?: boolean } = {}): AgentJob {
     this.sweep();
     if ([...this.jobs.values()].some((j) => j.projectId === projectId && j.status === 'running')) throw Object.assign(new Error('Agent đang chạy trên dự án này.'), { statusCode: 409 });
+    const llm = this.client();
     const job: AgentJob = {
-      id: randomUUID(), projectId, prompt, status: 'running', mode: this.llm && !opts.offline ? 'ai' : 'offline', ...(this.llm && !opts.offline ? { model: this.llm.config.model } : {}),
+      id: randomUUID(), projectId, prompt, status: 'running', mode: llm && !opts.offline ? 'ai' : 'offline', ...(llm && !opts.offline ? { model: llm.config.model } : {}),
       steps: [], doc: structuredClone(doc), startedAt: Date.now(), usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, publishRequests: [],
     };
     this.jobs.set(job.id, job);
@@ -142,8 +145,9 @@ export class ModelAgent {
   private async run(job: AgentJob, baseVersion: number, signal: AbortSignal): Promise<void> {
     const version = { current: baseVersion };
     const state: ToolState = { doc: job.doc, host: this.host(job, version), changed: false };
+    const llm = this.client();
     if (job.mode === 'offline') {
-      this.step(job, 'info', this.llm ? 'Chạy bằng bộ lập kế hoạch tích hợp (không gọi AI).' : 'Chưa cấu hình AI_API_KEY trên server: dùng bộ lập kế hoạch tích hợp cho các yêu cầu phổ biến (nhà, đá, lắp ghép từ model có sẵn).');
+      this.step(job, 'info', llm ? 'Chạy bằng bộ lập kế hoạch tích hợp (không gọi AI).' : 'Chưa cấu hình API key AI (Studio → Model → Cấu hình AI): dùng bộ lập kế hoạch tích hợp cho các yêu cầu phổ biến (nhà, đá, lắp ghép từ model có sẵn).');
       const plan = offlinePlan(job.prompt, state.host.assets);
       if (!plan.steps.length) throw new Error(plan.reason ?? 'Không hiểu yêu cầu ở chế độ offline. Cấu hình AI_API_KEY để dùng agent đầy đủ.');
       this.step(job, 'plan', plan.plan.map((p, i) => `${i + 1}. ${p}`).join('\n'));
@@ -169,7 +173,7 @@ export class ModelAgent {
   }
 
   private async converse(job: AgentJob, state: ToolState, signal: AbortSignal): Promise<void> {
-    const llm = this.llm!;
+    const llm = this.client()!;
     const report = summarizeReport(validateDoc(state.doc));
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM(toolCatalog()) },

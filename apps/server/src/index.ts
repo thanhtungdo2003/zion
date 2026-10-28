@@ -40,7 +40,7 @@ import { TokenService } from './security/tokens';
 import { WorldService } from './world/world-service';
 import { ModelStudioStore } from './model-studio/store';
 import { ModelAgent } from './model-studio/agent';
-import { LlmClient } from './model-studio/llm';
+import { AiSettings } from './model-studio/ai-settings';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL, config.LOG_PRETTY);
@@ -239,13 +239,15 @@ async function main(): Promise<void> {
     logger.error({ err }, 'failed to load camp studio layout (using default)');
   }
 
-  const llm = config.AI_API_KEY ? new LlmClient({ apiKey: config.AI_API_KEY, baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, timeoutMs: config.AI_TIMEOUT_MS, retries: config.AI_MAX_RETRIES, temperature: .3 }) : null;
-  const modelAgent = new ModelAgent(modelStudio, llm, () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }));
-  logger.info({ ai: !!llm, model: llm ? config.AI_MODEL : null }, 'model studio agent ready');
+  // The agent's AI connection: set in the Studio (key stored encrypted) or from AI_* in the environment.
+  const aiSettings = new AiSettings(db, config.JWT_SECRET, { ...(config.AI_API_KEY ? { apiKey: config.AI_API_KEY } : {}), baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, timeoutMs: config.AI_TIMEOUT_MS, retries: config.AI_MAX_RETRIES });
+  await aiSettings.load().catch((err: unknown) => logger.warn({ err }, 'model studio AI settings not loaded'));
+  const modelAgent = new ModelAgent(modelStudio, () => aiSettings.client(), () => registry.all().map((a) => ({ id: a.numericId, key: a.id, name: a.name, category: a.category, model: a.model.kind, tags: a.tags, radius: a.bounds.radius, height: a.bounds.height })), logger.child({ module: 'model-agent' }));
+  logger.info({ ai: aiSettings.status().configured, source: aiSettings.status().source, model: aiSettings.status().model }, 'model studio agent ready');
 
   const app = await buildHttpApp({
     modelStudio: {
-      store: modelStudio, agent: modelAgent,
+      store: modelStudio, agent: modelAgent, ai: aiSettings,
       trial: {
         get: () => ({ active: trialAssets, saved: trialAssets }),
         set: async (assets: number[]) => {

@@ -8,7 +8,7 @@ import {
 } from '@zion/assets/model-studio';
 import { Icon } from '@/components/Icon';
 import { ApiError, studioLogin } from '@/lib/api';
-import { msApi, type AgentJob, type AgentStep, type Project, type ProjectSummary, type PublishedModel, type VersionInfo } from '@/lib/model-studio-api';
+import { msApi, type AiStatus, type AgentJob, type AgentStep, type Project, type ProjectSummary, type PublishedModel, type VersionInfo } from '@/lib/model-studio-api';
 import { ModelViewport, type DisplayMode, type GizmoMode } from '@/studio/model-studio/viewport';
 import { ChecksPanel, HierarchyPanel, Inspector, LibraryPanel, MaterialPanel, ProjectsPanel, VersionsPanel, type Mutate } from './Panels';
 import s from './model-studio.module.css';
@@ -54,6 +54,7 @@ export default function ModelStudio() {
   const [stats, setStats] = useState({ triangles: 0, meshes: 0, pendingTextures: 0 });
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
   const [status, setStatus] = useState<{ ai: boolean; model: string | null } | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [published, setPublished] = useState<PublishedModel[]>([]);
   const [trial, setTrial] = useState<{ active: number[]; saved: number[] } | null>(null);
@@ -359,7 +360,7 @@ export default function ModelStudio() {
         <button className={s.tbtn} disabled={!doc || preview !== null} onClick={() => setHouseOpen(true)}><Icon name="lucide:house" /> Sinh nhà</button>
         <span className={s.spacer} />
         {preview !== null && <button className={`${s.tbtn} ${s.on}`} onClick={endPreview}>Thoát xem phiên bản</button>}
-        {status && <span className={s.muted} title={status.ai ? `AI: ${status.model}` : 'Chưa cấu hình AI_API_KEY trên server'}>{status.ai ? `AI · ${status.model}` : 'AI offline (bộ lập kế hoạch tích hợp)'}</span>}
+        {status && <button className={`${s.tbtn} ${status.ai ? '' : s.on}`} title="API key và model của AI agent" onClick={() => setAiOpen(true)}><Icon name="lucide:key-round" /> {status.ai ? `AI · ${status.model}` : 'Cấu hình AI'}</button>}
         <button className={s.tbtn} disabled={!doc || busy || preview !== null} onClick={() => void save({ note: 'Lưu thủ công' })}><Icon name="lucide:save" /> Lưu bản</button>
         <button className={`${s.tbtn} ${s.primary}`} disabled={!doc || busy} onClick={() => setRight('versions')}><Icon name="lucide:rocket" /> Xuất / Xuất bản</button>
       </header>
@@ -476,6 +477,7 @@ export default function ModelStudio() {
         <span>W/E/R · F · Ctrl+Z/Y · Ctrl+D · Ctrl+G · Del · Ctrl+S</span>
       </footer>
 
+      {aiOpen && <AiDialog close={() => setAiOpen(false)} saved={(st) => { setStatus({ ai: st.configured, model: st.configured ? st.model : null }); flash(st.configured ? `AI agent dùng ${st.model}.` : 'Đã bỏ API key: agent dùng bộ lập kế hoạch tích hợp.'); }} />}
       {houseOpen && doc && <HouseDialog close={() => setHouseOpen(false)} make={(spec) => { setHouseOpen(false); add('Sinh nhà', (b, parent) => { const r = generateHouse(b.doc, spec, parent); b.doc.kind = 'building'; flash(`Nhà ${r.floors} tầng, ${r.rooms.length} phòng, ${r.doors} cửa, ${r.windows} cửa sổ, ${r.furniture} món nội thất (${r.footprint.width}×${r.footprint.depth} m).`); return r.root; }); }} />}
     </div>
   );
@@ -549,6 +551,79 @@ function HouseDialog({ close, make }: { close(): void; make(spec: Parameters<typ
         <div className={s.modalActions}>
           <button className={s.tbtn} onClick={close}>Hủy</button>
           <button className={`${s.tbtn} ${s.primary}`} onClick={() => make({ style, floors, seed, abandonedYears: years, ...opts, rooms: Object.entries(rooms).flatMap(([r, n]) => Array.from({ length: n }, () => r as never)), name: years >= 100 ? 'Nhà bỏ hoang' : 'Ngôi nhà' })}>Sinh nhà</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The agent's AI connection: API key (sent to the server once, stored encrypted there, shown back
+ * only as its last four characters), endpoint, and the model picked from what the endpoint offers.
+ */
+function AiDialog({ close, saved }: { close(): void; saved(st: AiStatus): void }) {
+  const [st, setSt] = useState<AiStatus | null>(null);
+  const [key, setKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  const [custom, setCustom] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const loadModels = useCallback(async () => {
+    setBusy(true);
+    try { const r = await msApi.aiModels(); setModels(r.models); setListError(r.error); } catch (e) { setListError((e as Error).message); } finally { setBusy(false); }
+  }, []);
+  useEffect(() => {
+    void (async () => {
+      try { const a = await msApi.ai(); setSt(a); setBaseUrl(a.baseUrl); setModel(a.model); await loadModels(); } catch (e) { setErr((e as Error).message); }
+    })();
+  }, [loadModels]);
+  const save = async (body: { apiKey?: string; baseUrl?: string; model?: string }) => {
+    setBusy(true); setErr(null);
+    try {
+      const a = await msApi.setAi(body);
+      setSt(a); setKey('');
+      saved(a);
+      return a;
+    } catch (e) { setErr((e as Error).message); return null; } finally { setBusy(false); }
+  };
+  const options = [...new Set([...(model ? [model] : []), ...models])];
+  return (
+    <div className={s.modalBack} onClick={close}>
+      <div className={s.modal} onClick={(e) => e.stopPropagation()}>
+        <h2>Cấu hình AI cho Model Studio</h2>
+        <p className={s.muted}>
+          {st ? (st.configured ? `Đang dùng key ${st.keyHint} (${st.source === 'studio' ? 'nhập trong Studio' : 'từ biến môi trường server'}).` : 'Chưa có API key — agent đang dùng bộ lập kế hoạch tích hợp.') : 'Đang tải…'}
+          {' '}Key được gửi lên máy chủ một lần và lưu mã hóa ở đó; trình duyệt không giữ lại.
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); if (key.trim()) void save({ apiKey: key.trim(), baseUrl, ...(model ? { model } : {}) }).then((a) => { if (a) void loadModels(); }); }}>
+          <div className={s.row}><label>API key</label><input className={s.text} type="password" autoComplete="off" spellCheck={false} value={key} placeholder={st?.keyHint ? `${st.keyHint} — nhập để thay` : 'sk-…'} onChange={(e) => setKey(e.target.value)} /></div>
+          <div className={s.row}><label>Địa chỉ API</label><input className={s.text} value={baseUrl} placeholder="https://ai.mangso.net/v1" onChange={(e) => setBaseUrl(e.target.value)} /></div>
+          <div className={s.row}><label />
+            <button className={`${s.tbtn} ${s.primary}`} disabled={busy || !key.trim()}>Lưu key</button>
+            {st?.source === 'studio' && <button type="button" className={`${s.tbtn} ${s.danger}`} disabled={busy} onClick={() => { if (confirm('Xóa API key đã nhập trong Studio?')) void save({ apiKey: '' }); }}>Xóa key</button>}
+          </div>
+        </form>
+        <div className={s.section} style={{ marginTop: 12 }}>
+          <h3>Model</h3>
+          <div className={s.row}><label>Model</label>
+            {custom
+              ? <input className={s.text} value={model} placeholder="vd: cx/gpt-5.6-sol" onChange={(e) => setModel(e.target.value)} />
+              : <select className={s.select} value={model} onChange={(e) => setModel(e.target.value)}>{options.map((m) => <option key={m} value={m}>{m}</option>)}</select>}
+          </div>
+          <div className={s.row}><label />
+            <button type="button" className={s.tbtn} disabled={busy} onClick={() => void loadModels()}><Icon name="lucide:refresh-cw" /> Tải danh sách</button>
+            <button type="button" className={s.tbtn} onClick={() => setCustom(!custom)}>{custom ? 'Chọn từ danh sách' : 'Nhập tên khác'}</button>
+          </div>
+          {listError && <p className={s.muted}>⚠ {listError}</p>}
+          {!listError && models.length > 0 && <p className={s.muted}>{models.length} model từ máy chủ AI.</p>}
+        </div>
+        {err && <p style={{ color: '#ff8b80' }}>{err}</p>}
+        <div className={s.modalActions}>
+          <button className={s.tbtn} onClick={close}>Đóng</button>
+          <button className={`${s.tbtn} ${s.primary}`} disabled={busy || !model || (model === st?.model && baseUrl === st?.baseUrl)} onClick={() => void save({ model, baseUrl }).then((a) => { if (a) close(); })}>Lưu model</button>
         </div>
       </div>
     </div>

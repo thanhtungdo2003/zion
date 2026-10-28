@@ -20,7 +20,14 @@ The project document holds parameters, not baked triangles: every part stays edi
 - Permissions: the agent edits only its project. `export_asset` with `publish: true` files a request; the admin confirms it in the Studio.
 - Without `AI_API_KEY` the built-in planner runs the same tools for houses, rocks and kit assemblies.
 
-### Configuration (server environment only)
+### Configuration
+
+In the Studio: **Model → AI** button (top bar). Enter the API key, the endpoint (OpenAI-compatible), and pick the model from the list the endpoint returns (`GET /models`), or type another name.
+- The key is sent to the server once and stored encrypted (AES-256-GCM keyed from `JWT_SECRET`) in `server_settings` (`model_studio_ai`).
+- Browsers only ever see its last four characters. It isn't written to logs.
+- A key set in the Studio wins over the environment. "Xóa key" falls back to the environment.
+
+Server environment (fallback):
 
 | Variable | Default |
 |---|---|

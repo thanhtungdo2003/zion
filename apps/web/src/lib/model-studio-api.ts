@@ -16,11 +16,16 @@ export interface AgentJob {
   doc?: ModelDoc;
 }
 
+export interface AiStatus { configured: boolean; source: 'studio' | 'env' | null; keyHint: string | null; baseUrl: string; model: string }
+
 const P = '/api/studio/models';
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: JSON.stringify(body) });
 
 export const msApi = {
   status: () => studioJson<{ ai: boolean; model: string | null; published: number }>(`${P}/status`),
+  ai: () => studioJson<AiStatus>(`${P}/ai`),
+  setAi: (body: { apiKey?: string; baseUrl?: string; model?: string }) => studioJson<AiStatus>(`${P}/ai`, json(body, 'PUT')),
+  aiModels: () => studioJson<{ models: string[]; error: string | null }>(`${P}/ai/models`),
   list: (deleted = false) => studioJson<ProjectSummary[]>(`${P}/projects${deleted ? '?deleted=1' : ''}`),
   get: (id: string) => studioJson<Project>(`${P}/projects/${id}`),
   create: (name: string, doc?: ModelDoc) => studioJson<Project>(`${P}/projects`, json({ name, ...(doc ? { doc } : {}) })),

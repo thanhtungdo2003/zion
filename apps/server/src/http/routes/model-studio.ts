@@ -3,12 +3,15 @@ import { z } from 'zod';
 import type { HttpDeps } from '../app';
 import { studioGuard } from './studio';
 import type { ModelAgent } from '../../model-studio/agent';
+import type { AiSettings } from '../../model-studio/ai-settings';
 import { MAX_FILE_BYTES, type ModelStudioStore } from '../../model-studio/store';
 
 /** What the Model Studio routes need. */
 export interface ModelStudioDeps {
   store: ModelStudioStore;
   agent: ModelAgent;
+  /** The agent's AI connection (key, endpoint, model) as set in the Studio. */
+  ai?: AiSettings;
   /** Model Studio houses on trial on the built-in battle royale island (applied at server start). */
   trial?: { get(): { active: number[]; saved: number[] }; set(assets: number[]): Promise<{ active: number[]; saved: number[]; restartRequired: boolean }> };
 }
@@ -141,6 +144,29 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
     if (req.query.confirm !== '1') return reply.code(400).send({ error: 'confirm', message: 'Cần xác nhận gỡ model khỏi game (confirm=1).' });
     await store.unpublish(Number(req.params.asset));
     return { ok: true };
+  });
+
+  // --- AI connection. The key goes in, never out (only its last four characters).
+  app.get('/api/studio/models/ai', pre, async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return ms.ai?.status() ?? { configured: agent.configured, source: agent.configured ? 'env' : null, keyHint: null, baseUrl: '', model: agent.model ?? '' };
+  });
+  app.put('/api/studio/models/ai', { ...pre, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try {
+      if (!ms.ai) return reply.code(501).send({ error: 'unavailable', message: 'Không hỗ trợ.' });
+      const body = z.object({
+        apiKey: z.string().max(400).regex(/^[!-~]*$/, 'API key chỉ gồm ký tự in được, không có khoảng trắng.').optional(),
+        baseUrl: z.union([z.literal(''), z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'Địa chỉ phải là http(s).')]).optional(),
+        model: z.string().max(120).regex(/^[\w.:/@-]*$/, 'Tên model không hợp lệ.').optional(),
+      }).strict().parse(req.body);
+      const status = await ms.ai.update(body);
+      req.log.info({ source: status.source, model: status.model, baseUrl: status.baseUrl, keyChanged: body.apiKey !== undefined }, 'model studio: AI settings changed');
+      return status;
+    } catch (err) { return fail(reply, err); }
+  });
+  app.get('/api/studio/models/ai/models', { ...pre, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (_req, reply) => {
+    reply.header('cache-control', 'no-store');
+    return ms.ai ? ms.ai.listModels() : { models: agent.model ? [agent.model] : [], error: null };
   });
 
   // --- Trial on the built-in battle royale island.
