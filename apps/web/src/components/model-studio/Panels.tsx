@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
-  ASSET_KINDS, MATERIAL_PRESETS, checkPlan, OPENING_KINDS, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
+  ASSET_KINDS, MATERIAL_PRESETS, buildRoof, checkPlan, openLinks, OPENING_KINDS, placeWindows, planHash, roofCovers, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
   type Issue, type ModelDoc, type ModelMaterial, type ModelNode, type ValidationReport,
 } from '@zion/assets/model-studio';
 import { Icon } from '@/components/Icon';
@@ -305,13 +305,50 @@ function ModelInfo({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
             return (
               <div key={p.level} className={s.card}>
                 <div className={s.row}><b>Tầng {p.level + 1}</b><span className={s.grow} style={{ flex: 1 }}>{p.name}</span><small className={s.muted}>{p.built ? 'đã dựng' : 'bản vẽ'} · +{p.elevation.toFixed(2)} m</small></div>
-                <div className={s.muted}>{p.rooms.length} phòng · {p.walls.length} tường · {p.stairs.length} cầu thang</div>
+                <div className={s.muted}>{p.rooms.length} phòng · {p.walls.length} tường · {p.walls.reduce((n, w) => n + w.openings.filter((o) => o.kind === 'window').length, 0)} cửa sổ · {p.stairs.length} cầu thang · {p.approved ? (p.approved.hash === planHash(doc, p) ? 'đã duyệt' : 'đã sửa sau khi duyệt') : 'chưa duyệt'}</div>
+                {p.approved?.assumptions?.map((a, k) => <div key={k} className={s.muted}>Giả định: {a}</div>)}
                 {errors.map((i, k) => <div key={k} className={`${s.issue} ${s.error}`}>✕ {i.message}</div>)}
+                <div className={s.row}>
+                  <button className={s.tbtn} title="Cửa sổ trên tường ngoài theo nhịp mặt đứng, cỡ theo loại phòng, thẳng hàng tầng dưới, tránh cửa và góc" onClick={() => mutate(`Cửa sổ tầng ${p.level + 1}`, (d) => {
+                    const q = d.plans!.find((x) => x.level === p.level)!;
+                    placeWindows(q, d.plans!.find((x) => x.level === p.level - 1));
+                  })}>Tự sinh cửa sổ</button>
+                  <button className={s.tbtn} title="Mở cửa cho mọi phòng chưa tới được, qua hành lang/sảnh kề bên" onClick={() => mutate(`Nối phòng tầng ${p.level + 1}`, (d) => {
+                    openLinks(d.plans!.find((x) => x.level === p.level)!, []);
+                  })}>Nối phòng kín</button>
+                </div>
               </div>
             );
           })}
+          <RoofFromPlan doc={doc} mutate={mutate} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** A roof over the top storey drawn, from its footprint (L/T blocks meet in valleys). */
+function RoofFromPlan({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
+  const [style, setStyle] = useState<'gable' | 'hip' | 'shed' | 'flat'>('gable');
+  const [pitch, setPitch] = useState(30);
+  const [note, setNote] = useState('');
+  const roofMat = doc.materials.find((m) => /roof|ngói|mái|tôn|shingle/i.test(`${m.id} ${m.name}`))?.id ?? 'roof_tiles';
+  const lerp = () => {
+    let msg = '';
+    mutate('Lợp mái theo mặt bằng', (d) => {
+      try { const r = buildRoof(d, { style, pitch, material: roofMat }); const gaps = roofCovers(d); msg = `Mái ${r.rects.length} khối, chân mái +${r.eaves.toFixed(2)} m${gaps.length ? ` — ${gaps.join(', ')}` : ''}.`; } catch (e) { msg = (e as Error).message; }
+    });
+    setNote(msg);
+  };
+  return (
+    <div className={s.card}>
+      <div className={s.row}><b>Mái theo mặt bằng</b></div>
+      <div className={s.row}>
+        <select className={s.select} value={style} onChange={(e) => setStyle(e.target.value as typeof style)}>{(['gable', 'hip', 'shed', 'flat'] as const).map((k) => <option key={k} value={k}>{({ gable: 'Hai mái', hip: 'Bốn mái', shed: 'Một mái', flat: 'Mái bằng' } as const)[k]}</option>)}</select>
+        <Num value={pitch} step={5} min={0} max={60} width={56} onChange={(v) => setPitch(Math.max(0, Math.min(60, v)))} /><span className={s.muted}>°</span>
+        <button className={s.tbtn} onClick={lerp}>Lợp mái</button>
+      </div>
+      {note && <div className={s.muted}>{note}</div>}
     </div>
   );
 }

@@ -57,6 +57,27 @@ research → draw_floor_plan → automatic checks → fix and redraw
 - **Missing data:** it can stop with `need_info` to ask the admin for data it cannot verify,
   instead of guessing.
 
+## Generated geometry (from open-source research)
+
+The agent can describe a storey as rooms on a grid and links between them, and let
+`procedural.ts` produce the exact geometry. Each step is a small, deterministic port of an idea
+from an MIT-licensed project or a paper; no code was copied wholesale and nothing runs a model.
+
+| Step | Source | What we use it for |
+|---|---|---|
+| Rooms from grid bays (`roomsFromBays`) | wadi `floor-planner/src/spans.js` | Rooms tile without gaps or overlaps |
+| Seam snapping (`snapSeams`) | Text2Floorplan `_cluster_1d`, `snap_global_seams` | 2.95 / 3.0 / 3.05 become one wall line; undone if it adds overlap |
+| Walls from rooms (`wallsFromRooms`) | Text2Floorplan `revit_geometry.py`, wadi `wallsFromGraph.js` | Single-owner edge = exterior wall, shared edge = one partition, none inside an L room |
+| Doors from links (`openLinks`, `placeEntrance`) | wadi `placeDoor`, Text2Floorplan door rules and `_repair_connectivity`, Procedural-Building-Generator island merging | Doors on the shared wall, clear of corners; unreachable rooms joined to circulation, never bedroom through bedroom |
+| Windows by façade bays (`facadeBays`, `placeWindows`) | CGA shape grammar (Müller 2006): comp, repeat, occlusion, snap lines; sizes per room after Text2Floorplan | Windows only on exterior walls, evenly spaced, clear of doors and junctions, lined up with the storey below |
+| Junction and door-zone checks (`junctionBands`, `doorZone`) | Aedifex `wall-mitering.ts`, `door-clearance.ts` | No opening cuts into a corner; no door swings over stairs |
+| Roof from the footprint (`buildRoof`) | Aedifex `roof-footprint.ts`, Procedural-Building-Generator treemap footprint | L/T footprints split into blocks with one pitch, valleys where wings meet, gable ends closed |
+
+Studied but not ported: Text2Floorplan's flow-matching network (needs a 193 MB model),
+3D-GPT (no license, so only its pattern of asking per-tool questions), SceneCraft's render and
+VLM critique loop (needs a vision model and an offscreen renderer), MCP4IFC's IFC tool set
+(we do not use IFC), and Aedifex's mitred wall corners (our walls are boxes; left for later).
+
 ## Stair rules
 
 These are design values within common building codes. Check them against the codes that apply

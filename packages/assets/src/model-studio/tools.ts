@@ -6,6 +6,7 @@ import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
 import { searchKnowledge } from './knowledge';
+import { buildRoof, openLinks, placeEntrance, placeWindows, roomsFromBays, roofCovers, snapSeams, wallsFromRooms } from './procedural';
 import { MATERIAL_PRESETS, materialFromPreset, matchPreset } from './materials';
 import { Random } from './noise';
 import { materialTextures } from './textures';
@@ -397,13 +398,20 @@ export const TOOLS: ToolDefinition<never>[] = [
       'Cầu thang THIẾT KẾ RIÊNG cho công trình: width theo công năng (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), riser = chiều cao bậc tối đa (số bậc tự tính theo chiều cao tầng), tread = mặt bậc (2h + b ≈ 0.60–0.65 m), landing = chiều sâu chiếu nghỉ (≥ bề rộng vế), gap = khe giữa hai vế thang U (giếng thang hở, có lan can). Bỏ trống thì tự tính theo quy tắc của loại công trình. Một vế ≤ 18 bậc. Cầu thang đặt trong buồng thang / sảnh / hành lang (room type stair|hall|corridor), KHÔNG trong phòng chức năng; buồng thang thông ra hành lang/sảnh, không mở cửa thẳng vào phòng học/phòng ngủ.',
       'Quy trình bắt buộc: research → draw_floor_plan → đọc kiểm định (errors + stairApproval) → sửa, vẽ lại tới khi đạt → approve_floor_plan (tự đánh giá từng cầu thang) → build_floor → đọc verification.',
       'voids: [{x0, z0, x1, z1}] — lỗ sàn; để trống thì giếng thang được tự tính ĐÚNG khít cầu thang tầng dưới.',
+      'SINH HÌNH HỌC TỰ ĐỘNG (khuyên dùng, ít lỗi hơn tự viết toạ độ): grid: {cols: [{size} | {flex}], rows: [...], width?, depth?, x?, z?} = các đường lưới trục; phòng ghi cols: [i, j], rows: [k, l] (từ trục i tới j, k tới l) thay cho x0..z1 → phòng khít nhau không hở không chồng. Mép phòng lệch < 15 cm được gom về một trục. walls: "auto" (hoặc bỏ trống) → tường tự sinh trên mép phòng: mép một phòng = tường ngoài, mép chung = một vách; wallSpec: {exterior: {thickness, material, innerMaterial}, interior: {thickness, material}}. links: [{a, b, kind: door|open|arch, width}] (tên/id phòng) → cửa/lối mở trên đúng tường chung, tránh góc và chỗ nối tường; phòng nào chưa tới được sẽ tự nối vào hành lang/sảnh kề bên. entrance: tên phòng có cửa chính (tầng trệt). windows: "auto" hoặc {bay, width, height, sill} → cửa sổ chỉ trên tường ngoài, chia đều theo nhịp mặt đứng, cỡ theo loại phòng, thẳng hàng với cửa sổ tầng dưới, tránh cửa đi và góc.',
       'finishes: {plinth, plinthHeight, skirting, windowFrame, glass, sill, doorFrame, doorLeaf} — vật liệu từng bộ phận (chân tường, len chân tường, khung/kính/bậu cửa sổ, khuôn/cánh cửa); mỗi lỗ mở có thể ghi đè (frameMaterial, glassMaterial, leafMaterial, sillMaterial, leaf, open). ceilingMaterial = trần (mặt dưới sàn tầng này, tức trần tầng dưới).',
       'Mọi vật liệu PHẢI có trong bảng vật liệu (define_materials trước). Toạ độ được làm tròn theo lưới 5 cm (đơn vị đo chung của cả model): đo và đặt cho khít — cầu thang sát tường, giếng thang khít cầu thang; phần kiểm tra báo khe hở bằng cm và toạ độ cần dời.',
     ].join('\n'),
-    params: { level: 'int', name: 'string', elevation: 'm (tùy chọn)', height: 'm', slab: 'm', rooms: '[...]', walls: '[...]', stairs: '[...]', voids: '[...]', notes: 'string' },
+    params: { level: 'int', name: 'string', elevation: 'm (tùy chọn)', height: 'm', slab: 'm', grid: '{cols, rows, width?, depth?} (tùy chọn)', rooms: '[...]', walls: '[...] | "auto"', wallSpec: '{exterior, interior}', links: '[{a, b, kind}]', entrance: 'tên phòng', windows: '"auto" | {bay, width, height, sill}', stairs: '[...]', voids: '[...]', notes: 'string' },
     schema: z.object({
       level: z.number().int().min(-5).max(80), name: z.string().min(1).max(80), elevation: z.number().finite().optional(), height: z.number().min(1.8).max(20).optional(), slab: z.number().min(.05).max(1).optional(),
-      rooms: z.array(z.record(z.unknown())).max(60), walls: z.array(z.record(z.unknown())).max(200), stairs: z.array(z.record(z.unknown())).max(8).optional(), voids: z.array(z.record(z.unknown())).max(12).optional(), notes: z.string().max(2000).optional(),
+      rooms: z.array(z.record(z.unknown())).max(60), walls: z.union([z.array(z.record(z.unknown())).max(200), z.literal('auto')]).optional(),
+      grid: z.object({ cols: z.array(z.object({ size: z.number().min(.3).max(200).optional(), flex: z.number().min(.01).max(100).optional() }).strict()).min(1).max(40), rows: z.array(z.object({ size: z.number().min(.3).max(200).optional(), flex: z.number().min(.01).max(100).optional() }).strict()).min(1).max(40), width: z.number().min(1).max(400).optional(), depth: z.number().min(1).max(400).optional(), x: z.number().optional(), z: z.number().optional() }).strict().optional(),
+      wallSpec: z.object({ exterior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional(), innerMaterial: z.string().max(64).optional() }).strict().optional(), interior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional() }).strict().optional() }).strict().optional(),
+      links: z.array(z.object({ a: z.string().min(1).max(60), b: z.string().min(1).max(60), kind: z.enum(['door', 'open', 'arch']).optional(), width: z.number().min(.7).max(4).optional() }).strict()).max(80).optional(),
+      entrance: z.string().max(60).optional(),
+      windows: z.union([z.literal('auto'), z.object({ bay: z.number().min(1).max(12).optional(), width: z.number().min(.4).max(6).optional(), height: z.number().min(.3).max(4).optional(), sill: z.number().min(0).max(3).optional() }).strict()]).optional(),
+      stairs: z.array(z.record(z.unknown())).max(8).optional(), voids: z.array(z.record(z.unknown())).max(12).optional(), notes: z.string().max(2000).optional(),
       finishes: z.record(z.unknown()).optional(), ceilingMaterial: z.string().max(64).optional(),
     }).strict(),
     run: (a, s) => {
@@ -413,9 +421,25 @@ export const TOOLS: ToolDefinition<never>[] = [
       const low = plans.find((p) => p.level === a.level - 1), old = plans.find((p) => p.level === a.level);
       const slab = a.slab ?? old?.slab ?? (a.level === 0 ? .15 : .2), height = a.height ?? old?.height ?? 2.8;
       const elevation = a.elevation ?? (low ? low.elevation + low.height + slab : a.level === 0 ? slab : old?.elevation ?? 0);
+      // Rooms from the bays of a grid, their edges on shared seams; walls from the rooms when not drawn.
+      const generated: string[] = [];
+      let rooms = a.grid ? roomsFromBays(a.rooms, a.grid) : a.rooms;
+      const auto = a.walls === 'auto' || !a.walls?.length;
+      if (rooms.every((r) => [r.x0, r.z0, r.x1, r.z1].every((v) => typeof v === 'number'))) {
+        const seams = snapSeams(rooms as Array<{ x0: number; z0: number; x1: number; z1: number }>);
+        if (seams.moved) generated.push(`${seams.moved} phòng được gom mép về chung trục.`);
+        rooms = seams.rooms;
+      }
+      let walls = Array.isArray(a.walls) ? a.walls : [];
+      if (auto) {
+        const typed = planSchema.shape.rooms.safeParse(rooms);
+        if (!typed.success) throw new Error(`Phòng sai cấu trúc: ${typed.error.issues.slice(0, 4).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+        walls = wallsFromRooms(typed.data, a.wallSpec ?? {}) as unknown as Array<Record<string, unknown>>;
+        generated.push(`${walls.length} tường sinh từ mép phòng (${walls.filter((w) => w.exterior).length} tường ngoài).`);
+      }
       const parsed = planSchema.safeParse({
         level: a.level, name: a.name, elevation, height, slab,
-        rooms: a.rooms, walls: withPlanDefaults(a.rooms as Array<Record<string, unknown>>, a.walls as Array<Record<string, unknown>>), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
+        rooms, walls: withPlanDefaults(rooms, walls), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
         ...(a.finishes ? { finishes: a.finishes } : {}), ...(a.ceilingMaterial ? { ceilingMaterial: a.ceilingMaterial } : {}),
         ...(old?.built ? { built: old.built } : {}),
       });
@@ -423,11 +447,27 @@ export const TOOLS: ToolDefinition<never>[] = [
       // One measuring unit for the whole model; wells exactly over the flights below.
       const plan = snapPlan(parsed.data);
       s.doc.plans = [...plans.filter((p) => p.level !== a.level), plan].sort((x, y) => x.level - y.level);
+      // Doors from the links (and to every room left unreachable), the way in, before the stairs are placed round them.
+      const unreached: string[] = [];
+      if (a.links?.length || auto) {
+        const stairRoom = low?.stairs.length ? plan.rooms.find((r) => /stair|thang/i.test(`${r.type} ${r.name}`))?.name : undefined;
+        const r = openLinks(plan, a.links ?? [], { start: a.entrance ?? stairRoom });
+        if (r.added.length) generated.push(`Lối mở: ${r.added.join(', ')}.`);
+        unreached.push(...r.problems);
+      }
+      if (a.level === 0 && (a.entrance || auto)) {
+        const p = placeEntrance(plan, a.entrance);
+        if (p) unreached.push(p);
+      }
       // Each flight designed for this building (riser, tread, landing), then placed in its hall.
       const designed = designStairs(s.doc, plan);
       const fitted = fitStairs(s.doc, plan);
       const wells = wellsFor(s.doc, plan);
       if (wells.length) plan.voids.push(...wells);
+      if (a.windows) {
+        const n = placeWindows(plan, low, a.windows === 'auto' ? {} : a.windows);
+        if (n) generated.push(`${n} cửa sổ theo nhịp mặt đứng trên tường ngoài.`);
+      }
       parsed.data = plan;
       s.changed = true;
       const issues = checkPlan(s.doc, parsed.data);
@@ -435,12 +475,14 @@ export const TOOLS: ToolDefinition<never>[] = [
       const neighbours = s.doc.plans.filter((p) => Math.abs(p.level - a.level) === 1).flatMap((p) => checkPlan(s.doc, p).filter((i) => i.level === 'error').map((i) => `[${p.name}] ${i.message}`));
       const review = reviewStairs(s.doc, parsed.data);
       const failed = review.stairs.filter((x) => !x.ok).map((x) => ({ id: x.id, failed: x.checks.filter((c) => !c.ok).map((c) => `${c.item}: ${c.note}`) }));
+      for (const u of unreached) issues.push({ level: 'error', message: u });
       const ok = !issues.some((i) => i.level === 'error') && review.approved;
       // The verdict first: a long result is cut at its end, never at the errors.
       return { next: ok ? 'Kiểm định tự động đạt: tự đánh giá từng cầu thang rồi approve_floor_plan, sau đó build_floor.' : 'KHÔNG ĐẠT: sửa từng mục rồi draw_floor_plan lại tầng này (không duyệt, không dựng được). Cần toạ độ hiện tại: read_floor_plan.',
         errors: issues.filter((i) => i.level === 'error').map((i) => i.message), neighbourErrors: neighbours,
         stairApproval: { approved: review.approved, ...(failed.length ? { failed } : {}), stairs: review.stairs.filter((x) => x.ok).map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`) },
         warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message),
+        ...(generated.length ? { generated } : {}),
         plan: planSummary(s.doc, parsed.data), stairRules: stairRules(s.doc), ...(designed.length ? { designed } : {}), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm' };
     },
   }),
@@ -521,6 +563,19 @@ export const TOOLS: ToolDefinition<never>[] = [
       // The model against its drawing.
       const deviations = verifyBuilt(s.doc, plan);
       return { level: a.level, group: r.group, parts: r.parts, verification: deviations.length ? { ok: false, deviations } : { ok: true }, next: deviations.length ? 'Model lệch bản vẽ: sửa bản vẽ/duyệt lại rồi build_floor lại.' : 'Đã đối chiếu khớp bản vẽ. Vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
+    },
+  }),
+  defineTool({
+    name: 'build_roof', permission: 'edit',
+    description: 'Lợp mái THEO MẶT BẰNG tầng trên cùng đã dựng: đường bao các phòng (tới mặt ngoài tường) được chia thành các khối chữ nhật, mỗi khối một mái cùng độ dốc, nóc theo cạnh dài — nhà chữ L/T có khe mái (valley) đúng; đầu hồi tự bịt ở nơi hở; mái bằng có tường chắn mái. Lợp lại sẽ thay mái cũ. Dùng thay cho create_geometry roof (dễ lệch kích thước/vị trí).',
+    params: { style: 'gable|hip|shed|flat', pitch: 'độ dốc (độ, mặc định 30)', overhang: 'm vươn ra', material: 'id vật liệu mái', gableMaterial: 'vật liệu đầu hồi/tường chắn mái (mặc định tường ngoài)', parapet: 'm (mái bằng)', level: 'int (mặc định tầng trên cùng)', damage: '0–1' },
+    schema: z.object({ style: z.enum(['gable', 'hip', 'shed', 'flat']), pitch: z.number().min(0).max(60).optional(), overhang: z.number().min(0).max(2).optional(), material: z.string().min(1).max(64), gableMaterial: z.string().max(64).optional(), parapet: z.number().min(0).max(2).optional(), level: z.number().int().optional(), damage: z.number().min(0).max(1).optional() }).strict(),
+    run: (a, s) => {
+      const { level, ...spec } = a;
+      const r = buildRoof(s.doc, spec, level);
+      s.changed = true;
+      const gaps = roofCovers(s.doc);
+      return { group: r.group, parts: r.parts, eaves: +r.eaves.toFixed(2), blocks: r.rects.map((x) => [x.x0, x.z0, x.x1, x.z1].map((v) => +v.toFixed(2))), verification: gaps.length ? { ok: false, gaps } : { ok: true } };
     },
   }),
   defineTool({

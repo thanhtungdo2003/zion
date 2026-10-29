@@ -2,6 +2,7 @@ import { DocBuilder } from './build';
 import { subtree, type FloorPlan, type ModelDoc, type Opening } from './doc';
 import { materialFromPreset, matchPreset } from './materials';
 import { spiralRadius } from './mesh';
+import { doorZone, junctionBands } from './procedural';
 
 /**
  * Floor plans: the AI (or the admin) draws each storey first — rooms, walls with their doors and
@@ -111,7 +112,16 @@ function stairProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): string[] {
   if (s.shape !== 'spiral' && !flushWalls(plan, s, f).length) out.push('flush');
   const access = accessPoints(doc, plan, f.foot);
   if (access.length && !access.some((p) => faces(s, f, p))) out.push('approach');
+  if (doorsOnFlight(plan, f).length) out.push('door');
   return out;
+}
+
+/** Doors whose clear zone (where the leaf swings and people step through, 0.5 m each side) lies on a flight. */
+function doorsOnFlight(plan: FloorPlan, f: { x0: number; z0: number; x1: number; z1: number }): string[] {
+  return plan.walls.flatMap((w) => w.openings.filter((o) => o.kind === 'door').flatMap((o) => {
+    const z = doorZone(w, o, .5);
+    return Math.min(z.x1, f.x1) - Math.max(z.x0, f.x0) > .05 && Math.min(z.z1, f.z1) - Math.max(z.z0, f.z0) > .05 ? [`${w.id} (${o.at.toFixed(2)} m)`] : [];
+  }));
 }
 
 /**
@@ -304,7 +314,7 @@ export function reviewStairs(doc: ModelDoc, plan: FloorPlan): { approved: boolea
   for (const s of plan.stairs) {
     const rise = stairRise(doc, plan), f = stairFootprint(s, rise), probs = stairProblems(doc, plan, s), flush = flushWalls(plan, s, f);
     const checks: StairReview['checks'] = [
-      { item: 'vị trí', ok: !['off-rooms', 'wall', 'gap', 'flush'].some((x) => probs.includes(x)), note: `chiếm [${f.x0.toFixed(2)}, ${f.z0.toFixed(2)}] → [${f.x1.toFixed(2)}, ${f.z1.toFixed(2)}]${flush.length ? `, sát tường ${flush.join(', ')}` : ', không sát tường nào'}${probs.includes('wall') ? ', có tường cắt qua' : ''}${probs.includes('off-rooms') ? ', lấn ra ngoài phòng' : ''}${probs.includes('gap') ? ', khe hở với tường' : ''}` },
+      { item: 'vị trí', ok: !['off-rooms', 'wall', 'gap', 'flush', 'door'].some((x) => probs.includes(x)), note: `chiếm [${f.x0.toFixed(2)}, ${f.z0.toFixed(2)}] → [${f.x1.toFixed(2)}, ${f.z1.toFixed(2)}]${flush.length ? `, sát tường ${flush.join(', ')}` : ', không sát tường nào'}${probs.includes('wall') ? ', có tường cắt qua' : ''}${probs.includes('off-rooms') ? ', lấn ra ngoài phòng' : ''}${probs.includes('gap') ? ', khe hở với tường' : ''}${probs.includes('door') ? `, cửa ${doorsOnFlight(plan, f).join(', ')} mở ra trên bậc` : ''}` },
       { item: 'hướng lên', ok: !probs.includes('top'), note: `đi lên về hướng ${s.direction}, ${stairCounts(rise, s).steps} bậc, lên tới ${pt(f.top)}${probs.includes('top') ? ' — đầu trên đâm vào tường hoặc ra ngoài: ngược chiều' : ''}` },
       { item: 'điểm bắt đầu', ok: !probs.includes('foot') && !probs.includes('approach'), note: `chân thang ${pt(f.foot)}${probs.includes('foot') ? ' — sát tường hoặc ngoài phòng' : ''}${probs.includes('approach') ? ' — bậc đầu quay lưng với cửa/lối vào buồng thang' : ''}` },
     ];
@@ -581,7 +591,14 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
       const a = w.openings[i]!, b = w.openings[j]!;
       if (Math.abs(a.at - b.at) < (a.width + b.width) / 2 + .1 && a.sill < b.sill + b.height && b.sill < a.sill + a.height) err(`Tường ${w.id}: hai lỗ mở chồng nhau (ở ${a.at} và ${b.at} m).`);
     }
+    // No opening cuts into a corner or the end of a wall meeting this one.
+    const bands = junctionBands(plan.walls, w, 0);
+    for (const o of w.openings) {
+      const hit = bands.find((b) => o.at + o.width / 2 > b.lo + .01 && o.at - o.width / 2 < b.hi - .01);
+      if (hit) err(`Tường ${w.id}: ${o.kind} ở ${o.at.toFixed(2)} m (rộng ${o.width}) cắt vào chỗ nối với tường ${hit.wall} (${hit.lo.toFixed(2)}–${hit.hi.toFixed(2)} m): dời ra khỏi góc.`);
+    }
   }
+
   // Exterior walls form a closed outline.
   const ext = plan.walls.filter((w) => w.exterior);
   if (ext.length) {
@@ -648,6 +665,7 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
     if (probs.includes('foot')) err(`Chân cầu thang ${s.id} (${f.foot.map((v) => v.toFixed(1)).join(', ')}) sát tường hoặc ngoài phòng: không bước lên được — xoay hướng (direction) cho chân thang quay ra phòng.`);
     if (!up && probs.includes('top')) err(`Đầu trên cầu thang ${s.id} (${f.top.map((v) => v.toFixed(1)).join(', ')}) đâm vào tường hoặc ra ngoài mặt bằng: cầu thang bị ngược — xoay hướng (direction) hoặc chiều quay (turn).`);
     if (probs.includes('flush')) err(`Cầu thang ${s.id} đứng giữa phòng, không sát tường nào${s.shape === 'straight' ? ' (thang thẳng phải có một cạnh dài sát tường)' : ''}: dời cho một cạnh áp vào tường buồng thang.`);
+    if (probs.includes('door')) err(`Cửa ở tường ${doorsOnFlight(plan, f).join(', ')} mở ra trùng cầu thang ${s.id}: cánh cửa và lối bước qua cửa cần ≥ 0.5 m sàn trống — dời cửa hoặc cầu thang.`);
     if (probs.includes('approach')) err(`Bậc đầu cầu thang ${s.id} quay lưng với lối vào buồng thang (chân thang ${f.foot.map((v) => v.toFixed(1)).join(', ')}): xoay hướng (direction) để bậc đầu nhìn ra cửa/lối tiếp cận.`);
     for (const m of stairDesignProblems(doc, plan, s)) err(`Cầu thang ${s.id}: ${m}.`);
     if (!up) info(`Cầu thang ${s.id} lên tầng ${plan.level + 1} chưa có bản vẽ.`);
