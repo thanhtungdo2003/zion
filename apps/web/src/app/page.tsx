@@ -15,7 +15,7 @@ import { activeMatch } from '@/lib/rejoin';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, IS_DESKTOP, startDesktopSignIn, pollDesktopSignIn, approveDesktopSignIn, type DesktopSignIn, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
-import { getTeamLobby, listInfectionMaps, teamAction } from '@/lib/api';
+import { getTeamLobby, listInfectionMaps, listWarfareMaps, teamAction } from '@/lib/api';
 import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
@@ -32,6 +32,7 @@ const MenuStage = dynamic(() => import('@/components/MenuStage'), { ssr: false }
 
 const MODE_KEY = 'zion.gameMode';
 const GAME_MODES = [
+  { id: 'warfare', name: 'mode.warfare', sub: 'mode.warfare_sub', image: '/images/modes/battle-royale-3.webp', icon: 'game-icons:crossed-swords', isNew: true },
   { id: 'infection', name: 'mode.infection', sub: 'mode.infection_sub', image: '/images/modes/infection-3.webp', icon: 'game-icons:biohazard', isNew: true },
   { id: 'survival', name: 'mode.survival', sub: 'mode.survival_sub', image: '/images/modes/survival-3.webp', icon: 'game-icons:campfire' },
   { id: 'battle-royale', name: 'mode.battle', sub: 'mode.battle_sub', image: '/images/modes/battle-royale-3.webp', icon: 'game-icons:parachute' },
@@ -44,7 +45,11 @@ const waveUrl = (url: string) => { try { sessionStorage.setItem('zion.waves.url'
 const chosenMap = () => { try { return localStorage.getItem(BR_MAP_KEY) ?? 'hac-son'; } catch { return 'hac-son'; } };
 const INF_MAP_KEY = 'zion.inf.map';
 const chosenInfectionMap = () => { try { return localStorage.getItem(INF_MAP_KEY) ?? ''; } catch { return ''; } };
-const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : mode === 'waves' ? '/play?mode=waves' : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
+const WF_MAP_KEY = 'zion.wf.map';
+const chosenWarfareMap = () => { try { return localStorage.getItem(WF_MAP_KEY) ?? ''; } catch { return ''; } };
+/** Remembers the Warfare match URL so a dropped tab finds its room again. */
+const warfareUrl = () => { const url = `/play?mode=warfare&map=${encodeURIComponent(chosenWarfareMap())}`; try { sessionStorage.setItem('zion.warfare.url', url); } catch { /* storage blocked */ } return url; };
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : mode === 'waves' ? '/play?mode=waves' : mode === 'warfare' ? warfareUrl() : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -66,6 +71,11 @@ export default function MainMenu() {
   // Infection: '' = the map set active in the Studio.
   const [infMap, setInfMap] = useState<{ id: string; name: string }>({ id: '', name: 'Bản đồ mặc định' });
   const [infMapOpen, setInfMapOpen] = useState(false);
+  // Warfare: a map the admin turned Warfare on for ('' = none picked yet).
+  const [wfMap, setWfMap] = useState<{ id: string; name: string }>({ id: '', name: 'Chọn bản đồ' });
+  const [wfMapOpen, setWfMapOpen] = useState(false);
+  const closeWfMaps = useCallback(() => setWfMapOpen(false), []);
+  useEffect(() => { try { const id = localStorage.getItem(WF_MAP_KEY); const name = localStorage.getItem(`${WF_MAP_KEY}.name`); if (id) setWfMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   useEffect(() => { try { const id = localStorage.getItem(INF_MAP_KEY); const name = localStorage.getItem(`${INF_MAP_KEY}.name`); if (id) setInfMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   useEffect(() => { try { const id = localStorage.getItem(BR_MAP_KEY); const name = localStorage.getItem(`${BR_MAP_KEY}.name`); if (id) setBrMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   const closeMaps = useCallback(() => setMapOpen(false), []);
@@ -78,6 +88,7 @@ export default function MainMenu() {
     if (mode === 'battle-royale' || mode === 'infection') { setBusy(true); router.push(`/play?mode=${mode}`); }
     // A wave match reconnects through its room (the last URL it was played with).
     if (mode === 'waves') { try { const url = sessionStorage.getItem('zion.waves.url'); if (url) { setBusy(true); router.push(url); } } catch { /* storage blocked */ } }
+    if (mode === 'warfare') { try { const url = sessionStorage.getItem('zion.warfare.url'); if (url) { setBusy(true); router.push(url); } } catch { /* storage blocked */ } }
   }, [sessionReady, session, router]);
   const [gameMode, setGameModeState] = useState<(typeof GAME_MODES)[number]['id']>('survival');
   // The chosen mode is remembered between visits.
@@ -115,6 +126,7 @@ export default function MainMenu() {
   const seenLaunch = useRef<string | null | undefined>(undefined);
   const battleMode = gameMode === 'battle-royale';
   const wavesMode = gameMode === 'waves';
+  const warfareMode = gameMode === 'warfare';
   const [waveOpen, setWaveOpen] = useState(false);
   const closeWaves = useCallback(() => setWaveOpen(false), []);
   const teamWorking = useRef(false);
@@ -150,17 +162,18 @@ export default function MainMenu() {
   useEffect(() => { teamVersion.current++; seenLaunch.current = undefined; setLobby(null); }, [gameMode]);
   // The squad leader pressed "Tiểu đội xuất phát" (or PLAY in a wave party): everyone follows.
   useEffect(() => {
-    if ((!battleMode && !wavesMode) || !lobby) return;
+    if ((!battleMode && !wavesMode && !warfareMode) || !lobby) return;
     const launch = lobby.team?.launchId ?? null;
     if (seenLaunch.current === undefined) { seenLaunch.current = launch; return; }
     if (launch && launch !== seenLaunch.current) {
       seenLaunch.current = launch;
       if (lobby.team!.leaderId !== currentAccount()?.id && Date.now() - lobby.team!.launchedAt < 20_000) {
         setBusy(true);
-        router.push(wavesMode ? waveUrl(`/play?mode=waves&party=1&map=${encodeURIComponent(lobby.team!.map ?? '')}`) : playUrl('battle-royale', true));
+        if (warfareMode && lobby.team!.map) { try { localStorage.setItem(WF_MAP_KEY, lobby.team!.map); } catch { /* storage blocked */ } }
+        router.push(wavesMode ? waveUrl(`/play?mode=waves&party=1&map=${encodeURIComponent(lobby.team!.map ?? '')}`) : warfareMode ? warfareUrl() : playUrl('battle-royale', true));
       }
     } else seenLaunch.current = launch;
-  }, [lobby, battleMode, wavesMode, router]);
+  }, [lobby, battleMode, wavesMode, warfareMode, router]);
 
   /** Wave party actions: like manageTeam, but hands the new lobby back to the wave modal. */
   const waveAction = async (action: TeamAction): Promise<Lobby | null> => {
@@ -269,15 +282,20 @@ export default function MainMenu() {
   const playSquad = async () => {
     if (!team || teamWorking.current) return;
     if (team.leaderId !== currentAccount()?.id) return;
+    if (warfareMode && !wfMap.id) { setWfMapOpen(true); return; }
     teamWorking.current = true; setTeamBusy(true); setTeamError(null);
     try {
-      const next = await teamAction({ op: 'launch' }, 'battle-royale');
+      // Warfare: the party's map goes with the launch, so everyone lands in the same room.
+      if (warfareMode) await teamAction({ op: 'map', map: wfMap.id }, 'warfare');
+      const next = await teamAction({ op: 'launch' }, warfareMode ? 'warfare' : 'battle-royale');
       seenLaunch.current = next.team?.launchId ?? null; applyLobby(next);
       void run(() => Promise.resolve(), true);
     } catch (err) { setTeamError(err instanceof Error ? err.message : 'Không xuất phát được.'); }
     finally { teamWorking.current = false; setTeamBusy(false); }
   };
   const play = () => {
+    // Warfare needs a battlefield first.
+    if (warfareMode && !wfMap.id) { setWfMapOpen(true); return; }
     // Wave survival starts from its party lobby (team, bots, map), not straight into a match.
     if (wavesMode && session) { if (lookState === 'none') setCreator({ mode: 'first', then: () => setWaveOpen(true) }); else setWaveOpen(true); return; }
     if (session && lookState === 'none') setCreator({ mode: 'first', then: () => { void run(() => Promise.resolve()); } });
@@ -395,7 +413,7 @@ export default function MainMenu() {
       {!wavesMode && <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
         if (!session) { setEntryIntent('team'); setAuthOpen(true); }
         else setTeamOpen(!teamOpen);
-      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>}
+      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : warfareMode ? 4 : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : warfareMode ? 'Lập đội Chiến trường · tối đa 4' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>}
 
       {authOpen && (
         <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
@@ -496,6 +514,13 @@ export default function MainMenu() {
         {modeOpen && <ModeModal modes={GAME_MODES} current={gameMode} onPick={(m) => setGameMode(m as (typeof GAME_MODES)[number]['id'])} onClose={closeModes} />}
         {mapOpen && <MapPicker current={brMap.id} fallbackImage={GAME_MODES.find((m) => m.id === 'battle-royale')!.image} onPick={(id, name) => { setBrMap({ id, name }); try { localStorage.setItem(BR_MAP_KEY, id); localStorage.setItem(`${BR_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeMaps} />}
         {infMapOpen && <MapPicker current={infMap.id} load={listInfectionMaps} fallbackImage={GAME_MODES.find((m) => m.id === 'infection')!.image} onPick={(id, name) => { setInfMap({ id, name }); try { localStorage.setItem(INF_MAP_KEY, id); localStorage.setItem(`${INF_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeInfMaps} />}
+        {wfMapOpen && <MapPicker current={wfMap.id} load={listWarfareMaps} fallbackImage={GAME_MODES.find((m) => m.id === 'warfare')!.image} onPick={(id, name) => { setWfMap({ id, name }); try { localStorage.setItem(WF_MAP_KEY, id); localStorage.setItem(`${WF_MAP_KEY}.name`, name); } catch { /* storage blocked */ } }} onClose={closeWfMaps} />}
+        {warfareMode && <button className="menu-mode menu-map" onClick={() => setWfMapOpen(true)} aria-haspopup="dialog" aria-expanded={wfMapOpen}>
+          <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === 'warfare')!.image})` }} />
+          <small>Chiến trường</small>
+          <b>{wfMap.name}</b>
+          <span className="menu-mode-caret"><Icon name="lucide:map" /></span>
+        </button>}
         {gameMode === 'infection' && <button className="menu-mode menu-map" onClick={() => setInfMapOpen(true)} aria-haspopup="dialog" aria-expanded={infMapOpen}>
           <span className="menu-mode-thumb" style={{ backgroundImage: `url(${GAME_MODES.find((m) => m.id === 'infection')!.image})` }} />
           <small>Bản đồ</small>
@@ -514,7 +539,7 @@ export default function MainMenu() {
           <b>{t(GAME_MODES.find((m) => m.id === gameMode)!.name)}</b>
           <span className="menu-mode-caret"><Icon name="lucide:layout-grid" /></span>
         </button>
-        {battleMode && session && team ? <div className="menu-play-pair">
+        {(battleMode || warfareMode) && session && team ? <div className="menu-play-pair">
           <button className="menu-play" disabled={busy || teamBusy || !sessionReady || team.leaderId !== currentAccount()?.id} onClick={() => { void playSquad(); }} title={team.leaderId === currentAccount()?.id ? `Cả tiểu đội ${team.members.length} người cùng vào trận` : 'Chờ đội trưởng cho tiểu đội xuất phát'}>
             {busy ? <><Spinner /> {t('menu.deploying')}</> : team.leaderId === currentAccount()?.id ? 'TIỂU ĐỘI XUẤT PHÁT' : 'CHỜ ĐỘI TRƯỞNG'}
           </button>

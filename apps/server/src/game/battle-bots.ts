@@ -41,6 +41,12 @@ export type BotRole = 'lead' | 'gunner' | 'looter';
 /** How long a downed bot bleeds out waiting for a squadmate (ms), and how long a revive takes. */
 const BLEED_MS = 30_000, REVIVE_MS = 5000;
 
+/**
+ * Where a bot's commander wants it (Warfare): make for the point, then hold inside `radius`
+ * watching `faceYaw`. Fights, healing and reloads still come first.
+ */
+export interface BotObjective { x: number; y: number; z: number; radius: number; faceYaw?: number; prone?: boolean; sprint?: boolean }
+
 export class BattleBot implements Combatant {
   readonly history = new PoseHistory();
   readonly state: CharacterState;
@@ -112,6 +118,8 @@ export class BattleBot implements Combatant {
   followSlot = 0;
   /** Infection: the high, sheltered spot this bot's group holds (with its own offset). */
   holdAt: { x: number; y: number; z: number; faceX: number; faceZ: number } | null = null;
+  /** Warfare: the point its squad (or the player leading it) sent it to. */
+  objective: BotObjective | null = null;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -158,6 +166,10 @@ export interface BotHooks {
   enemy?(bot: BattleBot, id: number): boolean;
   /** Infection: a bot's blow or bullet on another bot, settled by the game (true = handled). */
   botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
+  /** A bot took damage (`by`: who dealt it, when known) — for kill assists. */
+  hurt?(bot: BattleBot, amount: number, by: number | null): void;
+  /** Whether a lethal hit knocks the bot down for a squadmate to revive (default: yes, in a squad). */
+  downs?(bot: BattleBot): boolean;
   /** Whether the bot can be hurt now (battle royale: only once the match runs, never in the lobby). */
   canHurt?(bot: BattleBot): boolean;
   /** Wave survival: other hostiles the bots fight (the zombies), in sight checks and bullet paths. */
@@ -251,6 +263,7 @@ export class BattleBotDirector {
     if (this.hooks.canHurt && !this.hooks.canHurt(bot)) return;
     const taken = zone === 'red_zone' ? amount : Math.max(1, Math.round(amount * (1 - armorProtection(bot.armor))));
     bot.health = Math.max(0, bot.health - taken);
+    this.hooks.hurt?.(bot, taken, killerId);
     bot.healUntil = 0; bot.campUntil = 0;
     if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
     // Shot at: roll out of the line of fire.
@@ -258,7 +271,7 @@ export class BattleBotDirector {
     if (from) for (const mate of this.squad(bot)) if (Math.hypot(mate.state.x - bot.state.x, mate.state.z - bot.state.z) < 90) mate.alert = { x: from.x, z: from.z, until: now + 6000 };
     if (bot.health > 0) return;
     // Squad matches: knocked down first while a squadmate can still come and help.
-    if (!bot.downed && zone !== 'red_zone' && this.squad(bot).some(m => !m.downed)) {
+    if (!bot.downed && zone !== 'red_zone' && (this.hooks.downs?.(bot) ?? true) && this.squad(bot).some(m => !m.downed)) {
       bot.downed = true; bot.bleedUntil = now + BLEED_MS; bot.reviveStart = 0; bot.target = null; bot.mode = 'idle';
       bot.state.prone = true; bot.health = 1;
       return;
@@ -329,6 +342,18 @@ export class BattleBotDirector {
     for (const other of this.bots) if (other !== bot && !other.dead && !other.downed && !other.state.flight && (enemy ? enemy(bot, other.id) : !bot.squad || other.squad !== bot.squad)) list.push(other);
     if (this.hooks.targets) for (const t of this.hooks.targets()) if (!t.dead) list.push(t);
     return list;
+  }
+
+  /**
+   * A gunshot at (x, z): bots that hear it (within `radius`, and for whom `hostile` says the shooter
+   * is an enemy) turn towards it. Hearing gives a direction to look, never a target through walls.
+   */
+  hear(x: number, z: number, radius: number, now: number, hostile: (bot: BattleBot) => boolean): void {
+    for (const bot of this.bots) {
+      if (bot.dead || bot.downed || bot.target || (bot.alert && now < bot.alert.until)) continue;
+      if (Math.hypot(bot.state.x - x, bot.state.z - z) > radius || !hostile(bot)) continue;
+      bot.alert = { x: x + (Math.random() - .5) * 6, z: z + (Math.random() - .5) * 6, until: now + 4000 };
+    }
   }
 
   /** A smoke grenade went off: bots lose sight of anything behind or inside the cloud. */
@@ -464,6 +489,13 @@ export class BattleBotDirector {
         bot.healUntil = 0;
       } else { bot.mode = 'idle'; return; }
     }
+    // Warfare: go where the commander sent it, then hold the spot watching the approach.
+    if (bot.objective && armed) {
+      const o = bot.objective, d = Math.hypot(o.x - s.x, o.z - s.z);
+      if (d > o.radius || Math.abs(o.y - s.y) > 2.5) { bot.mode = 'roam'; bot.goal = { x: o.x, y: o.y, z: o.z }; bot.roamUntil = now + 4000; return; }
+      bot.mode = 'camp'; bot.campUntil = now + 1200; bot.campYaw = o.faceYaw ?? bot.yaw;
+      return;
+    }
     // Lying in wait: stay prone, watching, until the ambush time runs out.
     if (bot.campUntil > now && armed && !zoneUrgent) { bot.mode = 'camp'; return; }
     const wantsGear = !armed || bot.reserve < (bot.gun?.magazine ?? 0) || !bot.armor.chest || !bot.armor.head || (bot.role === 'looter' && bot.reserve < (bot.gun?.magazine ?? 0) * 3);
@@ -546,7 +578,7 @@ export class BattleBotDirector {
       if (bot.holdAt && Math.hypot(bot.holdAt.x - s.x, bot.holdAt.z - s.z) < 3) { mx = 0; mz = 0; prone = false; }
     } else if (bot.mode === 'camp') {
       // Ambush: prone and still, slowly scanning the approach (standing guard on held ground).
-      prone = !bot.holdAt && bot.follow === null;
+      prone = bot.objective ? !!bot.objective.prone : !bot.holdAt && bot.follow === null;
       yaw = bot.campYaw + Math.sin(now / 2600) * .5;
     } else if (bot.mode === 'revive' && bot.goal && Math.hypot(bot.goal.x - s.x, bot.goal.z - s.z) < 1.8) {
       yaw = Math.atan2(-(bot.goal.x - s.x), -(bot.goal.z - s.z));
@@ -558,7 +590,7 @@ export class BattleBotDirector {
         const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now), way = steer ?? goal;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
         // Up on another floor and no route yet: wait for one rather than walk into the wall below.
-        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt || (bot.follow !== null && d > 6);
+        mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt || (bot.follow !== null && d > 6) || (!!bot.objective?.sprint && d > 4);
         // On the way up a ladder: face the rungs and keep pushing into them.
         if (steer?.ladder) { yaw = Math.atan2(-(steer.x - s.x), -(steer.z - s.z)); mz = 1; sprint = false; }
         // Houses: open the door in the way.

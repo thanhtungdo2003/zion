@@ -8,6 +8,8 @@ import { gltfLoader } from '@/game/render/gltf-loader';
 import { DEFAULT_INFECTION_MAP, blankInfectionMap, modelInfectionMap, infectionMapSchema, type InfectionMapDef, type InfectionMaps, type InfectionPart, type InfectionRules } from '@zion/shared';
 import { API_URL, studioDeleteInfectionMap, studioInfectionMaps, studioInfectionModels, studioLogin, studioPreviewInfectionMap, studioSaveInfectionMap, studioUploadInfectionModel, type InfectionMapModel, type InfectionMapPreview } from '@/lib/api';
 import { ConfirmDialog } from './ConfirmDialog';
+import { WF_COLORS, WarfareStudioPanel, ensureWarfare, newZone, type WarfareSel, type WarfareTool } from './WarfareStudioPanel';
+import type { WarfarePointKind, WarfareSide } from '@zion/shared';
 import { Icon } from './Icon';
 import { Spinner } from './Spinner';
 
@@ -78,12 +80,14 @@ function groupOf(def: AssetDefinition): Group | null {
 }
 const CATALOG = registry.all().flatMap((def) => { const g = groupOf(def); return g ? [{ def, group: g }] : []; });
 
-type Tool = { kind: 'select' } | { kind: 'place'; asset: number } | { kind: 'spawn' } | { kind: 'zombie' } | { kind: 'area' };
+type Tool = { kind: 'select' } | { kind: 'place'; asset: number } | { kind: 'spawn' } | { kind: 'zombie' } | { kind: 'area' } | { kind: 'wf'; what: WarfareTool };
 /** A region dragged out on the plan (world metres): the part of the map to play on. */
 type Area = { x0: number; z0: number; x1: number; z1: number };
 type AreaSide = 'x0' | 'x1' | 'z0' | 'z1' | 'all';
 const norm = (a: Area): Area => ({ x0: Math.min(a.x0, a.x1), x1: Math.max(a.x0, a.x1), z0: Math.min(a.z0, a.z1), z1: Math.max(a.z0, a.z1) });
-type Sel = { kind: 'part'; index: number } | { kind: 'spawn'; index: number } | { kind: 'zombie'; index: number } | null;
+type Sel = { kind: 'part'; index: number } | { kind: 'spawn'; index: number } | { kind: 'zombie'; index: number } | WarfareSel | null;
+/** The Warfare item a selection points at (it has a position to drag). */
+const wfItem = (d: InfectionMapDef, s: Sel): { x: number; z: number } | undefined => s?.kind === 'wfZone' ? d.warfare?.zones[s.index] : s?.kind === 'wfVehicle' ? d.warfare?.vehicleSpawns[s.index] : s?.kind === 'wfBase' ? d.warfare?.bases?.[s.side] : undefined;
 
 const RULES: Array<{ key: keyof InfectionRules; label: string; min: number; max: number; step: number; scale?: number; unit?: string }> = [
   { key: 'zombieHealth', label: 'Máu zombie (người = 100)', min: 1, max: 5000, step: 10 },
@@ -138,6 +142,8 @@ export default function InfectionStudio() {
   const [view3d, setView3d] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [tool, setTool] = useState<Tool>({ kind: 'select' });
+  const [wfPointKind, setWfPointKind] = useState<WarfarePointKind>('cover');
+  const [wfVehicleSide, setWfVehicleSide] = useState<WarfareSide>('blue');
   const [sel, setSel] = useState<Sel>(null);
   const [group, setGroup] = useState<Group>('buildings');
   const [search, setSearch] = useState('');
@@ -307,6 +313,32 @@ export default function InfectionStudio() {
     if (!draft.zombieSpawns.length && draft.spawns.length === 0) { /* zombies share the human spawns */ }
     draft.spawns.forEach((s, i) => marker(s.x, s.z, '#7fc8ff', sel?.kind === 'spawn' && sel.index === i));
     draft.zombieSpawns.forEach((s, i) => marker(s.x, s.z, '#ff3b30', sel?.kind === 'zombie' && sel.index === i));
+    // Warfare: links between zones, zones by owner, their deploy and tactical points, bases, vehicles.
+    const wfl = draft.warfare;
+    if (wfl) {
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.setLineDash([6, 4]); g.lineWidth = 1.5;
+      for (const a of wfl.zones) for (const id of a.links) { const b = wfl.zones.find((x) => x.id === id); if (!b || b.id < a.id) continue; const p = toScreen(a.x, a.z, w, h), q = toScreen(b.x, b.z, w, h); g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(q.x, q.y); g.stroke(); }
+      g.setLineDash([]);
+      wfl.zones.forEach((zn, i) => {
+        const p = toScreen(zn.x, zn.z, w, h), on = sel?.kind === 'wfZone' && sel.index === i, col = WF_COLORS[zn.owner ?? 'neutral'];
+        g.fillStyle = `${col}33`; g.strokeStyle = on ? '#fff' : col; g.lineWidth = on ? 3 : 2;
+        g.beginPath(); g.arc(p.x, p.y, zn.radius * z, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = '#fff'; g.font = 'bold 13px sans-serif'; g.textAlign = 'center'; g.fillText(zn.name, p.x, p.y + 4); g.textAlign = 'left';
+        for (const s of zn.spawns) { const q = toScreen(s.x, s.z, w, h); g.fillStyle = col; g.fillRect(q.x - 4, q.y - 4, 8, 8); g.strokeStyle = '#000'; g.lineWidth = 1; g.strokeRect(q.x - 4, q.y - 4, 8, 8); }
+        for (const s of zn.points) { const q = toScreen(s.x, s.z, w, h); g.fillStyle = '#ffd36b'; g.font = 'bold 11px sans-serif'; g.fillText(s.kind === 'sniper' ? '◎' : s.kind === 'overwatch' ? '▲' : s.kind === 'defend' ? '■' : '●', q.x - 4, q.y + 4); }
+      });
+      for (const side of ['blue', 'red'] as const) {
+        const b = wfl.bases?.[side]; if (!b) continue;
+        const p = toScreen(b.x, b.z, w, h), on = sel?.kind === 'wfBase' && sel.side === side;
+        g.fillStyle = WF_COLORS[side]; g.fillRect(p.x - 9, p.y - 9, 18, 18); g.strokeStyle = on ? '#fff' : '#000'; g.lineWidth = on ? 3 : 1; g.strokeRect(p.x - 9, p.y - 9, 18, 18);
+        g.fillStyle = '#fff'; g.font = 'bold 11px sans-serif'; g.fillText(side === 'blue' ? 'CĂN CỨ XANH' : 'CĂN CỨ ĐỎ', p.x + 12, p.y + 4);
+      }
+      wfl.vehicleSpawns.forEach((v, i) => {
+        const p = toScreen(v.x, v.z, w, h), on = sel?.kind === 'wfVehicle' && sel.index === i, fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw);
+        g.fillStyle = WF_COLORS[v.side]; g.beginPath(); g.moveTo(p.x + fx * 11, p.y + fz * 11); g.lineTo(p.x - fz * 7 - fx * 7, p.y + fx * 7 - fz * 7); g.lineTo(p.x + fz * 7 - fx * 7, p.y - fx * 7 - fz * 7); g.closePath(); g.fill();
+        g.strokeStyle = on ? '#fff' : '#000'; g.lineWidth = on ? 2.5 : 1; g.stroke();
+      });
+    }
     // Placement ghost.
     if (tool.kind === 'place' && mouse.current) shape(tool.asset, mouse.current.x, mouse.current.z, ghostYaw, 1, 'rgba(255,255,255,.25)', '#fff');
     // The region chosen for the map: its two medians cross at its centre (the new map centre).
@@ -333,6 +365,12 @@ export default function InfectionStudio() {
   const pick = (x: number, z: number): Sel => {
     if (!draft) return null;
     const near = (s: { x: number; z: number }) => Math.hypot(s.x - x, s.z - z) < 10 / view.current.zoom;
+    const wfl = draft.warfare;
+    if (wfl) {
+      const vi = wfl.vehicleSpawns.findIndex(near); if (vi >= 0) return { kind: 'wfVehicle', index: vi };
+      for (const side of ['blue', 'red'] as const) if (wfl.bases && near(wfl.bases[side])) return { kind: 'wfBase', side };
+      const zc = wfl.zones.findIndex((zn) => Math.hypot(zn.x - x, zn.z - z) < Math.max(10 / view.current.zoom, Math.min(zn.radius, 4))); if (zc >= 0) return { kind: 'wfZone', index: zc };
+    }
     const zi = draft.zombieSpawns.findIndex(near); if (zi >= 0) return { kind: 'zombie', index: zi };
     const si = draft.spawns.findIndex(near); if (si >= 0) return { kind: 'spawn', index: si };
     for (let i = draft.parts.length - 1; i >= 0; i--) {
@@ -368,6 +406,37 @@ export default function InfectionStudio() {
       setSel({ kind: 'part', index: draft.parts.length });
       return;
     }
+    if (tool.kind === 'wf') {
+      const x = snap(w.x), z = snap(w.z), what = tool.what, near = (s: { x: number; z: number }) => Math.hypot(s.x - w.x, s.z - w.z) < 10 / view.current.zoom;
+      const wfl = draft.warfare;
+      if (what === 'zone') {
+        const hit = wfl?.zones.findIndex((zn) => Math.hypot(zn.x - w.x, zn.z - w.z) <= zn.radius) ?? -1;
+        if (hit >= 0) { setSel({ kind: 'wfZone', index: hit }); drag.current = { kind: 'move', sx: w.x, sy: w.z, ox: wfl!.zones[hit]!.x, oz: wfl!.zones[hit]!.z, moved: false }; return; }
+        patch((d) => { const l = ensureWarfare(d); l.zones.push(newZone(l, x, z)); });
+        setSel({ kind: 'wfZone', index: wfl?.zones.length ?? 0 });
+        return;
+      }
+      if (what === 'blue' || what === 'red') {
+        patch((d) => { const l = ensureWarfare(d); l.bases = { ...(l.bases ?? { blue: { x: -x, z: -z }, red: { x: -x, z: -z } }), [what]: { x, z } }; });
+        setSel({ kind: 'wfBase', side: what });
+        return;
+      }
+      if (what === 'vehicle') {
+        const hit = wfl?.vehicleSpawns.findIndex(near) ?? -1;
+        patch((d) => { const l = ensureWarfare(d); if (hit >= 0) l.vehicleSpawns.splice(hit, 1); else l.vehicleSpawns.push({ side: wfVehicleSide, kind: 'jeep', x, z, yaw: 0 }); });
+        setSel(hit >= 0 ? null : { kind: 'wfVehicle', index: wfl?.vehicleSpawns.length ?? 0 });
+        return;
+      }
+      // Deploy and tactical points belong to the zone being edited.
+      if (sel?.kind !== 'wfZone') { flash('Chọn một cứ điểm trước rồi đặt điểm cho nó.'); return; }
+      const zi = sel.index;
+      patch((d) => {
+        const zn = ensureWarfare(d).zones[zi]; if (!zn) return;
+        if (what === 'spawn') { const hit = zn.spawns.findIndex(near); if (hit >= 0) zn.spawns.splice(hit, 1); else if (zn.spawns.length < 8) zn.spawns.push({ x, z }); }
+        else { const hit = zn.points.findIndex(near); if (hit >= 0) zn.points.splice(hit, 1); else if (zn.points.length < 16) zn.points.push({ x, z, kind: wfPointKind }); }
+      });
+      return;
+    }
     if (tool.kind === 'spawn' || tool.kind === 'zombie') {
       const list = tool.kind === 'spawn' ? 'spawns' : 'zombieSpawns';
       const hit = draft[list].findIndex((s) => Math.hypot(s.x - w.x, s.z - w.z) < 10 / view.current.zoom);
@@ -377,7 +446,7 @@ export default function InfectionStudio() {
     const s = pick(w.x, w.z);
     setSel(s);
     if (s) {
-      const o = s.kind === 'part' ? draft.parts[s.index]! : s.kind === 'spawn' ? draft.spawns[s.index]! : draft.zombieSpawns[s.index]!;
+      const o = wfItem(draft, s) ?? (s.kind === 'part' ? draft.parts[s.index]! : s.kind === 'spawn' ? draft.spawns[s.index]! : s.kind === 'zombie' ? draft.zombieSpawns[s.index]! : { x: w.x, z: w.z });
       drag.current = { kind: 'move', sx: w.x, sy: w.z, ox: o.x, oz: o.z, moved: false };
     } else drag.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.current.cx, oz: view.current.cz, moved: false };
   };
@@ -400,7 +469,15 @@ export default function InfectionStudio() {
     if (d?.kind === 'move' && sel) {
       const x = snap(d.ox + w.x - d.sx), z = snap(d.oz + w.z - d.sy);
       d.moved = true;
-      patch((m) => { const o = sel.kind === 'part' ? m.parts[sel.index] : sel.kind === 'spawn' ? m.spawns[sel.index] : m.zombieSpawns[sel.index]; if (o) { o.x = x; o.z = z; if (sel.kind !== 'part') delete (o as { y?: number }).y; } });
+      patch((m) => {
+        const wo = wfItem(m, sel);
+        if (wo) {
+          // A zone carries its deploy and tactical points along.
+          if (sel.kind === 'wfZone') { const zn = m.warfare!.zones[sel.index]!, dx = x - zn.x, dz = z - zn.z; for (const p of [...zn.spawns, ...zn.points]) { p.x += dx; p.z += dz; } }
+          wo.x = x; wo.z = z; return;
+        }
+        const o = sel.kind === 'part' ? m.parts[sel.index] : sel.kind === 'spawn' ? m.spawns[sel.index] : sel.kind === 'zombie' ? m.zombieSpawns[sel.index] : undefined; if (o) { o.x = x; o.z = z; if (sel.kind !== 'part') delete (o as { y?: number }).y; }
+      });
       return;
     }
     if (tool.kind === 'place') draw();
@@ -419,6 +496,13 @@ export default function InfectionStudio() {
       if (d.model) { d.model.x = Math.round(((d.model.x ?? 0) - cx) * 100) / 100; d.model.z = Math.round(((d.model.z ?? 0) - cz) * 100) / 100; }
       for (const p of d.parts) { p.x = snap(p.x - cx); p.z = snap(p.z - cz); }
       for (const s of [...d.spawns, ...d.zombieSpawns]) { s.x = snap(s.x - cx); s.z = snap(s.z - cz); }
+      // The Warfare layout moves with the map.
+      if (d.warfare) {
+        const move = (p: { x: number; z: number }) => { p.x = snap(p.x - cx); p.z = snap(p.z - cz); };
+        for (const zn of d.warfare.zones) { move(zn); zn.spawns.forEach(move); zn.points.forEach(move); }
+        d.warfare.vehicleSpawns.forEach(move);
+        if (d.warfare.bases) { move(d.warfare.bases.blue); move(d.warfare.bases.red); }
+      }
       d.half = half;
     });
     setArea(null); setTool({ kind: 'select' });
@@ -435,7 +519,11 @@ export default function InfectionStudio() {
 
   const removeSel = useCallback(() => {
     if (!sel) return;
-    patch((d) => { if (sel.kind === 'part') d.parts.splice(sel.index, 1); else if (sel.kind === 'spawn') d.spawns.splice(sel.index, 1); else d.zombieSpawns.splice(sel.index, 1); });
+    patch((d) => {
+      if (sel.kind === 'part') d.parts.splice(sel.index, 1); else if (sel.kind === 'spawn') d.spawns.splice(sel.index, 1); else if (sel.kind === 'zombie') d.zombieSpawns.splice(sel.index, 1);
+      else if (sel.kind === 'wfVehicle') d.warfare?.vehicleSpawns.splice(sel.index, 1);
+      else if (sel.kind === 'wfZone' && d.warfare) { const id = d.warfare.zones[sel.index]?.id; d.warfare.zones.splice(sel.index, 1); for (const zn of d.warfare.zones) zn.links = zn.links.filter((x) => x !== id); }
+    });
     setSel(null);
   }, [sel]);
   useEffect(() => {
@@ -617,12 +705,15 @@ export default function InfectionStudio() {
                 ? num('Độ sáng', part.scale, (v) => setPart((p) => { p.scale = v; }), .1, 10, .1, '×')
                 : num('Tỉ lệ', part.scale, (v) => setPart((p) => { p.scale = v; }), .1, 4, .05, '×')}
               <div className="ix-row">
-                <button className="btn" onClick={() => { patch((d) => { const p = d.parts[sel!.index]!; d.parts.push({ ...p, x: p.x + 2, z: p.z + 2 }); }); setSel({ kind: 'part', index: draft.parts.length }); }}><Icon name="lucide:copy" /> Nhân bản</button>
+                <button className="btn" onClick={() => { patch((d) => { const p = d.parts[(sel as { index: number }).index]!; d.parts.push({ ...p, x: p.x + 2, z: p.z + 2 }); }); setSel({ kind: 'part', index: draft.parts.length }); }}><Icon name="lucide:copy" /> Nhân bản</button>
                 <button className="btn" onClick={removeSel}><Icon name="lucide:trash" /> Xóa</button>
               </div>
             </section>
           )}
-          {sel && sel.kind !== 'part' && <section className="ix-section"><h3>{sel.kind === 'spawn' ? 'Điểm xuất hiện người' : 'Điểm hồi sinh zombie'}</h3><button className="btn" onClick={removeSel}><Icon name="lucide:trash" /> Xóa điểm</button></section>}
+          {sel && (sel.kind === 'spawn' || sel.kind === 'zombie') && <section className="ix-section"><h3>{sel.kind === 'spawn' ? 'Điểm xuất hiện người' : 'Điểm hồi sinh zombie'}</h3><button className="btn" onClick={removeSel}><Icon name="lucide:trash" /> Xóa điểm</button></section>}
+          <WarfareStudioPanel draft={draft} patch={patch} sel={sel && sel.kind.startsWith('wf') ? sel as WarfareSel : null} setSel={setSel}
+            tool={tool.kind === 'wf' ? tool.what : null} setTool={(t) => setTool(t ? { kind: 'wf', what: t } : { kind: 'select' })}
+            pointKind={wfPointKind} setPointKind={setWfPointKind} vehicleSide={wfVehicleSide} setVehicleSide={setWfVehicleSide} />
 
           <section className="ix-section">
             <h3>Bản đồ</h3>

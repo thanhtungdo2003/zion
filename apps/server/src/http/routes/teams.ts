@@ -24,7 +24,7 @@ export function registerTeamRoutes(app: FastifyInstance, deps: HttpDeps): void {
   /** `?mode=battle-royale` selects the squad lobby, `?mode=waves` the wave parties; anything else the survival teams. */
   const pick = (query: unknown) => {
     const mode = (query as { mode?: string } | undefined)?.mode;
-    return (mode === 'battle-royale' ? deps.battleTeams : mode === 'waves' ? deps.waveTeams : undefined) ?? deps.teams!;
+    return (mode === 'battle-royale' ? deps.battleTeams : mode === 'waves' ? deps.waveTeams : mode === 'warfare' ? deps.warfareTeams : undefined) ?? deps.teams!;
   };
   app.get('/api/teams', { preHandler: app.requireAuth, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     reply.header('cache-control', 'no-store');

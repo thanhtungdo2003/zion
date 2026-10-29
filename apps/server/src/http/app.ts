@@ -56,6 +56,9 @@ export interface HttpDeps {
   battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void>; catalog(): Promise<unknown>; stored(id: string): Promise<unknown | null> };
   /** Zombie Wave Survival maps and leaderboards. */
   waves?: WaveBackend;
+  /** Warfare parties (max 4, one side) and the maps Warfare is on. */
+  warfareTeams?: TeamService;
+  warfare?: { maps(): Array<{ id: string; name: string; thumbnail: string | null; players: number }> };
   /** Infection maps for the menu's map picker. */
   infectionMapList?: () => unknown;
   /** Map models uploaded for Infection maps (Studio list / upload, files for everyone). */
@@ -163,6 +166,10 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
   registerGearFitRoutes(app, deps);
   registerDesktopRoutes(app, config.DESKTOP_UPDATE_DIR);
   registerWaveRoutes(app, deps);
+  if (deps.warfare) {
+    const warfare = deps.warfare;
+    app.get('/api/warfare/maps', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (_req, reply) => { reply.header('cache-control', 'no-store'); return { maps: warfare.maps() }; });
+  }
   if (deps.handStudio) {
     const store = deps.handStudio;
     // The Studio's hand poses and animations for game clients (read-only; saved under /api/studio).

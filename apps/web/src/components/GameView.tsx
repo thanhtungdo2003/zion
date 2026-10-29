@@ -12,6 +12,7 @@ import { InventoryStore } from '@/game/inventory/inventory';
 import { Hud } from './Hud';
 import { Onboarding } from './Onboarding';
 import { DownedPanel, NpcDialogue, PlantPanel, QuestTracker, ReviveBar, SideTabs, StaminaBar } from './Quests';
+import { WarfareHud } from './WarfareHud';
 import { ArmorHud, Hotbar, InventoryPanel, WaveShopPanel } from './Inventory';
 import { WorldMap } from './WorldMap';
 import { WorldMapStore } from '@/game/world-map';
@@ -65,13 +66,15 @@ export default function GameView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [shopTime]);
 
+  const sendWarfare = useCallback((m: Parameters<GameEngine['warfare']>[0]) => engineRef.current?.warfare(m), []);
+  const warfareModal = useCallback((open: boolean) => engineRef.current?.setShopOpen(open), []);
   // Leaving on purpose gives the place up: the menu must not send the player back in.
   const leaveMatch = useCallback(() => { clearActiveMatch(); router.push('/'); }, [router]);
   useEffect(() => {
     const el = container.current;
     if (!el) return;
     const query = new URLSearchParams(window.location.search).get('mode');
-    const mode = query === 'battle-royale' || query === 'infection' || query === 'waves' ? query : 'survival';
+    const mode = query === 'battle-royale' || query === 'infection' || query === 'waves' || query === 'warfare' ? query : 'survival';
     const engine = new GameEngine(el, store, inventory, worldMap, mode);
     engineRef.current = engine;
     void engine.start();
@@ -168,6 +171,7 @@ export default function GameView() {
       {inWorld && hud.life && hud.plot && <PlantPanel life={hud.life} items={inv.items} onPlant={(crop) => engineRef.current?.lifeAction('plant', hud.plot!, crop)} />}
       {inWorld && hud.mode === 'survival' && <Onboarding hud={hud} inventory={inv} onBlock={blockTutorial} onGuide={guideTutorial} />}
       {inWorld && hud.infection && <InfectionHud state={hud.infection} health={hud.health} sniffUntil={hud.sniffUntil} sniffReadyAt={hud.sniffReadyAt} onLeave={() => leaveMatch()} />}
+      {inWorld && hud.mode === 'warfare' && hud.warfare && <WarfareHud state={hud.warfare} selfId={hud.selfId} dead={hud.status === 'dead'} scoreboard={hud.scoreboard} onSend={sendWarfare} onModal={warfareModal} onLeave={() => leaveMatch()} />}
       {inWorld && hud.battle && <BattleHud hud={hud} state={hud.battle} position={hud.position} onLeave={() => leaveMatch()} />}
       {inWorld && <Hotbar state={inv} ammo={hud.ammo} touchVisible={touchVisible} onSelect={(slot) => engineRef.current?.touchSelectWeapon(slot)} />}
       {inWorld && <ArmorHud state={inv} />}

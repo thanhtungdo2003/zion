@@ -1,5 +1,5 @@
 import { uploadedHitMeshes } from './uploaded-hit-meshes';
-import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
+import { DEFAULT_INFECTION_MAPS, INFECTION_MAP, upgradeInfectionMaps, Surface, hashString, infectionMapSchema, infectionMapsSchema, validateWarfareLayout, type InfectionMapDef, type InfectionMaps } from '@zion/shared';
 import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, createDefaultRegistry, uploadedMapAsset, uploadedMapHitMesh, uploadedMapUrl, type AssetDefinitionInput, type AssetRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, WorldGenerator, friday13Structures, WAREHOUSE, INFECTION_GROUND, infectionHeight, infectionLayers, infectionSpawns, infectionSurface, infectionZombieSpawns, normalizeSeed } from '@zion/worldgen';
 import type { Db } from '../db/pool';
@@ -21,6 +21,8 @@ export interface InfectionMapPreview {
   ground: number;
 }
 
+/** What shapes a map's world: not its name, rules or Warfare layout (those apply to the world in place). */
+const worldKey = (def: InfectionMapDef) => JSON.stringify({ ...def, name: '', rules: null, warfare: null });
 const configOf = (def: InfectionMapDef) => ({ seed: normalizeSeed(def.seed), sizeChunks: INFECTION_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'infection' as const, infection: def });
 
 /**
@@ -81,12 +83,12 @@ export class InfectionMapService {
   /** A map's world as built now (undefined while it is still being built). */
   builtFor(id: string): Built | undefined {
     const def = this.maps.maps.find((m) => m.id === id);
-    return def ? this.built.get(JSON.stringify({ ...def, name: '', rules: null })) : undefined;
+    return def ? this.built.get(worldKey(def)) : undefined;
   }
 
   /** For the menu's map picker. */
-  list(): Array<{ id: string; name: string; ready: boolean; active: boolean; published: boolean }> {
-    return this.maps.maps.map((m) => ({ id: m.id, name: m.name, ready: !!this.builtFor(m.id), active: m.id === this.maps.active, published: m.id === this.maps.active || m.published }));
+  list(): Array<{ id: string; name: string; ready: boolean; active: boolean; published: boolean; warfare: boolean }> {
+    return this.maps.maps.map((m) => ({ id: m.id, name: m.name, ready: !!this.builtFor(m.id), active: m.id === this.maps.active, published: m.id === this.maps.active || m.published, warfare: !!m.warfare?.enabled }));
   }
 
   get active(): InfectionMapDef { return this.maps.maps.find((m) => m.id === this.maps.active)!; }
@@ -150,7 +152,7 @@ export class InfectionMapService {
   /** Builds in progress by key: a map asked for twice at once (menu, activation) gets one world. */
   private readonly pending = new Map<string, Promise<Built>>();
   private build(def: InfectionMapDef): Promise<Built> {
-    const key = JSON.stringify({ ...def, name: '', rules: null });
+    const key = worldKey(def);
     const running = this.pending.get(key);
     if (running && !this.built.has(key)) return running;
     const p = this.buildNow(def).finally(() => this.pending.delete(key));
@@ -161,11 +163,11 @@ export class InfectionMapService {
   private async buildNow(def: InfectionMapDef): Promise<Built> {
     // Only what shapes the world needs a new one: rules (round timings, time of day…) and the
     // name are applied to the world already built, in place, without regenerating anything.
-    const key = JSON.stringify({ ...def, name: '', rules: null }), have = this.built.get(key);
+    const key = worldKey(def), have = this.built.get(key);
     if (have) {
       have.def = def;
       const live = have.world.generator.config.infection;
-      if (live) { live.name = def.name; Object.assign(live.rules, def.rules); }
+      if (live) { live.name = def.name; Object.assign(live.rules, def.rules); if (def.warfare) live.warfare = def.warfare; else delete live.warfare; }
       return have;
     }
     // A map on an uploaded model: its triangles are its collision (read from the file once).
@@ -194,6 +196,11 @@ export class InfectionMapService {
   async save(input: unknown): Promise<InfectionMaps> {
     const def = infectionMapSchema.parse(input);
     if (def.base === 'model' && (!def.model || !this.models.has(def.model.asset))) throw new Error('Chọn model bản đồ đã tải lên.');
+    // A published Warfare map must be playable as laid out (zones, bases, vehicle spots inside the map).
+    if (def.published && def.warfare?.enabled) {
+      const errors = validateWarfareLayout(def.warfare, def.half);
+      if (errors.length) throw new Error(`Bố cục Chiến trường chưa hợp lệ: ${errors.slice(0, 4).join('; ')}`);
+    }
     const maps = this.maps.maps.some((m) => m.id === def.id) ? this.maps.maps.map((m) => (m.id === def.id ? def : m)) : [...this.maps.maps, def];
     this.maps = infectionMapsSchema.parse({ ...this.maps, maps });
     await this.persist();

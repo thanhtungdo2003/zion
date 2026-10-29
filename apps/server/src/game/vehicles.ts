@@ -88,11 +88,15 @@ export class Vehicles {
   }
   /** A vehicle delivered at a spot (supply drop): false when the map is at its vehicle limit. */
   deliver(kind: VehicleKind, x: number, y: number, z: number, yaw: number): boolean {
-    if (this.states.size >= 200 || !VEHICLES[kind]) return false;
+    return this.place(kind, x, y, z, yaw) !== null;
+  }
+  /** A new vehicle standing at a spot; its id, or null at the map's vehicle limit. */
+  place(kind: VehicleKind, x: number, y: number, z: number, yaw: number): number | null {
+    if (this.states.size >= 200 || !VEHICLES[kind]) return null;
     const id = Math.max(0, ...this.states.keys()) + 1;
     const v: VehicleState = { id, kind, x, y: y + .1, z, yaw, speed: 0, health: VEHICLES[kind].health, driver: null, explodeAt: 0, exploded: false };
     this.states.set(id, v); this.spawns.set(id, { x, y: v.y, z, yaw }); this.install(v);
-    return true;
+    return id;
   }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
   control(p: Player, throttle: number, steer: number, now: number): void {
@@ -325,6 +329,13 @@ export class Vehicles {
   available = true;
   send(p: Player, now: number): void {
     p.session.sendJson({ t: 'vehicles', time: now, vehicles: !this.available ? [] : [...this.states.values()].filter(v => vehicleSeatOf(v, p.id) >= 0 || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
+  }
+  /** Takes a vehicle off the map for good (eject its occupants first). */
+  remove(id: number): void {
+    if (!this.states.has(id)) return;
+    this.world.removeOwnerColliders(vehicleOwner(id));
+    this.physics.remove(id);
+    this.states.delete(id); this.controls.delete(id); this.spawns.delete(id);
   }
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();

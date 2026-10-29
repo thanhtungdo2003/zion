@@ -242,7 +242,12 @@ export async function getGameTicket(): Promise<TicketResponse> {
 }
 
 /** Survival teams and battle royale squads are separate lobbies, picked by mode. */
-const teamUrl = (mode: GameMode) => mode === 'battle-royale' ? '/api/teams?mode=battle-royale' : mode === 'waves' ? '/api/teams?mode=waves' : '/api/teams';
+const teamUrl = (mode: GameMode) => mode === 'battle-royale' ? '/api/teams?mode=battle-royale' : mode === 'waves' ? '/api/teams?mode=waves' : mode === 'warfare' ? '/api/teams?mode=warfare' : '/api/teams';
+
+/** Warfare: the published maps the admin turned Warfare on for, with how many play there. */
+export async function listWarfareMaps(): Promise<BattleMapInfo[]> {
+  return (await request<{ maps: Array<{ id: string; name: string; thumbnail: string | null; players: number }> }>('/api/warfare/maps')).maps.map((m) => ({ ...m, matches: 0 }));
+}
 
 /** Zombie Wave Survival: playable maps and one leaderboard (map × board). */
 export async function listWaveMaps(): Promise<BattleMapInfo[]> {

@@ -537,6 +537,15 @@ export class JoltVehicles {
     return impact;
   }
 
+  /** Takes one vehicle out of the simulation entirely. */
+  remove(id: number): void {
+    const car = this.cars.get(id);
+    if (!car) return;
+    this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint);
+    this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
+    this.cars.delete(id);
+  }
+
   dispose(): void {
     for (const car of this.cars.values()) {
       this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint);

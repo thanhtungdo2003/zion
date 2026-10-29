@@ -624,6 +624,7 @@ export class GameEngine {
     this.scene.add(this.terrainGroup);
 
     this.input = new InputController(this.renderer.domElement, {
+      command: (code, shift) => this.warfareKey(code, shift),
       openChat: () => this.hud.set({ toast: null }),
       activeChange: (active) => {
         this.hud.set({ pointerLocked: active });
@@ -712,8 +713,8 @@ export class GameEngine {
         if (this.disposed) return;
         // Match modes: a dropped connection (not a refusal from the server) rejoins the same match
         // by itself; the server holds the place for a couple of minutes.
-        const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection' || mode === 'waves';
-        const over = hud.battle?.phase === 'finished' || !!hud.infection?.over || hud.waves?.phase === 'over' || (mode === 'battle-royale' && !!this.local?.dead);
+        const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection' || mode === 'waves' || mode === 'warfare';
+        const over = hud.battle?.phase === 'finished' || !!hud.infection?.over || hud.waves?.phase === 'over' || hud.warfare?.phase === 'over' || (mode === 'battle-royale' && !!this.local?.dead);
         if (arena && !info.message && !over) {
           const attempt = rejoinAttempt();
           if (attempt <= 8) {
@@ -986,6 +987,49 @@ export class GameEngine {
   setChatOpen(open: boolean): void {
     this.chatOpen = open;
     this.input.suspended = open || this.tutorialBlocked || this.inventory.get().open || this.hud.get().mapOpen || this.shopOpen;
+  }
+
+  /**
+   * Warfare keys. G: recruit the allied bot under the sights; aimed at the ground with followers,
+   * send them there (pointing); Shift+G lets every follower go. Z waves the team over, Y halts it.
+   */
+  private warfareKey(code: string, shift: boolean): boolean {
+    const wf = this.hud.get().warfare;
+    if (this.welcome?.mode !== 'warfare' || !wf?.you || !this.local || this.local.dead) return false;
+    if (code === 'KeyZ') { this.conn.sendWarfare({ t: 'wfEmote', emote: 'wave' }); this.localAvatar?.gesture('wave', this.input.yaw); return true; }
+    if (code === 'KeyY') { this.conn.sendWarfare({ t: 'wfEmote', emote: 'halt' }); this.localAvatar?.gesture('halt', this.input.yaw); return true; }
+    if (code !== 'KeyG') return false;
+    if (shift) { this.conn.sendWarfare({ t: 'wfRecruit', dismiss: true }); return true; }
+    // The ray from the view centre (or the cursor in the top-down view).
+    this.raycaster.setFromCamera(this.mouseLook ? this.ndc.set(0, 0) : this.ndc.set(this.input.pointer.x, this.input.pointer.y), this.camera);
+    const ray = this.raycaster.ray;
+    // An allied bot under the sights (within 40 m, about a body's width off the ray).
+    const allies = new Set(wf.units.filter((u) => u.bot && u.alive && u.side === wf.you!.side).map((u) => u.id));
+    let target: number | null = null, nearest = 40;
+    for (const [id, r] of this.remotes) {
+      if (!allies.has(id)) continue;
+      const p = r.avatar.root.position;
+      this.tmpA.set(p.x, p.y + 1, p.z).sub(ray.origin);
+      const along = this.tmpA.dot(ray.direction);
+      if (along < 0 || along > nearest) continue;
+      if (this.tmpA.addScaledVector(ray.direction, -along).length() > .8) continue;
+      nearest = along; target = id;
+    }
+    if (target !== null) { this.conn.sendWarfare({ t: 'wfRecruit', target }); return true; }
+    if (!wf.you.followers.length) { this.conn.sendWarfare({ t: 'wfRecruit' }); return true; }
+    // The ground (or a floor) where the ray lands, up to 150 m.
+    let distance = 150;
+    if (this.store?.collision.raycast(ray.origin.x, ray.origin.y, ray.origin.z, ray.direction.x, ray.direction.y, ray.direction.z, distance, Mask.LineOfSight, this.shotRay)) distance = this.shotRay.t;
+    else { this.toast({ key: 'raw', vars: { text: 'Hãy nhắm vào mặt đất để ra lệnh di chuyển.' } }); return true; }
+    const at = ray.at(distance, this.tmpB);
+    this.conn.sendWarfare({ t: 'wfRecruit', at: { x: at.x, y: at.y, z: at.z } });
+    this.localAvatar?.gesture('point', Math.atan2(-(at.x - this.local.state.x), -(at.z - this.local.state.z)));
+    return true;
+  }
+
+  /** Warfare: deploy choices, squads and orders from the HUD. */
+  warfare(msg: Parameters<GameConnection['sendWarfare']>[0]): void {
+    this.conn.sendWarfare(msg);
   }
 
   /** Zombie waves: the shop between waves is open (the cursor is free, the game keys rest). */
@@ -1284,7 +1328,7 @@ export class GameEngine {
     this.infectedIds.clear(); this.selfInfected = false;
     // Infection: the weapons this browser picked last time.
     if (m.mode === 'infection') this.conn.sendLoadout(loadInfectionLoadout());
-    if (m.mode === 'battle-royale' || m.mode === 'infection' || m.mode === 'waves') { markActiveMatch(m.mode); rejoinSucceeded(); }
+    if (m.mode === 'battle-royale' || m.mode === 'infection' || m.mode === 'waves' || m.mode === 'warfare') { markActiveMatch(m.mode); rejoinSucceeded(); }
     if (m.mode === 'battle-royale') {
       this.battleZone = new BattleZone(this.scene, (x, z) => this.store?.collision.terrainHeight(x, z) ?? Number.NaN);
       this.battleFlight = new BattleFlightRenderer(this.scene);
@@ -1388,10 +1432,10 @@ export class GameEngine {
   private onSnapshot(s: Snapshot): void {
     // Keep the "playing a match" mark fresh, so a closed tab comes back here from the menu.
     const mode = this.welcome?.mode;
-    if ((mode === 'battle-royale' || mode === 'infection' || mode === 'waves') && performance.now() - this.lastMatchMark > 10_000) {
+    if ((mode === 'battle-royale' || mode === 'infection' || mode === 'waves' || mode === 'warfare') && performance.now() - this.lastMatchMark > 10_000) {
       this.lastMatchMark = performance.now();
       const hud = this.hud.get();
-      if (hud.battle?.phase === 'finished' || hud.infection?.over || hud.waves?.phase === 'over' || (mode === 'battle-royale' && this.local?.dead)) clearActiveMatch(); else markActiveMatch(mode);
+      if (hud.battle?.phase === 'finished' || hud.infection?.over || hud.waves?.phase === 'over' || hud.warfare?.phase === 'over' || (mode === 'battle-royale' && this.local?.dead)) clearActiveMatch(); else markActiveMatch(mode);
     }
     this.snapshotCount++;
     const local = this.local;
@@ -1611,6 +1655,15 @@ export class GameEngine {
         this.hud.set({ waves: m });
         if (m.phase === 'over') clearActiveMatch();
         break;
+      case 'warfare':
+        this.hud.set({ warfare: m });
+        if (m.phase === 'over') clearActiveMatch();
+        break;
+      case 'wfGesture': {
+        const av = m.id === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.id)?.avatar;
+        if (m.kind === 'point' || m.kind === 'wave' || m.kind === 'halt' || m.kind === 'salute') av?.gesture(m.kind, m.yaw);
+        break;
+      }
       case 'infection': {
         const before = this.hud.get().infection;
         this.hud.set({ infection: m });

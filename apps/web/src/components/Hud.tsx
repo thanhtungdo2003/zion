@@ -66,7 +66,7 @@ function MouseRight() {
 export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat, onRespawn, onResume, onLeave, inventoryOpen, onPvp, onSetTime, chatRequest = 0 }: Props) {
   const { t, tm, cameraMode, rollKey, proneKey } = useSettings();
   // Match modes: the server sends everyone back when the match ends; "reconnect" finds a new one.
-  const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over || state.waves?.phase === 'over';
+  const matchOver = state.battle?.phase === 'finished' || !!state.infection?.over || state.waves?.phase === 'over' || state.warfare?.phase === 'over';
   const mouseLook = cameraMode !== 'top-down';
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -399,7 +399,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}
-      {state.status === 'dead' && state.mode !== 'infection' && state.mode !== 'battle-royale' && state.mode !== 'waves' && (
+      {state.status === 'dead' && state.mode !== 'infection' && state.mode !== 'battle-royale' && state.mode !== 'waves' && state.mode !== 'warfare' && (
         <div className="overlay">
           <div className="overlay-card">
             <h2 style={{ color: 'var(--danger)' }}>{t('hud.you_died')}</h2>

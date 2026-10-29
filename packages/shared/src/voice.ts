@@ -4,8 +4,8 @@
  * the TURN relay when a network blocks direct connections).
  */
 /** Which team list a voice room belongs to (the same lobbies as `/api/teams?mode=`). */
-export type VoiceKind = 'survival' | 'battle-royale' | 'waves';
-export const VOICE_KINDS: readonly VoiceKind[] = ['survival', 'battle-royale', 'waves'];
+export type VoiceKind = 'survival' | 'battle-royale' | 'waves' | 'warfare';
+export const VOICE_KINDS: readonly VoiceKind[] = ['survival', 'battle-royale', 'waves', 'warfare'];
 export const VOICE_PATH = '/voice';
 /** Largest relayed message (an SDP offer with its candidates fits comfortably). */
 export const VOICE_MAX_MESSAGE = 16 * 1024;

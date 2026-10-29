@@ -7,6 +7,10 @@ import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
 import { InfectionMatch } from './infection';
 import { WaveMatch } from './waves';
+import { WarfareMatch } from './warfare';
+import type { WarfareRoomConfig } from './warfare-rooms';
+import { ARMOR_BY_ITEM, NO_ARMOR, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
+import { WarfareDirector, ledObjective, type DirectorUnit, type DirectorZone } from './warfare-director';
 import { ARMOR_SPECS, WAVE_KILL_CASH, WAVE_MAX_BOTS, WAVE_START_CASH, WAVE_TEAM_LIMIT, waveBoard, waveClearCash, waveInventory, wavePrice, waveShopStock, type WavePlayMode, type WaveResult, type WaveStateMessage } from '@zion/shared';
 import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
@@ -180,6 +184,8 @@ export interface GameServerDeps {
   initialWorldTimeMs: number;
   /** Zombie Wave Survival: this match's map, team make-up and where its result goes. */
   waves?: WaveRoomConfig;
+  /** Warfare: this room's id and map. */
+  warfare?: WarfareRoomConfig;
 }
 
 export interface WaveRoomConfig {
@@ -318,7 +324,7 @@ export class GameServer {
   private get infectionRules() { return this.infectionMap.rules; }
   private get infectionCentre(): number { return this.deps.world.generator.worldSize / 2; }
   /** Battle royale or infection: a match server, no persistent survival world. */
-  private get arena(): boolean { return !!this.battle || !!this.infection || !!this.waves; }
+  private get arena(): boolean { return !!this.battle || !!this.infection || !!this.waves || !!this.warfare; }
   /** The world this server plays on. */
   get worldService(): WorldService { return this.deps.world; }
   /** Players in or joining this server (matchmaking load). */
@@ -328,11 +334,28 @@ export class GameServer {
   get waveFinished(): boolean { return this.waves?.phase === 'over'; }
   canAdmit(): boolean {
     if (this.waves) return (this.waves.phase === 'lobby' || this.waves.phase === 'countdown') && this.headcount < WAVE_TEAM_LIMIT;
+    if (this.warfare) return this.warfare.phase !== 'over' && !this.wfClosed && this.headcount < this.wfCfg.maxActive;
     if (this.battle) return this.battle.accepting && this.headcount < BATTLE_MAP.maxPlayers;
     if (this.infection) return this.infection.accepting && this.headcount < this.infectionRules.maxPlayers;
     return true;
   }
-  private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : this.waves ? 'waves' : 'survival'; }
+  private get mode(): GameMode { return this.battle ? 'battle-royale' : this.infection ? 'infection' : this.waves ? 'waves' : this.warfare ? 'warfare' : 'survival'; }
+  /** Warfare rules (null in other modes). */
+  private warfare: WarfareMatch | null = null;
+  private wfCfg!: WarfareConfig;
+  /** Warfare layout in world coordinates. */
+  private wfLayout!: WarfareLayout;
+  private readonly wfSide = new Map<number, WarfareSide>();
+  private readonly wfClass = new Map<number, WarfareClass>();
+  private readonly wfRespawn = new RespawnQueue<number>();
+  private wfSquads!: SquadBook;
+  private wfSlots: VehicleSlot[] = [];
+  /** Recruited bots: bot id → leader player id, and the order they follow. */
+  private readonly wfLeader = new Map<number, number>();
+  private readonly wfOrder = new Map<number, WarfareOrder>();
+  /** A player's standing squad order (applies to their followers). */
+  private readonly wfPlayerOrder = new Map<number, WarfareOrder>();
+  private wfLastBroadcast = 0;
   /** Zombie Wave Survival rules (null in other modes). */
   private waves: WaveMatch | null = null;
   /** Kills per team member this match, and whether the result went out yet. */
@@ -359,6 +382,7 @@ export class GameServer {
     if (deps.mode === 'battle-royale') this.battle = this.newBattleMatch();
     if (deps.mode === 'infection') this.infection = new InfectionMatch(this.infectionRules, this.infectionMap.name);
     if (deps.mode === 'waves') this.waves = new WaveMatch();
+    if (deps.mode === 'warfare') this.initWarfare();
     if (this.arena) for (const site of allStructures(deps.world.generator)) for (const [i, part] of site.parts.entries()) if (part.asset === BATTLE_ASSET.door) {
       const c = Math.cos(site.yaw), s = Math.sin(site.yaw);
       this.battleDoors.set(site.gid * 10000 + i, { x: site.x + part.x * c + part.z * s, y: site.y + part.y, z: site.z - part.x * s + part.z * c, yaw: site.yaw + part.yaw, open: false });
@@ -424,10 +448,14 @@ export class GameServer {
         if ((p as unknown) instanceof BattleBot) { this.bots?.hit(p as unknown as BattleBot, dmg, 'zombie', z.state, now, 'torso', z.id); return; }
         this.damage(z.id, p, dmg, 'bite', p.state.x, p.state.y + 1.2, p.state.z, now);
       },
-    }, deps.mode !== 'waves');
+    }, deps.mode !== 'waves' && deps.mode !== 'warfare');
     // Bots play battle royale only (Infection is people against people).
-    this.bots = this.battle || deps.mode === 'waves' ? new BattleBotDirector(this.collision, {
-      shot: (e) => this.broadcastAt(e.ox, e.oz, e),
+    this.bots = this.battle || deps.mode === 'waves' || deps.mode === 'warfare' ? new BattleBotDirector(this.collision, {
+      shot: (e) => {
+        this.broadcastAt(e.ox, e.oz, e);
+        // Warfare: gunfire is heard by the other side's bots (a direction to look, not a target).
+        if (this.warfare?.fighting) { const side = this.wfSide.get(e.shooterId); if (side) this.bots?.hear(e.ox, e.oz, 55, this.serverTime, (b) => this.wfSide.get(b.id) !== side); }
+      },
       projectile: (e) => this.broadcastAt(e.x, e.z, e),
       projectileEnd: (e) => this.broadcastAt(e.x, e.z, e),
       hitPlayer: (bot, player, damage, zone, x, y, z, now) => {
@@ -438,6 +466,15 @@ export class GameServer {
         botHitsBot: (attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number) => { this.infectionBotDamage(target, damage, attacker.id, attacker.state, zone, now); return true; },
       } : {}),
       ...(deps.mode === 'battle-royale' ? { canHurt: (bot: BattleBot) => !!this.battle?.canFight(bot.id) } : {}),
+      // Warfare: two armies; whoever wears the other colour is the enemy.
+      ...(deps.mode === 'warfare' ? {
+        enemy: (bot: BattleBot, id: number) => { const a = this.wfSide.get(bot.id), b = this.wfSide.get(id); return !!this.warfare?.fighting && !!a && !!b && a !== b; },
+        botHitsBot: (attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number) => { this.warfareBotDamage(target, damage, attacker.id, attacker.state, zone, now, attacker.name); return true; },
+        canHurt: () => !!this.warfare?.fighting,
+        // Killed outright: a death is a ticket (medics heal, nobody bleeds out on the ground).
+        downs: () => false,
+        hurt: (bot: BattleBot, amount: number, by: number | null) => this.wfHurt(bot.id, by, amount),
+      } : {}),
       // Wave survival: bots are the team's, they fight only zombies.
       ...(deps.mode === 'waves' ? {
         enemy: () => false,
@@ -658,7 +695,7 @@ export class GameServer {
     finally { this.finishQuestMutation(p); }
   }
 
-  private allied(a: Player, b: Player): boolean { return this.waves ? true : this.infection ? this.infection.allies(a.id, b.id) : this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
+  private allied(a: Player, b: Player): boolean { return this.warfare ? this.wfSide.get(a.id) === this.wfSide.get(b.id) : this.waves ? true : this.infection ? this.infection.allies(a.id, b.id) : this.battle ? this.battle.allies(a.id, b.id) : this.deps.teams?.allied(a.accountId, b.accountId) ?? false; }
   /** Battle royale: only players who dropped in with their squad see and share the team. */
   private squadOf(p: Player) { return this.infection || (this.battle && !p.session.squad) ? undefined : this.deps.teams?.forAccount(p.accountId); }
 
@@ -1249,6 +1286,7 @@ export class GameServer {
       }
       const back = this.arena ? this.rejoins.get(acc.accountId) : undefined;
       if (back) { await this.physics.ensureArea(Math.floor(back.state.x / CHUNK_SIZE), Math.floor(back.state.z / CHUNK_SIZE), 1); pos = { x: back.state.x, y: back.state.y, z: back.state.z }; }
+      else if (this.warfare) pos = await this.wfJoinSpot(acc.accountId);
       else if (this.infection || this.waves) { await this.physics.ensureArea(Math.floor(this.infectionCentre / CHUNK_SIZE), Math.floor(this.infectionCentre / CHUNK_SIZE), 3); pos = this.infectionSpot(); }
       pos ??= await this.spawns.pickSpawn();
       // Battle royale: everyone waits for the drop together, inside the lobby ring.
@@ -1283,7 +1321,7 @@ export class GameServer {
     if (joinedRank) player.rank = joinedRank;
     if (look) player.look = look;
     this.quests.reset(player, Date.now());
-    player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.waves ? waveInventory() : this.battle ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
+    player.inv.load(this.infection ? (this.infection.joinsAsZombie ? zombieInventory() : infectionInventory(DEFAULT_INFECTION_LOADOUT)) : this.waves ? waveInventory() : this.battle || this.warfare ? { items: [], equipped: null } : saved?.inventory ?? defaultLoadout());
     // Placed explosives are world-session objects. Discard remotes whose charge no longer exists.
     player.inv.load({ ...player.inv.toJSON(), items: player.inv.items.filter(item => {
       if (item.itemId !== 'c4_detonator') return true;
@@ -1316,7 +1354,8 @@ export class GameServer {
     }
     if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
     if (this.waves) { this.syncLoadout(player); if (!this.waveCash.has(player.id)) this.waveCash.set(player.id, WAVE_START_CASH); }
-    if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
+    if (this.warfare) this.wfJoin(player, !!rejoin);
+    if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : this.warfare ? 'CHIẾN TRƯỜNG' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
     session.sendJson({
@@ -1340,6 +1379,7 @@ export class GameServer {
     this.sendLife(player);
     if (this.infection) this.broadcastInfection();
     else if (this.waves) this.broadcastWaves();
+    else if (this.warfare) { /* wfJoin sent the state */ }
     else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
@@ -1372,11 +1412,12 @@ export class GameServer {
     // never start from a stale row (no rollback / duplication by quick reconnects).
     // Dropped out of a running match (not eliminated, not sent home): hold the place a while.
     const dropped = (reason === 'disconnect' || reason === 'duplicate_session') && !p.dead && !p.downed
-      && (!!this.battle?.canFight(p.id) || (!!this.infection && this.infection.phase !== 'waiting' && this.infection.entrants.has(p.id)));
+      && (!!this.battle?.canFight(p.id) || (!!this.infection && this.infection.phase !== 'waiting' && this.infection.entrants.has(p.id)) || (!!this.warfare && this.warfare.phase !== 'over'));
     if (dropped) {
       this.rejoins.set(p.accountId, { id: p.id, name: p.username, until: this.serverTime + REJOIN_GRACE_MS, state: copyCharacterState(p.state, createCharacterState(0, 0, 0)), yaw: p.yaw, health: p.health, inventory: p.inv.toJSON(), jumpPoint: p.jumpPoint });
-      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${p.username} mất kết nối · giữ chỗ ${Math.round(REJOIN_GRACE_MS / 1000)} giây.` });
+      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.warfare ? 'CHIẾN TRƯỜNG' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${p.username} mất kết nối · giữ chỗ ${Math.round(REJOIN_GRACE_MS / 1000)} giây.` });
     } else {
+      if (this.warfare) this.wfLeave(p, false);
       this.battle?.leave(p.id);
       this.infection?.leave(p.id);
       if (this.infection) this.infectionLoadouts.delete(p.id);
@@ -1404,6 +1445,10 @@ export class GameServer {
     if (this.infection && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
     if (this.waves && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'revive', 'pickup', 'drop', 'waveBuy', 'waveReady'].includes(msg.t)) return;
     if (msg.t === 'waveBuy' || msg.t === 'waveReady') { if (p && this.waves) this.onWaveShop(p, msg); return; }
+    // Warfare: no loot to drop or pick up (kits come from the deploy screen), no survival respawn.
+    if (this.warfare && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'wfDeploy', 'wfSquad', 'wfOrder', 'wfRecruit', 'wfEmote'].includes(msg.t)) return;
+    if (this.warfare && msg.t === 'inv' && msg.op !== 'equip' && msg.op !== 'move' && msg.op !== 'sort') return;
+    if (msg.t === 'wfDeploy' || msg.t === 'wfSquad' || msg.t === 'wfOrder' || msg.t === 'wfRecruit' || msg.t === 'wfEmote') { if (p && this.warfare) this.onWarfare(p, msg); return; }
     if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
     if (msg.t === 'loadout') { if (p && this.infection) this.onLoadout(p, msg); return; }
     if (p?.state.flight && ['inv', 'reload', 'heal', 'door'].includes(msg.t)) return;
@@ -1743,7 +1788,8 @@ export class GameServer {
       this.battle?.leave(r.id);
       this.infection?.leave(r.id);
       this.infectionLoadouts.delete(r.id);
-      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${r.name} đã rời trận.` });
+      if (this.warfare) this.wfForget(r.id);
+      this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.warfare ? 'CHIẾN TRƯỜNG' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${r.name} đã rời trận.` });
     }
   }
 
@@ -2438,6 +2484,691 @@ export class GameServer {
     this.broadcast(msg);
   }
 
+  /* ------------------------------------ warfare ------------------------------------------ */
+
+  /** Warfare AI above the bots: squads, their tasks and objectives. */
+  private wfDirector!: WarfareDirector;
+  /** Zones with their live capture state, height and AI data (world coordinates). */
+  private wfZones: DirectorZone[] = [];
+  private wfBases!: Record<WarfareSide, { x: number; y: number; z: number }>;
+  private wfLayoutErrors: string[] = [];
+  /** The map's physics is loaded (bots can stand and walk everywhere). */
+  private wfReady = false;
+  private wfPreparing: Promise<void> | null = null;
+  private wfClosed = false;
+  private readonly wfStats = new Map<number, { kills: number; deaths: number; assists: number; captures: number }>();
+  /** Damage taken this life, by attacker (kill assists). */
+  private readonly wfHurtBy = new Map<number, Map<number, number>>();
+  /** Lives lived (a death is charged once per life: the ticket key). */
+  private readonly wfLife = new Map<number, number>();
+  private readonly wfLoadouts = new Map<number, WarfareLoadout>();
+  private readonly wfSpawnPick = new Map<number, string | null>();
+  private readonly wfDeployReady = new Set<number>();
+  private readonly wfWaiting = new Map<number, string>();
+  /** Spawn spots used recently (no two units on one spot at once). */
+  private readonly wfSpotUsed = new Map<string, number>();
+  /** Bots that just got an order: they turn towards it before setting off. */
+  private readonly wfTurnUntil = new Map<number, { until: number; yaw: number }>();
+  private readonly wfPendingSide = new Map<string, WarfareSide>();
+  private wfPresence = new Map<string, Record<WarfareSide, number>>();
+  private wfLastThink = 0;
+  private wfLastRelease = 0;
+  private wfFlipped = false;
+
+  private initWarfare(): void {
+    const map = this.infectionMap, c = this.infectionCentre, gen = this.deps.world.generator;
+    const { layout, errors } = resolveWarfareLayout(map.warfare, map.half);
+    this.wfLayoutErrors = errors;
+    this.wfCfg = parseWarfareConfig(layout.config ?? {});
+    const world = <T extends { x: number; z: number }>(p: T): T => ({ ...p, x: c + p.x, z: c + p.z });
+    const bases = layout.bases!;
+    this.wfLayout = {
+      ...layout,
+      zones: layout.zones.map((z) => ({ ...world(z), spawns: z.spawns.map(world), points: z.points.map(world) })),
+      bases: { blue: world(bases.blue), red: world(bases.red) },
+      vehicleSpawns: layout.vehicleSpawns.map(world),
+    };
+    const ground = (p: { x: number; z: number; y?: number }) => p.y ?? gen.heightAt(p.x, p.z);
+    this.wfBases = { blue: { ...this.wfLayout.bases!.blue, y: ground(this.wfLayout.bases!.blue) }, red: { ...this.wfLayout.bases!.red, y: ground(this.wfLayout.bases!.red) } };
+    this.warfare = new WarfareMatch(this.wfCfg, this.wfLayout);
+    this.wfSquads = new SquadBook(this.wfCfg.playerSquadSize);
+    this.wfDirector = new WarfareDirector(this.wfBases, this.wfCfg.squadSize);
+    this.wfZones = this.warfare.capture.zones.map((z, i) => {
+      const def = this.wfLayout.zones[i]!;
+      return Object.assign(z, { y: ground(def), value: def.value, links: def.links, points: def.points, spawns: def.spawns });
+    });
+    this.wfSlots = this.wfCfg.vehicles.enabled ? this.wfLayout.vehicleSpawns.map((v, i) => new VehicleSlot(i, v)) : [];
+  }
+
+  /** Loads the whole play area's physics once (bots and spawns need ground everywhere). */
+  private prepareWarfareArea(): Promise<void> {
+    this.wfPreparing ??= (async () => {
+      const c = Math.floor(this.infectionCentre / CHUNK_SIZE);
+      await this.physics.ensureArea(c, c, Math.ceil((this.infectionMap.half + 8) / CHUNK_SIZE));
+      this.wfReady = true;
+      if (this.wfLayoutErrors.length) this.log.warn({ map: this.infectionMap.id, errors: this.wfLayoutErrors }, 'warfare layout invalid; playing the automatic one');
+    })().catch((err: unknown) => { this.wfPreparing = null; this.log.error({ err }, 'warfare area not loaded'); });
+    return this.wfPreparing;
+  }
+
+  private wfSideName(s: WarfareSide): string { return s === 'blue' ? 'Phe Xanh (tấn công)' : 'Phe Đỏ (phòng thủ)'; }
+  private wfSay(text: string, side?: WarfareSide): void {
+    const msg = { t: 'chat' as const, from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text };
+    for (const p of this.players.values()) if (!side || this.wfSide.get(p.id) === side) p.session.sendJson(msg);
+  }
+
+  /** Connected humans per side. */
+  private wfHumans(): Record<WarfareSide, number> {
+    const out = { blue: 0, red: 0 };
+    for (const p of this.players.values()) { const s = this.wfSide.get(p.id); if (s) out[s]++; }
+    return out;
+  }
+
+  /** The side for a joining account: with its party if the party is here, else the smaller side. */
+  private wfPickSide(accountId: string): WarfareSide {
+    const team = this.deps.teams?.forAccount(accountId);
+    if (team) for (const p of this.players.values()) if (p.accountId !== accountId && team.members.some((m) => m.accountId === p.accountId)) { const s = this.wfSide.get(p.id); if (s) return s; }
+    for (const [acc, s] of this.wfPendingSide) if (acc !== accountId && team?.members.some((m) => m.accountId === acc)) return s;
+    return pickSide(this.wfHumans());
+  }
+
+  /** Where a joining player waits for the deploy screen: their side's base. */
+  private async wfJoinSpot(accountId: string): Promise<ValidatedPosition> {
+    await this.prepareWarfareArea();
+    const side = this.wfPickSide(accountId);
+    this.wfPendingSide.set(accountId, side);
+    const b = this.wfBases[side];
+    return this.spawns.validateAt(b.x, b.z, false, b.y) ?? { x: b.x, y: b.y + .05, z: b.z };
+  }
+
+  /** A player entered the room: side, party squad, then the deploy screen. */
+  private wfJoin(p: Player, rejoin: boolean): void {
+    if (rejoin && this.wfSide.has(p.id)) { this.broadcastWarfare(this.serverTime); return; }
+    const side = this.wfPendingSide.get(p.accountId) ?? this.wfPickSide(p.accountId);
+    this.wfPendingSide.delete(p.accountId);
+    this.wfSide.set(p.id, side);
+    if (!this.wfClass.has(p.id)) this.wfClass.set(p.id, 'assault');
+    this.wfStats.set(p.id, this.wfStats.get(p.id) ?? { kills: 0, deaths: 0, assists: 0, captures: 0 });
+    // Friends who came as a party share one squad.
+    const team = this.deps.teams?.forAccount(p.accountId);
+    if (team) {
+      const mates = new Set([...this.players.values()].filter((q) => q !== p && team.members.some((m) => m.accountId === q.accountId)).map((q) => q.id));
+      const squad = [...this.wfSquads.squads.values()].find((sq) => sq.side === side && sq.members.some((m) => mates.has(m)));
+      if (!squad || !this.wfSquads.join(p.id, side, squad.id)) this.wfSquads.create(p.id, side);
+    }
+    // Not on the field until they pick a class and a deploy point.
+    p.dead = true; p.deadAt = 0; p.health = 0; p.dirty = true;
+    p.inv.load({ items: [], equipped: null }); this.syncLoadout(p);
+    this.wfRespawn.add(p.id, side, this.serverTime);
+    this.wfSay(`${p.username} đã vào ${this.wfSideName(side)}.`);
+    this.broadcastWarfare(this.serverTime);
+  }
+
+  /** A player left the room (`held`: their place is kept for a reconnect). */
+  private wfLeave(p: Player, held: boolean): void {
+    if (held) return;
+    this.wfForget(p.id);
+  }
+
+  private wfForget(id: number): void {
+    this.wfSquads?.leave(id);
+    this.wfRespawn.remove(id);
+    this.wfDeployReady.delete(id);
+    this.wfSpawnPick.delete(id);
+    this.wfWaiting.delete(id);
+    this.wfPlayerOrder.delete(id);
+    // Their bots go back to the AI squads.
+    for (const [bot, leader] of [...this.wfLeader]) if (leader === id) this.wfRelease1(bot);
+    this.wfSide.delete(id);
+  }
+
+  /** A follower goes back to its side's AI squads. */
+  private wfRelease1(botId: number): void {
+    this.wfLeader.delete(botId);
+    this.wfOrder.delete(botId);
+    const side = this.wfSide.get(botId);
+    if (side) this.wfDirector.enlist(botId, side);
+  }
+
+  private wfFollowers(playerId: number): number[] {
+    return [...this.wfLeader].filter(([, l]) => l === playerId).map(([b]) => b);
+  }
+
+  /** Every combatant on the field (alive), with its side. */
+  private wfLiving(): Array<{ id: number; side: WarfareSide; x: number; y: number; z: number; bot: boolean }> {
+    const out: Array<{ id: number; side: WarfareSide; x: number; y: number; z: number; bot: boolean }> = [];
+    for (const p of this.players.values()) { const side = this.wfSide.get(p.id); if (side && !p.dead) out.push({ id: p.id, side, x: p.state.x, y: p.state.y, z: p.state.z, bot: false }); }
+    for (const b of this.bots?.bots ?? []) { const side = this.wfSide.get(b.id); if (side && !b.dead) out.push({ id: b.id, side, x: b.state.x, y: b.state.y, z: b.state.z, bot: true }); }
+    return out;
+  }
+
+  private stepWarfare(now: number): void {
+    const m = this.warfare!;
+    if (this.wfClosed) return;
+    this.expireRejoins(now);
+    if (!this.wfReady && this.players.size) void this.prepareWarfareArea();
+    const humans = [...this.players.values()];
+    const before = m.phase;
+    const ev = m.tick(now, { humans: humans.length + this.rejoins.size, units: this.wfLiving() });
+    if (ev.started) this.wfSay('Trận chiến bắt đầu! Chiếm và giữ các cứ điểm, mỗi người ngã xuống tốn một quân số dự bị.');
+    if (ev.flips.length) this.wfFlips(ev.flips);
+    if (ev.over) this.wfEnd(now);
+    if (ev.close) { this.wfClose(); return; }
+    if (m.phase !== 'over' && this.wfReady && (m.phase === 'fighting' || m.phase === 'countdown')) {
+      if (now - this.wfLastRelease >= 250) { this.wfLastRelease = now; this.wfFill(); this.wfDeploy(now); this.wfLead(now); }
+      if (now - this.wfLastThink >= 1000 || this.wfFlipped) { this.wfLastThink = now; this.wfThink(now); }
+      if (this.tick % 5 === 0) this.wfVehicles(now);
+    }
+    // No stamina limit on the battlefield: the fight is about position, not running out of breath.
+    for (const p of humans) p.life.stamina = p.life.capacity;
+    if (this.bots && m.phase !== 'over') {
+      const c = this.infectionCentre, circle = { x: c, z: c, radius: this.infectionMap.half * 3 };
+      this.bots.step(now, this.tick, { phase: m.fighting ? 'running' : 'waiting', circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, humans);
+    }
+    if (m.phase !== before || now - this.wfLastBroadcast >= 1000) this.broadcastWarfare(now);
+  }
+
+  /** Zones changed hands: tell everyone, credit the capturers, and make the commanders rethink. */
+  private wfFlips(flips: Array<{ zone: ZoneState; from: WarfareSide | null; to: WarfareSide | null }>): void {
+    this.wfFlipped = true;
+    const living = this.wfLiving();
+    for (const f of flips) {
+      if (f.to) {
+        this.wfSay(`${this.wfSideName(f.to)} đã chiếm cứ điểm ${f.zone.name}.`);
+        for (const u of living) if (u.side === f.to && Math.hypot(u.x - f.zone.x, u.z - f.zone.z) <= f.zone.radius) { const s = this.wfStats.get(u.id); if (s) s.captures++; }
+      } else if (f.from) this.wfSay(`Cứ điểm ${f.zone.name} đã bị ${this.wfSideName(otherSide(f.from))} vô hiệu hóa — đang tranh chấp.`);
+      if (f.from) this.wfSay(`Đã mất cứ điểm ${f.zone.name}!`, f.from);
+    }
+  }
+
+  /** Each side keeps its share of the active cap in bots (humans first). */
+  private wfFill(): void {
+    if (!this.bots || !this.wfCfg.botFill) return;
+    const caps = sideCaps(this.wfHumans(), this.wfCfg.maxActive);
+    for (const side of WARFARE_SIDES) {
+      const mine = this.bots.bots.filter((b) => this.wfSide.get(b.id) === side);
+      // Too many (players joined): retire bots that are down, never one in the middle of a fight.
+      let extra = mine.length - caps[side].bots;
+      for (const b of mine) if (extra > 0 && b.dead) { this.wfRetireBot(b); extra--; }
+      // Too few: new recruits wait in the deploy queue like anyone else (a few per beat).
+      for (let i = 0, need = Math.min(4, caps[side].bots - mine.length); i < need; i++) {
+        const base = this.wfBases[side];
+        const bot = this.bots.spawn(base.x, base.y, base.z);
+        bot.dead = true; bot.deadAt = 0;
+        this.wfSide.set(bot.id, side);
+        this.wfClass.set(bot.id, botWarfareClass(bot.id));
+        this.wfStats.set(bot.id, { kills: 0, deaths: 0, assists: 0, captures: 0 });
+        this.wfDirector.enlist(bot.id, side);
+        this.wfRespawn.add(bot.id, side, this.serverTime);
+      }
+    }
+  }
+
+  private wfRetireBot(bot: BattleBot): void {
+    const i = this.bots!.bots.indexOf(bot);
+    if (i >= 0) this.bots!.bots.splice(i, 1);
+    this.wfDirector.discharge(bot.id);
+    this.wfRespawn.remove(bot.id);
+    this.wfLeader.delete(bot.id); this.wfOrder.delete(bot.id);
+    this.wfSide.delete(bot.id); this.wfClass.delete(bot.id); this.wfStats.delete(bot.id); this.wfHurtBy.delete(bot.id); this.wfLife.delete(bot.id);
+  }
+
+  /** Deploys whoever is due: tickets left, room under the active cap, a safe spot to stand on. */
+  private wfDeploy(now: number): void {
+    const m = this.warfare!;
+    const living = this.wfLiving();
+    const room = this.wfCfg.maxActive - living.length;
+    const caps = sideCaps(this.wfHumans(), this.wfCfg.maxActive);
+    const botsUp = { blue: 0, red: 0 };
+    for (const u of living) if (u.bot) botsUp[u.side]++;
+    // Humans who are due but have not pressed deploy simply stay in the queue.
+    const due = this.wfRespawn.release(now, Math.max(0, room), (s) => m.ledger.canRespawn(s), (id) => !this.players.has(id) || this.wfDeployReady.has(id));
+    for (const { id, side } of due) {
+      const p = this.players.get(id);
+      if (p) {
+        const pos = this.wfSpawnSpot(side, id, this.wfSpawnPick.get(id) ?? null, now);
+        if (!pos) { this.wfWaiting.set(id, 'Chưa có điểm triển khai an toàn'); this.wfRespawn.add(id, side, now + 1000); continue; }
+        this.wfWaiting.delete(id);
+        this.wfPlacePlayer(p, pos);
+        continue;
+      }
+      const bot = this.bots?.bots.find((b) => b.id === id);
+      if (!bot) continue;
+      // Over the side's bot share (players took the room): stays down, retired by wfFill.
+      if (botsUp[side] >= caps[side].bots) continue;
+      const pos = this.wfSpawnSpot(side, id, null, now);
+      if (!pos) { this.wfRespawn.add(id, side, now + 1500); continue; }
+      botsUp[side]++;
+      this.wfPlaceBot(bot, side, pos);
+    }
+    // Tell the waiting why: no tickets, or the field is full.
+    for (const p of this.players.values()) {
+      const side = this.wfSide.get(p.id);
+      if (!side || !p.dead || !this.wfDeployReady.has(p.id)) continue;
+      if (!m.ledger.canRespawn(side)) this.wfWaiting.set(p.id, 'Phe bạn đã hết quân số dự bị');
+      else if (room <= 0) this.wfWaiting.set(p.id, `Chiến trường đã đủ ${this.wfCfg.maxActive} người · đang chờ chỗ`);
+    }
+  }
+
+  private wfPlacePlayer(p: Player, pos: ValidatedPosition): void {
+    const cls = this.wfClass.get(p.id) ?? 'assault';
+    this.teleport(p, pos);
+    p.dead = false; p.downed = false; p.killerId = null; p.killedBy = null; p.health = PLAYER_MAX_HEALTH; p.bleed = 0;
+    p.state.pushX = 0; p.state.pushZ = 0;
+    p.cancelReload();
+    p.inv.load(warfareInventory(cls, this.wfLoadouts.get(p.id)));
+    this.syncLoadout(p); this.sendInv(p);
+    this.wfLife.set(p.id, (this.wfLife.get(p.id) ?? 0) + 1);
+    this.wfHurtBy.delete(p.id);
+    this.wfDeployReady.delete(p.id);
+    this.broadcastNear(p, { t: 'respawn', playerId: p.id, x: pos.x, y: pos.y, z: pos.z });
+    p.session.sendJson({ t: 'respawn', playerId: p.id, x: pos.x, y: pos.y, z: pos.z });
+  }
+
+  /** A bot (re)deployed with its class's kit (the guns it can use; reserve rounds are not counted). */
+  private wfPlaceBot(bot: BattleBot, side: WarfareSide, pos: ValidatedPosition): void {
+    const inv = warfareInventory(this.wfClass.get(bot.id) ?? 'assault');
+    Object.assign(bot, {
+      squad: `wf-${side}`, health: 100, dead: false, downed: false, target: null, mode: 'idle', goal: null, objective: null,
+      reloadUntil: 0, alert: null, campUntil: 0, healUntil: 0, infiniteAmmo: true, speedMul: 1, jumpMul: 1, knockedUntil: 0,
+      items: inv.items.map((i) => ({ ...i })), armor: { ...NO_ARMOR },
+    });
+    const gun = ['primary', 'heavy', 'secondary'].map((c) => bot.items.find((i) => i.container === c && isBotGun(i.itemId))).find(Boolean) ?? null;
+    bot.gunItem = gun; bot.weapon = gun ? WEAPON_BY_ITEM[gun.itemId] ?? 0 : 0; bot.meleeItem = null;
+    for (const item of bot.items) { const armor = ARMOR_BY_ITEM.get(item.itemId); if (armor) bot.armor[armor.slot] = armor.id; }
+    Object.assign(bot.state, { x: pos.x, y: pos.y, z: pos.z, vx: 0, vy: 0, vz: 0, pushX: 0, pushZ: 0, prone: false, crouched: false, flight: 0, grounded: false });
+    bot.nav.path = []; bot.nav.search = null; bot.nav.goal = null;
+    const enemy = this.wfBases[otherSide(side)];
+    bot.yaw = Math.atan2(-(enemy.x - pos.x), -(enemy.z - pos.z));
+    this.wfLife.set(bot.id, (this.wfLife.get(bot.id) ?? 0) + 1);
+    this.wfHurtBy.delete(bot.id);
+  }
+
+  /** Deploy points a unit of `side` may use right now (the base always; held, quiet zones; squadmates). */
+  private wfDeployPoints(side: WarfareSide, unitId: number | null): Array<WarfareDeployPoint & { y: number; spots: Array<{ x: number; z: number; y?: number }> }> {
+    const cfg = this.wfCfg, enemy = otherSide(side), living = this.wfLiving();
+    const foes = living.filter((u) => u.side === enemy);
+    const quiet = (x: number, z: number, r: number) => !foes.some((f) => Math.hypot(f.x - x, f.z - z) < r);
+    const ring = (x: number, z: number, r: number, n: number, face: { x: number; z: number }) => {
+      const a0 = Math.atan2(face.z - z, face.x - x);
+      return Array.from({ length: n }, (_, i) => { const a = a0 + (i - (n - 1) / 2) * .45; return { x: x + Math.cos(a) * r, z: z + Math.sin(a) * r }; });
+    };
+    const b = this.wfBases[side], own = this.wfBases[side];
+    const out: Array<WarfareDeployPoint & { y: number; spots: Array<{ x: number; z: number; y?: number }> }> = [
+      { id: 'base', name: 'Căn cứ', kind: 'base', x: b.x, z: b.z, y: b.y, safe: true, spots: [...ring(b.x, b.z, 4, 6, this.wfBases[enemy]), ...ring(b.x, b.z, 7, 8, this.wfBases[enemy])] },
+    ];
+    if (cfg.spawnRule !== 'base-only') {
+      let held = this.wfZones.filter((z) => z.owner === side && !z.contested);
+      if (cfg.spawnRule === 'front' && held.length) {
+        const open = this.wfZones.filter((z) => z.owner !== side);
+        const gap = (z: DirectorZone) => Math.min(...open.map((o) => Math.hypot(o.x - z.x, o.z - z.z)), Infinity);
+        held = [[...held].sort((a, c) => gap(a) - gap(c))[0]!];
+      }
+      for (const z of held) {
+        const safe = quiet(z.x, z.z, z.radius + cfg.spawnSafeRadius);
+        // Zone deploy points as set in the Studio; otherwise just outside the ring, on our side.
+        const spots = z.spawns.length ? [...z.spawns] : ring(z.x, z.z, z.radius + 3, 7, own);
+        out.push({ id: z.id, name: z.name, kind: 'zone', x: z.x, z: z.z, y: z.y, safe, spots });
+      }
+    }
+    const squad = unitId !== null ? this.wfSquads.squadOf(unitId) : undefined;
+    if (squad) for (const mateId of squad.members) {
+      const mate = this.players.get(mateId);
+      if (!mate || mateId === unitId || mate.dead || mate.vehicleId) continue;
+      const contested = this.wfZones.some((z) => z.contested && Math.hypot(z.x - mate.state.x, z.z - mate.state.z) <= z.radius);
+      const safe = !contested && quiet(mate.state.x, mate.state.z, cfg.spawnSafeRadius);
+      const behind = { x: mate.state.x + Math.sin(mate.yaw) * 10, z: mate.state.z + Math.cos(mate.yaw) * 10 };
+      out.push({ id: `squad:${mateId}`, name: mate.username, kind: 'squad', x: mate.state.x, z: mate.state.z, y: mate.state.y, safe, spots: ring(mate.state.x, mate.state.z, 2.5, 5, behind).map((s) => ({ ...s, y: mate.state.y })) });
+    }
+    return out;
+  }
+
+  /**
+   * A concrete, safe position: the picked point if it is still ours and quiet; otherwise (bots,
+   * or a point lost meanwhile) the safe point nearest where the unit is needed.
+   */
+  private wfSpawnSpot(side: WarfareSide, unitId: number, pick: string | null, now: number): ValidatedPosition | null {
+    const points = this.wfDeployPoints(side, unitId).filter((p) => p.safe);
+    const leader = this.wfLeader.get(unitId), lead = leader !== undefined ? this.players.get(leader) : undefined;
+    const sq = this.wfDirector.squadIdOf(unitId), task = sq !== undefined ? this.wfDirector.squads.get(sq)?.task : null;
+    const want = lead && !lead.dead ? lead.state : task ? this.wfZones.find((z) => z.id === task.zone) : null;
+    const chosen = pick ? points.find((p) => p.id === pick) : undefined;
+    const order = chosen ? [chosen, ...points.filter((p) => p !== chosen && p.kind === 'base')]
+      : want ? [...points].filter((p) => p.kind !== 'squad').sort((a, b) => Math.hypot(a.x - want.x, a.z - want.z) - Math.hypot(b.x - want.x, b.z - want.z))
+        : [...points].filter((p) => p.kind !== 'squad').sort((a, b) => (a.kind === 'zone' ? 0 : 1) - (b.kind === 'zone' ? 0 : 1));
+    if (pick && !chosen) {
+      const p = this.players.get(unitId);
+      if (p) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: 'Điểm triển khai đã chọn không còn an toàn — triển khai tại căn cứ.' });
+      this.wfSpawnPick.set(unitId, null);
+    }
+    const living = this.wfLiving();
+    for (const point of order) {
+      const spots = [...point.spots].sort(() => Math.random() - .5);
+      for (const s of spots) {
+        const key = `${Math.round(s.x)}:${Math.round(s.z)}`;
+        if (now < (this.wfSpotUsed.get(key) ?? 0)) continue;
+        if (living.some((u) => Math.hypot(u.x - s.x, u.z - s.z) < 1.2)) continue;
+        const pos = this.spawns.validateAt(s.x, s.z, false, s.y ?? (point.kind === 'squad' ? point.y : undefined));
+        if (!pos) continue;
+        this.wfSpotUsed.set(key, now + this.wfCfg.spawnCooldownSeconds * 1000);
+        return pos;
+      }
+    }
+    return null;
+  }
+
+  /** Someone of `side` died: one ticket (once per life), the score, and the deploy queue. */
+  private wfDeath(id: number, side: WarfareSide, killerId: number | null, now: number): void {
+    const m = this.warfare!;
+    m.death(side, `death:${id}:${this.wfLife.get(id) ?? 0}`);
+    const stats = this.wfStats.get(id);
+    if (stats) stats.deaths++;
+    const killerSide = killerId !== null ? this.wfSide.get(killerId) : undefined;
+    if (killerId !== null && killerSide && killerSide !== side) { const k = this.wfStats.get(killerId); if (k) k.kills++; }
+    for (const [by, dmg] of this.wfHurtBy.get(id) ?? []) if (by !== killerId && dmg >= 20 && this.wfSide.get(by) !== side) { const a = this.wfStats.get(by); if (a) a.assists++; }
+    this.wfHurtBy.delete(id);
+    this.wfRespawn.add(id, side, respawnAt(now, this.wfCfg));
+    this.wfDeployReady.delete(id);
+    const bot = this.bots?.bots.find((b) => b.id === id);
+    if (bot) bot.objective = null;
+    if (m.ledger.tickets[side] > 0 && m.ledger.tickets[side] <= 30 && m.ledger.tickets[side] % 10 === 0) this.wfSay(`Chỉ còn ${m.ledger.tickets[side]} quân số dự bị!`, side);
+    this.broadcastWarfare(now);
+  }
+
+  private wfHurt(victim: number, by: number | null, amount: number): void {
+    if (by === null || by === victim || amount <= 0) return;
+    let m = this.wfHurtBy.get(victim);
+    if (!m) this.wfHurtBy.set(victim, m = new Map());
+    m.set(by, (m.get(by) ?? 0) + amount);
+  }
+
+  /** Damage to a bot in Warfare: never from its own side, never outside the fight. */
+  private warfareBotDamage(target: BattleBot, amount: number, attackerId: number | null, from: { x: number; z: number } | null, zone: string, now: number, by?: string): void {
+    if (!this.warfare?.fighting || target.dead) return;
+    if (attackerId !== null && this.wfSide.get(attackerId) === this.wfSide.get(target.id)) return;
+    const name = by ?? (attackerId === null ? 'vụ nổ' : this.players.get(attackerId)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name ?? '?');
+    this.broadcastAt(target.state.x, target.state.z, { t: 'hit', attackerId: attackerId ?? 0, targetId: target.id, zone, damage: amount, x: target.state.x, y: target.state.y + 1.2, z: target.state.z });
+    this.bots?.hit(target, amount, name, from, now, zone, attackerId);
+  }
+
+  /** The commanders think: tasks for every AI squad, objectives for every squad bot. */
+  private wfThink(now: number): void {
+    const m = this.warfare!;
+    const units = new Map<number, DirectorUnit>();
+    for (const b of this.bots?.bots ?? []) {
+      const side = this.wfSide.get(b.id);
+      if (side) units.set(b.id, { id: b.id, side, x: b.state.x, y: b.state.y, z: b.state.z, health: b.health, alive: !b.dead, fighting: b.mode === 'fight', cls: this.wfClass.get(b.id) ?? 'assault' });
+    }
+    this.wfPresence = m.capture.presence(this.wfLiving());
+    // Before the fight: everyone waits at their base.
+    if (!m.fighting) {
+      for (const b of this.bots?.bots ?? []) {
+        const side = this.wfSide.get(b.id);
+        if (side && !b.dead) { const base = this.wfBases[side]; b.objective = { x: base.x, y: base.y, z: base.z, radius: 9 }; }
+      }
+      return;
+    }
+    const { objectives, calls } = this.wfDirector.think(now, this.wfZones, units, this.wfPresence, this.wfFlipped);
+    this.wfFlipped = false;
+    for (const b of this.bots?.bots ?? []) if (!b.dead && !this.wfLeader.has(b.id)) b.objective = objectives.get(b.id) ?? null;
+    for (const c of calls) this.wfSay(`Cứ điểm ${c.zone.name} đang bị tấn công — cần tiếp viện!`, c.side);
+  }
+
+  /** Bots led by players: their leader's order, refreshed often (formations follow a moving player). */
+  private wfLead(now: number): void {
+    const index = new Map<number, number>();
+    for (const b of this.bots?.bots ?? []) {
+      const leaderId = this.wfLeader.get(b.id);
+      if (leaderId === undefined || b.dead) continue;
+      const leader = this.players.get(leaderId);
+      if (!leader) { this.wfRelease1(b.id); continue; }
+      const i = index.get(leaderId) ?? 0;
+      index.set(leaderId, i + 1);
+      const turn = this.wfTurnUntil.get(b.id);
+      // Just ordered: face the way first, then go.
+      if (turn && now < turn.until) { b.objective = { x: b.state.x, y: b.state.y, z: b.state.z, radius: 50, faceYaw: turn.yaw }; continue; }
+      this.wfTurnUntil.delete(b.id);
+      const order = this.wfOrder.get(b.id) ?? { kind: 'follow' as const };
+      // A fallen leader: hold where they are until the leader is back.
+      if (leader.dead && (order.kind === 'follow' || order.kind === 'regroup')) { b.objective = { x: b.state.x, y: b.state.y, z: b.state.z, radius: 3 }; continue; }
+      const zone = order.zone ? this.wfZones.find((z) => z.id === order.zone) : undefined;
+      b.objective = ledObjective(order, { x: leader.state.x, y: leader.state.y, z: leader.state.z, yaw: leader.yaw }, i, b.state, zone);
+    }
+  }
+
+  /**
+   * A point a player pointed at, made safe to send bots to: on the map, on solid dry ground
+   * (the nearest such spot within a few metres), or null.
+   */
+  private wfReachable(x: number, y: number, z: number): { x: number; y: number; z: number } | null {
+    const c = this.infectionCentre, half = this.infectionMap.half - 2;
+    if (Math.abs(x - c) > half || Math.abs(z - c) > half) return null;
+    const pos = this.spawns.validateAt(x, z, false, Math.abs(y - this.deps.world.generator.heightAt(x, z)) > 1.5 ? y : undefined);
+    return pos && Math.hypot(pos.x - x, pos.z - z) < 6 ? pos : null;
+  }
+
+  private onWarfare(p: Player, msg: ClientMessage): void {
+    const m = this.warfare!, side = this.wfSide.get(p.id), now = this.serverTime;
+    if (!side) return;
+    const say = (text: string) => p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text });
+    switch (msg.t) {
+      case 'wfDeploy': {
+        // The choice is saved for every later deploy; it only takes effect at the next deploy.
+        this.wfClass.set(p.id, isWarfareClass(msg.cls) ? msg.cls : 'assault');
+        if (msg.loadout) this.wfLoadouts.set(p.id, msg.loadout);
+        this.wfSpawnPick.set(p.id, msg.spawn ?? null);
+        if (msg.ready !== false && p.dead) { this.wfDeployReady.add(p.id); if (!this.wfRespawn.has(p.id)) this.wfRespawn.add(p.id, side, now); }
+        else if (msg.ready === false) this.wfDeployReady.delete(p.id);
+        break;
+      }
+      case 'wfSquad': {
+        if (msg.action === 'create') this.wfSquads.create(p.id, side);
+        else if (msg.action === 'leave') this.wfSquads.leave(p.id);
+        else if (msg.id === undefined || !this.wfSquads.join(p.id, side, msg.id)) say('Không vào được đội này (đầy hoặc khác phe).');
+        break;
+      }
+      case 'wfOrder': {
+        if (p.dead) return;
+        this.wfCommand(p, msg.order, now);
+        break;
+      }
+      case 'wfRecruit': {
+        if (p.dead || !m.fighting && m.phase !== 'countdown') return;
+        if (msg.dismiss) {
+          const n = this.wfFollowers(p.id);
+          for (const id of n) this.wfRelease1(id);
+          if (n.length) say(`${n.length} đồng đội bot đã trở về đội AI.`);
+          break;
+        }
+        if (msg.target !== undefined) { this.wfRecruitBot(p, msg.target); break; }
+        if (msg.at) {
+          const at = this.wfReachable(msg.at.x, msg.at.y, msg.at.z);
+          if (!at) { say('Không thể đến vị trí đó — giữ lệnh cũ.'); break; }
+          this.wfCommand(p, { kind: 'move', x: at.x, z: at.z }, now);
+          this.wfGesture(p, 'point', Math.atan2(-(at.x - p.state.x), -(at.z - p.state.z)));
+          break;
+        }
+        // G with nothing under the sights: take the nearest idle allies.
+        const room = this.wfCfg.followerCap - this.wfFollowers(p.id).length;
+        const idle = (this.bots?.bots ?? []).filter((b) => !b.dead && this.wfSide.get(b.id) === side && !this.wfLeader.has(b.id));
+        const picked = pickRecruits(p.state, idle.map((b) => ({ id: b.id, x: b.state.x, z: b.state.z })), this.wfCfg.recruitRadius, room);
+        for (const r of picked) this.wfTake(p, r.id);
+        say(picked.length ? `${picked.length} bot đã theo bạn.` : room <= 0 ? `Đã đủ ${this.wfCfg.followerCap} bot đi theo.` : 'Không có bot đồng minh rảnh ở gần.');
+        break;
+      }
+      case 'wfEmote': {
+        if (p.dead) return;
+        const aim = msg.aim ? this.wfReachable(msg.aim.x, p.state.y, msg.aim.z) : null;
+        const yaw = aim ? Math.atan2(-(aim.x - p.state.x), -(aim.z - p.state.z)) : p.yaw;
+        this.wfGesture(p, msg.emote, yaw);
+        const foes = this.wfLiving().filter((u) => u.side !== side);
+        const order = emoteOrder(msg.emote, aim, !!aim && foes.some((f) => Math.hypot(f.x - aim.x, f.z - aim.z) < 15));
+        if (msg.emote === 'point' && msg.aim && !aim) say('Không thể đến vị trí đó — giữ lệnh cũ.');
+        if (msg.emote === 'wave') {
+          // Rally: allies close by who are not busy fighting come over too.
+          const room = this.wfCfg.followerCap - this.wfFollowers(p.id).length;
+          const idle = (this.bots?.bots ?? []).filter((b) => !b.dead && !b.target && this.wfSide.get(b.id) === side && !this.wfLeader.has(b.id));
+          for (const r of pickRecruits(p.state, idle.map((b) => ({ id: b.id, x: b.state.x, z: b.state.z })), 20, room)) this.wfTake(p, r.id);
+        }
+        if (order) this.wfCommand(p, order, now);
+        break;
+      }
+      default:
+    }
+    this.broadcastWarfare(now);
+  }
+
+  /** Recruits the bot the player aimed at (an ally, close by, not someone else's). */
+  private wfRecruitBot(p: Player, id: number): void {
+    const say = (text: string) => p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text });
+    const bot = this.bots?.bots.find((b) => b.id === id);
+    if (!bot || bot.dead || this.wfSide.get(id) !== this.wfSide.get(p.id)) { say('Chỉ tuyển được bot đồng minh còn sống.'); return; }
+    if (Math.hypot(bot.state.x - p.state.x, bot.state.z - p.state.z) > this.wfCfg.recruitRadius) { say('Bot ở quá xa — lại gần hơn.'); return; }
+    const owner = this.wfLeader.get(id);
+    if (owner === p.id) { say(`${bot.name} đã đi theo bạn.`); return; }
+    // Following another player: only taken when that player is gone or down.
+    if (owner !== undefined && this.players.get(owner) && !this.players.get(owner)!.dead) { say(`${bot.name} đang theo ${this.players.get(owner)!.username}.`); return; }
+    if (this.wfFollowers(p.id).length >= this.wfCfg.followerCap) { say(`Đã đủ ${this.wfCfg.followerCap} bot đi theo.`); return; }
+    this.wfTake(p, id);
+    say(`${bot.name} đã gia nhập đội của bạn.`);
+  }
+
+  private wfTake(p: Player, botId: number): void {
+    this.wfDirector.discharge(botId);
+    this.wfLeader.set(botId, p.id);
+    this.wfOrder.set(botId, this.wfPlayerOrder.get(p.id) ?? { kind: 'follow' });
+  }
+
+  /** An order to the player's followers (and, from a squad leader with a zone, the squad's task). */
+  private wfCommand(p: Player, order: WarfareOrder, now: number): void {
+    const followers = this.wfFollowers(p.id);
+    const yaw = order.x !== undefined && order.z !== undefined ? Math.atan2(-(order.x - p.state.x), -(order.z - p.state.z)) : p.yaw;
+    for (const id of followers) {
+      const bot = this.bots?.bots.find((b) => b.id === id);
+      const o = order.kind === 'hold' ? { kind: 'hold' as const, x: bot?.state.x ?? p.state.x, z: bot?.state.z ?? p.state.z } : order;
+      this.wfOrder.set(id, o);
+      if (order.kind === 'move' || order.kind === 'attack') this.wfTurnUntil.set(id, { until: now + 600, yaw });
+    }
+    this.wfPlayerOrder.set(p.id, order.kind === 'hold' ? { kind: 'follow' } : order);
+    if (followers.length) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: `${followers.length} bot nhận lệnh: ${({ follow: 'đi theo', hold: 'giữ vị trí', move: 'di chuyển tới điểm', attack: 'tấn công', defend: 'phòng thủ', regroup: 'tập hợp' } as const)[order.kind]}.` });
+  }
+
+  /** A hand signal, shown on the player's avatar for everyone near. */
+  private wfGesture(p: Player, kind: WarfareEmote, yaw: number): void {
+    this.broadcastNear(p, { t: 'wfGesture', id: p.id, kind, yaw: +yaw.toFixed(3) });
+  }
+
+  /** Vehicle slots: spawn, watch, wreck, clean up, cool down, spawn again. */
+  private wfVehicles(now: number): void {
+    const cfg = this.wfCfg.vehicles;
+    if (!this.wfSlots.length) return;
+    const living = this.wfLiving();
+    const alive = { blue: 0, red: 0 };
+    for (const slot of this.wfSlots) if (slot.state !== 'available' && slot.state !== 'cooldown') alive[slot.spawn.side]++;
+    for (const slot of this.wfSlots) {
+      let v = slot.vehicleId !== null ? this.vehicles.states.get(slot.vehicleId) : undefined;
+      if (slot.vehicleId !== null && !v && slot.state !== 'cleanup') { slot.destroyed(now, 0); }
+      if (v) {
+        if (v.exploded || v.health <= 0) slot.destroyed(now, cfg.wreckSeconds);
+        else slot.damaged(v.health, VEHICLES[v.kind].health);
+      }
+      const home = !!v && Math.hypot(v.x - slot.spawn.x, v.z - slot.spawn.z) < 8;
+      const occupied = !!v && (v.driver !== null || !!v.passengers?.some((id) => id));
+      const r = slot.tick(now, cfg, occupied || home);
+      if (r === 'cleanup') {
+        // The wreck goes with everything it carries: riders are put down first.
+        if (v) for (const id of [v.driver, ...(v.passengers ?? [])]) { const rider = id ? this.players.get(id) : undefined; if (rider) this.vehicles.release(rider); }
+        if (slot.vehicleId !== null) this.vehicles.remove(slot.vehicleId);
+        slot.cleaned(now, cfg.cooldownSeconds);
+        v = undefined;
+      }
+      if (slot.state !== 'available' || alive[slot.spawn.side] >= cfg.maxPerSide) continue;
+      // A clear, level spot: never on someone, never inside something.
+      const s = slot.spawn;
+      if (living.some((u) => Math.hypot(u.x - s.x, u.z - s.z) < 4)) continue;
+      const pos = this.spawns.validateAt(s.x, s.z, true, s.y);
+      if (!pos || Math.hypot(pos.x - s.x, pos.z - s.z) > 3) continue;
+      const id = this.vehicles.place(s.kind, pos.x, pos.y, pos.z, s.yaw);
+      if (id !== null && slot.spawned(id, now)) alive[s.side]++;
+    }
+  }
+
+  /** The match is decided: stop the AI and the queues, tell everyone the result. */
+  private wfEnd(now: number): void {
+    const m = this.warfare!, r = m.result!;
+    for (const id of [...this.wfRespawnIds()]) this.wfRespawn.remove(id);
+    this.wfDeployReady.clear();
+    for (const b of this.bots?.bots ?? []) { b.objective = null; b.target = null; b.mode = 'idle'; }
+    const why = r.reason === 'tickets' ? 'đối phương đã hết quân số dự bị' : r.reason === 'time' ? 'hết giờ, còn nhiều quân số hơn' : r.reason === 'objectives' ? 'giữ toàn bộ cứ điểm' : 'đối phương đã rời trận';
+    this.wfSay(`${this.wfSideName(r.winner)} chiến thắng — ${why}.`);
+    this.broadcastWarfare(now);
+  }
+
+  private *wfRespawnIds(): Iterable<number> {
+    for (const id of this.wfSide.keys()) if (this.wfRespawn.has(id)) yield id;
+  }
+
+  /** The result screen is over: everyone leaves, every bot, vehicle and queue of this match goes. */
+  private wfClose(): void {
+    if (this.wfClosed) return;
+    this.wfClosed = true;
+    this.rejoins.clear();
+    for (const p of [...this.players.values()]) { this.leave(p.session, 'match over'); p.session.close(CloseCode.Normal, 'Trận đã kết thúc'); }
+    for (const slot of this.wfSlots) if (slot.vehicleId !== null) this.vehicles.remove(slot.vehicleId);
+    this.wfSlots = [];
+    this.bots?.clear();
+    this.wfLeader.clear(); this.wfOrder.clear(); this.wfTurnUntil.clear(); this.wfSide.clear();
+    this.deps.warfare?.closed();
+  }
+
+  private broadcastWarfare(now: number): void {
+    const m = this.warfare!;
+    this.wfLastBroadcast = now;
+    const held = m.capture.held();
+    const living = new Set(this.wfLiving().map((u) => u.id));
+    const units: WarfareUnitInfo[] = [];
+    const add = (id: number, name: string, bot: boolean, x: number, z: number) => {
+      const side = this.wfSide.get(id);
+      if (!side) return;
+      const s = this.wfStats.get(id) ?? { kills: 0, deaths: 0, assists: 0, captures: 0 };
+      const squad = bot ? this.wfDirector.squadIdOf(id) : this.wfSquads.squadOf(id)?.id;
+      const leader = this.wfLeader.get(id);
+      units.push({ id, name, side, bot, alive: living.has(id), ...s, cls: this.wfClass.get(id) ?? 'assault', ...(squad !== undefined ? { squad } : {}), ...(leader !== undefined ? { leader } : {}), x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 });
+    };
+    for (const p of this.players.values()) add(p.id, p.username, false, p.state.x, p.state.z);
+    for (const b of this.bots?.bots ?? []) add(b.id, b.name, true, b.state.x, b.state.z);
+    const zones = m.capture.zones.map((z) => ({ id: z.id, name: z.name, x: z.x, z: z.z, radius: z.radius, owner: z.owner, progress: Math.round(z.progress * 100) / 100, contested: z.contested, presence: this.wfPresence.get(z.id) ?? { blue: 0, red: 0 } }));
+    const vehicles = this.wfSlots.filter((s) => s.vehicleId !== null).map((s) => { const v = this.vehicles.states.get(s.vehicleId!); return { kind: s.spawn.kind, side: s.spawn.side, state: s.state, x: v?.x ?? s.spawn.x, z: v?.z ?? s.spawn.z }; });
+    const queued = [...this.wfRespawnIds()].length;
+    for (const p of this.players.values()) {
+      const side = this.wfSide.get(p.id);
+      const at = this.wfRespawn.readyAt(p.id);
+      const msg: WarfareStateMessage = {
+        t: 'warfare', map: { id: this.deps.warfare?.mapId ?? this.infectionMap.id, name: this.deps.warfare?.mapName ?? this.infectionMap.name },
+        phase: m.phase, endsAt: Math.round(m.endsAt), msLeft: Math.round(m.msLeft(now)),
+        you: side ? {
+          side, cls: this.wfClass.get(p.id) ?? 'assault', squad: this.wfSquads.squadOf(p.id)?.id ?? null,
+          followers: this.wfFollowers(p.id), order: this.wfPlayerOrder.get(p.id)?.kind ?? null,
+          respawnIn: p.dead ? Math.max(0, Math.round((at ?? now) - now)) : null,
+          spawn: this.wfSpawnPick.get(p.id) ?? null, ready: this.wfDeployReady.has(p.id),
+          ...(this.wfWaiting.has(p.id) && p.dead ? { waiting: this.wfWaiting.get(p.id)! } : {}),
+        } : null,
+        tickets: { ...m.ledger.tickets }, startTickets: this.wfCfg.tickets,
+        bleed: { blue: bleedRate(held, 'blue', this.wfCfg), red: bleedRate(held, 'red', this.wfCfg) },
+        zones, bases: { blue: { x: this.wfBases.blue.x, z: this.wfBases.blue.z }, red: { x: this.wfBases.red.x, z: this.wfBases.red.z } },
+        deploy: side ? this.wfDeployPoints(side, p.id).map(({ id, name, kind, x, z, safe }) => ({ id, name, kind, x: Math.round(x), z: Math.round(z), safe })) : [],
+        active: living.size, maxActive: this.wfCfg.maxActive, queued,
+        // Enemies' whereabouts are not handed out: only allies carry a position.
+        units: units.map((u) => { if (u.side === side) return u; const { x: _x, z: _z, ...rest } = u; return rest; }),
+        squads: [...this.wfSquads.squads.values()].filter((s) => s.side === side).map((s) => ({ ...s, members: [...s.members] })),
+        tasks: side ? this.wfDirector.tasks(side) : [],
+        vehicles: vehicles.filter((v) => v.side === side),
+        ...(m.result ? { result: { ...m.result, ticketsUsed: { blue: this.wfCfg.tickets - m.ledger.tickets.blue, red: this.wfCfg.tickets - m.ledger.tickets.red }, captures: { ...m.captures } } } : {}),
+      };
+      p.session.sendJson(msg);
+    }
+  }
+
   /** The current match's lobby ring, picked once (an open patch of ground) when the first player comes. */
   private battleLobby: Promise<BattleCircle> | null = null;
   private pickBattleLobby(): Promise<BattleCircle> {
@@ -2477,6 +3208,14 @@ export class GameServer {
     return new BattleRoyaleMatch((Math.random() * 0x7fffffff) | 0, gen.worldSize, (x, z) => gen.heightAt(x, z) > gen.seaLevel + .5);
   }
   private botDied(bot: BattleBot, by: string, now: number, killerId: number | null = null): void {
+    if (this.warfare) {
+      // No loot crates on the battlefield: the bot goes to the deploy queue like anyone.
+      this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId });
+      const side = this.wfSide.get(bot.id);
+      if (side) this.wfDeath(bot.id, side, killerId, now);
+      bot.items = [];
+      return;
+    }
     this.credit(killerId, bot.id);
     this.battle?.eliminate(bot.id);
     this.broadcastAt(bot.state.x, bot.state.z, { t: 'death', playerId: bot.id, killerId });
@@ -2527,6 +3266,7 @@ export class GameServer {
     if (this.battle) this.stepBattle(now);
     if (this.infection) this.stepInfection(now);
     if (this.waves) this.stepWaves(now);
+    if (this.warfare) this.stepWarfare(now);
 
     this.chests.step();
 
@@ -3036,6 +3776,7 @@ export class GameServer {
     if (attacker === target || attacker.dead || attacker.downed) return false;
     if (this.infection) return this.infection.canHarm(attacker.id, target.id);
     if (this.battle) return this.battle.canFight(attacker.id) && this.battle.canFight(target.id);
+    if (this.warfare) return this.warfare.fighting && !!this.wfSide.get(attacker.id) && this.wfSide.get(attacker.id) !== this.wfSide.get(target.id);
     // A real player hit reveals the control even when damage is disabled.
     if (attacker.pvpUntil <= now && attacker.pvpEnabled) {
       attacker.pvpEnabled = false;
@@ -3052,6 +3793,7 @@ export class GameServer {
     else if (target instanceof Livestock) this.hitAnimal(attacker, target, amount, now, x, y, z);
     else if (target instanceof BattleBot) {
       if (this.infection) { this.infectionBotDamage(target, amount, attacker.id, attacker.state, zone, now); return; }
+      if (this.warfare) { this.warfareBotDamage(target, amount, attacker.id, attacker.state, zone, now, attacker.username); return; }
       if (!this.battle?.canFight(attacker.id)) return;
       this.broadcastAt(x, z, { t: 'hit', attackerId: attacker.id, targetId: target.id, zone, damage: amount, x, y, z });
       this.bots?.hit(target, amount, attacker.username, { x: attacker.state.x, z: attacker.state.z }, now, zone, attacker.id);
@@ -3159,6 +3901,8 @@ export class GameServer {
     // Wave survival: no friendly fire, and nothing hurts before the first wave.
     if (this.waves && ((attackerId !== null && (this.players.has(attackerId) || attackerId >= BOT_ID_BASE)) || this.waves.phase === 'lobby' || this.waves.phase === 'countdown') && zone !== 'suicide') return;
     if (this.infection) { this.infectionDamage(attackerId, t, amount, zone, x, y, z, now, weapon); return; }
+    // Warfare: nothing hurts outside the fight, and never from your own side (bots included).
+    if (this.warfare && zone !== 'suicide' && (!this.warfare.fighting || (attackerId !== null && attackerId !== t.id && this.wfSide.get(attackerId) === this.wfSide.get(t.id)))) return;
     if (t.questBusy) { t.afterQuest.push(() => this.damage(attackerId, t, amount, zone, x, y, z, now, weapon, knock)); return; }
     if (t.downed) {
       // Hitting someone who is down drains what is left of their bleed-out.
@@ -3183,11 +3927,12 @@ export class GameServer {
     }
     t.health = Math.max(0, t.health - amount);
     t.dirty = true;
+    if (this.warfare) this.wfHurt(t.id, attackerId, amount);
     this.broadcastNear(t, { t: 'hit', attackerId: attackerId ?? 0, targetId: t.id, zone, damage: amount, x, y, z, ...knock });
     if (t.health <= 0) {
       const cause = weapon ?? (zone === 'red_zone' ? 'vòng bo đỏ' : undefined);
       // Battle royale: a squad member with a teammate still standing goes down and waits for a revive.
-      if (zone === 'suicide' || ((this.battle || this.waves) && !this.standingAlly(t))) this.killPlayer(t, attackerId, now, cause);
+      if (zone === 'suicide' || this.warfare || ((this.battle || this.waves) && !this.standingAlly(t))) this.killPlayer(t, attackerId, now, cause);
       else { this.knockDown(t, now); t.downedBy = attackerId; }
       this.squadWipe(t, now);
     }
@@ -3240,6 +3985,12 @@ export class GameServer {
     this.cancelLifeAction(t);
     t.deadAt = now;
     t.killerId = attackerId;
+    if (this.warfare) {
+      const side = this.wfSide.get(t.id);
+      if (side) this.wfDeath(t.id, side, attackerId, now);
+      const killer = attackerId === null ? undefined : this.players.get(attackerId)?.username ?? this.bots?.bots.find((b) => b.id === attackerId)?.name;
+      if (killer && attackerId !== t.id) this.broadcast({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: `${killer} đã hạ ${t.username}.` });
+    }
     if (this.infection) {
       // A zombie went down: it rises again at a spawn point a few seconds later.
       this.infection.respawnAt.set(t.id, now + this.infectionRules.zombieRespawnMs);
@@ -3454,6 +4205,7 @@ export class GameServer {
         const amount = shockwaveDamage(w.radius, w.damage, d);
         if (amount <= 0) continue;
         if (this.infection) this.infectionBotDamage(bot, amount, w.owner?.id ?? null, { x: w.x, z: w.z }, 'blast', now);
+        else if (this.warfare) this.warfareBotDamage(bot, amount, w.owner?.id ?? null, { x: w.x, z: w.z }, 'blast', now, w.owner?.username ?? w.label);
         else this.bots!.hit(bot, amount, w.owner?.username ?? w.label, { x: w.x, z: w.z }, now, 'blast', w.owner?.id ?? null);
       }
       if (front >= reach) this.shocks.splice(i, 1);
@@ -3542,6 +4294,7 @@ export class GameServer {
     for (const bot of this.bots?.near(x, z, radius) ?? []) {
       const d = Math.hypot(bot.state.x - x, bot.state.y + .9 - (y + .3), bot.state.z - z);
       if (d < radius && this.infection) this.infectionBotDamage(bot, Math.round(damage * (1 - d / radius)), owner?.id ?? null, { x, z }, 'blast', now);
+      else if (d < radius && this.warfare) this.warfareBotDamage(bot, Math.round(damage * (1 - d / radius)), owner?.id ?? null, { x, z }, 'blast', now, owner?.username ?? 'vụ nổ');
       else if (d < radius) this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), owner?.username ?? (kind === 'grenade' ? 'lựu đạn' : 'vụ nổ'), { x, z }, now, 'blast', owner?.id ?? null);
     }
     if (liveOwner) for (const npc of this.peacefulNpcs()) if (Math.hypot(npc.x - x, npc.z - z) < radius) this.provokeNpc(npc, liveOwner, now);
@@ -4147,6 +4900,8 @@ export class GameServer {
       const entities: EntityState[] = [];
       for (const o of near) {
         if (o === p || !o.active) continue;
+        // Warfare: someone on the deploy screen is not on the field (the body fades after a while).
+        if (this.warfare && o.dead && now - o.deadAt > 8000) continue;
         entities.push({
           id: o.id,
           kind: EntityKind.Player,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { INFECTION, INFECTION_MAP } from './infection';
+import { warfareLayoutSchema } from './warfare';
 
 /**
  * Infection maps, authored in the Studio: terrain from a seed, how much grass, trees and rocks
@@ -98,6 +99,8 @@ export const infectionMapSchema = z.object({
   /** Where humans (and, when listed, zombies) appear. Empty: spread automatically. */
   spawns: z.array(point).max(200),
   zombieSpawns: z.array(point).max(200),
+  /** Warfare: capture zones, side bases and vehicle spawns (absent: laid out automatically). */
+  warfare: warfareLayoutSchema.optional(),
   rules: infectionRulesSchema,
 }).strict();
 export type InfectionMapDef = z.infer<typeof infectionMapSchema>;

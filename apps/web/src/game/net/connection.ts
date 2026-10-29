@@ -69,6 +69,12 @@ export class GameConnection {
       url.searchParams.set('mode', 'waves');
       for (const key of ['map', 'bots', 'party'] as const) { const v = q.get(key); if (v) url.searchParams.set(key, v); }
     }
+    if (this.mode === 'warfare' && typeof window !== 'undefined') {
+      // Warfare: the map picked in the menu.
+      url.searchParams.set('mode', 'warfare');
+      const map = new URLSearchParams(window.location.search).get('map');
+      if (map) url.searchParams.set('map', map);
+    }
     if (this.mode === 'battle-royale') {
       url.searchParams.set('mode', this.mode);
       // Dropped in with the squad ("Tiểu đội xuất phát") rather than solo.
@@ -189,6 +195,11 @@ export class GameConnection {
 
   /** Zombie waves: a shop purchase or the ready toggle (the answer is the next 'waves' state). */
   sendWave(msg: { t: 'waveBuy'; item: string } | { t: 'waveReady'; ready: boolean }): void {
+    this.send(msg);
+  }
+
+  /** Warfare: deploy choices, squads, orders to bots, G and hand signals (all checked by the server). */
+  sendWarfare(msg: ClientMessage & { t: 'wfDeploy' | 'wfSquad' | 'wfOrder' | 'wfRecruit' | 'wfEmote' }): void {
     this.send(msg);
   }
 

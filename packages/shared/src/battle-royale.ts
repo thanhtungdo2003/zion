@@ -1,4 +1,4 @@
-export type GameMode = 'survival' | 'battle-royale' | 'infection' | 'waves';
+export type GameMode = 'survival' | 'battle-royale' | 'infection' | 'waves' | 'warfare';
 export const BATTLE_MAP = { id: 'red-island-03', name: 'Đảo Thung lũng Đỏ', seed: 'zion-red-valley-02', sizeChunks: 128, maxPlayers: 48, minPlayers: 2 } as const;
 export interface BattleCircle { x: number; z: number; radius: number }
 

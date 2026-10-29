@@ -3613,6 +3613,10 @@ kbd {
 .mode-bento:has(.mode-tile-3) { grid-template-rows: 1fr 1fr 1fr; }
 .mode-bento:has(.mode-tile-3) .mode-tile-0 { grid-row: 1 / span 3; }
 @media (max-width: 760px) { .mode-bento:has(.mode-tile-3) { grid-template-rows: 1.3fr 1fr 1fr 1fr; } .mode-bento:has(.mode-tile-3) .mode-tile-0 { grid-row: auto; } }
+/* Five modes: four stacked beside the hero tile. */
+.mode-bento:has(.mode-tile-4) { grid-template-rows: 1fr 1fr 1fr 1fr; }
+.mode-bento:has(.mode-tile-4) .mode-tile-0 { grid-row: 1 / span 4; }
+@media (max-width: 760px) { .mode-bento:has(.mode-tile-4) { grid-template-rows: 1.3fr 1fr 1fr 1fr 1fr; } .mode-bento:has(.mode-tile-4) .mode-tile-0 { grid-row: auto; } }
 
 /* Party lobby: mode switch, four slots, map, PLAY. */
 .wave-lobby { width: min(1100px, 100%); height: auto; max-height: calc(100dvh - 32px); overflow: auto; }
@@ -3775,3 +3779,82 @@ kbd {
 /* Hair colour "natural": the style's own texture colour. */
 .cc-swatch.natural { background: linear-gradient(135deg, #3a2a1c 0%, #6b4a2e 50%, #b08a58 100%); position: relative; }
 .cc-swatch.natural::after { content: "Gốc"; position: absolute; inset: auto 0 -16px; font: 600 9px var(--sans); color: var(--muted); text-align: center; }
+
+/* Warfare: tickets and zones on top, squad and tactical map at the side, the deploy screen. */
+.wf-top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; gap: 2px; pointer-events: none; z-index: 5; }
+.wf-tickets { display: grid; align-content: center; gap: 2px; min-width: 104px; padding: 6px 14px; background: rgba(8, 10, 9, .74); }
+.wf-tickets.blue { border-top: 3px solid #4fa3ff; text-align: right; }
+.wf-tickets.red { border-top: 3px solid #ff5a4a; }
+.wf-tickets small { font: 700 10px var(--cond); letter-spacing: .18em; color: var(--muted); }
+.wf-tickets b { font: 900 26px/1 var(--cond); font-variant-numeric: tabular-nums; }
+.wf-tickets i { display: block; height: 3px; background: rgba(255, 255, 255, .1); }
+.wf-tickets i em { display: block; height: 100%; transition: width .4s; }
+.wf-bleed { font: 700 10px var(--cond); color: #ff8a80; display: inline-flex; gap: 3px; align-items: center; }
+.wf-bleed svg { width: 11px; height: 11px; }
+.wf-mid { display: grid; justify-items: center; gap: 3px; padding: 6px 16px; background: rgba(8, 10, 9, .74); border-top: 3px solid var(--accent); }
+.wf-mid small { font: 600 10px var(--cond); letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
+.wf-mid b { font: 900 20px/1 var(--cond); letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.wf-zones { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wf-zones li { position: relative; width: 26px; height: 26px; display: grid; place-items: center; background: rgba(150, 150, 150, .25); border: 1px solid rgba(255, 255, 255, .2); overflow: hidden; }
+.wf-zones li.blue { background: rgba(79, 163, 255, .45); }
+.wf-zones li.red { background: rgba(255, 90, 74, .45); }
+.wf-zones li.contested { animation: wf-pulse 1s ease-in-out infinite; border-color: var(--accent); }
+.wf-zones li span { position: relative; z-index: 1; font: 900 13px var(--cond); }
+.wf-zones li i { position: absolute; left: 0; bottom: 0; height: 3px; }
+@keyframes wf-pulse { 50% { box-shadow: 0 0 0 2px rgba(255, 176, 0, .6); } }
+.wf-squad { position: absolute; left: 12px; top: 140px; width: 230px; padding: 8px 10px; background: rgba(8, 10, 9, .7); border-left: 3px solid var(--accent); font-size: 12px; z-index: 4; }
+.wf-squad h3 { margin: 4px 0; font: 700 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.wf-squad ul { margin: 0 0 6px; padding: 0; list-style: none; display: grid; gap: 2px; }
+.wf-squad li { display: grid; grid-template-columns: 14px 1fr auto; gap: 6px; align-items: center; }
+.wf-squad li svg { width: 12px; height: 12px; }
+.wf-squad li.down { opacity: .45; }
+.wf-squad li em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wf-orders { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.wf-orders .btn, .wf-chips .btn { padding: 3px 8px; font-size: 11px; min-height: 0; }
+.wf-orders .btn.on, .wf-chips .btn.on { background: var(--accent); color: var(--accent-ink); }
+.wf-hint, .wf-keys { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.wf-map { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
+.wf-map.small { position: absolute; right: 12px; bottom: 120px; width: 180px; z-index: 4; pointer-events: none; opacity: .92; }
+.wf-map .click { cursor: pointer; }
+.wf-map .unsafe { cursor: not-allowed; }
+.wf-deploy { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at 50% 30%, rgba(14, 18, 20, .7), rgba(4, 5, 6, .92)); }
+.wf-deploy-card { width: min(1100px, 100%); max-height: calc(100dvh - 32px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: rgba(14, 16, 17, .97); border: 1px solid #2e3236; border-top: 3px solid var(--accent); }
+.wf-deploy-card > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.wf-deploy-card h2 { margin: 0; font: 900 26px var(--cond); letter-spacing: .16em; }
+.wf-deploy-card header small { color: var(--muted); font-size: 12px; }
+.wf-deploy-status { display: grid; justify-items: end; gap: 2px; }
+.wf-deploy-status .warn { color: #ff8a80; }
+.wf-deploy-body { display: grid; grid-template-columns: 200px 1fr 1.1fr; gap: 14px; padding: 14px 20px; overflow: auto; }
+.wf-classes { display: grid; gap: 6px; align-content: start; }
+.wf-class { display: grid; gap: 2px; padding: 10px 12px; text-align: left; background: rgba(255, 255, 255, .04); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.wf-class small { color: var(--muted); font-size: 11px; }
+.wf-class.on { border-color: var(--accent); background: rgba(255, 176, 0, .1); }
+.wf-loadout { display: grid; gap: 10px; align-content: start; }
+.wf-pick { display: grid; gap: 4px; }
+.wf-pick small, .wf-squads small { color: var(--muted); font: 700 11px var(--cond); letter-spacing: .12em; text-transform: uppercase; }
+.wf-pick select { padding: 6px 8px; background: #1a1d1f; color: var(--text); border: 1px solid var(--line); }
+.wf-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.wf-gear { margin: 0; color: var(--muted); font-size: 12px; }
+.wf-spawn p { margin: 6px 0; font-size: 12px; color: var(--muted); }
+.wf-squads { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.wf-squads .btn { padding: 3px 8px; font-size: 11px; min-height: 0; }
+.wf-deploy-card > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--line); }
+.wf-row { grid-template-columns: 48px minmax(0, 1fr) 44px 56px 44px 52px !important; }
+.wf-results.peek { background: rgba(4, 5, 6, .55); pointer-events: none; }
+@media (max-width: 900px) {
+  .wf-deploy-body { grid-template-columns: 1fr; }
+  .wf-squad { top: auto; bottom: 150px; width: 200px; }
+  .wf-map.small { width: 130px; }
+}
+/* Studio: the Warfare part of a map. */
+.wf-studio .wf-tools { margin: 6px 0; }
+.wf-studio .wf-item { margin: 8px 0; padding: 8px; border: 1px solid var(--line); background: rgba(255, 255, 255, .03); }
+.wf-studio h4 { margin: 0 0 6px; font-size: 13px; }
+.wf-studio h4 small { color: var(--muted); font-weight: 400; }
+.wf-studio .wf-links { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0; font-size: 12px; }
+.wf-studio .wf-links small { width: 100%; color: var(--muted); }
+.wf-studio .wf-rules { margin: 8px 0; }
+.wf-studio .wf-rules summary { cursor: pointer; font-weight: 600; margin-bottom: 6px; }
+.wf-studio .wf-errors { margin: 6px 0; padding-left: 18px; color: #ff8a80; font-size: 12px; }
+.wf-studio .wf-ok { color: var(--ok); }
+.ix-check { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 4px 0; cursor: pointer; }

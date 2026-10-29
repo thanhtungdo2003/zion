@@ -65,12 +65,14 @@ export class InputController {
   private touchAim = false;
   private readonly onChat: () => void;
   private readonly onActiveChange: (active: boolean) => void;
-  private readonly handlers: { openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean; scoreboard?: (open: boolean) => void; skill?: () => void };
+  private readonly handlers: { command?: (code: string, shift: boolean) => boolean; openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void; hotbar: (slot: number) => void; cycleHotbar: (dir: number) => void; reload: () => void; heal: () => void; escape?: () => boolean; attachments?: () => boolean; nightVision?: () => boolean; primary?: () => boolean; wheel?: (dir: number) => boolean; scoreboard?: (open: boolean) => void; skill?: () => void };
   private readonly cleanup: Array<() => void> = [];
 
   constructor(
     private readonly element: HTMLElement,
     handlers: {
+      /** Mode commands (Warfare: G, Z, Y): true when the key was used. */
+      command?: (code: string, shift: boolean) => boolean;
       openChat: () => void;
       activeChange: (active: boolean) => void;
       openInventory: (key: 'KeyE' | 'other') => void; secondary?: () => boolean; vehicle?: () => void;
@@ -108,6 +110,7 @@ export class InputController {
       }
       if (this.suspended || !this.active) return;
       if (e.code === 'KeyF') { if (!e.repeat) this.handlers.vehicle?.(); return; }
+      if ((e.code === 'KeyG' || e.code === 'KeyZ' || e.code === 'KeyY') && !e.repeat && this.handlers.command?.(e.code, e.shiftKey)) return;
       if (e.code === 'KeyP') {
         if (!e.repeat) cycleCameraMode();
         return;

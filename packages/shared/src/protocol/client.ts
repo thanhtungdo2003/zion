@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TUTORIAL_IDS } from '../tutorial';
 import { MAX_CHAT_LENGTH, MAX_CLIENT_MESSAGE_BYTES, MAX_PITCH } from '../constants';
 import { MAX_WEAPON_ID } from '../weapons';
+import { warfareLoadoutSchema, warfareOrderSchema } from '../warfare';
 
 /** Input button bit flags. */
 export const Buttons = {
@@ -106,6 +107,34 @@ export const buyMessageSchema = z.object({ t: z.literal('buy'), req: u32, item: 
 export const waveBuyMessageSchema = z.object({ t: z.literal('waveBuy'), item: itemId }).strict();
 export const waveReadyMessageSchema = z.object({ t: z.literal('waveReady'), ready: z.boolean() }).strict();
 
+/** Warfare: pick a class and deploy point (a held zone id or the main base) while dead / before spawning. */
+export const wfDeployMessageSchema = z.object({
+  t: z.literal('wfDeploy'),
+  cls: z.enum(['assault', 'medic', 'engineer', 'support', 'recon']),
+  loadout: warfareLoadoutSchema.optional(),
+  /** A deploy point id from the state's `deploy` list (absent: the server picks). */
+  spawn: z.string().regex(/^[A-Za-z0-9_:-]{1,32}$/).optional(),
+  /** Deploy as soon as allowed (false: just save the choice). */
+  ready: z.boolean().optional(),
+}).strict();
+/** Warfare: create / join / leave a player squad. */
+export const wfSquadMessageSchema = z.object({ t: z.literal('wfSquad'), action: z.enum(['create', 'join', 'leave']), id: u32.optional() }).strict();
+/** Warfare: an explicit order to the bots following the sender. */
+export const wfOrderMessageSchema = z.object({ t: z.literal('wfOrder'), order: warfareOrderSchema }).strict();
+/**
+ * Warfare: G. Aimed at an allied bot (`target`, from the client's raycast): recruit that bot;
+ * aimed at the ground (`at`): send the followers there; neither: recruit the nearest idle allies.
+ * `dismiss` lets every follower go back to its AI squad.
+ */
+export const wfRecruitMessageSchema = z.object({
+  t: z.literal('wfRecruit'),
+  target: u32.optional(),
+  at: z.object({ x: z.number().finite().min(-100_000).max(100_000), y: z.number().finite().min(-1000).max(1000), z: z.number().finite().min(-100_000).max(100_000) }).strict().optional(),
+  dismiss: z.boolean().optional(),
+}).strict();
+/** Warfare: an emote; point / wave / halt also command the sender's bots. `aim` = where the sender looks. */
+export const wfEmoteMessageSchema = z.object({ t: z.literal('wfEmote'), emote: z.enum(['point', 'wave', 'salute', 'halt']), aim: z.object({ x: z.number().finite().min(-100_000).max(100_000), z: z.number().finite().min(-100_000).max(100_000) }).strict().optional() }).strict();
+
 /** Sell one item (by uid) to the merchant; the server prices it from its own copy. */
 export const sellMessageSchema = z.object({ t: z.literal('sell'), req: u32, uid: u32 }).strict();
 
@@ -206,6 +235,11 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   sellMessageSchema,
   waveBuyMessageSchema,
   waveReadyMessageSchema,
+  wfDeployMessageSchema,
+  wfSquadMessageSchema,
+  wfOrderMessageSchema,
+  wfRecruitMessageSchema,
+  wfEmoteMessageSchema,
   authMessageSchema,
   inputMessageSchema,
   pingMessageSchema,

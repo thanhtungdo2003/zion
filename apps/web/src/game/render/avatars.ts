@@ -799,6 +799,21 @@ export class Avatar {
     this.speaker.position.set(0, (this.label?.position.y ?? 2.15) + (this.label ? .34 : 0), 0);
   }
 
+  /** A hand signal (Warfare orders) and until when it shows. */
+  private gestureKind: 'point' | 'wave' | 'halt' | 'salute' | null = null;
+  private gestureYaw = 0;
+  private gestureStart = 0;
+  private gestureUntil = 0;
+  /**
+   * A hand signal for a moment: point the right arm towards `yaw`, wave it over the head, hold the
+   * palm up (halt) or salute. The weapon is put away meanwhile; the legs keep moving as they were.
+   */
+  gesture(kind: 'point' | 'wave' | 'halt' | 'salute', yaw: number, ms = kind === 'wave' ? 1600 : 1200): void {
+    this.gestureKind = kind; this.gestureYaw = yaw;
+    this.gestureStart = performance.now(); this.gestureUntil = this.gestureStart + ms;
+    this.poseDirty = true;
+  }
+
   /** Plays a clip to the end, ignoring locomotion until it finishes (throws, punches). */
   playOnce(name: string, durationMs?: number): void {
     if (!this.template.clips.has(name)) return;
@@ -1264,7 +1279,8 @@ export class Avatar {
     [this.restGunBlend, this.restVel] = spring(this.restGunBlend, this.restVel, resting ? 1 : 0, dt, resting ? .1 : .12);
     const scale = this.model.scale.y;
     if (!this.reloadAnim || !held?.obj.visible) this.heldMagazine.clear();
-    const stowing = !limp && (climbing || !!this.mantleGrip || this.planning || this.healing
+    const gesturing = !limp && !climbing && !swimming && !this.mantleGrip && !this.drivingActive && !this.flightActive && performance.now() < this.gestureUntil;
+    const stowing = !limp && (gesturing || climbing || !!this.mantleGrip || this.planning || this.healing
       || this.drivingActive || this.flightActive || has(EntityFlags.Reviving | EntityFlags.Swimming));
     this.stowForInteraction(stowing);
     if (held) held.obj.visible = !stowing;
@@ -1321,7 +1337,21 @@ export class Avatar {
       const punching = this.oneShot === 'melee_attack';
       const preset: HandPreset = punching || this.drivingActive ? 'fist' : swimming ? 'open' : speed > 4 && !airborne ? 'ready' : 'relaxed';
       hands.L = hands.R = preset;
-      if (rolling && !recordedRoll) {
+      if (gesturing) {
+        // Hand signals with the right arm, from the shoulder.
+        const t = (performance.now() - this.gestureStart) / 1000, size = SURVIVOR_SIZE * scale;
+        const shoulder = base.clone().addScaledVector(UP, 1.42 * size).addScaledVector(right, .2 * size);
+        if (this.gestureKind === 'point') {
+          const dir = new Vector3(-Math.sin(this.gestureYaw), .1, -Math.cos(this.gestureYaw)).normalize();
+          reach.R = shoulder.addScaledVector(dir, .6 * size); hands.R = 'pinch';
+        } else if (this.gestureKind === 'wave') {
+          reach.R = shoulder.addScaledVector(UP, .5 * size).addScaledVector(right, (.1 + Math.sin(t * 9) * .16) * size).addScaledVector(fwd, .06 * size); hands.R = 'open';
+        } else if (this.gestureKind === 'halt') {
+          reach.R = shoulder.addScaledVector(UP, .38 * size).addScaledVector(fwd, .18 * size); hands.R = 'open';
+        } else {
+          reach.R = base.clone().addScaledVector(UP, 1.66 * size).addScaledVector(right, .12 * size).addScaledVector(fwd, .1 * size); hands.R = 'open';
+        }
+      } else if (rolling && !recordedRoll) {
         // Tucked: hands round the shins.
         for (const s of SIDES) { reach[s] = rig.root.localToWorld(new Vector3(s === 'L' ? -.13 : .13, .78, -.3).multiplyScalar(SURVIVOR_SIZE)); hands[s] = 'fist'; }
       } else if (airborne && this.cur.clip?.name === 'jump' && !this.weaponId && !this.template.human?.clips.has('jump')) {

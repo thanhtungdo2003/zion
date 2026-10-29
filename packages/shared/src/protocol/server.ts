@@ -1,4 +1,5 @@
 import type { WaveStateMessage } from '../waves';
+import type { WarfareGestureMessage, WarfareStateMessage } from '../warfare';
 import type { ChestStateMessage } from '../chests';
 import type { BattleState, GameMode } from '../battle-royale';
 import type { InfectionState } from '../infection';
@@ -321,6 +322,8 @@ export type ServerJsonMessage =
   | KnockedMessage
   | BodiesMessage
   | WaveStateMessage
+  | WarfareStateMessage
+  | WarfareGestureMessage
   | TreesMessage
   | StructuresMessage
   | StructureMessage

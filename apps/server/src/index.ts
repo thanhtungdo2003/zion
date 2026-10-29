@@ -1,4 +1,5 @@
 import { WaveRooms } from './game/wave-rooms';
+import { WarfareRooms } from './game/warfare-rooms';
 import { WaveScoreRepository } from './repositories/wave-scores';
 import type { LifeWorld } from './game/base-life';
 import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent } from '@zion/shared';
@@ -190,6 +191,15 @@ async function main(): Promise<void> {
     if (!b) return null;
     return new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'waves', waves: { ...cfg, record: (r) => waveScores.record(r) } });
   }, (accountId) => waveTeams.forAccount(accountId), (id) => waveMapList().find((m) => m.id === id) ?? null, logger.child({ module: 'wave-rooms' }));
+  // Warfare: public rooms on the published Studio maps the admin turned Warfare on for; parties
+  // of up to four fight on one side.
+  const warfareTeams = new TeamService([], async () => {}, { limit: 4, squad: true });
+  const warfareMapList = () => infectionMaps.list().filter((m) => m.published && m.warfare && waveWorld(m.id));
+  const warfareRooms = new WarfareRooms((cfg) => {
+    const b = waveWorld(cfg.mapId);
+    if (!b) return null;
+    return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: cfg });
+  }, (id) => warfareMapList().find((m) => m.id === id) ?? null, logger.child({ module: 'warfare-rooms' }));
   setInterval(() => {
     for (const [id, pool] of infectionPools) if (!infectionMaps.maps.maps.some((m) => m.id === id)) { void pool.stop(); infectionPools.delete(id); }
     void infectionMaps.sweep(new Set([infectionPool, ...infectionPools.values()].flatMap((p) => p.matches.map((m) => m.worldService))));
@@ -266,8 +276,8 @@ async function main(): Promise<void> {
     gearFit,
     handStudio,
     progression,
-    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' || mode === 'waves' ? infectionMaps.atlas(map) : survivalAtlas(),
-    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' || mode === 'waves' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.atlas(map) : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
@@ -288,6 +298,8 @@ async function main(): Promise<void> {
     teams,
     battleTeams,
     waveTeams,
+    warfareTeams,
+    warfare: { maps: () => warfareMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: warfareRooms.players(m.id) })) },
     waves: {
       maps: () => waveMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: waveRooms.players(m.id) })),
       leaderboard: (mapId, board) => waveScores.top(mapId, board),
@@ -419,9 +431,10 @@ async function main(): Promise<void> {
   gateway.battleMaps = (id) => battleMaps.pool(id);
   gateway.infectionMaps = infectionPoolFor;
   gateway.waves = (map, party, bots) => waveRooms.source(map, party, bots);
+  gateway.warfare = (map) => warfareRooms.source(map);
   const voice = new VoiceHub({
     consumeTicket: async (ticket) => { const t = await auth.consumeTicket(ticket); return t ? { accountId: t.accountId, name: t.username } : null; },
-    teamOf: (kind, accountId) => (kind === 'battle-royale' ? battleTeams : kind === 'waves' ? waveTeams : teams).forAccount(accountId)?.id,
+    teamOf: (kind, accountId) => (kind === 'battle-royale' ? battleTeams : kind === 'waves' ? waveTeams : kind === 'warfare' ? warfareTeams : teams).forAccount(accountId)?.id,
     ice: { stun: config.VOICE_STUN_URLS, turn: config.TURN_URLS, secret: config.TURN_SECRET },
   }, logger);
   voice.start();
@@ -431,6 +444,7 @@ async function main(): Promise<void> {
   battlePool.start();
   infectionPool.start();
   waveRooms.start();
+  warfareRooms.start();
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
@@ -456,6 +470,7 @@ async function main(): Promise<void> {
       await battleMaps.close();
       await infectionPool.stop();
       await waveRooms.stop();
+      await warfareRooms.stop();
       await gateway?.close();
       await app.close();
       await world.close();
