@@ -64,6 +64,8 @@ export function validateDoc(input: unknown, ctx: ValidationContext = {}): Valida
   // Materials.
   const used = new Set<string>();
   for (const nd of doc.nodes) for (const m of materialRefs(nd)) used.add(m);
+  for (const x of doc.schedule ?? []) used.add(x.material);
+  for (const m of planMaterials(doc)) used.add(m);
   for (const m of doc.materials) if (!used.has(m.id)) issues.push({ level: 'info', code: 'unused-material', message: `Vật liệu "${m.name}" không được dùng.`, fixable: true });
   for (const nd of doc.nodes) for (const id of materialRefs(nd)) if (!doc.materials.some((m) => m.id === id)) issues.push({ level: 'error', code: 'missing-material', message: `Thiếu vật liệu ${id}.`, node: nd.id, fixable: true });
   for (const m of doc.materials) {
@@ -138,6 +140,9 @@ export function autoFix(doc: ModelDoc, report: ValidationReport): string[] {
   if (codes.has('unused-material')) {
     const used = new Set<string>();
     for (const n of doc.nodes) for (const m of materialRefs(n)) used.add(m);
+    // The material schedule and the floor plans not built yet still need theirs.
+    for (const x of doc.schedule ?? []) used.add(x.material);
+    for (const m of planMaterials(doc)) used.add(m);
     const before = doc.materials.length;
     doc.materials = doc.materials.filter((m) => used.has(m.id));
     if (doc.materials.length < before) done.push(`Bỏ ${before - doc.materials.length} vật liệu không dùng.`);
@@ -175,4 +180,18 @@ export function describeDoc(doc: ModelDoc, maxNodes = 120): string {
   if (doc.nodes.length > maxNodes) lines.push(`… và ${doc.nodes.length - maxNodes} phần nữa.`);
   lines.push('Vật liệu: ' + doc.materials.map((m) => `${m.id} (${m.preset ?? m.texture.pattern}, rough ${m.roughness.toFixed(2)}, metal ${m.metalness.toFixed(2)})`).join('; '));
   return lines.join('\n');
+}
+
+/** Every material id a floor plan names (walls, rooms, finishes, stairs). */
+export function planMaterials(doc: ModelDoc): string[] {
+  const out = new Set<string>();
+  const add = (v: unknown) => { if (typeof v === 'string' && v) out.add(v); };
+  for (const p of doc.plans ?? []) {
+    add(p.ceilingMaterial);
+    for (const v of Object.values(p.finishes ?? {})) add(v);
+    for (const r of p.rooms) add(r.floorMaterial);
+    for (const w of p.walls) { add(w.material); add(w.innerMaterial); add(w.plinthMaterial); for (const o of w.openings) { add(o.frameMaterial); add(o.glassMaterial); add(o.leafMaterial); add(o.sillMaterial); } }
+    for (const st of p.stairs) { add(st.material); add(st.treadMaterial); add(st.railMaterial); add(st.handrailMaterial); }
+  }
+  return [...out];
 }

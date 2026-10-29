@@ -184,6 +184,33 @@ describe('model studio agent', () => {
     expect(saves).toHaveLength(1);
   });
 
+  it('does not finish while a drawing has errors or was never built: it is sent back to work', async () => {
+    const mats = [{ id: 'gach', name: 'Gạch', uses: ['tường'], preset: 'brick_red' }, { id: 'bt', name: 'Bê tông', uses: ['sàn'], preset: 'concrete' }];
+    const plan = (door: boolean) => ({ level: 0, name: 'Trệt', height: 3,
+      rooms: [{ id: 'a', name: 'Phòng', type: 'room', x0: 0, z0: 0, x1: 6, z1: 5 }],
+      walls: [
+        { id: 'n', a: [0, 0], b: [6, 0], thickness: .2, material: 'gach' }, { id: 'e', a: [6, 0], b: [6, 5], thickness: .2, material: 'gach' },
+        { id: 's', a: [6, 5], b: [0, 5], thickness: .2, material: 'gach', openings: door ? [{ kind: 'door', at: 3, width: 1, height: 2.1 }] : [] },
+        { id: 'w', a: [0, 5], b: [0, 0], thickness: .2, material: 'gach' },
+      ] });
+    const replies = [
+      { thought: 'Bảng vật liệu, bản vẽ.', actions: [{ tool: 'define_materials', args: { materials: mats } }, { tool: 'draw_floor_plan', args: plan(false) }] },
+      { thought: 'Xong.', done: true, summary: 'sớm' },
+      { thought: 'Sửa: thêm cửa, dựng.', actions: [{ tool: 'draw_floor_plan', args: plan(true) }, { tool: 'build_floor', args: { level: 0 } }] },
+      { thought: 'Xong.', done: true, summary: 'Đã dựng tầng trệt.' },
+    ];
+    let turn = 0;
+    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[Math.min(turn++, replies.length - 1)]) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const done = await finish(agent, agent.start('p9', 'Một phòng gạch', emptyDoc('Phòng', 'building'), 1).id);
+    expect(done.status).toBe('done');
+    expect(done.summary).toBe('Đã dựng tầng trệt.');
+    expect(done.steps.some((x) => x.kind === 'info' && x.text.startsWith('Chưa xong'))).toBe(true);
+    expect(done.doc.plans![0]!.built).toBeTruthy();
+  });
+
   it('parses JSON from fenced or wrapped answers', () => {
     expect(parseJsonObject('```json\n{"a": 1,}\n```')).toEqual({ a: 1 });
     expect(parseJsonObject('Here: {"done": true, "x": "}"} thanks')).toEqual({ done: true, x: '}' });

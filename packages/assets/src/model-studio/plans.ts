@@ -50,13 +50,13 @@ export function fitStairs(doc: ModelDoc, plan: FloorPlan): string[] {
           const c = w.a[0], lo = Math.min(w.a[1], w.b[1]), hi = Math.max(w.a[1], w.b[1]);
           if (Math.min(hi, f.z1) - Math.max(lo, f.z0) < .3) continue;
           const gap = c < cx ? f.x0 - (c + half) : (c - half) - f.x1;
-          if (Math.abs(gap) > .001 && Math.abs(gap) <= .06) dx = c < cx ? -gap : gap;
+          if (Math.abs(gap) > .001 && Math.abs(gap) <= .15) dx = c < cx ? -gap : gap;
         }
         if (horizontal && !dz) {
           const c = w.a[1], lo = Math.min(w.a[0], w.b[0]), hi = Math.max(w.a[0], w.b[0]);
           if (Math.min(hi, f.x1) - Math.max(lo, f.x0) < .3) continue;
           const gap = c < cz ? f.z0 - (c + half) : (c - half) - f.z1;
-          if (Math.abs(gap) > .001 && Math.abs(gap) <= .06) dz = c < cz ? -gap : gap;
+          if (Math.abs(gap) > .001 && Math.abs(gap) <= .15) dz = c < cz ? -gap : gap;
         }
       }
       if (!dx && !dz) break;

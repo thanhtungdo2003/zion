@@ -89,6 +89,36 @@ describe('floor plans', () => {
     expect(s.doc.nodes.filter((n) => n.kind === 'wall')).toHaveLength(walls);
   });
 
+  it('fills what a drawing leaves out: sills by opening kind, exterior walls by the rooms beside them', async () => {
+    const s = state();
+    await schedule(s);
+    const g = ground(true) as unknown as { walls: Array<Record<string, unknown>> };
+    for (const w of g.walls) { delete w.exterior; for (const o of w.openings as Array<Record<string, unknown>>) delete o.sill; }
+    const r = await runTool('draw_floor_plan', g, s) as R;
+    expect(r.ok).toBe(true);
+    const plan = s.doc.plans![0]!;
+    expect(plan.walls.filter((w) => w.exterior).map((w) => w.id).sort()).toEqual(['e', 'n', 's', 'w']);
+    expect(plan.walls.find((w) => w.id === 'n')!.openings[0]!.sill).toBe(.9);
+    expect(plan.walls.find((w) => w.id === 's')!.openings[0]!.sill).toBe(0);
+  });
+
+  it('closes a 10 cm gap between a flight and its wall by itself', async () => {
+    const s = state();
+    await schedule(s);
+    const g = ground(true);
+    g.stairs[0]!.x = .75;
+    const r = await runTool('draw_floor_plan', g, s) as R;
+    expect(r.ok && r.result.errors.join(' ')).not.toMatch(/Khe hở/);
+  });
+
+  it('auto_fix keeps the materials of the schedule and of drawings not built yet', async () => {
+    const s = state();
+    await schedule(s);
+    await runTool('draw_floor_plan', ground(true), s);
+    await runTool('auto_fix', {}, s);
+    expect(s.doc.materials.map((m) => m.id)).toEqual(expect.arrayContaining(['brick_red', 'granite', 'steel', 'stone_plinth']));
+  });
+
   it('measures the gap between a flight and the wall beside it', async () => {
     const s = state();
     await schedule(s);

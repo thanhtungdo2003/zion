@@ -411,7 +411,7 @@ export const TOOLS: ToolDefinition<never>[] = [
       const elevation = a.elevation ?? (low ? low.elevation + low.height + slab : a.level === 0 ? slab : old?.elevation ?? 0);
       const parsed = planSchema.safeParse({
         level: a.level, name: a.name, elevation, height, slab,
-        rooms: a.rooms, walls: (a.walls as Array<Record<string, unknown>>).map((w) => ({ openings: [], ...w })), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
+        rooms: a.rooms, walls: withPlanDefaults(a.rooms as Array<Record<string, unknown>>, a.walls as Array<Record<string, unknown>>), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
         ...(a.finishes ? { finishes: a.finishes } : {}), ...(a.ceilingMaterial ? { ceilingMaterial: a.ceilingMaterial } : {}),
         ...(old?.built ? { built: old.built } : {}),
       });
@@ -639,4 +639,29 @@ export async function runTool(name: string, args: unknown, state: ToolState): Pr
   if (!parsed.success) return { ok: false, error: `Tham số sai: ${parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}` };
   try { return { ok: true, result: await (t as ToolDefinition<unknown>).run(parsed.data, state) }; }
   catch (err) { return { ok: false, error: (err as Error).message }; }
+}
+
+/**
+ * Fields a drawing may leave out: openings (none), each opening's sill (doors 0, windows 0.9 m)
+ * and whether a wall is exterior (no room on one of its sides).
+ */
+function withPlanDefaults(rooms: Array<Record<string, unknown>>, walls: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const num = (v: unknown) => (typeof v === 'number' ? v : NaN);
+  const inRoom = (x: number, z: number) => rooms.some((r) => {
+    const x0 = Math.min(num(r.x0), num(r.x1)), x1 = Math.max(num(r.x0), num(r.x1)), z0 = Math.min(num(r.z0), num(r.z1)), z1 = Math.max(num(r.z0), num(r.z1));
+    return x >= x0 - .01 && x <= x1 + .01 && z >= z0 - .01 && z <= z1 + .01;
+  });
+  return walls.map((w) => {
+    const out: Record<string, unknown> = { openings: [], ...w };
+    if (Array.isArray(out.openings)) out.openings = (out.openings as Array<Record<string, unknown>>).map((o) => (o && typeof o === 'object' && o.sill === undefined ? { ...o, sill: o.kind === 'window' ? .9 : 0 } : o));
+    if (typeof out.exterior !== 'boolean') {
+      const a = w.a as number[] | undefined, b = w.b as number[] | undefined;
+      if (Array.isArray(a) && Array.isArray(b)) {
+        const mx = (num(a[0]) + num(b[0])) / 2, mz = (num(a[1]) + num(b[1])) / 2, l = Math.hypot(num(b[0]) - num(a[0]), num(b[1]) - num(a[1])) || 1;
+        const nx = -(num(b[1]) - num(a[1])) / l, nz = (num(b[0]) - num(a[0])) / l, d = (typeof w.thickness === 'number' ? w.thickness : .2) / 2 + .3;
+        out.exterior = !inRoom(mx + nx * d, mz + nz * d) || !inRoom(mx - nx * d, mz - nz * d);
+      }
+    }
+    return out;
+  });
 }

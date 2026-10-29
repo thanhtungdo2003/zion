@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Logger } from 'pino';
-import { TOOLS, runTool, summarizeReport, validateDoc, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
+import { TOOLS, checkPlan, runTool, summarizeReport, validateDoc, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
 import { LlmError, parseJsonObject, type ChatMessage, type LlmClient } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
@@ -25,7 +25,7 @@ import { webResearch } from './web-research';
  * job per project at a time. The agent cannot publish into the game or delete anything outside
  * the project: `export_asset` with publish only files a request the admin confirms in the Studio.
  */
-const MAX_TURNS = 40, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_RESULT_CHARS = 5000;
+const MAX_TURNS = 80, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_PLAN_ROUNDS = 6, MAX_RESULT_CHARS = 5000;
 const MAX_TOKENS = 600_000, MAX_MS = 25 * 60_000, MAX_AI_FAILURES = 6, MAX_IDLE_TURNS = 3, MAX_REPEATS = 4;
 const JOB_TTL_MS = 60 * 60 * 1000;
 
@@ -224,7 +224,7 @@ export class ModelAgent {
       { role: 'user', content: JSON.stringify({ request: job.prompt, project: { name: state.doc.name, kind: state.doc.kind, nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id) }, validation: { ok: report.ok, stats: report.stats } }) },
     ];
     const started = Date.now(), calls = new Map<string, number>();
-    let fixRounds = 0, aiFailures = 0, idle = 0, filterHits = 0;
+    let fixRounds = 0, planRounds = 0, aiFailures = 0, idle = 0, filterHits = 0;
     // After the provider's safety filter withheld an answer: another wording, then another model.
     const call: { model?: string; temperature?: number } = {};
     const stop = (why: string) => {
@@ -310,6 +310,21 @@ export class ModelAgent {
         continue;
       }
       if (reply.done === true) {
+        // Unfinished drawings: storeys with errors or never built. Go on with them, not stop.
+        const open = (state.doc.plans ?? []).flatMap((p) => {
+          const errors = checkPlan(state.doc, p).filter((i) => i.level === 'error').map((i) => i.message);
+          return errors.length || !p.built ? [{ level: p.level, name: p.name, built: !!p.built, errors: errors.slice(0, 8) }] : [];
+        });
+        const nothingBuilt = job.mode === 'ai' && !(state.doc.plans ?? []).some((p) => p.built) && (state.doc.schedule?.length ?? 0) > 0;
+        if ((open.length || nothingBuilt) && planRounds < MAX_PLAN_ROUNDS) {
+          planRounds++;
+          this.step(job, 'info', `Chưa xong: ${open.length ? `${open.length} bản vẽ còn lỗi hoặc chưa dựng` : 'chưa dựng tầng nào'} — yêu cầu agent làm tiếp (vòng ${planRounds}/${MAX_PLAN_ROUNDS}).`);
+          messages.push({ role: 'user', content: scrub(JSON.stringify({
+            unfinished: open, nothing_built: nothingBuilt,
+            note: 'Chưa được kết thúc. Sửa từng lỗi của bản vẽ (draw_floor_plan lại đúng tầng đó với toạ độ đã chỉnh: cầu thang nằm gọn trong buồng thang và sát tường, thêm cửa cho phòng chưa đi tới được), kiểm tra hết lỗi thì build_floor, rồi sang tầng kế; sau đó mái, công trình phụ, nội thất, cảnh quan. Lỗi một tool (vd dịch vụ ảnh 502) thì bỏ qua bằng cách khác (find_texture/download_texture hoặc preset), không dừng.',
+          })) });
+          continue;
+        }
         const v = summarizeReport(validateDoc(state.doc));
         if (!v.ok && fixRounds < MAX_FIX_ROUNDS) {
           fixRounds++;

@@ -123,7 +123,11 @@ export class TextureLibrary {
       headers: { 'content-type': 'application/json', authorization: `Bearer ${access.key}` },
       body: JSON.stringify({ model: access.model, prompt: full, size: '1024x1024', n: 1, quality: 'high', output_format: 'png' }),
     }).catch((err: Error) => { throw new Error(redact(`Không kết nối được máy chủ ảnh AI: ${err.message}`, access.key)); });
-    if (!res.ok) throw new Error(redact(`Model ảnh trả lỗi ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`, access.key));
+    if (!res.ok) {
+      // Gateways answer outages with an HTML page: keep only its text, and say what to do instead.
+      const body = (await res.text().catch(() => '')).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+      throw new Error(redact(`Model ảnh trả lỗi ${res.status}${body ? `: ${body}` : ''}. Dùng find_texture/download_texture hoặc vật liệu preset thay thế.`, access.key));
+    }
     const body = await res.json() as { data?: Array<{ b64_json?: string; url?: string }> };
     const item = body.data?.[0];
     let bytes: Buffer | null = item?.b64_json ? Buffer.from(item.b64_json, 'base64') : null;
