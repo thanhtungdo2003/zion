@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Logger } from 'pino';
-import { TOOLS, checkPlan, runTool, summarizeReport, validateDoc, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
+import { TOOLS, checkPlan, planHash, runTool, summarizeReport, validateDoc, verifyBuilt, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
 import { LlmError, parseJsonObject, type ChatMessage, type LlmClient } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
@@ -55,9 +55,10 @@ const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Mod
 Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch; (4) dựng bằng tool; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
 
 CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ, không có mẫu dựng sẵn.
-(a) HIỂU ĐÚNG ngữ cảnh: tra cứu (research, cụm từ ngắn tiếng Anh/Việt như "school building", "trường học", "stairs", "terrazzo") để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
+(a) NGHIÊN CỨU TRƯỚC KHI THIẾT KẾ (bắt buộc — draw_floor_plan bị từ chối khi chưa research): tra cứu nhiều lượt (research, cụm từ ngắn tiếng Anh/Việt như "school floor plan", "school stair core", "U-shaped stair dimensions", "tiêu chuẩn cầu thang trường học", "stairwell balustrade height") về mặt bằng, mặt cắt, ảnh công trình thực tế và tiêu chuẩn kích thước của ĐÚNG loại công trình này để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
 Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
-(c) Làm TỪNG TẦNG TỪ DƯỚI LÊN: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes cho mọi bộ phận, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → ĐO ĐẠC: đọc kiểm tra, sửa đến khi KHÔNG còn lỗi (khe hở cầu thang–tường, giếng thang khít, cửa, lối đi; toạ độ theo lưới 5 cm là đơn vị đo chung) → PHÊ DUYỆT: đọc stairApproval của từng cầu thang (vị trí sát tường trong buồng thang, hướng lên, chân thang/bậc đầu nhìn ra cửa tiếp cận, chiếu nghỉ, chiều quay vế tiếp theo, kết nối tầng trên/dưới); chưa duyệt thì tự chỉnh toạ độ/direction/turn và draw_floor_plan lại cho tới khi duyệt — KHÔNG dựng từ bản vẽ sai → build_floor → rồi mới sang bản vẽ tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
+(c) CẦU THANG thiết kế riêng cho công trình, không dùng một kích thước cho mọi nơi: tự xác định vị trí buồng thang, chiều cao tầng, hướng tiếp cận, bề rộng vế (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), chiều cao bậc (riser), mặt bậc (tread, 2h + b ≈ 0.60–0.65 m), số bậc mỗi vế (≤ 18), chiếu nghỉ (landing ≥ bề rộng vế), chiều quay (turn), khe giữa hai vế U (gap) và giếng thang tầng trên. BUỒNG THANG là không gian giao thông đứng (room type stair), KHÔNG phải phòng chức năng: thông ra hành lang/sảnh bằng lối mở hoặc cửa, không mở cửa thẳng vào phòng học/phòng ngủ, không chia thành phòng kín; cầu thang không đặt trong phòng chức năng. Giếng thang tự có lan can ở các cạnh hở.
+(d) Làm TỪNG TẦNG TỪ DƯỚI LÊN theo chu trình THIẾT KẾ → KIỂM ĐỊNH → SỬA → PHÊ DUYỆT → DỰNG → ĐỐI CHIẾU: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → đọc errors và stairApproval (vị trí sát tường trong buồng thang, hướng lên, bậc đầu nhìn ra lối tiếp cận, chiếu nghỉ, vế tiếp theo, kích thước bậc, khoảng trống đầu, kết nối tầng); còn lỗi thì tự chỉnh và draw_floor_plan lại — KHÔNG được chuyển sang dựng chỉ vì đã vẽ xong → approve_floor_plan với căn cứ (basis) và tự đánh giá từng cầu thang; điều gì chưa xác minh được thì ghi unresolved (không duyệt) và research thêm, hoặc trả {"need_info": ["…"]} để admin bổ sung thay vì tự đoán → build_floor (chỉ dựng bản vẽ đã duyệt) → đọc verification (model đối chiếu bản vẽ); lệch thì sửa và dựng lại → rồi mới sang tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
 
@@ -68,6 +69,7 @@ Nguyên tắc: tái dùng model game (cây, bàn ghế, xe…) bằng assemble_m
 Mỗi lượt trả về DUY NHẤT một JSON object:
 {"thought": "suy luận ngắn", "plan": ["bước…"] (lượt đầu), "actions": [{"tool": "tên", "args": {…}}], "done": false}
 Khi xong: {"thought": "…", "done": true, "summary": "đã làm gì (tiếng Việt)", "issues": ["vấn đề còn tồn tại"]}
+Thiếu dữ liệu quan trọng không tự xác minh được (vd không rõ số tầng, kích thước khu đất, loại cầu thang yêu cầu): {"thought": "…", "need_info": ["câu hỏi cho admin"], "summary": "đã làm tới đâu"} — dừng và chờ admin, không tự đoán.
 Tối đa ${MAX_ACTIONS} action mỗi lượt; kết quả từng tool sẽ được gửi lại.
 
 Tools:
@@ -92,6 +94,8 @@ export class ModelAgent {
 
   /** Real texture sets (library and AI painting) for the agent's materials. */
   textures: TextureLibrary | null = null;
+  /** Online research (Wikipedia, web search, the pages found). */
+  research: (query: string) => Promise<string[]> = (q) => webResearch(q);
 
   private client(): LlmClient | null { return typeof this.llm === 'function' ? this.llm() : this.llm; }
   get configured(): boolean { return !!this.client(); }
@@ -161,7 +165,7 @@ export class ModelAgent {
       assets: this.catalog(),
       // The language model designs every building itself; the built-in planner keeps the house generator.
       designOnly: job.mode === 'ai',
-      research: (q: string) => webResearch(q),
+      research: (q: string) => this.research(q),
       save: async (doc, note) => {
         const r = await this.store.save(job.projectId, doc, version.current, { snapshot: true, note: `AI: ${note}`.slice(0, 200), author: 'agent' });
         version.current = r.version;
@@ -343,10 +347,17 @@ export class ModelAgent {
         if (messages.length > 24) compact(12);
         continue;
       }
+      const needs = Array.isArray(reply.need_info) ? reply.need_info.map(String) : typeof reply.need_info === 'string' ? [reply.need_info] : [];
+      if (needs.length) {
+        this.step(job, 'info', `Cần admin bổ sung trước khi thiết kế tiếp: ${needs.join(' | ')}`);
+        job.summary = typeof reply.summary === 'string' ? reply.summary : 'Dừng để chờ admin bổ sung thông tin.';
+        job.issues = [...(job.issues ?? []), ...needs.map((n) => `Cần bổ sung: ${n}`)].slice(0, 30);
+        return;
+      }
       if (reply.done === true) {
         // Unfinished drawings: storeys with errors or never built. Go on with them, not stop.
         const open = (state.doc.plans ?? []).flatMap((p) => {
-          const errors = checkPlan(state.doc, p).filter((i) => i.level === 'error').map((i) => i.message);
+          const errors = [...checkPlan(state.doc, p).filter((i) => i.level === 'error').map((i) => i.message), ...verifyBuilt(state.doc, p)];
           return errors.length || !p.built ? [{ level: p.level, name: p.name, built: !!p.built, errors: errors.slice(0, 8) }] : [];
         });
         const nothingBuilt = job.mode === 'ai' && !(state.doc.plans ?? []).some((p) => p.built) && (state.doc.schedule?.length ?? 0) > 0;
@@ -411,8 +422,8 @@ function sceneBrief(state: ToolState) {
  * nothing is: the model can finish.
  */
 export function progress(doc: ModelDoc, texts: string[]) {
-  const plans = (doc.plans ?? []).map((p) => ({ level: p.level, built: !!p.built, errors: checkPlan(doc, p).filter((i) => i.level === 'error').length }));
-  const open = plans.filter((p) => !p.built || p.errors).map((p) => `bản vẽ level ${p.level}: ${p.errors ? `${p.errors} lỗi` : 'chưa dựng'}`);
+  const plans = (doc.plans ?? []).map((p) => ({ level: p.level, approved: !!p.approved && p.approved.hash === planHash(doc, p), built: !!p.built, errors: checkPlan(doc, p).filter((i) => i.level === 'error').length, deviations: verifyBuilt(doc, p).length }));
+  const open = plans.filter((p) => !p.built || p.errors || p.deviations).map((p) => `bản vẽ level ${p.level}: ${p.errors ? `${p.errors} lỗi kiểm định` : p.deviations ? `model lệch bản vẽ ${p.deviations} chỗ — dựng lại` : p.approved ? 'đã duyệt, chưa dựng' : 'chưa duyệt'}`);
   const remaining = [...open, ...missingParts(doc, texts)];
   return { storeys: { built: new Set(plans.filter((p) => p.built).map((p) => p.level)).size, target: doc.storeys ?? null }, plans, roof: doc.nodes.some((n) => n.kind === 'roof'), remaining, complete: doc.kind === 'building' && plans.length > 0 && !remaining.length };
 }

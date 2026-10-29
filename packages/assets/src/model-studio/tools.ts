@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
 import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type ModelDoc, type ModelNode } from './doc';
-import { buildPlan, checkPlan, fitStairs, planSummary, reviewStairs, snapPlan, wellsFor } from './plans';
+import { buildPlan, checkPlan, designStairs, fitStairs, planHash, planSummary, reviewStairs, snapPlan, stairRules, verifyBuilt, wellsFor } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
@@ -394,6 +394,8 @@ export const TOOLS: ToolDefinition<never>[] = [
       'walls: [{id, a:[x,z], b:[x,z], thickness, exterior, material, innerMaterial?, height?, openings:[{kind: door|window|arch|hole, at (m tính từ a tới tâm lỗ), width, height, sill}]}] — đường tim tường; tường ngoài tự quay mặt material ra ngoài.',
       'stairs: [{id, x, z (điểm giữa mép bậc đầu tiên), width, direction: n|s|e|w (hướng đi lên; s = +z, e = +x), shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, material, railing}] — số bậc và chiều dài tự tính theo chiều cao lên tầng trên (bậc ≤ 18 cm, mặt bậc 27 cm); kết quả trả về chỗ cầu thang chiếm và nơi lên tới.',
       'stairs còn nhận treadMaterial (mặt bậc), railMaterial (con tiện/trụ), handrailMaterial (tay vịn); material là kết cấu.',
+      'Cầu thang THIẾT KẾ RIÊNG cho công trình: width theo công năng (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), riser = chiều cao bậc tối đa (số bậc tự tính theo chiều cao tầng), tread = mặt bậc (2h + b ≈ 0.60–0.65 m), landing = chiều sâu chiếu nghỉ (≥ bề rộng vế), gap = khe giữa hai vế thang U (giếng thang hở, có lan can). Bỏ trống thì tự tính theo quy tắc của loại công trình. Một vế ≤ 18 bậc. Cầu thang đặt trong buồng thang / sảnh / hành lang (room type stair|hall|corridor), KHÔNG trong phòng chức năng; buồng thang thông ra hành lang/sảnh, không mở cửa thẳng vào phòng học/phòng ngủ.',
+      'Quy trình bắt buộc: research → draw_floor_plan → đọc kiểm định (errors + stairApproval) → sửa, vẽ lại tới khi đạt → approve_floor_plan (tự đánh giá từng cầu thang) → build_floor → đọc verification.',
       'voids: [{x0, z0, x1, z1}] — lỗ sàn; để trống thì giếng thang được tự tính ĐÚNG khít cầu thang tầng dưới.',
       'finishes: {plinth, plinthHeight, skirting, windowFrame, glass, sill, doorFrame, doorLeaf} — vật liệu từng bộ phận (chân tường, len chân tường, khung/kính/bậu cửa sổ, khuôn/cánh cửa); mỗi lỗ mở có thể ghi đè (frameMaterial, glassMaterial, leafMaterial, sillMaterial, leaf, open). ceilingMaterial = trần (mặt dưới sàn tầng này, tức trần tầng dưới).',
       'Mọi vật liệu PHẢI có trong bảng vật liệu (define_materials trước). Toạ độ được làm tròn theo lưới 5 cm (đơn vị đo chung của cả model): đo và đặt cho khít — cầu thang sát tường, giếng thang khít cầu thang; phần kiểm tra báo khe hở bằng cm và toạ độ cần dời.',
@@ -405,6 +407,8 @@ export const TOOLS: ToolDefinition<never>[] = [
       finishes: z.record(z.unknown()).optional(), ceilingMaterial: z.string().max(64).optional(),
     }).strict(),
     run: (a, s) => {
+      // A design starts from how such buildings are really built.
+      if (s.host.designOnly && s.host.research && !s.doc.research?.length) throw new Error('Chưa nghiên cứu: trước khi vẽ, dùng research (vd "school floor plan stair core", "U-shaped stair dimensions", "tiêu chuẩn cầu thang trường học") để biết công trình loại này bố trí, kích thước cầu thang và buồng thang thế nào.');
       const plans = s.doc.plans ?? [];
       const low = plans.find((p) => p.level === a.level - 1), old = plans.find((p) => p.level === a.level);
       const slab = a.slab ?? old?.slab ?? (a.level === 0 ? .15 : .2), height = a.height ?? old?.height ?? 2.8;
@@ -419,6 +423,8 @@ export const TOOLS: ToolDefinition<never>[] = [
       // One measuring unit for the whole model; wells exactly over the flights below.
       const plan = snapPlan(parsed.data);
       s.doc.plans = [...plans.filter((p) => p.level !== a.level), plan].sort((x, y) => x.level - y.level);
+      // Each flight designed for this building (riser, tread, landing), then placed in its hall.
+      const designed = designStairs(s.doc, plan);
       const fitted = fitStairs(s.doc, plan);
       const wells = wellsFor(s.doc, plan);
       if (wells.length) plan.voids.push(...wells);
@@ -430,14 +436,45 @@ export const TOOLS: ToolDefinition<never>[] = [
       const review = reviewStairs(s.doc, parsed.data);
       const failed = review.stairs.filter((x) => !x.ok).map((x) => ({ id: x.id, failed: x.checks.filter((c) => !c.ok).map((c) => `${c.item}: ${c.note}`) }));
       const ok = !issues.some((i) => i.level === 'error') && review.approved;
-      return { plan: planSummary(s.doc, parsed.data), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours,
+      return { plan: planSummary(s.doc, parsed.data), stairRules: stairRules(s.doc), ...(designed.length ? { designed } : {}), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours,
         stairApproval: { approved: review.approved, ...(failed.length ? { failed } : {}), stairs: review.stairs.filter((x) => x.ok).map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`) },
-        next: ok ? 'Bản vẽ đã được duyệt: build_floor để dựng.' : 'CHƯA DUYỆT: sửa từng mục rồi draw_floor_plan lại tầng này (build_floor sẽ từ chối).' };
+        next: ok ? 'Kiểm định tự động đạt: tự đánh giá từng cầu thang rồi approve_floor_plan, sau đó build_floor.' : 'KHÔNG ĐẠT: sửa từng mục rồi draw_floor_plan lại tầng này (không duyệt, không dựng được).' };
+    },
+  }),
+  defineTool({
+    name: 'approve_floor_plan', permission: 'edit',
+    description: [
+      'Phê duyệt bản vẽ một tầng trước khi dựng. Chỉ duyệt được khi kiểm định tự động KHÔNG còn lỗi nào (mặt bằng, tường, cửa, buồng thang, kích thước bậc, khoảng trống đầu, giếng thang, kết nối tầng).',
+      'basis: căn cứ thiết kế (đã research được gì: bố trí thực tế của loại công trình, tiêu chuẩn kích thước cầu thang áp dụng).',
+      'stairs: với MỖI cầu thang, tự đánh giá bằng lời từng mục: position (vị trí trong buồng thang, sát tường nào), direction (hướng lên), start (chân thang, lối tiếp cận), landing (chiếu nghỉ), turn (vế tiếp theo quay đâu), link (lên tới đâu ở tầng trên), headroom (khoảng trống đầu, giếng thang).',
+      'unresolved: những điều chưa xác minh được hoặc thiếu dữ liệu — có thì KHÔNG duyệt (research thêm hoặc trả need_info cho admin).',
+      'Vẽ lại tầng sẽ huỷ phê duyệt.',
+    ].join('\n'),
+    params: { level: 'int', basis: 'string', stairs: '[{id, position, direction, start, landing, turn, link, headroom}]', unresolved: '[string]' },
+    schema: z.object({
+      level: z.number().int(), basis: z.string().min(20).max(1500),
+      stairs: z.array(z.object({ id: z.string().min(1).max(40), position: z.string().min(3).max(400), direction: z.string().min(3).max(400), start: z.string().min(3).max(400), landing: z.string().max(400).optional(), turn: z.string().max(400).optional(), link: z.string().min(3).max(400), headroom: z.string().min(3).max(400) }).strict()).max(8).optional(),
+      unresolved: z.array(z.string().max(300)).max(10).optional(),
+    }).strict(),
+    run: (a, s) => {
+      const plan = s.doc.plans?.find((p) => p.level === a.level);
+      if (!plan) throw new Error(`Chưa có bản vẽ tầng ${a.level}: draw_floor_plan trước.`);
+      if (a.unresolved?.length) throw new Error(`Không duyệt khi còn điều chưa xác minh: ${a.unresolved.join(' | ')} — research thêm, vẽ lại, hoặc trả need_info để admin bổ sung.`);
+      const errors = checkPlan(s.doc, plan).filter((i) => i.level === 'error').map((i) => i.message);
+      const review = reviewStairs(s.doc, plan);
+      for (const x of review.stairs) for (const c of x.checks) if (!c.ok) errors.push(`Cầu thang ${x.id} — ${c.item}: ${c.note}`);
+      if (errors.length) throw new Error(`Kiểm định không đạt, không duyệt: ${errors.slice(0, 8).join(' | ')} — sửa và draw_floor_plan lại tầng ${a.level}.`);
+      const given = new Map((a.stairs ?? []).map((x) => [x.id, x]));
+      const missing = plan.stairs.filter((st) => !given.has(st.id) || ((st.shape === 'l' || st.shape === 'u') && (!given.get(st.id)!.landing || !given.get(st.id)!.turn)));
+      if (missing.length) throw new Error(`Thiếu phần tự đánh giá cho cầu thang ${missing.map((x) => x.id).join(', ')} (position, direction, start, link, headroom${missing.some((x) => x.shape !== 'straight') ? ', landing, turn với thang L/U' : ''}).`);
+      plan.approved = { hash: planHash(s.doc, plan), at: Date.now(), basis: a.basis, review: plan.stairs.map((st) => { const { id: _id, ...notes } = given.get(st.id)!; return { id: st.id, notes: Object.fromEntries(Object.entries(notes).filter(([, v]) => typeof v === 'string')) as Record<string, string> }; }) };
+      s.changed = true;
+      return { level: a.level, approved: true, stairs: review.stairs.map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`), next: `build_floor {level: ${a.level}}` };
     },
   }),
   defineTool({
     name: 'build_floor', permission: 'edit',
-    description: 'Dựng một tầng đúng theo bản vẽ ĐÃ DUYỆT: sàn từng phòng (chừa giếng thang), tường có cửa/cửa sổ, cầu thang. Dựng lại sẽ thay phần cũ của tầng đó. Bản vẽ còn lỗi hoặc cầu thang chưa đạt (vị trí sát tường, hướng lên, chân thang nhìn ra lối vào, chiếu nghỉ, vế tiếp theo, kết nối tầng) thì KHÔNG dựng: vẽ lại.',
+    description: 'Dựng một tầng đúng theo bản vẽ ĐÃ PHÊ DUYỆT (approve_floor_plan): sàn từng phòng (chừa giếng thang, lan can quanh giếng), tường có cửa/cửa sổ, cầu thang theo thiết kế riêng. Dựng lại sẽ thay phần cũ của tầng đó. Bản vẽ chưa duyệt, đã sửa sau khi duyệt, hoặc kiểm định không đạt thì KHÔNG dựng. Sau khi dựng, model được đối chiếu với bản vẽ (verification).',
     params: { level: 'int' },
     // `force` is still read (older answers send it) but never builds a drawing that failed its check.
     schema: z.object({ level: z.number().int(), force: z.boolean().optional() }).strict(),
@@ -448,9 +485,14 @@ export const TOOLS: ToolDefinition<never>[] = [
       const review = reviewStairs(s.doc, plan);
       for (const x of review.stairs) for (const c of x.checks) if (!c.ok) errors.push(`Cầu thang ${x.id} — ${c.item}: ${c.note}`);
       if (errors.length) throw new Error(`Bản vẽ chưa được duyệt, không dựng: ${errors.slice(0, 8).join(' | ')} — sửa và draw_floor_plan lại tầng ${a.level}.`);
+      // Built only from the drawing that was approved, unchanged since (nor the storeys around it).
+      if (!plan.approved) throw new Error(`Bản vẽ tầng ${a.level} chưa được phê duyệt: approve_floor_plan trước (tự đánh giá từng cầu thang).`);
+      if (plan.approved.hash !== planHash(s.doc, plan)) throw new Error(`Bản vẽ tầng ${a.level} (hoặc cao độ, cầu thang tầng kề) đã đổi sau khi duyệt: kiểm tra và approve_floor_plan lại.`);
       const r = buildPlan(s.doc, plan);
       s.changed = true;
-      return { level: a.level, group: r.group, parts: r.parts, next: 'inspect_scene / validate_asset, rồi vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
+      // The model against its drawing.
+      const deviations = verifyBuilt(s.doc, plan);
+      return { level: a.level, group: r.group, parts: r.parts, verification: deviations.length ? { ok: false, deviations } : { ok: true }, next: deviations.length ? 'Model lệch bản vẽ: sửa bản vẽ/duyệt lại rồi build_floor lại.' : 'Đã đối chiếu khớp bản vẽ. Vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
     },
   }),
   defineTool({
@@ -578,13 +620,16 @@ export const TOOLS: ToolDefinition<never>[] = [
   }),
   defineTool({
     name: 'research', permission: 'read',
-    description: 'Tra cứu: kiến thức tích hợp (kích thước kiến trúc; bố trí và vật liệu theo loại công trình — trường học, bệnh viện, văn phòng, biệt thự, xưởng, nhà phố; trạng thái bỏ hoang/đổ nát; PBR; giới hạn nhân vật) và Wikipedia (Anh/Việt). Dùng cụm từ NGẮN: "school building", "trường học", "stairs", "terrazzo".',
+    description: 'Tra cứu TRƯỚC KHI THIẾT KẾ (bắt buộc trước bản vẽ đầu tiên): kiến thức tích hợp (tiêu chuẩn cầu thang/buồng thang/lan can theo loại công trình; kích thước kiến trúc; bố trí và vật liệu theo loại công trình — trường học, bệnh viện, văn phòng, biệt thự, xưởng, nhà phố; trạng thái bỏ hoang/đổ nát; PBR; giới hạn nhân vật) Wikipedia (Anh/Việt) và tìm kiếm web (bài viết, tiêu chuẩn, mô tả bản vẽ mặt bằng/mặt cắt thực tế). Dùng cụm từ NGẮN: "school building", "trường học", "stairs", "terrazzo".',
     params: { query: 'string' },
     schema: z.object({ query: z.string().min(2).max(200) }).strict(),
     run: async (a, s) => {
       const local = searchKnowledge(a.query).map((k) => `${k.topic}: ${k.text}`);
       const extra = s.host.research ? await s.host.research(a.query).catch(() => []) : [];
-      return { results: [...local, ...extra].slice(0, 8) };
+      const results = [...local, ...extra].slice(0, 10);
+      s.doc.research = [...(s.doc.research ?? []), { query: a.query.slice(0, 200), found: results.length }].slice(-40);
+      s.changed = true;
+      return { results };
     },
   }),
   defineTool({

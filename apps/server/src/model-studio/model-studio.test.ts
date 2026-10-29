@@ -8,6 +8,7 @@ import { CHUNK_SIZE, quantizeHeight, quantizeLocal, quantizeRotation, quantizeSc
 import { ModelAgent, condense, missingParts } from './agent';
 import { LlmClient, parseJsonObject, type ChatMessage } from './llm';
 import { offlinePlan } from './planner';
+import { privateAddress, publicUrl, webResearch } from './web-research';
 import type { ModelStudioStore } from './store';
 import { WalkingMap } from '../game/navigation';
 
@@ -194,9 +195,13 @@ describe('model studio agent', () => {
         { id: 'w', a: [0, 5], b: [0, 0], thickness: .2, material: 'gach' },
       ] });
     const replies = [
-      { thought: 'Bảng vật liệu, bản vẽ.', actions: [{ tool: 'define_materials', args: { materials: mats } }, { tool: 'draw_floor_plan', args: plan(false) }] },
+      // Drawing before any research is refused; then research, the schedule, the drawing.
+      { thought: 'Vẽ ngay.', actions: [{ tool: 'define_materials', args: { materials: mats } }, { tool: 'draw_floor_plan', args: plan(false) }] },
+      { thought: 'Nghiên cứu, rồi vẽ.', actions: [{ tool: 'research', args: { query: 'brick room plan' } }, { tool: 'draw_floor_plan', args: plan(false) }] },
       { thought: 'Xong.', done: true, summary: 'sớm' },
+      // Fixed, but built without the approval: refused.
       { thought: 'Sửa: thêm cửa, dựng.', actions: [{ tool: 'draw_floor_plan', args: plan(true) }, { tool: 'build_floor', args: { level: 0 } }] },
+      { thought: 'Duyệt rồi dựng.', actions: [{ tool: 'approve_floor_plan', args: { level: 0, basis: 'Phòng gạch một tầng, cửa đi ở tường nam theo kích thước thông dụng.' } }, { tool: 'build_floor', args: { level: 0 } }] },
       { thought: 'Xong.', done: true, summary: 'Đã dựng tầng trệt.' },
     ];
     let turn = 0;
@@ -204,11 +209,51 @@ describe('model studio agent', () => {
     const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
     const { store } = fakeStore();
     const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    agent.research = async () => ['[web] room plan'];
     const done = await finish(agent, agent.start('p9', 'Một phòng gạch', emptyDoc('Phòng', 'building'), 1).id);
     expect(done.status).toBe('done');
     expect(done.summary).toBe('Đã dựng tầng trệt.');
+    const tools = done.steps.filter((x) => x.kind === 'tool');
+    expect(tools.find((x) => x.tool === 'draw_floor_plan')!.text).toMatch(/Chưa nghiên cứu/);
+    expect(tools.filter((x) => x.tool === 'build_floor').map((x) => x.ok)).toEqual([false, true]);
+    expect(done.doc.plans![0]!.approved).toBeTruthy();
     expect(done.steps.some((x) => x.kind === 'info' && x.text.startsWith('Chưa xong'))).toBe(true);
     expect(done.doc.plans![0]!.built).toBeTruthy();
+  });
+
+  it('stops and asks the admin when the design lacks data it cannot verify, instead of guessing', async () => {
+    const replies = [{ thought: 'Không rõ số tầng và kích thước khu đất.', need_info: ['Công trình mấy tầng?', 'Khu đất rộng bao nhiêu?'], summary: 'Đã nghiên cứu, chưa vẽ.' }];
+    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[0]) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const done = await finish(agent, agent.start('p8', 'Một tòa nhà', emptyDoc('Nhà', 'building'), 1).id);
+    expect(done.status).toBe('done');
+    expect(done.usage.turns).toBe(1);
+    expect(done.issues).toEqual(expect.arrayContaining(['Cần bổ sung: Công trình mấy tầng?', 'Cần bổ sung: Khu đất rộng bao nhiêu?']));
+  });
+
+  it('researches on the web: search results and the passages of public pages, never private addresses', async () => {
+    const ddg = '<div><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fstairs.example.org%2Fschool&amp;rut=1">School stair design</a><a class="result__snippet" href="#">Riser 150 mm, tread 300 mm</a></div>'
+      + '<div><a class="result__a" href="https://inside.example.org/x">Inside</a><a class="result__snippet" href="#">private</a></div>';
+    const page = '<html><script>evil()</script><p>Menu</p><p>In school buildings the stair width is at least 1.2 m and the landing at least as deep as the flight is wide.</p></html>';
+    const fetched: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      fetched.push(url);
+      if (url.includes('duckduckgo')) return new Response(ddg, { headers: { 'content-type': 'text/html' } });
+      if (url.includes('wikipedia')) return new Response('{}', { headers: { 'content-type': 'application/json' } });
+      return new Response(page, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }) as unknown as typeof fetch;
+    const lookup = async (host: string) => [{ address: host.startsWith('inside') ? '10.0.0.5' : '93.184.216.34' }];
+    const out = await webResearch('school stair width landing', fetchImpl, lookup);
+    expect(out.join(' ')).toContain('stair width is at least 1.2 m');
+    expect(out.join(' ')).toContain('Riser 150 mm');
+    expect(out.join(' ')).not.toContain('evil');
+    expect(fetched).toContain('https://stairs.example.org/school');
+    expect(fetched.some((u) => u.includes('inside.example.org'))).toBe(false);
+    expect(await publicUrl('https://127.0.0.1/x', lookup)).toBeNull();
+    expect(await publicUrl('http://stairs.example.org/', lookup)).toBeNull();
+    expect(privateAddress('::ffff:192.168.1.1')).toBe(true);
   });
 
   it('knows a building is not finished after its first storey: storeys planned, stairs leading up, the roof', () => {

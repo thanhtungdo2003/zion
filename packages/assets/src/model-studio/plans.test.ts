@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDoc, parseDoc } from './doc';
-import { stairFootprint, stairRise } from './plans';
+import { stairFootprint, stairRise, verifyBuilt } from './plans';
 import { runTool, type ToolState } from './tools';
 import { validateDoc } from './validate';
 
@@ -42,6 +42,8 @@ describe('floor plans', () => {
     { id: 'steel', name: 'Thép sơn', uses: ['con tiện'], preset: 'metal_steel' },
     { id: 'stone_plinth', name: 'Đá rửa', uses: ['chân tường ngoài'], preset: 'concrete' },
   ] }, s);
+  /** The designer's own review of each flight, given with the approval. */
+  const approve = (s: ToolState, level: number) => runTool('approve_floor_plan', { level, basis: 'Nhà ở hai tầng: thang trong sảnh, bậc theo quy tắc nhà ở, giếng thang khít cầu thang.', stairs: s.doc.plans!.find((p) => p.level === level)!.stairs.map((st) => ({ id: st.id, position: 'sát tường sảnh', direction: 'lên theo hướng vẽ', start: 'chân thang ra sảnh, nhìn ra cửa', landing: 'chiếu nghỉ vuông bằng bề rộng vế', turn: 'quay theo turn ra sảnh', link: 'lên phòng tầng trên', headroom: 'giếng thang phủ hết các bậc' })) }, s);
 
   it('reviews a plan like an architect and builds it exactly as drawn', async () => {
     const s = state();
@@ -55,6 +57,9 @@ describe('floor plans', () => {
     expect((await runTool('build_floor', { level: 0 }, s)).ok).toBe(false);
     const good = await runTool('draw_floor_plan', ground(true), s) as R;
     expect(good.ok && good.result.errors).toEqual([]);
+    // Not approved yet: not built.
+    expect((await runTool('build_floor', { level: 0 }, s)).ok).toBe(false);
+    expect((await approve(s, 0)).ok).toBe(true);
     expect((await runTool('build_floor', { level: 0 }, s)).ok).toBe(true);
     // A well wider than the flight leaves a slot beside the last steps: flagged in cm.
     const f = stairFootprint(s.doc.plans![0]!.stairs[0]!, stairRise(s.doc, s.doc.plans![0]!));
@@ -66,6 +71,7 @@ describe('floor plans', () => {
     const ok = await runTool('draw_floor_plan', up, s) as R & { result: { wellsAdded?: unknown[] } };
     expect(ok.ok && ok.result.wellsAdded).toHaveLength(1);
     expect(ok.ok && ok.result.errors).toEqual([]);
+    expect((await approve(s, 1)).ok).toBe(true);
     expect((await runTool('build_floor', { level: 1 }, s)).ok).toBe(true);
     parseDoc(s.doc);
     // The second storey stands on the first; the L flight reaches it in risers under 19 cm.
@@ -85,7 +91,8 @@ describe('floor plans', () => {
     expect(v.issues.filter((i) => i.code === 'flipped-normals')).toEqual([]);
     // Rebuilding a storey replaces it.
     const walls = s.doc.nodes.filter((n) => n.kind === 'wall').length;
-    await runTool('build_floor', { level: 0 }, s);
+    expect((await approve(s, 0)).ok).toBe(true);
+    expect((await runTool('build_floor', { level: 0 }, s)).ok).toBe(true);
     expect(s.doc.nodes.filter((n) => n.kind === 'wall')).toHaveLength(walls);
   });
 
@@ -163,6 +170,92 @@ describe('floor plans', () => {
     const built = await runTool('build_floor', { level: 0, force: true }, s);
     expect(built.ok).toBe(false);
     expect(!built.ok && built.error).toMatch(/chưa được duyệt/);
+  });
+
+  /** A school wing, 12 × 8 m: a stair hall open to the corridor, a classroom behind it. */
+  const school = (level: number, o: { width?: number; hallDoor?: boolean } = {}) => ({
+    level, name: level ? 'Tầng 2' : 'Tầng 1', height: 3.3, slab: .2,
+    rooms: [
+      { id: 'st', name: 'Buồng thang', type: 'stair', x0: 0, z0: 0, x1: 3, z1: 8 },
+      { id: 'hl', name: 'Hành lang', type: 'corridor', x0: 3, z0: 0, x1: 12, z1: 2.5 },
+      { id: 'cl', name: 'Phòng học', type: 'classroom', x0: 3, z0: 2.5, x1: 12, z1: 8 },
+    ],
+    walls: [
+      { id: 'n', a: [0, 0], b: [12, 0], thickness: .25, exterior: true, material: 'brick_red', openings: [] },
+      { id: 'e', a: [12, 0], b: [12, 8], thickness: .25, exterior: true, material: 'brick_red', openings: level ? [] : [{ kind: 'door', at: 1.25, width: 1.2, height: 2.2, sill: 0 }] },
+      { id: 's', a: [12, 8], b: [0, 8], thickness: .25, exterior: true, material: 'brick_red', openings: [{ kind: 'window', at: 5, width: 2, height: 1.4, sill: .9 }] },
+      { id: 'w', a: [0, 8], b: [0, 0], thickness: .25, exterior: true, material: 'brick_red', openings: [] },
+      { id: 'i1', a: [3, 0], b: [3, 8], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'arch', at: 1.25, width: 1.6, height: 2.4, sill: 0 }, ...(o.hallDoor ? [{ kind: 'door', at: 5.5, width: .9, height: 2.1, sill: 0 }] : [])] },
+      { id: 'i2', a: [3, 2.5], b: [12, 2.5], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'door', at: 4, width: 1, height: 2.1, sill: 0 }] },
+    ],
+    stairs: level ? [] : [{ id: 'T1', x: .725, z: 2, width: o.width ?? 1.2, direction: 's', shape: 'u', style: 'solid', turn: 'right', material: 'concrete', treadMaterial: 'granite', railMaterial: 'steel', handrailMaterial: 'wood_oak' }],
+    finishes: { skirting: 'wood_oak' },
+  });
+
+  it('designs each flight for the building, keeps the stair hall circulation, and builds only an approved drawing it then checks', async () => {
+    const s = state();
+    s.doc.brief = 'Trường học hai tầng, buồng thang chữ U ở đầu hồi.';
+    await schedule(s);
+    // A public building: a 1.0 m flight is too narrow, and nothing narrower is approved.
+    const narrow = await runTool('draw_floor_plan', school(0, { width: 1 }), s) as R;
+    expect(narrow.ok && narrow.result.errors.join(' ')).toMatch(/rộng 1 m < 1.2 m/);
+    expect((await approve(s, 0)).ok).toBe(false);
+    // A door from the stair hall straight into the classroom: the hall is circulation, not a room.
+    const door = await runTool('draw_floor_plan', school(0, { hallDoor: true }), s) as R;
+    expect(door.ok && door.result.errors.join(' ')).toMatch(/Buồng thang "Buồng thang" mở cửa thẳng vào "Phòng học"/);
+    // As drawn: risers and treads designed for a school (16.5 cm at most, 2h + b in the stride), a deep enough landing.
+    const good = await runTool('draw_floor_plan', school(0), s) as R;
+    expect(good.ok && good.result.errors.join(' | ')).toBe('');
+    const st = s.doc.plans![0]!.stairs[0]!, rise = stairRise(s.doc, s.doc.plans![0]!);
+    expect(st.riser).toBe(.165);
+    const steps = Math.ceil(rise / .165);
+    expect(rise / steps).toBeLessThanOrEqual(.165);
+    expect(2 * rise / steps + st.tread!).toBeGreaterThan(.6); expect(2 * rise / steps + st.tread!).toBeLessThan(.65);
+    expect(st.landing).toBeGreaterThanOrEqual(1.2);
+    // Approval needs the designer's review of every flight, and nothing left unverified.
+    expect((await runTool('approve_floor_plan', { level: 0, basis: 'Trường học: buồng thang U ở đầu hồi theo tiêu chuẩn công trình công cộng.' }, s)).ok).toBe(false);
+    const unsure = await runTool('approve_floor_plan', { level: 0, basis: 'Trường học: buồng thang U ở đầu hồi theo tiêu chuẩn công trình công cộng.', unresolved: ['chưa rõ chiều cao tầng thực tế'] }, s);
+    expect(!unsure.ok && unsure.error).toMatch(/chưa xác minh/);
+    expect((await approve(s, 0)).ok).toBe(true);
+    const built = await runTool('build_floor', { level: 0 }, s) as { ok: true; result: { verification: { ok: boolean } } };
+    expect(built.ok && built.result.verification).toEqual({ ok: true });
+    const node = s.doc.nodes.find((n) => n.kind === 'stairs')!;
+    expect(node.kind === 'stairs' && [node.steps, node.landing, node.gap, +(node.run / node.steps).toFixed(3)]).toEqual([steps, st.landing, st.gap, st.tread]);
+    // The U fills its hall: the well between the flights takes the slot that would be left by the wall.
+    expect(st.gap).toBeGreaterThan(.1);
+    // The storey above: the well over the flight, a balustrade on its open edges, not where people step off.
+    const up = await runTool('draw_floor_plan', school(1), s) as R;
+    expect(up.ok && up.result.errors.join(' | ')).toBe('');
+    expect((await approve(s, 1)).ok).toBe(true);
+    expect((await runTool('build_floor', { level: 1 }, s)).ok).toBe(true);
+    const guard = s.doc.nodes.find((n) => n.tags?.includes('well-guard'))!;
+    expect(guard).toBeTruthy();
+    // The far edge and the part of the near edge above the first flight; walls close the rest, people step off the second flight.
+    expect(s.doc.nodes.filter((n) => n.parent === guard.id)).toHaveLength(2);
+    for (const p of s.doc.plans!) expect(verifyBuilt(s.doc, p)).toEqual([]);
+    // A change after the approval voids it; the built storey below no longer matches its drawing.
+    const taller = { ...school(1), elevation: s.doc.plans![1]!.elevation + .4 };
+    await runTool('draw_floor_plan', taller, s);
+    expect(verifyBuilt(s.doc, s.doc.plans![0]!).join(' ')).toMatch(/dựng lại tầng này/);
+    const again = await runTool('build_floor', { level: 0 }, s);
+    expect(again.ok).toBe(false);
+  });
+
+  it('checks the headroom above every tread and starts from research', async () => {
+    const s: ToolState = { doc: emptyDoc('Trường', 'building'), host: { assets: [], designOnly: true, research: async () => ['[web] stair core'] }, changed: false };
+    s.doc.brief = 'Trường học';
+    await schedule(s);
+    const first = await runTool('draw_floor_plan', school(0), s);
+    expect(!first.ok && first.error).toMatch(/Chưa nghiên cứu/);
+    expect((await runTool('research', { query: 'school stair core' }, s)).ok).toBe(true);
+    expect(s.doc.research).toEqual([{ query: 'school stair core', found: expect.any(Number) }]);
+    expect((await runTool('draw_floor_plan', school(0), s)).ok).toBe(true);
+    // A well over only part of the flight: heads hit the slab above the rest.
+    const f = stairFootprint(s.doc.plans![0]!.stairs[0]!, stairRise(s.doc, s.doc.plans![0]!));
+    const up = { ...school(1), voids: [{ x0: f.x0, z0: f.z0 + 1.2, x1: f.x1, z1: f.z1 }] };
+    await runTool('draw_floor_plan', up, s);
+    const low = await runTool('draw_floor_plan', school(0), s) as R;
+    expect(low.ok && low.result.errors.join(' ')).toMatch(/khoảng trống đầu chỉ/);
   });
 
   it('finds rooms nobody can reach and overlapping rooms', async () => {

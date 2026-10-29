@@ -490,7 +490,7 @@ function slopedBeam(b: MeshBuilder, x0: number, z0: number, y0: number, x1: numb
 export interface StairDesign {
   width: number; rise: number; run: number; steps: number;
   shape?: 'straight' | 'l' | 'u' | 'spiral'; style?: 'solid' | 'stringer' | 'open';
-  turn?: 'left' | 'right'; landing?: number; treadThickness?: number; railing?: boolean;
+  turn?: 'left' | 'right'; landing?: number; gap?: number; treadThickness?: number; railing?: boolean;
 }
 
 /** Footprint of a spiral flight (post at its centre): the square it needs. */
@@ -537,7 +537,7 @@ export function stairsDesign(d: StairDesign): MeshPart[] {
       pieces.push({ foot: rect(0, lz + L / 2, 0, 1, L, d.width), top: ly });
       flight(turn * W, lz + L / 2, turn, 0, n2, n1 + 1);
     } else {
-      const gap = .1, off = turn * (d.width + gap);
+      const gap = d.gap ?? .1, off = turn * (d.width + gap);
       pieces.push({ foot: rect(off / 2, lz + L / 2, 0, 1, L, d.width * 2 + gap), top: ly });
       flight(off, lz, 0, -1, n2, n1 + 1);
     }

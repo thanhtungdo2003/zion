@@ -132,6 +132,8 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     turn: z.enum(['left', 'right']).optional(),
     /** Landing depth at the turn (m). */
     landing: finite.min(.5).max(6).optional(),
+    /** Gap between the two flights of a U (the open well, m). */
+    gap: finite.min(.02).max(3).optional(),
     treadThickness: finite.min(.02).max(.4).optional(),
     railing: z.boolean().optional(),
     /** Railing posts, balusters and beams (else the stairs material). */
@@ -207,10 +209,27 @@ export const planSchema = z.object({
     shape: z.enum(STAIR_SHAPES), style: z.enum(STAIR_STYLES), turn: z.enum(['left', 'right']).optional(),
     material: z.string().max(64), railing: z.boolean().optional(),
     treadMaterial: z.string().max(64).optional(), railMaterial: z.string().max(64).optional(), handrailMaterial: z.string().max(64).optional(),
+    /**
+     * The flight's own geometry, designed for this building (filled from the building's stair
+     * rules when left out): the highest riser allowed (the step count follows from the storey
+     * height), the tread depth, the landing depth at the turn (L, U) and the gap between the two
+     * flights of a U (the open well).
+     */
+    riser: finite.min(.1).max(.25).optional(), tread: finite.min(.2).max(.45).optional(),
+    landing: finite.min(.6).max(6).optional(), gap: finite.min(.05).max(3).optional(),
   }).strict()).max(8),
   /** Openings in this floor (stairwells over the flight below). */
   voids: z.array(z.object({ x0: finite, z0: finite, x1: finite, z1: finite }).strict()).max(12),
   notes: z.string().max(2000).optional(),
+  /**
+   * The approval the storey was built from: the drawing passed every automatic check, the
+   * designer reviewed each flight (position, way up, start, landing, turn, link, headroom) and
+   * named what the design rests on. `hash` is the drawing it approved: any change voids it.
+   */
+  approved: z.object({
+    hash: z.string().max(40), at: z.number(), basis: z.string().max(1500),
+    review: z.array(z.object({ id: z.string().max(80), notes: z.record(z.string().max(400)) }).strict()).max(16),
+  }).strict().optional(),
   /** The group the plan was built into (absent: drawn, not built yet). */
   built: z.string().max(64).optional(),
 }).strict();
@@ -232,6 +251,8 @@ export const modelDocSchema = z.object({
   storeys: z.number().int().min(1).max(40).optional(),
   /** The request the model was designed from: a later "go on" run reads it instead of starting over. */
   brief: z.string().max(4000).optional(),
+  /** What was looked up before designing (query, how much was found): a design starts from research. */
+  research: z.array(z.object({ query: z.string().max(200), found: z.number().int().min(0) }).strict()).max(40).optional(),
   /** Floor plans, one per storey (drawn first, then built). */
   plans: z.array(planSchema).max(80).optional(),
   /** The material schedule: every material the model uses and where (decided before building). */
