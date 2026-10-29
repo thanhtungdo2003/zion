@@ -352,6 +352,12 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     app.post('/api/studio/battle-maps', { preHandler: guard, bodyLimit: 96 * 1024 * 1024, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
       try { return await deps.battleMaps!.publish(req.body); } catch (err) { return fail(reply, err); }
     });
+    app.get('/api/studio/battle-maps', { preHandler: guard }, async (_req, reply) => {
+      try { return { maps: await deps.battleMaps!.catalog() }; } catch (err) { return fail(reply, err); }
+    });
+    app.get<{ Params: { id: string } }>('/api/studio/battle-maps/:id', { preHandler: guard, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+      try { return (await deps.battleMaps!.stored(req.params.id)) ?? reply.code(404).send({ error: 'not_found', message: 'Không còn bản đồ này trên máy chủ.' }); } catch (err) { return fail(reply, err); }
+    });
     app.delete<{ Params: { id: string } }>('/api/studio/battle-maps/:id', { preHandler: guard }, async (req, reply) => {
       try { await deps.battleMaps!.remove(req.params.id); return { ok: true }; } catch (err) { return fail(reply, err); }
     });

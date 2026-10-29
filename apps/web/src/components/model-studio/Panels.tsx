@@ -18,7 +18,7 @@ const fmt = (v: number, d = 3) => String(Math.round(v * 10 ** d) / 10 ** d);
 
 export function ProjectsPanel(p: {
   projects: ProjectSummary[]; deleted: ProjectSummary[]; current: string | null;
-  open(id: string): void; create(name: string): void; rename(id: string, name: string): void; duplicate(id: string): void; remove(id: string): void; undelete(id: string): void;
+  open(id: string): void; create(name: string): void; rename(id: string, name: string): void; duplicate(id: string): void; remove(id: string): void; undelete(id: string): void; purge(id: string): void;
 }) {
   const [name, setName] = useState('');
   const [showDeleted, setShowDeleted] = useState(false);
@@ -41,7 +41,7 @@ export function ProjectsPanel(p: {
               <small>{x.nodes} phần · v{x.version}</small>
               <button className={s.ibtn} title="Đổi tên" onClick={(e) => { e.stopPropagation(); const n = prompt('Tên mới', x.name); if (n?.trim()) p.rename(x.id, n.trim().slice(0, 80)); }}><Icon name="lucide:pencil" /></button>
               <button className={s.ibtn} title="Nhân bản" onClick={(e) => { e.stopPropagation(); p.duplicate(x.id); }}><Icon name="lucide:copy" /></button>
-              <button className={s.ibtn} title="Xóa (khôi phục được)" onClick={(e) => { e.stopPropagation(); if (confirm(`Xóa dự án "${x.name}"? Có thể khôi phục trong mục "Đã xóa".`)) p.remove(x.id); }}><Icon name="lucide:trash-2" /></button>
+              <button className={`${s.ibtn} ${s.del}`} title="Xóa dự án (khôi phục được)" onClick={(e) => { e.stopPropagation(); if (confirm(`Xóa dự án "${x.name}"? Có thể khôi phục trong mục "Đã xóa".`)) p.remove(x.id); }}><Icon name="lucide:trash-2" /></button>
             </div>
           ))}
           {!p.projects.length && <p className={s.muted}>Chưa có dự án. Tạo một dự án rồi dùng ô AI bên dưới khung 3D, hoặc thêm hình khối, model game, file GLB.</p>}
@@ -50,7 +50,8 @@ export function ProjectsPanel(p: {
       <div className={s.section}>
         <h3><button className={s.twist} onClick={() => setShowDeleted(!showDeleted)}>{showDeleted ? '▾' : '▸'}</button> Đã xóa ({p.deleted.length})</h3>
         {showDeleted && <div className={s.list}>{p.deleted.map((x) => (
-          <div key={x.id} className={s.item}><span className={s.grow}>{x.name}</span><button className={s.tbtn} onClick={() => p.undelete(x.id)}>Khôi phục</button></div>
+          <div key={x.id} className={s.item}><span className={s.grow}>{x.name}</span><button className={s.tbtn} onClick={() => p.undelete(x.id)}>Khôi phục</button>
+            <button className={`${s.tbtn} ${s.danger}`} title="Xóa vĩnh viễn (mọi phiên bản)" onClick={() => { if (confirm(`Xóa VĨNH VIỄN dự án "${x.name}" và mọi phiên bản? Không hoàn tác được. Model đã xuất bản vào game vẫn giữ.`)) p.purge(x.id); }}><Icon name="lucide:trash-2" /></button></div>
         ))}</div>}
       </div>
     </div>

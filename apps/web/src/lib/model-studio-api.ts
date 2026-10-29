@@ -42,6 +42,7 @@ export const msApi = {
   rename: (id: string, name: string) => studioJson<{ ok: true }>(`${P}/projects/${id}/rename`, json({ name })),
   duplicate: (id: string) => studioJson<Project>(`${P}/projects/${id}/duplicate`, json({})),
   remove: (id: string) => studioJson<{ ok: true }>(`${P}/projects/${id}?confirm=1`, { method: 'DELETE' }),
+  purge: (id: string) => studioJson<{ ok: true }>(`${P}/projects/${id}?confirm=1&permanent=1`, { method: 'DELETE' }),
   undelete: (id: string) => studioJson<{ ok: true }>(`${P}/projects/${id}/undelete`, json({})),
   versions: (id: string) => studioJson<VersionInfo[]>(`${P}/projects/${id}/versions`),
   restore: (id: string, version: number) => studioJson<{ version: number }>(`${P}/projects/${id}/versions/${version}/restore`, json({})),

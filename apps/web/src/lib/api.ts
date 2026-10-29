@@ -50,9 +50,23 @@ export async function listBattleMaps(): Promise<BattleMapInfo[]> {
   return (await request<{ maps: BattleMapInfo[] }>('/api/battle/maps')).maps;
 }
 /** Publishes a World Studio map to the server as a playable battle royale map. */
-export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown }): Promise<{ id: string; name: string }> {
+export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown; source?: unknown }): Promise<{ id: string; name: string }> {
   return studioRequest('/api/studio/battle-maps', { method: 'POST', body: JSON.stringify(body) });
 }
+/** A battle map stored on the server, as the World Studio lists it. */
+export interface PublishedBattleMap { id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number }
+/** Every battle map stored on the server (also those published from other machines or not currently playable). */
+export async function studioBattleMaps(): Promise<PublishedBattleMap[]> {
+  return (await studioRequest<{ maps: PublishedBattleMap[] }>('/api/studio/battle-maps')).maps;
+}
+export function studioBattleMap(id: string): Promise<{ id: string; name: string; seaLevel: number; map: unknown; source: unknown }> {
+  return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}`);
+}
+export function studioUnpublishBattleMap(id: string): Promise<{ ok: true }> {
+  return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+/** The server id a studio map is published under. */
+export const publishedMapId = (localId: string) => localId.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63);
 
 export interface AccountInfo {
   id: string;

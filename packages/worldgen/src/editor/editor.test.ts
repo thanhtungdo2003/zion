@@ -6,7 +6,7 @@ import { WorldGenerator } from '../generator';
 import {
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, SettlementError, StrokeRecorder, applyBrush, autoSpawnPoints, buildCatalog, carveLake, carveRiver,
   checkSettlement, createMapDoc, levelRegion, defaultBattleConfig, defaultTerrainSettings, duplicateMap, generateSettlement, generateTerrain, obbInsidePolygon, obbOverlap,
-  parseMapFile, presetSettings, riverLevels, serializeMap, simulateZones, stream, validateBattleConfig, validateMap, validateRegion, waterLevelAt,
+  parseMapFile, presetSettings, riverLevels, serializeMap, simulateZones, stream, validateBattleConfig, validateMap, validateRegion, waterLevelAt, fromStoredBattleMap, toBattleMap,
   type SettlementInput, type SettlementResult, type Vec2,
 } from './index';
 import { Simplex2 } from '../noise';
@@ -269,4 +269,38 @@ describe('map documents', () => {
     expect(doc.gameplay[0]!.pois.length).toBeGreaterThan(20);
     expect(hashString(doc.meta.template)).toBe(hashString('hac-son'));
   }, 120_000);
+});
+
+describe('published battle maps back into the studio', () => {
+  const make = () => {
+    const terrain = defaultTerrainSettings('plains', 'pub', 512);
+    const hf = new Heightfield(512, terrain.cell);
+    hf.heights.forEach((_, i) => { hf.heights[i] = 21 + (i % 13) * .37; });
+    hf.surface.forEach((_, i) => { hf.surface[i] = i % 5; });
+    const doc = createMapDoc({ name: 'Bản đồ thử', kind: 'battle-royale', template: 'plains', terrain });
+    doc.flora = [[1, 40, 40, 0, 1], [2, 60, 80, .5, 1.2]];
+    return { doc, hf };
+  };
+  it('restores the exact terrain and the editor document', () => {
+    const { doc, hf } = make();
+    const map = toBattleMap(doc, hf);
+    const back = fromStoredBattleMap({ id: 'pub-map', name: 'Đã xuất bản', seaLevel: 20, map: JSON.parse(JSON.stringify(map)), source: JSON.parse(JSON.stringify(doc)) });
+    expect(back.complete).toBe(true);
+    expect(back.doc.meta.id).toBe('pub-map');
+    expect(back.doc.flora).toEqual(doc.flora);
+    expect([...back.terrain.heights]).toEqual([...hf.heights]);
+    expect([...back.terrain.surface]).toEqual([...hf.surface]);
+  });
+  it('maps published without a document come back with terrain, flora and the reference layer', () => {
+    const { doc, hf } = make();
+    const map = { ...toBattleMap(doc, hf), roads: [{ points: [[10, 10], [300, 300]] as Vec2[], width: 8, paved: true }], placed: [{ x: 100, z: 120, y: 22, yaw: .4, radius: 9, halfX: 6, halfZ: 5, parts: [] }] };
+    const back = fromStoredBattleMap({ id: 'old-map', name: 'Cũ', seaLevel: 18, map, source: null });
+    expect(back.complete).toBe(false);
+    expect(back.doc.terrain.seaLevel).toBe(18);
+    expect(back.doc.base.roads).toHaveLength(1);
+    expect(back.doc.base.structures[0]).toMatchObject({ x: 100, z: 120, hx: 5, hz: 4 });
+    expect(back.doc.flora).toHaveLength(2);
+    expect([...back.terrain.heights]).toEqual([...hf.heights]);
+    expect(() => validateMap(back.doc, back.terrain)).not.toThrow();
+  });
 });

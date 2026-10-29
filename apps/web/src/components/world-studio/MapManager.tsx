@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BATTLE_MAP } from '@zion/shared';
-import { CLIMATES, Heightfield, MAP_KINDS, type Climate, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
+import { CLIMATES, Heightfield, MAP_KINDS, type Climate, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, fromStoredBattleMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
 import { DEFAULT_AUTO, type AutoParams, type MapTemplate, type NewMapRequest } from '@zion/worldgen/editor/templates';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Icon } from '../Icon';
+import { hasStudioSession, publishedMapId, studioBattleMap, studioBattleMaps, studioLogin, studioUnpublishBattleMap, type PublishedBattleMap } from '@/lib/api';
 import { deleteMap, listMaps, loadMap, saveMap, saveMeta } from '@/studio/world/map-store';
 import { JobError, runJob } from '@/studio/world/worker-client';
 import { Seg, Slider, fmtTime } from './ui';
@@ -31,11 +32,38 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
   const [editing, setEditing] = useState<WorldMapMeta | null>(null);
   const [removing, setRemoving] = useState<WorldMapMeta | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Maps on the game server: the library above lives in this browser only, so maps published from
+  // another machine (or whose local copy was deleted) are listed from the server.
+  const [where, setWhere] = useState<'local' | 'server'>('local');
+  const [published, setPublished] = useState<PublishedBattleMap[] | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [login, setLogin] = useState(false);
+  const [unpublishing, setUnpublishing] = useState<PublishedBattleMap | null>(null);
 
   const refresh = useCallback(async () => {
     try { setMaps(await listMaps()); setError(null); } catch (err) { setError(err instanceof Error ? err.message : String(err)); setMaps([]); }
   }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
+  const refreshServer = useCallback(async () => {
+    if (!hasStudioSession()) { setPublished(null); setServerError('login'); return; }
+    try { setPublished(await studioBattleMaps()); setServerError(null); }
+    catch (err) { setServerError(err instanceof Error ? err.message : String(err)); }
+  }, []);
+  useEffect(() => { void refresh(); void refreshServer(); }, [refresh, refreshServer]);
+  const publishedIds = useMemo(() => new Set((published ?? []).map((p) => p.id)), [published]);
+  const localFor = (p: PublishedBattleMap) => (maps ?? []).find((m) => publishedMapId(m.id) === p.id);
+  const openPublished = async (p: PublishedBattleMap) => {
+    const local = localFor(p);
+    if (local) { onOpen(local.id); return; }
+    setBusy(`Đang tải "${p.name}" từ máy chủ…`);
+    try {
+      const { doc, terrain, complete } = fromStoredBattleMap(await studioBattleMap(p.id));
+      if (p.thumbnail && p.thumbnail.length < 200_000) doc.meta.thumbnail = p.thumbnail;
+      await saveMap(doc, terrain);
+      if (!complete) setError(`"${p.name}" được xuất bản từ bản cũ: chỉ có địa hình, cây cối và đường/công trình làm lớp tham chiếu.`);
+      onOpen(doc.meta.id);
+    } catch (err) { setError(`Không tải được: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { setBusy(null); }
+  };
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,14 +109,44 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
     </header>
     <div className={s.filters}>
       <label className={s.search}><Icon name="lucide:search" /><input className={s.input} placeholder="Tìm theo tên, seed, mô tả…" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="search" /></label>
-      <Seg value={kind} options={[{ id: 'all', name: 'Tất cả' }, ...MAP_KINDS]} onChange={setKind} />
+      <Seg value={where} options={[{ id: 'local', name: `Trong máy này (${maps?.length ?? 0})` }, { id: 'server', name: `Đã xuất bản lên game${published ? ` (${published.length})` : ''}` }]} onChange={(w) => { setWhere(w); if (w === 'server') void refreshServer(); }} />
+      {where === 'local' && <Seg value={kind} options={[{ id: 'all', name: 'Tất cả' }, ...MAP_KINDS]} onChange={setKind} />}
       <select className={s.input} style={{ width: 'auto' }} value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sắp xếp">
         <option value="updated">Mới sửa</option><option value="created">Mới tạo</option><option value="name">Tên A–Z</option><option value="size">Kích thước</option>
       </select>
       {busy && <span className={s.lead}>{busy}</span>}
       {error && <span className={`${s.note} ${s.err}`}>{error}</span>}
     </div>
-    <div className={s.cards}>
+    {where === 'server' ? <div className={s.cards} data-testid="published-maps">
+      {serverError === 'login' && <div className={s.emptyState}><Icon name="lucide:lock" /><strong>Đăng nhập Studio để xem các bản đồ đã xuất bản lên máy chủ.</strong>
+        <button className={`${s.btn} ${s.primary}`} onClick={() => setLogin(true)}><Icon name="lucide:log-in" />Đăng nhập</button></div>}
+      {serverError && serverError !== 'login' && <div className={s.emptyState}><Icon name="lucide:cloud-off" /><strong>Không lấy được danh sách: {serverError}</strong><button className={s.btn} onClick={() => void refreshServer()}><Icon name="lucide:refresh-cw" />Thử lại</button></div>}
+      {!serverError && published === null && <p className={s.lead}>Đang tải danh sách từ máy chủ…</p>}
+      {!serverError && published?.length === 0 && <div className={s.emptyState}><Icon name="lucide:map" /><strong>Chưa có bản đồ nào được xuất bản.</strong><span>Mở một bản đồ › Thiết lập › Xuất bản Battle Royale.</span></div>}
+      {!serverError && (published ?? []).filter((p) => { const q = search.trim().toLowerCase(); return !q || p.name.toLowerCase().includes(q) || p.id.includes(q); }).map((p) => {
+        const local = localFor(p);
+        return <article key={p.id} className={s.card} data-testid="published-card">
+          <button className={s.thumb} style={{ backgroundImage: p.thumbnail ? `url(${p.thumbnail})` : undefined }} onClick={() => void openPublished(p)} aria-label={`Mở ${p.name}`}>
+            <span className={s.kind} style={p.error ? { color: '#ff8b80' } : undefined}>{p.error ? 'Lỗi dựng' : p.live ? 'Đang trên game' : 'Đang tải'}</span></button>
+          <div className={s.cardBody}>
+            <h2 title={p.name}>{p.name}</h2>
+            <div className={s.meta}>
+              <span><Icon name="lucide:hash" />{p.id}</span>
+              <span><Icon name="lucide:clock" />{fmtTime(Date.parse(p.updatedAt))}</span>
+              <span><Icon name="lucide:users" />{p.players} người · {p.matches} trận</span>
+              <span><Icon name="lucide:hard-drive" />{(p.bytes / 1024 / 1024).toFixed(1)} MB</span>
+              <span><Icon name={local ? 'lucide:laptop' : 'lucide:cloud'} />{local ? 'Có trong máy này' : 'Chỉ trên máy chủ'}</span>
+            </div>
+            {p.error && <p className={`${s.note} ${s.err}`} title={p.error} style={{ margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.error}</p>}
+            {!local && !p.editable && <p className={s.lead} style={{ margin: 0 }}>Xuất bản từ bản cũ: tải về được địa hình, cây và lớp tham chiếu đường/công trình.</p>}
+            <div className={s.cardActions}>
+              <button className={`${s.btn} ${s.primary}`} onClick={() => void openPublished(p)} data-testid="open-published"><Icon name={local ? 'lucide:pencil' : 'lucide:download'} />{local ? 'Mở' : 'Tải về để sửa'}</button>
+              <button className={`${s.btn} ${s.danger}`} onClick={() => setUnpublishing(p)} title="Gỡ khỏi game (xóa trên máy chủ)" data-testid="unpublish-map"><Icon name="lucide:trash-2" /></button>
+            </div>
+          </div>
+        </article>;
+      })}
+    </div> : <div className={s.cards}>
       {maps === null && <p className={s.lead}>Đang mở kho bản đồ…</p>}
       {maps && shown.length === 0 && <div className={s.emptyState}><Icon name="lucide:map" /><strong>{maps.length ? 'Không có bản đồ khớp bộ lọc.' : 'Chưa có bản đồ nào.'}</strong>
         {!maps.length && <><span>Tạo bản đồ đầu tiên — bắt đầu từ Đảo Hắc Sơn đang dùng trong Battle Royale, từ seed, hoặc từ mặt đất trống.</span><button className={`${s.btn} ${s.primary}`} onClick={() => setCreating(true)}><Icon name="lucide:plus" />Bản đồ mới</button></>}</div>}
@@ -101,6 +159,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
             <span><Icon name="lucide:sprout" />{m.seed}</span>
             <span><Icon name="lucide:layers" />{m.template}</span>
             <span><Icon name="lucide:clock" />{fmtTime(m.updatedAt)}</span>
+            {publishedIds.has(publishedMapId(m.id)) && <span style={{ color: 'var(--accent)' }}><Icon name="lucide:rocket" />Đã xuất bản</span>}
           </div>
           {m.description && <p className={s.lead} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.description}</p>}
           <div className={s.cardActions}>
@@ -111,7 +170,11 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
           </div>
         </div>
       </article>)}
-    </div>
+    </div>}
+    {login && <ConfirmDialog title="Đăng nhập Studio" message="Nhập mật khẩu Studio để xem và quản lý bản đồ trên máy chủ game." password danger={false} confirmLabel="Đăng nhập"
+      onCancel={() => setLogin(false)} onConfirm={async (pw) => { await studioLogin(pw); setLogin(false); await refreshServer(); }} />}
+    {unpublishing && <ConfirmDialog title="Gỡ bản đồ khỏi game?" message={<>Xóa <b>{unpublishing.name}</b> khỏi máy chủ: người chơi không chọn được nữa, trận đang chạy trên bản đồ này kết thúc.{localFor(unpublishing) ? ' Bản trong máy này vẫn giữ, có thể xuất bản lại.' : ' Bản đồ không có trong máy này — hãy "Tải về để sửa" trước nếu cần giữ.'}</>}
+      confirmLabel="Gỡ khỏi game" onCancel={() => setUnpublishing(null)} onConfirm={async () => { await studioUnpublishBattleMap(unpublishing.id); setUnpublishing(null); await refreshServer(); }} />}
     {creating && <NewMapDialog onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); onOpen(id); }} />}
     {editing && <MetaDialog meta={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void refresh(); }} />}
     {removing && <ConfirmDialog title="Xóa bản đồ?" message={<>Xóa vĩnh viễn <b>{removing.name}</b> khỏi trình duyệt này — địa hình, khu vực và mọi cấu hình trận. Không hoàn tác được; hãy xuất file trước nếu cần giữ.</>}

@@ -282,6 +282,8 @@ async function main(): Promise<void> {
       list: () => [{ id: DEFAULT_BATTLE_MAP_ID, name: 'Đảo Hắc Sơn', thumbnail: null, builtin: true, players: battlePool.matches.reduce((n, m) => n + m.playerCount, 0), matches: battlePool.matches.length }, ...battleMaps.list()],
       publish: (input) => battleMaps.publish(input),
       remove: (id) => battleMaps.remove(id),
+      catalog: () => battleMaps.catalog(),
+      stored: (id) => battleMaps.stored(id),
     },
     teams,
     battleTeams,

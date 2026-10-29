@@ -140,6 +140,11 @@ export class ModelStudioStore {
 
   /** Soft delete (restorable). */
   async remove(id: string): Promise<void> { await this.db.query('UPDATE model_projects SET deleted_at = now() WHERE id = $1', [id]); }
+  /** Permanently removes a project already in the bin (its versions go with it; published models stay). */
+  async purge(id: string): Promise<void> {
+    const r = await this.db.query('DELETE FROM model_projects WHERE id = $1 AND deleted_at IS NOT NULL', [id]);
+    if (!r.rowCount) throw new Error('Chỉ xóa vĩnh viễn được dự án đã nằm trong mục "Đã xóa".');
+  }
   async restoreDeleted(id: string): Promise<void> { await this.db.query('UPDATE model_projects SET deleted_at = NULL, updated_at = now() WHERE id = $1', [id]); }
 
   async versions(id: string): Promise<Array<{ version: number; note: string; author: string; createdAt: string; nodes: number }>> {

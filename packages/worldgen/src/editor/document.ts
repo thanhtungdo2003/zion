@@ -211,3 +211,38 @@ export function validateMap(doc: WorldMapDoc, hf: Heightfield): MapIssue[] {
   return out;
 }
 export { defaultTerrainSettings };
+
+/* ------------------------------------------------------------------------ published maps */
+
+/** A battle map as the server stores it: the baked game map and, when published from a recent studio, its editor document. */
+export interface StoredBattleMap { id: string; name: string; seaLevel: number; map: unknown; source: unknown }
+
+/**
+ * Turns a map stored on the server back into an editable studio map. The terrain (heights and
+ * surfaces) comes back exactly from the baked map; regions, water and match setups come from the
+ * saved editor document. A map published before documents were kept comes back with its terrain,
+ * vegetation and match area, and its roads and buildings as the read-only reference layer.
+ */
+export function fromStoredBattleMap(stored: StoredBattleMap, now = Date.now()): { doc: WorldMapDoc; terrain: Heightfield; complete: boolean } {
+  const map = stored.map as { terrainGrid?: { size: number; cell: number; data: string }; surfaceGrid?: string; climate?: TerrainSettings['climate']; flora?: FloraItem[]; roads?: Array<{ points: Vec2[]; width: number; paved: boolean }>; placed?: Array<{ x: number; z: number; yaw: number; halfX?: number; halfZ?: number; decal?: boolean }> };
+  const grid = map?.terrainGrid;
+  if (!grid) throw new Error('Bản đồ trên máy chủ thiếu dữ liệu địa hình.');
+  const heights = decodeHeights(grid.data), cols = Math.round(grid.size / grid.cell) + 1;
+  const surface = map.surfaceGrid ? base64ToBytes(map.surfaceGrid) : new Uint8Array(cols * cols);
+  const terrain = new Heightfield(grid.size, grid.cell, heights, surface.length === cols * cols ? surface : new Uint8Array(cols * cols));
+  // The id it was published under, so publishing it again replaces the same server map.
+  const meta = (doc: WorldMapDoc): WorldMapDoc => ({ ...doc, meta: { ...doc.meta, id: stored.id, name: stored.name.slice(0, 80), updatedAt: now } });
+  if (stored.source) {
+    const doc = checkDoc(stored.source);
+    if (doc.terrain.size !== grid.size || doc.terrain.cell !== grid.cell) throw new Error('Tài liệu bản đồ không khớp lưới địa hình đã xuất bản.');
+    return { doc: meta(doc), terrain, complete: true };
+  }
+  const settings: TerrainSettings = { ...defaultTerrainSettings('tectonic', stored.id.slice(0, 64), grid.size), cell: grid.cell, seaLevel: stored.seaLevel, climate: map.climate ?? 'temperate' };
+  const doc = createMapDoc({ name: stored.name.slice(0, 80), kind: 'battle-royale', template: 'published', description: 'Tải từ bản đồ đã xuất bản (không kèm khu vực gốc).', terrain: settings, now,
+    base: {
+      roads: (map.roads ?? []).filter((r) => r.points.length >= 2).slice(0, 512).map((r) => ({ points: r.points.slice(0, 4096), width: r.width, paved: r.paved })),
+      structures: (map.placed ?? []).filter((p) => !p.decal && p.halfX && p.halfZ).slice(0, 10000).map((p) => ({ x: p.x, z: p.z, yaw: p.yaw, hx: Math.max(0, p.halfX! - 1), hz: Math.max(0, p.halfZ! - 1) })),
+    } });
+  doc.flora = (map.flora ?? []).slice(0, MAX_FLORA);
+  return { doc: meta(doc), terrain, complete: false };
+}

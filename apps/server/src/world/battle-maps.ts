@@ -25,6 +25,8 @@ export const publishSchema = z.object({
   thumbnail: z.string().max(400_000).regex(/^data:image\//).optional(),
   seaLevel: z.number().min(0).max(200).default(20),
   map: z.unknown(),
+  /** The editor document (without terrain) so the map can be opened again elsewhere. */
+  source: z.record(z.unknown()).optional(),
 }).strict();
 export type PublishInput = z.infer<typeof publishSchema>;
 
@@ -32,6 +34,8 @@ interface Entry { id: string; name: string; thumbnail: string | null; updatedAt:
 
 export class BattleMapService {
   private readonly maps = new Map<string, Entry>();
+  /** Maps stored but not playable (their world failed to build), with the reason. */
+  private readonly failed = new Map<string, string>();
 
   constructor(
     private readonly db: Db,
@@ -55,7 +59,7 @@ export class BattleMapService {
       const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; sea_level: number; map: unknown; updated_at: Date }>('SELECT id, name, thumbnail, sea_level, map, updated_at FROM battle_maps ORDER BY updated_at')).rows;
       for (const r of rows) {
         try { await this.build(r.id, r.name, r.thumbnail, r.sea_level, authoredMapSchema.parse(r.map) as AuthoredMap, r.updated_at.toISOString()); }
-        catch (err) { this.log.error({ err, id: r.id }, 'battle map could not be built (skipped)'); }
+        catch (err) { this.failed.set(r.id, err instanceof Error ? err.message : String(err)); this.log.error({ err, id: r.id }, 'battle map could not be built (skipped)'); }
       }
     } catch (err) {
       this.log.error({ err }, 'failed to load battle maps (only the built-in island is offered)');
@@ -83,10 +87,13 @@ export class BattleMapService {
     const map = authoredMapSchema.parse(body.map) as AuthoredMap;
     if (!map.terrainGrid) throw new Error('Bản đồ thiếu dữ liệu địa hình.');
     const updatedAt = new Date().toISOString();
-    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at) VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at`,
-      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt]);
+    // Built first: a map whose world cannot be made is refused instead of stored unplayable
+    // (it would be listed nowhere in the game). The previous version keeps running meanwhile.
     await this.build(body.id, body.name, body.thumbnail ?? null, body.seaLevel, map, updatedAt);
+    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at, source) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb)
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source`,
+      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt, body.source ? JSON.stringify(body.source) : null]);
+    this.failed.delete(body.id);
     this.log.info({ id: body.id, sites: map.placed?.length ?? 0, flora: map.flora?.length ?? 0 }, 'battle map published');
     return { id: body.id, name: body.name };
   }
@@ -95,6 +102,7 @@ export class BattleMapService {
     await this.db.query('DELETE FROM battle_maps WHERE id = $1', [id]);
     const e = this.maps.get(id);
     this.maps.delete(id);
+    this.failed.delete(id);
     if (e) await e.pool.stop().then(() => e.world.close()).catch(() => {});
   }
 
@@ -104,6 +112,26 @@ export class BattleMapService {
   /** For the map picker: every published map with how many people are playing on it now. */
   list(): Array<{ id: string; name: string; thumbnail: string | null; players: number; matches: number; updatedAt: string }> {
     return [...this.maps.values()].map((e) => ({ id: e.id, name: e.name, thumbnail: e.thumbnail, updatedAt: e.updatedAt, matches: e.pool.matches.length, players: e.pool.matches.reduce((n, m) => n + m.playerCount, 0) }));
+  }
+
+  /**
+   * For the World Studio: every map stored on the server (straight from the table, so maps that
+   * failed to build or were published from another machine are listed too), with its state.
+   */
+  async catalog(): Promise<Array<{ id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number }>> {
+    const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; updated_at: Date; editable: boolean; bytes: number }>(
+      'SELECT id, name, thumbnail, updated_at, source IS NOT NULL AS editable, pg_column_size(map) AS bytes FROM battle_maps ORDER BY updated_at DESC')).rows;
+    return rows.map((r) => {
+      const e = this.maps.get(r.id), error = this.failed.get(r.id) ?? (e ? undefined : 'Chưa dựng được thế giới cho bản đồ này (xem log máy chủ); xuất bản lại để thử.');
+      return { id: r.id, name: r.name, thumbnail: r.thumbnail, updatedAt: r.updated_at.toISOString(), live: !!e, ...(error ? { error } : {}), editable: r.editable, bytes: Number(r.bytes),
+        matches: e?.pool.matches.length ?? 0, players: e?.pool.matches.reduce((n, m) => n + m.playerCount, 0) ?? 0 };
+    });
+  }
+
+  /** A stored map in full (for opening it in the World Studio). */
+  async stored(id: string): Promise<{ id: string; name: string; seaLevel: number; map: unknown; source: unknown } | null> {
+    const r = (await this.db.query<{ id: string; name: string; sea_level: number; map: unknown; source: unknown }>('SELECT id, name, sea_level, map, source FROM battle_maps WHERE id = $1', [id])).rows[0];
+    return r ? { id: r.id, name: r.name, seaLevel: r.sea_level, map: r.map, source: r.source } : null;
   }
 
   async close(): Promise<void> {

@@ -85,9 +85,12 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   app.post<{ Params: { id: string } }>('/api/studio/models/projects/:id/duplicate', pre, async (req, reply) => {
     try { return await store.duplicate(id.parse(req.params.id)); } catch (err) { return fail(reply, err); }
   });
-  app.delete<{ Params: { id: string }; Querystring: { confirm?: string } }>('/api/studio/models/projects/:id', pre, async (req, reply) => {
+  app.delete<{ Params: { id: string }; Querystring: { confirm?: string; permanent?: string } }>('/api/studio/models/projects/:id', pre, async (req, reply) => {
     if (req.query.confirm !== '1') return reply.code(400).send({ error: 'confirm', message: 'Cần xác nhận xóa (confirm=1).' });
-    try { await store.remove(id.parse(req.params.id)); return { ok: true, restorable: true }; } catch (err) { return fail(reply, err); }
+    try {
+      if (req.query.permanent === '1') { await store.purge(id.parse(req.params.id)); return { ok: true, restorable: false }; }
+      await store.remove(id.parse(req.params.id)); return { ok: true, restorable: true };
+    } catch (err) { return fail(reply, err); }
   });
   app.post<{ Params: { id: string } }>('/api/studio/models/projects/:id/undelete', pre, async (req, reply) => {
     try { await store.restoreDeleted(id.parse(req.params.id)); return { ok: true }; } catch (err) { return fail(reply, err); }

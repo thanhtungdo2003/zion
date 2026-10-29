@@ -374,6 +374,8 @@ export default function ModelStudio() {
         {status && <button className={`${s.tbtn} ${status.ai ? '' : s.on}`} title="API key và model của AI agent" onClick={() => setAiOpen(true)}><Icon name="lucide:key-round" /> {status.ai ? `AI · ${status.model}` : 'Cấu hình AI'}</button>}
         <button className={s.tbtn} disabled={!doc || busy || preview !== null} onClick={() => void save({ note: 'Lưu thủ công' })}><Icon name="lucide:save" /> Lưu bản</button>
         <button className={`${s.tbtn} ${s.primary}`} disabled={!doc || busy} onClick={() => setRight('versions')}><Icon name="lucide:rocket" /> Xuất / Xuất bản</button>
+        <button className={`${s.tbtn} ${s.danger}`} disabled={!project || busy || running} title="Xóa dự án đang mở (khôi phục được trong Dự án › Đã xóa)"
+          onClick={() => { if (project && confirm(`Xóa dự án "${doc?.name ?? ''}"? Có thể khôi phục trong mục "Đã xóa".`)) void withBusy(async () => { await msApi.remove(project.id); setProject(null); setDoc(null); await refreshList(); setLeft('projects'); flash('Đã xóa dự án — khôi phục trong mục "Đã xóa".'); }); }}><Icon name="lucide:trash-2" /> Xóa dự án</button>
       </header>
 
       <aside className={s.left}>
@@ -385,7 +387,8 @@ export default function ModelStudio() {
           rename={(id, name) => void withBusy(async () => { await msApi.rename(id, name); await refreshList(); if (project?.id === id) await open(id); })}
           duplicate={(id) => void withBusy(async () => { const p = await msApi.duplicate(id); await refreshList(); await open(p.id); })}
           remove={(id) => void withBusy(async () => { await msApi.remove(id); await refreshList(); if (project?.id === id) { setProject(null); setDoc(null); } })}
-          undelete={(id) => void withBusy(async () => { await msApi.undelete(id); await refreshList(); })} />}
+          undelete={(id) => void withBusy(async () => { await msApi.undelete(id); await refreshList(); })}
+          purge={(id) => void withBusy(async () => { await msApi.purge(id); await refreshList(); flash('Đã xóa vĩnh viễn.'); })} />}
         {left === 'library' && view.current && <LibraryPanel registry={view.current.registry} files={project?.files ?? []} doc={doc}
           addAsset={(id) => doc && add('Thêm model game', (b, parent) => b.asset(view.current!.registry.byNumericId(id)?.name ?? `#${id}`, parent, id))}
           addPreset={(preset) => doc && mutate('Thêm vật liệu', (d) => { new DocBuilder(d).material(`${preset}-${d.materials.filter((m) => m.preset === preset).length + 1}`, preset); })}

@@ -53,7 +53,7 @@ export interface HttpDeps {
   atlas?: (mode?: GameMode, map?: string) => Promise<WorldAtlas>;
   atlasTile?: (x: number, z: number, mode?: GameMode, map?: string) => Promise<AtlasTile>;
   /** Battle royale maps from the World Studio (map picker, publishing). */
-  battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void> };
+  battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void>; catalog(): Promise<unknown>; stored(id: string): Promise<unknown | null> };
   /** Zombie Wave Survival maps and leaderboards. */
   waves?: WaveBackend;
   /** Infection maps for the menu's map picker. */

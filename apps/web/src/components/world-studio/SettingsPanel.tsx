@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, toBattleMap, climateTint, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
 import { renderThumbnail, storageEstimate } from '@/studio/world/map-store';
-import { hasStudioSession, studioLogin, studioPublishBattleMap } from '@/lib/api';
+import { hasStudioSession, publishedMapId, studioLogin, studioPublishBattleMap } from '@/lib/api';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { EditorApi } from './editor-api';
 import { Btn, Check, NumberField, Section, Seg, Slider, TextField, fmtTime } from './ui';
@@ -64,7 +64,9 @@ function PublishSection({ api }: { api: EditorApi }) {
     try {
       if (password) await studioLogin(password);
       const d = api.doc, map = toBattleMap(d, api.terrain);
-      const r = await studioPublishBattleMap({ id: d.meta.id.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map });
+      // The editor document goes along so the map can be opened again from any machine.
+      const { thumbnail: _thumb, ...meta } = d.meta;
+      const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta } });
       api.flash(`Đã xuất bản "${r.name}" — người chơi chọn được trong mục Bản đồ của Battle Royale.`);
     } catch (err) { api.flash(`Xuất bản thất bại: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
     finally { setBusy(false); }

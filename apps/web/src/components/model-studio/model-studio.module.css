@@ -35,6 +35,7 @@
 .ibtn:hover:not(:disabled) { color: var(--text); border-color: var(--line); }
 .ibtn.on { color: var(--accent); border-color: var(--accent); }
 .ibtn:disabled { opacity: .35; cursor: default; }
+.ibtn.del:hover:not(:disabled) { color: #e5534b; border-color: #e5534b; }
 
 /* --------------------------------------------------------------- side panels */
 .left, .right { background: var(--panel-solid); display: flex; flex-direction: column; min-height: 0; }
