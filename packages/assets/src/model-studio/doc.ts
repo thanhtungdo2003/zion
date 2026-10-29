@@ -134,8 +134,12 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     landing: finite.min(.5).max(6).optional(),
     treadThickness: finite.min(.02).max(.4).optional(),
     railing: z.boolean().optional(),
-    /** Railing and beams material (else the stairs material). */
+    /** Railing posts, balusters and beams (else the stairs material). */
     railMaterial: z.string().max(64).optional(),
+    /** Tread and landing finish (granite, terrazzo, tiles, boards; else the stairs material). */
+    treadMaterial: z.string().max(64).optional(),
+    /** The handrail itself (varnished wood, steel tube; else the rail material). */
+    handrailMaterial: z.string().max(64).optional(),
   }).strict(),
   z.object({
     ...nodeBase, kind: z.literal('slab'),
@@ -143,6 +147,8 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     width: finite.min(.05).max(400), depth: finite.min(.05).max(400), thickness: finite.min(.01).max(4),
     holes: z.array(z.object({ x: finite, z: finite, width: finite.min(.05), depth: finite.min(.05) }).strict()).max(16),
     material: z.string().max(64),
+    /** The underside (the ceiling of the room below; else the slab material). */
+    bottomMaterial: z.string().max(64).optional(),
   }).strict(),
   /** A model of the game (asset registry): reused as it is, never copied or changed. */
   z.object({ ...nodeBase, kind: z.literal('asset'), asset: z.number().int().min(1).max(65535) }).strict(),
@@ -166,11 +172,33 @@ export const planSchema = z.object({
   /** Floor to ceiling (m). */
   height: finite.min(1.8).max(20),
   slab: finite.min(.05).max(1),
+  /** The underside of this storey's slabs: the ceiling of the storey below (plaster, boards, exposed concrete). */
+  ceilingMaterial: z.string().max(64).optional(),
+  /**
+   * Finishes of the storey's parts, each its own material: exterior plinth (base band), skirting
+   * along the rooms, window frames, glazing, sills, door frames, door leaves. Absent: the part is
+   * not made (no plinth, no skirting) or takes a plain default (frames and leaves in timber,
+   * clear glass).
+   */
+  finishes: z.object({
+    plinth: z.string().max(64).optional(), plinthHeight: finite.min(.1).max(1.5).optional(),
+    skirting: z.string().max(64).optional(),
+    windowFrame: z.string().max(64).optional(), glass: z.string().max(64).optional(), sill: z.string().max(64).optional(),
+    doorFrame: z.string().max(64).optional(), doorLeaf: z.string().max(64).optional(),
+  }).strict().optional(),
   rooms: z.array(z.object({ id: z.string().min(1).max(40), name: z.string().min(1).max(60), type: z.string().max(30), x0: finite, z0: finite, x1: finite, z1: finite, floorMaterial: z.string().max(64).optional() }).strict()).max(60),
   walls: z.array(z.object({
     id: z.string().min(1).max(40), a: pt, b: pt, thickness: finite.min(.05).max(2), height: finite.min(.3).max(30).optional(),
     material: z.string().max(64), innerMaterial: z.string().max(64).optional(), exterior: z.boolean(),
-    openings: z.array(z.object({ kind: z.enum(OPENING_KINDS), at: finite, width: finite.min(.2).max(20), height: finite.min(.2).max(20), sill: finite.min(0).max(20) }).strict()).max(24),
+    openings: z.array(z.object({
+      kind: z.enum(OPENING_KINDS), at: finite, width: finite.min(.2).max(20), height: finite.min(.2).max(20), sill: finite.min(0).max(20),
+      /** Per-opening finishes (else the plan's `finishes`). */
+      frameMaterial: z.string().max(64).optional(), glassMaterial: z.string().max(64).optional(), leafMaterial: z.string().max(64).optional(), sillMaterial: z.string().max(64).optional(),
+      /** Doors: a leaf in the opening (default true), open by this many degrees. */
+      leaf: z.boolean().optional(), open: finite.min(0).max(120).optional(),
+    }).strict()).max(24),
+    /** The wall's own plinth (exterior base band) material, else the plan's. */
+    plinthMaterial: z.string().max(64).optional(),
   }).strict()).max(200),
   stairs: z.array(z.object({
     id: z.string().min(1).max(40), x: finite, z: finite, width: finite.min(.6).max(6),
@@ -178,6 +206,7 @@ export const planSchema = z.object({
     direction: z.enum(['n', 's', 'e', 'w']),
     shape: z.enum(STAIR_SHAPES), style: z.enum(STAIR_STYLES), turn: z.enum(['left', 'right']).optional(),
     material: z.string().max(64), railing: z.boolean().optional(),
+    treadMaterial: z.string().max(64).optional(), railMaterial: z.string().max(64).optional(), handrailMaterial: z.string().max(64).optional(),
   }).strict()).max(8),
   /** Openings in this floor (stairwells over the flight below). */
   voids: z.array(z.object({ x0: finite, z0: finite, x1: finite, z1: finite }).strict()).max(12),
@@ -201,6 +230,8 @@ export const modelDocSchema = z.object({
   lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(),
   /** Floor plans, one per storey (drawn first, then built). */
   plans: z.array(planSchema).max(80).optional(),
+  /** The material schedule: every material the model uses and where (decided before building). */
+  schedule: z.array(z.object({ material: z.string().max(64), uses: z.array(z.string().max(80)).max(30), note: z.string().max(300).optional() }).strict()).max(128).optional(),
   notes: z.string().max(4000).optional(),
 }).strict().superRefine((doc, ctx) => {
   const ids = new Set<string>();
@@ -211,7 +242,7 @@ export const modelDocSchema = z.object({
   const mats = new Set(doc.materials.map((m) => m.id));
   for (const n of doc.nodes) {
     if (n.parent !== null && !ids.has(n.parent)) ctx.addIssue({ code: 'custom', message: `${n.id}: unknown parent ${n.parent}` });
-    if ('material' in n && !mats.has(n.material)) ctx.addIssue({ code: 'custom', message: `${n.id}: unknown material ${n.material}` });
+    for (const m of materialRefs(n)) if (!mats.has(m)) ctx.addIssue({ code: 'custom', message: `${n.id}: unknown material ${m}` });
   }
   // No cycles in the hierarchy.
   const parent = new Map(doc.nodes.map((n) => [n.id, n.parent]));
@@ -233,6 +264,14 @@ export function freshId(doc: { nodes: { id: string }[]; materials?: { id: string
   const taken = new Set([...doc.nodes.map((n) => n.id), ...(doc.materials ?? []).map((m) => m.id)]);
   const base = prefix.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'node';
   for (let i = 1; ; i++) { const id = `${base}-${i}`; if (!taken.has(id)) return id; }
+}
+
+/** Every material a part uses (its main one and its other slots: inner face, underside, treads, rails…). */
+export function materialRefs(n: ModelNode): string[] {
+  const out: string[] = [];
+  const r = n as Partial<Record<'material' | 'innerMaterial' | 'bottomMaterial' | 'treadMaterial' | 'railMaterial' | 'handrailMaterial', string>>;
+  for (const k of ['material', 'innerMaterial', 'bottomMaterial', 'treadMaterial', 'railMaterial', 'handrailMaterial'] as const) if (r[k]) out.push(r[k]!);
+  return out;
 }
 
 /** Children of a node (or the roots for `null`), in document order. */

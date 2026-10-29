@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
 import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type ModelDoc, type ModelNode } from './doc';
-import { buildPlan, checkPlan, planSummary } from './plans';
+import { buildPlan, checkPlan, fitStairs, planSummary, snapPlan, wellsFor } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
@@ -344,6 +344,48 @@ export const TOOLS: ToolDefinition<never>[] = [
     },
   }),
   defineTool({
+    name: 'define_materials', permission: 'edit',
+    description: [
+      'Lập BẢNG VẬT LIỆU trước khi vẽ/dựng: liệt kê mọi vật liệu công trình dùng và dùng ở đâu, đúng thực tế của loại công trình và từng khu vực/bộ phận (kết cấu bê tông, gạch xây, vữa trát, sơn nước, đá granite mặt bậc, gạch men, gạch terrazzo, gỗ, thép hộp, inox, nhôm kính, nhựa PVC, tôn, ngói…), có biến thể tự nhiên giữa các khu vực (vd mặt bậc granite đỏ nhám ở cầu thang chính, gạch chống trơn ở cầu thang phụ; tay vịn gỗ ở khu này, thép sơn ở khu kia).',
+      'Mỗi mục: {id, name, uses: [nơi dùng], preset (vật liệu PBR gần nhất), texture_query (tiếng Anh, tải texture thật) hoặc paint_prompt (AI vẽ), roughness?, metalness?, color?, note?}. Gọi lại để thêm/sửa mục; mục có sẵn được giữ.',
+    ].join('\n'),
+    params: { materials: '[{id, name, uses, preset, texture_query?, paint_prompt?, roughness?, metalness?, color?, note?}]' },
+    schema: z.object({ materials: z.array(z.object({
+      id: z.string().regex(/^[a-z0-9_-]{2,40}$/), name: z.string().min(1).max(80), uses: z.array(z.string().max(80)).min(1).max(30), preset: z.string().max(40).optional(),
+      texture_query: z.string().max(120).optional(), paint_prompt: z.string().max(600).optional(), roughness: z.number().min(0).max(1).optional(), metalness: z.number().min(0).max(1).optional(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), note: z.string().max(300).optional(),
+    }).strict()).min(1).max(60) }).strict(),
+    run: async (a, s) => {
+      const results: Array<Record<string, unknown>> = [];
+      const schedule = new Map((s.doc.schedule ?? []).map((x) => [x.material, x]));
+      for (const item of a.materials) {
+        let m = s.doc.materials.find((x) => x.id === item.id);
+        if (!m) { m = materialFromPreset(item.id, matchPreset(item.preset ?? item.name).id, { name: item.name }); s.doc.materials.push(m); }
+        m.name = item.name;
+        if (item.roughness !== undefined) m.roughness = item.roughness;
+        if (item.metalness !== undefined) m.metalness = item.metalness;
+        if (item.color) m.color = item.color;
+        schedule.set(item.id, { material: item.id, uses: item.uses, ...(item.note ? { note: item.note } : {}) });
+        const row: Record<string, unknown> = { id: item.id, preset: m.preset };
+        // Real textures where asked; a failure is reported for that line and the rest goes on.
+        try {
+          if (item.texture_query && s.host.textures) {
+            const hit = (await s.host.textures.search(item.texture_query, 1))[0];
+            if (hit) { applySet(s, item.id, await s.host.textures.download(hit.id, '1k'), {}); row.texture = hit.name; m.name = item.name; }
+            else row.texture = `không thấy "${item.texture_query}"`;
+          } else if (item.paint_prompt && s.host.textures?.canPaint) {
+            applySet(s, item.id, await s.host.textures.paint(item.paint_prompt, { ...(item.roughness !== undefined ? { roughness: item.roughness } : {}), ...(item.metalness !== undefined ? { metalness: item.metalness } : {}) }), {});
+            row.texture = 'AI vẽ'; m.name = item.name;
+          }
+        } catch (err) { row.textureError = (err as Error).message; }
+        results.push(row);
+      }
+      s.doc.schedule = [...schedule.values()];
+      s.changed = true;
+      return { schedule: s.doc.schedule.length, results, next: 'Dùng đúng các id này trong bản vẽ (tường, sàn, finishes, cầu thang).' };
+    },
+  }),
+  defineTool({
     name: 'draw_floor_plan', permission: 'edit',
     description: [
       'Vẽ (hoặc vẽ lại) bản vẽ mặt bằng một tầng TRƯỚC khi dựng; bản vẽ hiện ngay trong khung 3D ở cao độ của tầng. Trả về phần kiểm tra của kiến trúc sư: phòng chồng nhau/thiếu tường, cửa không đi qua được, phòng không tới được, cầu thang không vừa/thiếu giếng thang, cao độ lệch. Sửa đến khi hết lỗi rồi build_floor.',
@@ -351,13 +393,16 @@ export const TOOLS: ToolDefinition<never>[] = [
       'rooms: [{id, name, type (living|bedroom|kitchen|bathroom|hall|stair|office|storage|shop|…), x0, z0, x1, z1, floorMaterial}] — phòng chữ L = nhiều hình chữ nhật cùng name.',
       'walls: [{id, a:[x,z], b:[x,z], thickness, exterior, material, innerMaterial?, height?, openings:[{kind: door|window|arch|hole, at (m tính từ a tới tâm lỗ), width, height, sill}]}] — đường tim tường; tường ngoài tự quay mặt material ra ngoài.',
       'stairs: [{id, x, z (điểm giữa mép bậc đầu tiên), width, direction: n|s|e|w (hướng đi lên; s = +z, e = +x), shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, material, railing}] — số bậc và chiều dài tự tính theo chiều cao lên tầng trên (bậc ≤ 18 cm, mặt bậc 27 cm); kết quả trả về chỗ cầu thang chiếm và nơi lên tới.',
-      'voids: [{x0, z0, x1, z1}] — lỗ sàn (giếng thang trên cầu thang của tầng dưới).',
-      'Vật liệu: id vật liệu đã có hoặc tên preset (concrete, brick_red, plaster_white, wood_planks, ceramic_tiles…); thay bằng texture thật sau bằng download_texture.',
+      'stairs còn nhận treadMaterial (mặt bậc), railMaterial (con tiện/trụ), handrailMaterial (tay vịn); material là kết cấu.',
+      'voids: [{x0, z0, x1, z1}] — lỗ sàn; để trống thì giếng thang được tự tính ĐÚNG khít cầu thang tầng dưới.',
+      'finishes: {plinth, plinthHeight, skirting, windowFrame, glass, sill, doorFrame, doorLeaf} — vật liệu từng bộ phận (chân tường, len chân tường, khung/kính/bậu cửa sổ, khuôn/cánh cửa); mỗi lỗ mở có thể ghi đè (frameMaterial, glassMaterial, leafMaterial, sillMaterial, leaf, open). ceilingMaterial = trần (mặt dưới sàn tầng này, tức trần tầng dưới).',
+      'Mọi vật liệu PHẢI có trong bảng vật liệu (define_materials trước). Toạ độ được làm tròn theo lưới 5 cm (đơn vị đo chung của cả model): đo và đặt cho khít — cầu thang sát tường, giếng thang khít cầu thang; phần kiểm tra báo khe hở bằng cm và toạ độ cần dời.',
     ].join('\n'),
     params: { level: 'int', name: 'string', elevation: 'm (tùy chọn)', height: 'm', slab: 'm', rooms: '[...]', walls: '[...]', stairs: '[...]', voids: '[...]', notes: 'string' },
     schema: z.object({
       level: z.number().int().min(-5).max(80), name: z.string().min(1).max(80), elevation: z.number().finite().optional(), height: z.number().min(1.8).max(20).optional(), slab: z.number().min(.05).max(1).optional(),
       rooms: z.array(z.record(z.unknown())).max(60), walls: z.array(z.record(z.unknown())).max(200), stairs: z.array(z.record(z.unknown())).max(8).optional(), voids: z.array(z.record(z.unknown())).max(12).optional(), notes: z.string().max(2000).optional(),
+      finishes: z.record(z.unknown()).optional(), ceilingMaterial: z.string().max(64).optional(),
     }).strict(),
     run: (a, s) => {
       const plans = s.doc.plans ?? [];
@@ -367,15 +412,22 @@ export const TOOLS: ToolDefinition<never>[] = [
       const parsed = planSchema.safeParse({
         level: a.level, name: a.name, elevation, height, slab,
         rooms: a.rooms, walls: (a.walls as Array<Record<string, unknown>>).map((w) => ({ openings: [], ...w })), stairs: a.stairs ?? [], voids: a.voids ?? [], ...(a.notes ? { notes: a.notes } : {}),
+        ...(a.finishes ? { finishes: a.finishes } : {}), ...(a.ceilingMaterial ? { ceilingMaterial: a.ceilingMaterial } : {}),
         ...(old?.built ? { built: old.built } : {}),
       });
       if (!parsed.success) throw new Error(`Bản vẽ sai cấu trúc: ${parsed.error.issues.slice(0, 6).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
-      s.doc.plans = [...plans.filter((p) => p.level !== a.level), parsed.data].sort((x, y) => x.level - y.level);
+      // One measuring unit for the whole model; wells exactly over the flights below.
+      const plan = snapPlan(parsed.data);
+      s.doc.plans = [...plans.filter((p) => p.level !== a.level), plan].sort((x, y) => x.level - y.level);
+      const fitted = fitStairs(s.doc, plan);
+      const wells = wellsFor(s.doc, plan);
+      if (wells.length) plan.voids.push(...wells);
+      parsed.data = plan;
       s.changed = true;
       const issues = checkPlan(s.doc, parsed.data);
       // Redrawing a storey also changes what the storeys around it need (wells, arrivals).
       const neighbours = s.doc.plans.filter((p) => Math.abs(p.level - a.level) === 1).flatMap((p) => checkPlan(s.doc, p).filter((i) => i.level === 'error').map((i) => `[${p.name}] ${i.message}`));
-      return { plan: planSummary(s.doc, parsed.data), errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours, next: issues.some((i) => i.level === 'error') ? 'Sửa lỗi rồi vẽ lại tầng này.' : 'Bản vẽ ổn: build_floor để dựng.' };
+      return { plan: planSummary(s.doc, parsed.data), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours, next: issues.some((i) => i.level === 'error') ? 'Sửa lỗi rồi vẽ lại tầng này.' : 'Bản vẽ ổn: build_floor để dựng.' };
     },
   }),
   defineTool({
@@ -493,7 +545,10 @@ export const TOOLS: ToolDefinition<never>[] = [
         const key = (m: typeof doc.materials[number]) => JSON.stringify({ ...m, id: '', name: '', texture: { ...m.texture, seed: 0 } });
         const keep = new Map<string, string>(), remap = new Map<string, string>();
         for (const m of doc.materials) { const k = key(m); if (keep.has(k)) remap.set(m.id, keep.get(k)!); else keep.set(k, m.id); }
-        for (const n of doc.nodes) { if ('material' in n && remap.has(n.material)) (n as { material: string }).material = remap.get(n.material)!; if (n.kind === 'wall' && n.innerMaterial && remap.has(n.innerMaterial)) n.innerMaterial = remap.get(n.innerMaterial)!; }
+        for (const n of doc.nodes) {
+          const r = n as Partial<Record<string, unknown>>;
+          for (const k of ['material', 'innerMaterial', 'bottomMaterial', 'treadMaterial', 'railMaterial', 'handrailMaterial']) if (typeof r[k] === 'string' && remap.has(r[k] as string)) r[k] = remap.get(r[k] as string);
+        }
         doc.materials = doc.materials.filter((m) => !remap.has(m.id));
         if (remap.size) s.changed = true;
       }
@@ -515,7 +570,7 @@ export const TOOLS: ToolDefinition<never>[] = [
   }),
   defineTool({
     name: 'research', permission: 'read',
-    description: 'Tra cứu kiến thức kỹ thuật: kích thước kiến trúc chuẩn, giới hạn nhân vật game, thông số PBR thực tế của vật liệu, cách dựng procedural, tối ưu cho game.',
+    description: 'Tra cứu: kiến thức tích hợp (kích thước kiến trúc; bố trí và vật liệu theo loại công trình — trường học, bệnh viện, văn phòng, biệt thự, xưởng, nhà phố; trạng thái bỏ hoang/đổ nát; PBR; giới hạn nhân vật) và Wikipedia (Anh/Việt). Dùng cụm từ NGẮN: "school building", "trường học", "stairs", "terrazzo".',
     params: { query: 'string' },
     schema: z.object({ query: z.string().min(2).max(200) }).strict(),
     run: async (a, s) => {

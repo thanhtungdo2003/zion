@@ -46,6 +46,31 @@ Server environment (fallback):
 
 The key is sent only in the Authorization header and is redacted from errors.
 
+## Buildings: research, material schedule, floor plans
+
+0. **Understand the request.**
+   - `research` combines built-in knowledge (layout and component materials by building type: school, hospital, office/apartment, villa, factory, Vietnamese townhouse) with Wikipedia (EN/VI).
+   - It also covers states: *abandoned* means complete but long unused; *ruined* means structurally damaged.
+1. **`define_materials`.** The material schedule comes before anything is drawn: every material the building uses and where, each with a real texture (`texture_query`) or an AI-painted one. Plans may only use scheduled materials.
+2. **Floor plans** follow, storey by storey (below).
+
+### Parts and finishes
+
+Every part has its own material:
+- **Walls:** outer face, inner face.
+- **Floors:** finish on top, ceiling underneath (`ceilingMaterial`).
+- **Stairs:** structure, treads, rails and balusters, handrail.
+- **Plan `finishes`, with per-opening overrides:** exterior plinth, skirting, window frames, glazing, sills, door frames, door leaves.
+
+The build makes them as separate parts: frames, glass, sills, door leaves ajar, plinth bands, skirting runs.
+
+### Measuring
+
+- Every plan coordinate is on one 5 cm grid, the model's measuring unit.
+- Stairwell voids are computed exactly over the flight below when left out, and a well wider than the flight is an error, with the gap in cm.
+- A flight crossing a wall is an error.
+- A slot between a flight and a parallel wall is an error with the exact move needed. Slots up to 6 cm are closed automatically, because wall faces are rarely on the grid.
+
 ## Buildings: floor plans first
 
 With the language model, the agent designs every building itself. The whole-house generator stays for the "Sinh nhà" button and the offline planner. It works storey by storey from the ground up:

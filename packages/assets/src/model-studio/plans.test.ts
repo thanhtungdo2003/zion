@@ -23,15 +23,32 @@ function ground(withDoor: boolean, stairs = true) {
       { id: 'i1', a: [4, 0], b: [4, 8], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'door', at: 2.5, width: .9, height: 2.1, sill: 0 }, { kind: 'door', at: 6.5, width: .9, height: 2.1, sill: 0 }] },
       { id: 'i2', a: [4, 5], b: [10, 5], thickness: .12, exterior: false, material: 'plaster_white', openings: [] },
     ],
-    stairs: stairs ? [{ id: 'st', x: 1.2, z: .4, width: 1, direction: 's', shape: 'l', style: 'stringer', turn: 'right', material: 'wood_oak' }] : [],
+    stairs: stairs ? [{ id: 'st', x: .65, z: .15, width: 1, direction: 's', shape: 'l', style: 'solid', turn: 'right', material: 'concrete', treadMaterial: 'granite', railMaterial: 'steel', handrailMaterial: 'wood_oak' }] : [],
+    finishes: { plinth: 'stone_plinth', skirting: 'wood_oak', windowFrame: 'wood_oak', doorLeaf: 'wood_oak' },
+    ceilingMaterial: 'plaster_white',
   };
 }
 
 describe('floor plans', () => {
   const state = (): ToolState => ({ doc: emptyDoc('Nhà', 'building'), host: { assets: [], designOnly: true }, changed: false });
+  /** The schedule a plan's materials must come from. */
+  const schedule = (s: ToolState) => runTool('define_materials', { materials: [
+    { id: 'brick_red', name: 'Gạch đỏ trát', uses: ['tường ngoài'], preset: 'brick_red' },
+    { id: 'plaster_white', name: 'Vữa sơn trắng', uses: ['tường trong', 'trần'], preset: 'plaster_white' },
+    { id: 'ceramic_tiles', name: 'Gạch men', uses: ['sàn sảnh'], preset: 'ceramic_tiles' },
+    { id: 'concrete', name: 'Bê tông', uses: ['kết cấu', 'sàn'], preset: 'concrete' },
+    { id: 'wood_oak', name: 'Gỗ sồi', uses: ['tay vịn', 'cửa'], preset: 'wood_oak' },
+    { id: 'granite', name: 'Granite đỏ nhám', uses: ['mặt bậc'], preset: 'rock_granite' },
+    { id: 'steel', name: 'Thép sơn', uses: ['con tiện'], preset: 'metal_steel' },
+    { id: 'stone_plinth', name: 'Đá rửa', uses: ['chân tường ngoài'], preset: 'concrete' },
+  ] }, s);
 
   it('reviews a plan like an architect and builds it exactly as drawn', async () => {
     const s = state();
+    // No material schedule yet: nothing can be drawn into the building.
+    const early = await runTool('draw_floor_plan', ground(true), s) as R;
+    expect(early.ok && early.result.errors.join(' ')).toContain('bảng vật liệu');
+    expect((await schedule(s)).ok).toBe(true);
     // No way in: the review says so and building is refused.
     const bad = await runTool('draw_floor_plan', ground(false), s) as R;
     expect(bad.ok && bad.result.errors.join(' ')).toContain('cửa ra vào');
@@ -39,13 +56,15 @@ describe('floor plans', () => {
     const good = await runTool('draw_floor_plan', ground(true), s) as R;
     expect(good.ok && good.result.errors).toEqual([]);
     expect((await runTool('build_floor', { level: 0 }, s)).ok).toBe(true);
-    // Upper floor without a well over the flight: flagged, with the box to leave open.
-    const up = { level: 1, name: 'Tầng 2', height: 2.7, rooms: [{ id: 'a', name: 'Phòng', type: 'bedroom', x0: 0, z0: 0, x1: 10, z1: 8 }], walls: ground(true).walls.slice(0, 4).map((w) => ({ ...w, openings: [] })), stairs: [], voids: [] as Array<{ x0: number; z0: number; x1: number; z1: number }> };
-    const noWell = await runTool('draw_floor_plan', up, s) as R;
-    expect(noWell.ok && noWell.result.errors.join(' ')).toContain('giếng thang');
+    // A well wider than the flight leaves a slot beside the last steps: flagged in cm.
     const f = stairFootprint(s.doc.plans![0]!.stairs[0]!, stairRise(s.doc, s.doc.plans![0]!));
-    up.voids = [{ x0: f.x0, z0: f.z0, x1: f.x1, z1: f.z1 }];
-    const ok = await runTool('draw_floor_plan', up, s) as R;
+    const up = { level: 1, name: 'Tầng 2', height: 2.7, rooms: [{ id: 'a', name: 'Phòng', type: 'bedroom', x0: 0, z0: 0, x1: 10, z1: 8 }], walls: ground(true).walls.slice(0, 4).map((w) => ({ ...w, openings: [] })), stairs: [], voids: [{ x0: f.x0, z0: f.z0, x1: f.x1 + .5, z1: f.z1 }] };
+    const wide = await runTool('draw_floor_plan', up, s) as R;
+    expect(wide.ok && wide.result.errors.join(' ')).toContain('rộng hơn cầu thang');
+    // Left out, the well is drawn exactly over the flight.
+    up.voids = [];
+    const ok = await runTool('draw_floor_plan', up, s) as R & { result: { wellsAdded?: unknown[] } };
+    expect(ok.ok && ok.result.wellsAdded).toHaveLength(1);
     expect(ok.ok && ok.result.errors).toEqual([]);
     expect((await runTool('build_floor', { level: 1 }, s)).ok).toBe(true);
     parseDoc(s.doc);
@@ -55,6 +74,11 @@ describe('floor plans', () => {
     expect(stairs.kind === 'stairs' && stairs.shape).toBe('l');
     expect(stairs.kind === 'stairs' && stairs.rise / stairs.steps).toBeLessThan(.19);
     expect(s.doc.nodes.filter((n) => n.kind === 'wall')).toHaveLength(10);
+    // Every part in its own material: treads granite, rails steel, handrail wood; frames, leaves, plinth, skirting, ceiling.
+    expect(stairs).toMatchObject({ material: 'concrete', treadMaterial: 'granite', railMaterial: 'steel', handrailMaterial: 'wood_oak' });
+    const names = s.doc.nodes.map((n) => n.name);
+    for (const part of ['Khung trái', 'Kính', 'Cánh', 'Chân tường', 'Len chân tường']) expect(names).toContain(part);
+    expect(s.doc.nodes.some((n) => n.kind === 'slab' && n.bottomMaterial === 'plaster_white')).toBe(true);
     expect(s.doc.nodes.some((n) => n.kind === 'slab' && n.holes.length > 0)).toBe(true);
     const v = validateDoc(s.doc);
     expect(v.issues.filter((i) => i.level === 'error')).toEqual([]);
@@ -65,8 +89,18 @@ describe('floor plans', () => {
     expect(s.doc.nodes.filter((n) => n.kind === 'wall')).toHaveLength(walls);
   });
 
+  it('measures the gap between a flight and the wall beside it', async () => {
+    const s = state();
+    await schedule(s);
+    const g = ground(true);
+    g.stairs[0]!.x = .875;
+    const r = await runTool('draw_floor_plan', g, s) as R;
+    expect(r.ok && r.result.errors.join(' ')).toMatch(/Khe hở 28 cm giữa cầu thang st và tường w: dời x của cầu thang −0.28 m/);
+  });
+
   it('finds rooms nobody can reach and overlapping rooms', async () => {
     const s = state();
+    await schedule(s);
     const g = ground(true);
     g.walls[4]!.openings = [];
     const r = await runTool('draw_floor_plan', g, s) as R;

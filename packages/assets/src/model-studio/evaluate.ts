@@ -1,5 +1,5 @@
 import type { ModelDoc, ModelNode, Transform } from './doc';
-import { primitiveMesh, roofMesh, rockMesh, slabMesh, stairsDesign, stairsMesh, wallMesh, type MeshData, type MeshPart } from './mesh';
+import { primitiveMesh, roofMesh, rockMesh, slabParts, stairsDesign, stairsMesh, wallMesh, type MeshData, type MeshPart } from './mesh';
 
 /** Column-major 4×4 matrix (as glTF and three.js store them). */
 export type Mat4 = Float64Array;
@@ -67,9 +67,9 @@ export function nodeMeshes(n: ModelNode): Array<{ material: string; mesh: MeshDa
     case 'wall': return slots(wallMesh(n.length, n.height, n.thickness, n.openings), { main: n.material, inner: n.innerMaterial ?? n.material });
     case 'roof': return [{ material: n.material, mesh: roofMesh(n.style, n.width, n.depth, n.rise, n.overhang, n.thickness, n.damage, n.seed) }];
     case 'stairs': return n.shape || n.style || n.railing
-      ? slots(stairsDesign({ width: n.width, rise: n.rise, run: n.run, steps: n.steps, ...(n.shape ? { shape: n.shape } : {}), ...(n.style ? { style: n.style } : {}), ...(n.turn ? { turn: n.turn } : {}), ...(n.landing ? { landing: n.landing } : {}), ...(n.treadThickness ? { treadThickness: n.treadThickness } : {}), ...(n.railing !== undefined ? { railing: n.railing } : {}) }), { main: n.material, rail: n.railMaterial ?? n.material })
+      ? slots(stairsDesign({ width: n.width, rise: n.rise, run: n.run, steps: n.steps, ...(n.shape ? { shape: n.shape } : {}), ...(n.style ? { style: n.style } : {}), ...(n.turn ? { turn: n.turn } : {}), ...(n.landing ? { landing: n.landing } : {}), ...(n.treadThickness ? { treadThickness: n.treadThickness } : {}), ...(n.railing !== undefined ? { railing: n.railing } : {}) }), { main: n.material, tread: n.treadMaterial ?? n.material, rail: n.railMaterial ?? n.material, handrail: n.handrailMaterial ?? n.railMaterial ?? n.material })
       : [{ material: n.material, mesh: stairsMesh(n.width, n.rise, n.run, n.steps) }];
-    case 'slab': return [{ material: n.material, mesh: slabMesh(n.width, n.depth, n.thickness, n.holes) }];
+    case 'slab': return slots(slabParts(n.width, n.depth, n.thickness, n.holes), { main: n.material, bottom: n.bottomMaterial ?? n.material });
     default: return [];
   }
 }

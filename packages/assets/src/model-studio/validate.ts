@@ -1,5 +1,5 @@
 import { DEFAULT_CHARACTER } from '@zion/physics';
-import { modelDocSchema, type ModelDoc, type ModelNode } from './doc';
+import { materialRefs, modelDocSchema, type ModelDoc, type ModelNode } from './doc';
 import { bounds, evaluate, transformPoint } from './evaluate';
 import { materialFromPreset } from './materials';
 
@@ -63,10 +63,9 @@ export function validateDoc(input: unknown, ctx: ValidationContext = {}): Valida
 
   // Materials.
   const used = new Set<string>();
-  for (const nd of doc.nodes) if ('material' in nd) used.add(nd.material);
-  for (const nd of doc.nodes) if (nd.kind === 'wall' && nd.innerMaterial) used.add(nd.innerMaterial);
+  for (const nd of doc.nodes) for (const m of materialRefs(nd)) used.add(m);
   for (const m of doc.materials) if (!used.has(m.id)) issues.push({ level: 'info', code: 'unused-material', message: `Vật liệu "${m.name}" không được dùng.`, fixable: true });
-  for (const nd of doc.nodes) if (nd.kind === 'wall' && nd.innerMaterial && !doc.materials.some((m) => m.id === nd.innerMaterial)) issues.push({ level: 'error', code: 'missing-material', message: `Thiếu vật liệu mặt trong ${nd.innerMaterial}.`, node: nd.id, fixable: true });
+  for (const nd of doc.nodes) for (const id of materialRefs(nd)) if (!doc.materials.some((m) => m.id === id)) issues.push({ level: 'error', code: 'missing-material', message: `Thiếu vật liệu ${id}.`, node: nd.id, fixable: true });
   for (const m of doc.materials) {
     if (m.metalness > .5 && m.roughness < .02) issues.push({ level: 'info', code: 'mirror', message: `"${m.name}" là kim loại gương hoàn hảo (hiếm gặp ngoài thực tế).` });
     if (m.metalness > 0 && m.metalness < 1 && !['rust', 'corrugated'].includes(m.texture.pattern)) issues.push({ level: 'info', code: 'half-metal', message: `"${m.name}" metalness ${m.metalness}: bề mặt thật là kim loại (1) hoặc không (0); giá trị giữa chỉ hợp với vùng chuyển tiếp (gỉ, bụi).` });
@@ -132,13 +131,13 @@ export function autoFix(doc: ModelDoc, report: ValidationReport): string[] {
   if (codes.has('missing-material')) {
     const known = new Set(doc.materials.map((m) => m.id));
     for (const n of doc.nodes) {
-      const ids = ['material' in n ? n.material : undefined, n.kind === 'wall' ? n.innerMaterial : undefined].filter((x): x is string => !!x);
+      const ids = materialRefs(n);
       for (const id of ids) if (!known.has(id)) { doc.materials.push(materialFromPreset(id, 'concrete', { name: `Vật liệu ${id}` })); known.add(id); done.push(`Tạo vật liệu thay thế "${id}" (bê tông).`); }
     }
   }
   if (codes.has('unused-material')) {
     const used = new Set<string>();
-    for (const n of doc.nodes) { if ('material' in n) used.add(n.material); if (n.kind === 'wall' && n.innerMaterial) used.add(n.innerMaterial); }
+    for (const n of doc.nodes) for (const m of materialRefs(n)) used.add(m);
     const before = doc.materials.length;
     doc.materials = doc.materials.filter((m) => used.has(m.id));
     if (doc.materials.length < before) done.push(`Bỏ ${before - doc.materials.length} vật liệu không dùng.`);

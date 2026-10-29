@@ -360,6 +360,17 @@ export function slabMesh(width: number, depth: number, thickness: number, holes:
   return b.build();
 }
 
+/** A slab as its top and edges ('main') and its underside ('bottom', the ceiling below). */
+export function slabParts(width: number, depth: number, thickness: number, holes: ReadonlyArray<{ x: number; z: number; width: number; depth: number }>): MeshPart[] {
+  const all = slabMesh(width, depth, thickness, holes);
+  const top: number[] = [], bottom: number[] = [];
+  for (let i = 0; i < all.indices.length; i += 3) {
+    const a = all.indices[i]!;
+    (all.normals[a * 3 + 1]! < -.9 ? bottom : top).push(all.indices[i]!, all.indices[i + 1]!, all.indices[i + 2]!);
+  }
+  return [{ slot: 'main', mesh: { ...all, indices: new Uint32Array(top) } }, { slot: 'bottom', mesh: { ...all, indices: new Uint32Array(bottom) } }];
+}
+
 /** A straight flight going up toward +z from z = 0: solid steps (treads, risers, sides, back). */
 export function stairsMesh(width: number, rise: number, run: number, steps: number): MeshData {
   const b = new MeshBuilder(), W = width / 2, r = rise / steps, g = run / steps;
@@ -494,7 +505,7 @@ export const spiralRadius = (width: number) => Math.max(.9, width + .15);
  * Slot 'main' is the treads, landings and fill, 'rail' the beams, post and handrail.
  */
 export function stairsDesign(d: StairDesign): MeshPart[] {
-  const main = new MeshBuilder(), rail = new MeshBuilder();
+  const main = new MeshBuilder(), rail = new MeshBuilder(), tread = new MeshBuilder(), hand = new MeshBuilder();
   const n = Math.max(1, Math.round(d.steps)), r = d.rise / n, W = d.width / 2, style = d.style ?? 'solid', shape = d.shape ?? 'straight';
   const t = Math.min(d.treadThickness ?? .05, r), turn = d.turn === 'left' ? -1 : 1;
   const g = d.run / n;
@@ -531,7 +542,14 @@ export function stairsDesign(d: StairDesign): MeshPart[] {
       flight(off, lz, 0, -1, n2, n1 + 1);
     }
   }
-  for (const p of pieces) prism(main, p.foot, style === 'solid' ? 0 : p.top - t, p.top);
+  // Structure under each tread (concrete, the steel or timber of the flight) and the finish on
+  // top (granite, terrazzo, tiles, boards) as separate materials, as stairs are built.
+  const finish = Math.min(.03, r * .3);
+  for (const p of pieces) {
+    prism(main, p.foot, style === 'solid' ? 0 : p.top - t, p.top - finish);
+    // The finish overhangs the riser by 2 cm (the nosing).
+    prism(tread, p.foot, p.top - finish, p.top);
+  }
   for (const f of flights) {
     const len = f.count * g, x1 = f.x + f.dx * len, z1 = f.z + f.dz * len, y0 = f.first * r, y1 = (f.first + f.count) * r, px = -f.dz, pz = f.dx;
     if (style === 'stringer') for (const side of [-1, 1]) {
@@ -550,8 +568,8 @@ export function stairsDesign(d: StairDesign): MeshPart[] {
         const k = Math.min(i, f.count - 1), x = f.x + f.dx * (k + .5) * g + px, z = f.z + f.dz * (k + .5) * g + pz, y = (f.first + k + 1) * r;
         prism(rail, rect(x, z, 1, 0, .04, .04), y, y + .9);
       }
-      slopedBeam(rail, f.x + px, f.z + pz, (f.first + 1) * r + .95, f.x + f.dx * len + px, f.z + f.dz * len + pz, (f.first + f.count) * r + .95, .05, .05);
+      slopedBeam(hand, f.x + px, f.z + pz, (f.first + 1) * r + .95, f.x + f.dx * len + px, f.z + f.dz * len + pz, (f.first + f.count) * r + .95, .06, .05);
     }
   }
-  return [{ slot: 'main', mesh: main.build() }, { slot: 'rail', mesh: rail.build() }];
+  return [{ slot: 'main', mesh: main.build() }, { slot: 'tread', mesh: tread.build() }, { slot: 'rail', mesh: rail.build() }, { slot: 'handrail', mesh: hand.build() }];
 }

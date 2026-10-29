@@ -5,6 +5,7 @@ import { LlmError, parseJsonObject, type ChatMessage, type LlmClient } from './l
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
 import type { TextureLibrary } from './textures';
+import { webResearch } from './web-research';
 
 /**
  * The Model Studio agent: reads the admin's request, plans, calls the studio's tools on a copy
@@ -47,7 +48,10 @@ const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Mod
 
 Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch; (4) dựng bằng tool; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
 
-CÔNG TRÌNH (nhà, chung cư, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ kiến trúc, không có mẫu dựng sẵn. Làm TỪNG TẦNG TỪ DƯỚI LÊN: với mỗi tầng, draw_floor_plan trước (phòng nào ở đâu, kích thước, tường nào bằng vật liệu gì, cửa đi/cửa sổ ở đâu, cầu thang kiểu gì, giếng thang trên cầu thang tầng dưới) → đọc phần kiểm tra, vẽ lại cho tới khi hết lỗi → build_floor → rồi mới sang bản vẽ tầng kế. Bản vẽ hiện lên khung 3D cho người dùng theo dõi, nên mỗi lượt chỉ làm một tầng. Thiết kế cho đúng công năng và phong cách của yêu cầu: hình khối (chữ nhật, chữ L, chữ U, lệch tầng), bố cục phòng, kích thước, cửa sổ theo mặt đứng — mỗi công trình khác nhau. Cầu thang chọn dạng và kiểu theo công trình (straight/l/u/spiral × solid/stringer/open, có lan can), không dùng mãi một kiểu. Sau các tầng: mái/tầng thượng (create_geometry roof hoặc slab + lan can), cửa cánh (box mỏng trong lỗ cửa), nội thất (create_geometry furniture hoặc model game), texture thật cho mọi bề mặt chính.
+CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ, không có mẫu dựng sẵn.
+(a) HIỂU ĐÚNG ngữ cảnh: tra cứu (research, cụm từ ngắn tiếng Anh/Việt như "school building", "trường học", "stairs", "terrazzo") để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
+(b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
+(c) Làm TỪNG TẦNG TỪ DƯỚI LÊN: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes cho mọi bộ phận, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → ĐO ĐẠC: đọc kiểm tra, sửa đến khi KHÔNG còn lỗi (khe hở cầu thang–tường, giếng thang khít, cửa, lối đi; toạ độ theo lưới 5 cm là đơn vị đo chung) → build_floor → rồi mới sang bản vẽ tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
 
@@ -138,6 +142,7 @@ export class ModelAgent {
       assets: this.catalog(),
       // The language model designs every building itself; the built-in planner keeps the house generator.
       designOnly: job.mode === 'ai',
+      research: (q: string) => webResearch(q),
       save: async (doc, note) => {
         const r = await this.store.save(job.projectId, doc, version.current, { snapshot: true, note: `AI: ${note}`.slice(0, 200), author: 'agent' });
         version.current = r.version;
