@@ -224,6 +224,11 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
       return { job: job.id, mode: job.mode, model: job.model ?? null };
     } catch (err) { return fail(reply, err); }
   });
+  /** The job on a project (running or last finished), so the Studio reattaches after a reload. */
+  app.get<{ Querystring: { project?: string } }>('/api/studio/models/agent', pre, async (req) => {
+    const j = req.query.project ? agent.latest(req.query.project) : undefined;
+    return { job: j ? { id: j.id, status: j.status, prompt: j.prompt, finished: j.finishedAt !== undefined } : null };
+  });
   app.get<{ Params: { job: string }; Querystring: { after?: string; doc?: string; rev?: string } }>('/api/studio/models/agent/:job', pre, async (req, reply) => {
     const job = agent.get(req.params.job);
     if (!job) return reply.code(404).send({ error: 'not_found', message: 'Không có tác vụ.' });

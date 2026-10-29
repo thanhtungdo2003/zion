@@ -5,8 +5,8 @@ import { buildChunkCollision, createDefaultRegistry, glbTriangles, uploadedMapHi
 import { emptyDoc, exportModel, generateHouse, studioModelAsset, type CatalogAsset, type ModelDoc } from '@zion/assets/model-studio';
 import { CharacterController, CollisionWorld, createCharacterState } from '@zion/physics';
 import { CHUNK_SIZE, quantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type ChunkData } from '@zion/shared';
-import { ModelAgent, missingParts } from './agent';
-import { LlmClient, parseJsonObject } from './llm';
+import { ModelAgent, condense, missingParts } from './agent';
+import { LlmClient, parseJsonObject, type ChatMessage } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
 import { WalkingMap } from '../game/navigation';
@@ -221,6 +221,47 @@ describe('model studio agent', () => {
     doc.storeys = 1; doc.plans![0]!.stairs = [];
     doc.nodes.push({ id: 'roof', name: 'Mái', kind: 'roof', style: 'flat', width: 8, depth: 6, rise: 0, overhang: .3, thickness: .2, parent: null, transform: { position: [0, 3.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } } as never);
     expect(missingParts(doc, ['một tầng'])).toEqual([]);
+  });
+
+  it('sends older turns back condensed: tools and outcomes, not their arguments and full results', () => {
+    const big = 'x'.repeat(4000);
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'sys' }, { role: 'user', content: 'req' },
+      { role: 'assistant', content: JSON.stringify({ thought: 'Vẽ tầng 2', actions: [{ tool: 'draw_floor_plan', args: { level: 1, walls: big } }] }) },
+      { role: 'user', content: JSON.stringify({ results: [{ tool: 'draw_floor_plan', result: { ok: true, report: big } }, { tool: 'paint_texture', result: { error: 'HTTP 502' } }], scene: { nodes: 3 } }) },
+      { role: 'assistant', content: JSON.stringify({ thought: 'Dựng', actions: [{ tool: 'build_floor', args: { level: 1 } }], pad: big }) },
+      { role: 'user', content: JSON.stringify({ results: [{ tool: 'build_floor', result: big }] }) },
+    ];
+    condense(messages, 2);
+    expect(messages[2]!.content.length).toBeLessThan(200);
+    expect(JSON.parse(messages[2]!.content)).toMatchObject({ thought: 'Vẽ tầng 2', actions: ['draw_floor_plan(level 1)'] });
+    expect(JSON.parse(messages[3]!.content).results[1]).toEqual({ tool: 'paint_texture', error: 'HTTP 502' });
+    expect(messages[3]!.content.length).toBeLessThan(500);
+    // The last exchange stays in full; condensing again changes nothing.
+    expect(messages[5]!.content.length).toBeGreaterThan(4000);
+    const again = messages.map((m) => m.content);
+    condense(messages, 2);
+    expect(messages.map((m) => m.content)).toEqual(again);
+  });
+
+  it('a short "go on" prompt continues from the saved brief, and a finished job never blocks the project', async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (_u: string, init: { body: string }) => {
+      seen.push((JSON.parse(init.body) as { messages: ChatMessage[] }).messages[1]!.content);
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ thought: 'Xong.', done: true, summary: 'ok' }) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const brief = 'Một trường học bỏ hoang 4 tầng hình chữ U, ba dãy phòng học dọc hành lang, sân trong có cây.';
+    const first = await finish(agent, agent.start('p7', brief, emptyDoc('Trường', 'building'), 1).id);
+    expect(first.doc.brief).toBe(brief);
+    expect(agent.latest('p7')!.id).toBe(first.id);
+    const calls = seen.length;
+    const next = await finish(agent, agent.start('p7', 'Tiếp đi', first.doc, first.savedVersion!).id);
+    expect(next.status).toBe('done');
+    expect(JSON.parse(seen[calls]!)).toMatchObject({ request: brief });
+    expect(JSON.parse(seen[calls]!).continue).toMatch(/^Tiếp đi/);
   });
 
   it('parses JSON from fenced or wrapped answers', () => {

@@ -230,6 +230,8 @@ export const modelDocSchema = z.object({
   lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(),
   /** Storeys the building is designed with (above ground): the agent is not done before all are built. */
   storeys: z.number().int().min(1).max(40).optional(),
+  /** The request the model was designed from: a later "go on" run reads it instead of starting over. */
+  brief: z.string().max(4000).optional(),
   /** Floor plans, one per storey (drawn first, then built). */
   plans: z.array(planSchema).max(80).optional(),
   /** The material schedule: every material the model uses and where (decided before building). */

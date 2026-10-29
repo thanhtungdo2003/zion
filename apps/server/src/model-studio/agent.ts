@@ -19,15 +19,21 @@ import { webResearch } from './web-research';
  * each is logged, told to the model (or retried with a shorter conversation) and the work goes
  * on; whatever was built is validated and saved as a version at the end in any case.
  *
- * Runaway guards (the job stops by itself, keeping its work): 40 turns, 600k tokens, 25 minutes,
+ * Token cost: only the last exchanges go back in full; older turns are condensed to what was
+ * called and whether it worked, and every turn carries the progress (storeys, open drawings, roof,
+ * what is left) so the model knows when it is done without re-inspecting the scene.
+ *
+ * Runaway guards (the job stops by itself, keeping its work): 80 turns, 600k tokens, 25 minutes,
  * 6 failed AI calls in a row, 3 turns in a row without a usable answer or action, the same call
  * repeated 4 times. Also 8 tool calls per turn, 3 repair rounds after the final validation, one
  * job per project at a time. The agent cannot publish into the game or delete anything outside
  * the project: `export_asset` with publish only files a request the admin confirms in the Studio.
  */
-const MAX_TURNS = 80, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_PLAN_ROUNDS = 12, MAX_RESULT_CHARS = 5000;
+const MAX_TURNS = 80, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_PLAN_ROUNDS = 12, MAX_RESULT_CHARS = 3000;
 const MAX_TOKENS = 600_000, MAX_MS = 25 * 60_000, MAX_AI_FAILURES = 6, MAX_IDLE_TURNS = 3, MAX_REPEATS = 4;
 const JOB_TTL_MS = 60 * 60 * 1000;
+/** Exchanges sent back in full; older ones are condensed. A "go on" prompt shorter than this reuses the saved brief. */
+const KEEP_FULL = 4, SHORT_PROMPT = 80;
 
 export type StepKind = 'plan' | 'thought' | 'tool' | 'error' | 'info' | 'done';
 export interface AgentStep { at: number; kind: StepKind; text: string; tool?: string; args?: unknown; ok?: boolean; result?: unknown }
@@ -93,6 +99,12 @@ export class ModelAgent {
 
   start(projectId: string, prompt: string, doc: ModelDoc, baseVersion: number, opts: { offline?: boolean } = {}): AgentJob {
     this.sweep();
+    // A job whose run is over (or that outlived every guard) is not running, whatever its status says.
+    for (const j of this.jobs.values()) if (j.status === 'running' && (!this.controllers.has(j.id) || Date.now() - j.startedAt > MAX_MS + 10 * 60_000)) {
+      this.controllers.get(j.id)?.abort();
+      j.status = 'failed';
+      j.finishedAt ??= Date.now();
+    }
     if ([...this.jobs.values()].some((j) => j.projectId === projectId && j.status === 'running')) throw Object.assign(new Error('Agent đang chạy trên dự án này.'), { statusCode: 409 });
     const llm = this.client();
     const job: AgentJob = {
@@ -111,6 +123,13 @@ export class ModelAgent {
   }
 
   get(id: string): AgentJob | undefined { return this.jobs.get(id); }
+
+  /** The newest job on a project (the Studio reattaches to it after a reload). */
+  latest(projectId: string): AgentJob | undefined {
+    let out: AgentJob | undefined;
+    for (const j of this.jobs.values()) if (j.projectId === projectId && (!out || j.startedAt > out.startedAt)) out = j;
+    return out;
+  }
 
   cancel(id: string): boolean {
     const job = this.jobs.get(id);
@@ -219,12 +238,21 @@ export class ModelAgent {
 
   private async converse(job: AgentJob, state: ToolState, signal: AbortSignal): Promise<void> {
     const report = summarizeReport(validateDoc(state.doc));
+    // "Tiếp đi": a short prompt goes on with the brief the model was designed from.
+    const brief = state.doc.brief;
+    const goOn = !!brief && job.prompt.trim().length < SHORT_PROMPT;
+    if (!goOn && state.doc.brief !== job.prompt) { state.doc.brief = job.prompt.slice(0, 4000); state.changed = true; }
+    const texts = () => [job.prompt, ...(brief ? [brief] : []), ...job.steps.filter((x) => x.kind === 'plan' || x.kind === 'thought').map((x) => x.text)];
     const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM(toolCatalog()) },
-      { role: 'user', content: JSON.stringify({ request: job.prompt, project: { name: state.doc.name, kind: state.doc.kind, nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id) }, validation: { ok: report.ok, stats: report.stats } }) },
+      { role: 'user', content: JSON.stringify({
+        request: goOn ? brief : job.prompt, ...(goOn ? { continue: `${job.prompt} — làm tiếp phần còn lại theo "progress"; không làm lại phần đã dựng, không inspect lại toàn bộ cảnh.` } : {}),
+        project: { name: state.doc.name, kind: state.doc.kind, nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id) }, validation: { ok: report.ok, stats: report.stats },
+        progress: progress(state.doc, texts()),
+      }) },
     ];
     const started = Date.now(), calls = new Map<string, number>();
-    let fixRounds = 0, planRounds = 0, aiFailures = 0, idle = 0, filterHits = 0;
+    let fixRounds = 0, planRounds = 0, aiFailures = 0, idle = 0, filterHits = 0, warnedBudget = false, toldComplete = false;
     // After the provider's safety filter withheld an answer: another wording, then another model.
     const call: { model?: string; temperature?: number } = {};
     const stop = (why: string) => {
@@ -235,7 +263,7 @@ export class ModelAgent {
     const compact = (keep: number) => {
       if (messages.length <= keep + 2) return;
       const done = job.steps.filter((x) => x.kind === 'tool').map((x) => x.text).slice(-30).join('; ');
-      messages.splice(2, messages.length - 2 - keep, { role: 'user', content: JSON.stringify({ note: 'Lịch sử cũ đã được rút gọn; tiếp tục từ chỗ đang làm.', done_so_far: done, scene: sceneBrief(state) }) });
+      messages.splice(2, messages.length - 2 - keep, { role: 'user', content: JSON.stringify({ note: 'Lịch sử cũ đã được rút gọn; tiếp tục từ chỗ đang làm.', done_so_far: done, scene: sceneBrief(state), progress: progress(state.doc, texts()) }) });
     };
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       if (signal.aborted) return;
@@ -305,8 +333,14 @@ export class ModelAgent {
       if (repeated) return stop(`gọi "${repeated}" với cùng tham số ${MAX_REPEATS} lần`);
       if (actions.length) {
         idle = 0;
-        messages.push({ role: 'user', content: scrub(JSON.stringify({ results, scene: sceneBrief(state) })) });
-        if (messages.length > 30) compact(16);
+        const prog = progress(state.doc, texts());
+        // Near the token budget: the structure first (storeys, roof), the extras only if any is left.
+        const budget = !warnedBudget && job.usage.total > MAX_TOKENS * .7 ? (warnedBudget = true, `Đã dùng ${Math.round(job.usage.total / MAX_TOKENS * 100)}% ngân sách token: ưu tiên dựng nốt ${prog.remaining.length ? prog.remaining.join('; ') : 'phần chính'}, bỏ phần trang trí, rồi trả done.`) : undefined;
+        // Everything the design calls for is built: say so once, so the model wraps up instead of polishing forever.
+        const complete = !toldComplete && prog.complete ? (toldComplete = true, 'Công trình đã đủ phần chính (đủ tầng, bản vẽ không lỗi, có mái). Chỉ làm thêm điều yêu cầu còn thiếu (vài lượt) rồi trả done; không inspect lại toàn bộ.') : undefined;
+        messages.push({ role: 'user', content: scrub(JSON.stringify({ results, scene: sceneBrief(state), progress: prog, ...(budget ? { budget } : {}), ...(complete ? { note: complete } : {}) })) });
+        condense(messages, KEEP_FULL);
+        if (messages.length > 24) compact(12);
         continue;
       }
       if (reply.done === true) {
@@ -317,7 +351,7 @@ export class ModelAgent {
         });
         const nothingBuilt = job.mode === 'ai' && !(state.doc.plans ?? []).some((p) => p.built) && (state.doc.schedule?.length ?? 0) > 0;
         // What the design itself still calls for: the storeys it was planned with, the floor its stairs lead to, a roof.
-        const missing = job.mode === 'ai' ? missingParts(state.doc, [job.prompt, ...job.steps.filter((x) => x.kind === 'plan' || x.kind === 'thought').map((x) => x.text)]) : [];
+        const missing = job.mode === 'ai' ? missingParts(state.doc, texts()) : [];
         if ((open.length || nothingBuilt || missing.length) && planRounds < MAX_PLAN_ROUNDS) {
           planRounds++;
           this.step(job, 'info', `Chưa xong: ${[open.length ? `${open.length} bản vẽ còn lỗi hoặc chưa dựng` : '', nothingBuilt ? 'chưa dựng tầng nào' : '', ...missing].filter(Boolean).join('; ')} — yêu cầu agent làm tiếp (vòng ${planRounds}/${MAX_PLAN_ROUNDS}).`);
@@ -368,7 +402,44 @@ export function scrub(text: string): string {
 /** The scene in a few numbers, sent back after every turn. */
 function sceneBrief(state: ToolState) {
   const v = summarizeReport(validateDoc(state.doc));
-  return { nodes: state.doc.nodes.length, materials: state.doc.materials.map((m) => m.id), triangles: v.stats.triangles, size: v.stats.size, errors: v.errors.slice(0, 6) };
+  return { nodes: state.doc.nodes.length, materials: state.doc.materials.length, triangles: v.stats.triangles, size: v.stats.size, errors: v.errors.slice(0, 6) };
+}
+
+/**
+ * Where the building stands against its own design, sent with every turn: storeys built of the
+ * target, each drawing (built, errors), the roof, and what is still missing. `complete` when
+ * nothing is: the model can finish.
+ */
+export function progress(doc: ModelDoc, texts: string[]) {
+  const plans = (doc.plans ?? []).map((p) => ({ level: p.level, built: !!p.built, errors: checkPlan(doc, p).filter((i) => i.level === 'error').length }));
+  const open = plans.filter((p) => !p.built || p.errors).map((p) => `bản vẽ level ${p.level}: ${p.errors ? `${p.errors} lỗi` : 'chưa dựng'}`);
+  const remaining = [...open, ...missingParts(doc, texts)];
+  return { storeys: { built: new Set(plans.filter((p) => p.built).map((p) => p.level)).size, target: doc.storeys ?? null }, plans, roof: doc.nodes.some((n) => n.kind === 'roof'), remaining, complete: doc.kind === 'building' && plans.length > 0 && !remaining.length };
+}
+
+/**
+ * Older turns shortened in place, all but the last `keep` messages: an answer keeps its thought
+ * and the tools it called (not their arguments), a result keeps each tool's outcome in a line.
+ * Shortened messages are marked so they are not processed again.
+ */
+export function condense(messages: ChatMessage[], keep: number): void {
+  for (let i = 2; i < messages.length - keep; i++) {
+    const m = messages[i]!;
+    if (m.content.length < 400 || m.content.includes('"_c":1')) continue;
+    let v: Record<string, unknown> | null = null;
+    try { v = JSON.parse(m.content) as Record<string, unknown>; } catch { v = m.role === 'assistant' ? parseJsonObject(m.content) : null; }
+    if (!v) { m.content = `${m.content.slice(0, 300)}… {"_c":1}`; continue; }
+    if (m.role === 'assistant') {
+      const actions = Array.isArray(v.actions) ? (v.actions as Array<{ tool?: unknown; args?: { level?: unknown } }>).map((a) => `${String(a.tool)}${typeof a.args?.level === 'number' ? `(level ${a.args.level})` : ''}`) : [];
+      m.content = JSON.stringify({ _c: 1, thought: String(v.thought ?? '').slice(0, 240), actions });
+    } else if (Array.isArray(v.results)) {
+      const line = (r: unknown) => { const s = JSON.stringify(r) ?? ''; return s.length > 160 ? `${s.slice(0, 160)}…` : s; };
+      m.content = JSON.stringify({ _c: 1, results: (v.results as Array<{ tool?: unknown; result?: unknown }>).map((r) => {
+        const err = r.result && typeof r.result === 'object' && 'error' in r.result ? String((r.result as { error: unknown }).error).slice(0, 200) : undefined;
+        return err ? { tool: r.tool, error: err } : { tool: r.tool, ok: line(r.result) };
+      }) });
+    } else m.content = JSON.stringify({ _c: 1, ...Object.fromEntries(Object.entries(v).filter(([k]) => k !== 'scene' && k !== 'progress').map(([k, x]) => [k, typeof x === 'string' ? x.slice(0, 300) : x])) }).slice(0, 1500);
+  }
 }
 
 function offlineSummary(doc: ModelDoc, v: ReturnType<typeof summarizeReport>): string {

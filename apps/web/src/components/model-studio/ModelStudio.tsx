@@ -112,8 +112,17 @@ export default function ModelStudio() {
       window.history.replaceState(null, '', `?project=${id}`);
       setVersions(await msApi.versions(id));
       requestAnimationFrame(() => view.current?.focusSelection());
+      // An agent still working on this project (the page was reloaded): follow it again.
+      const { job: running } = await msApi.agentLatest(id);
+      if (running && !running.finished) await attachAgent(running.id);
     } catch (err) { fail(err); }
   }, [fail]);
+  /** Shows a job's log and follows it until it ends (from its first step). */
+  const attachAgent = async (id: string) => {
+    const j = await msApi.agentGet(id, 0);
+    setSteps([]); setAgentOpen(true);
+    setJob({ ...j, steps: [] });
+  };
 
   /* -------------------------------------------------------------------- editing */
 
@@ -307,7 +316,14 @@ export default function ModelStudio() {
       const r = await msApi.agentStart(project.id, prompt.trim());
       setSteps([]); setAgentOpen(true);
       setJob({ id: r.job, status: 'running', mode: r.mode as 'ai', model: r.model, prompt: prompt.trim(), steps: [], total: 0, summary: null, issues: [], savedVersion: null, saveError: null, usage: { prompt: 0, completion: 0, total: 0, turns: 0 }, publishRequests: [], revision: 0, finished: false });
-    } catch (err) { fail(err); }
+    } catch (err) {
+      // Already running on the server (another tab, before a reload): show that one instead.
+      if (err instanceof ApiError && err.status === 409 && project) {
+        const { job: running } = await msApi.agentLatest(project.id).catch(() => ({ job: null }));
+        if (running && !running.finished) { await attachAgent(running.id); flash('Agent vẫn đang chạy trên dự án này — đang hiện tiến độ của nó (bấm Dừng nếu muốn ra lệnh mới).'); return; }
+      }
+      fail(err);
+    }
   })();
   useEffect(() => {
     if (!job || job.finished) return;
