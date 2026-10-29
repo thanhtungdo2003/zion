@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
 import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type ModelDoc, type ModelNode } from './doc';
-import { buildPlan, checkPlan, fitStairs, planSummary, snapPlan, wellsFor } from './plans';
+import { buildPlan, checkPlan, fitStairs, planSummary, reviewStairs, snapPlan, wellsFor } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
@@ -427,19 +427,27 @@ export const TOOLS: ToolDefinition<never>[] = [
       const issues = checkPlan(s.doc, parsed.data);
       // Redrawing a storey also changes what the storeys around it need (wells, arrivals).
       const neighbours = s.doc.plans.filter((p) => Math.abs(p.level - a.level) === 1).flatMap((p) => checkPlan(s.doc, p).filter((i) => i.level === 'error').map((i) => `[${p.name}] ${i.message}`));
-      return { plan: planSummary(s.doc, parsed.data), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours, next: issues.some((i) => i.level === 'error') ? 'Sửa lỗi rồi vẽ lại tầng này.' : 'Bản vẽ ổn: build_floor để dựng.' };
+      const review = reviewStairs(s.doc, parsed.data);
+      const failed = review.stairs.filter((x) => !x.ok).map((x) => ({ id: x.id, failed: x.checks.filter((c) => !c.ok).map((c) => `${c.item}: ${c.note}`) }));
+      const ok = !issues.some((i) => i.level === 'error') && review.approved;
+      return { plan: planSummary(s.doc, parsed.data), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours,
+        stairApproval: { approved: review.approved, ...(failed.length ? { failed } : {}), stairs: review.stairs.filter((x) => x.ok).map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`) },
+        next: ok ? 'Bản vẽ đã được duyệt: build_floor để dựng.' : 'CHƯA DUYỆT: sửa từng mục rồi draw_floor_plan lại tầng này (build_floor sẽ từ chối).' };
     },
   }),
   defineTool({
     name: 'build_floor', permission: 'edit',
-    description: 'Dựng một tầng đúng theo bản vẽ đã kiểm tra: sàn từng phòng (chừa giếng thang), tường có cửa/cửa sổ, cầu thang. Dựng lại sẽ thay phần cũ của tầng đó. Không dựng khi bản vẽ còn lỗi (trừ force).',
-    params: { level: 'int', force: 'boolean' },
+    description: 'Dựng một tầng đúng theo bản vẽ ĐÃ DUYỆT: sàn từng phòng (chừa giếng thang), tường có cửa/cửa sổ, cầu thang. Dựng lại sẽ thay phần cũ của tầng đó. Bản vẽ còn lỗi hoặc cầu thang chưa đạt (vị trí sát tường, hướng lên, chân thang nhìn ra lối vào, chiếu nghỉ, vế tiếp theo, kết nối tầng) thì KHÔNG dựng: vẽ lại.',
+    params: { level: 'int' },
+    // `force` is still read (older answers send it) but never builds a drawing that failed its check.
     schema: z.object({ level: z.number().int(), force: z.boolean().optional() }).strict(),
     run: (a, s) => {
       const plan = s.doc.plans?.find((p) => p.level === a.level);
       if (!plan) throw new Error(`Chưa có bản vẽ tầng ${a.level}: draw_floor_plan trước.`);
       const errors = checkPlan(s.doc, plan).filter((i) => i.level === 'error').map((i) => i.message);
-      if (errors.length && !a.force) throw new Error(`Bản vẽ còn lỗi, chưa dựng: ${errors.slice(0, 6).join(' | ')}`);
+      const review = reviewStairs(s.doc, plan);
+      for (const x of review.stairs) for (const c of x.checks) if (!c.ok) errors.push(`Cầu thang ${x.id} — ${c.item}: ${c.note}`);
+      if (errors.length) throw new Error(`Bản vẽ chưa được duyệt, không dựng: ${errors.slice(0, 8).join(' | ')} — sửa và draw_floor_plan lại tầng ${a.level}.`);
       const r = buildPlan(s.doc, plan);
       s.changed = true;
       return { level: a.level, group: r.group, parts: r.parts, next: 'inspect_scene / validate_asset, rồi vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };

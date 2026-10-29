@@ -134,6 +134,37 @@ describe('floor plans', () => {
     }
   });
 
+  it('approves the stairs before building: against a wall, first tread facing the way in, landing, next flight, link up', async () => {
+    const s = state();
+    await schedule(s);
+    // A straight flight in the middle of the hall, climbing towards the door it should start from.
+    const g = ground(true);
+    g.stairs = [{ ...g.stairs[0]!, shape: 'straight', x: 2.5, z: 2, direction: 's' }] as typeof g.stairs;
+    delete (g.stairs[0] as { turn?: string }).turn;
+    const r = await runTool('draw_floor_plan', g, s) as R & { result: { stairApproval: { approved: boolean; stairs: string[] } } };
+    expect(r.ok && r.result.errors).toEqual([]);
+    expect(r.ok && r.result.stairApproval.approved).toBe(true);
+    const st = s.doc.plans![0]!.stairs[0]!, f = stairFootprint(st, stairRise(s.doc, s.doc.plans![0]!));
+    // Now along a wall of the hall, and the doors of the hall are in front of its foot.
+    expect([f.x0, 5 - .06 - f.x1].some((d) => Math.abs(d - .125) < .04 || Math.abs(d) < .04)).toBe(true);
+    const ux = st.x - f.foot[0], uz = st.z - f.foot[1];
+    expect([[5, 2.5], [5, 6.5], [2, 8]].some(([x, z]) => (x! - f.foot[0]) * ux + (z! - f.foot[1]) * uz <= .3 * Math.hypot(ux, uz))).toBe(true);
+    expect(r.ok && r.result.stairApproval.stairs[0]).toMatch(/sát tường/);
+    // An L flight: the review names its landing and the turn of the next flight.
+    const l = await runTool('draw_floor_plan', ground(true), s) as R & { result: { stairApproval: { approved: boolean; stairs: string[] } } };
+    expect(l.ok && l.result.stairApproval.stairs[0]).toMatch(/chiếu nghỉ .*quay (phải|trái)/);
+    // A hall too small for any flight: never built, not even with force.
+    const tight = ground(true);
+    tight.rooms = [{ id: 'hall', name: 'Sảnh', type: 'hall', x0: 0, z0: 0, x1: 5, z1: 2 }, ...tight.rooms.slice(1), { id: 'back', name: 'Kho', type: 'storage', x0: 0, z0: 2, x1: 5, z1: 8 }];
+    tight.walls = [...tight.walls, { id: 'i3', a: [0, 2], b: [5, 2], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'door', at: 1, width: .9, height: 2.1, sill: 0 }] }];
+    tight.stairs = [{ ...tight.stairs[0]!, shape: 'straight', x: 1, z: .3, direction: 's' }] as typeof tight.stairs;
+    const bad = await runTool('draw_floor_plan', tight, s) as R;
+    expect(bad.ok && bad.result.errors.length).toBeGreaterThan(0);
+    const built = await runTool('build_floor', { level: 0, force: true }, s);
+    expect(built.ok).toBe(false);
+    expect(!built.ok && built.error).toMatch(/chưa được duyệt/);
+  });
+
   it('finds rooms nobody can reach and overlapping rooms', async () => {
     const s = state();
     await schedule(s);
