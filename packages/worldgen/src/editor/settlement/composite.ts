@@ -17,6 +17,8 @@ export interface CompositeRecipe {
   floors: number;
   finish?: 'ivory' | 'gray' | 'darkred';
   seed: number;
+  /** A gutted shell: the ground storey's walls stand, the floors above are open. */
+  ruin?: boolean;
 }
 
 /** A recipe with its footprint (m, along local x and z; local +z faces the street). */
@@ -65,6 +67,6 @@ export function compositeParts(r: CompositeRecipe, x: number, z: number, yaw: nu
     const ox = Math.sin(yaw) * -2, oz = Math.cos(yaw) * -2;
     modularBuilding(parts, x + ox, z + oz, r.floors, 1, false, turn, r.seed);
   } else if (r.kind === 'site') constructionSite(parts, [], x, z, turn, 1, rng);
-  else masonryBuilding(parts, [], x, z, turn, { material: r.kind, finish: r.finish, w: r.w, d: r.d, floors: r.floors }, 1, rng);
+  else masonryBuilding(parts, [], x, z, turn, { material: r.kind, finish: r.finish, w: r.w, d: r.d, floors: r.floors, ...(r.ruin ? { unfinished: true } : {}) }, 1, rng);
   return parts;
 }

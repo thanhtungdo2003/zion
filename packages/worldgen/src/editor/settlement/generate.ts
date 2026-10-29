@@ -10,6 +10,7 @@ import { riverLevels, waterLevelAt, type WaterData } from '../water';
 import type { Catalog, CatalogItem, PropKind } from './catalog';
 import type { LotClass, SettlementSettings } from './presets';
 import { compositeOptions, type CompositeRecipe } from './composite';
+import { blockClass, conditionField, frontageParcels, isPublicUse, planDistricts, traceStreets, urbanBuildingOptions, urbanField, type BuildingCondition, type District, type LotUse } from './urban';
 
 export type RoadKind = 'main' | 'secondary' | 'alley' | 'connector';
 export interface SettlementRoad { id: string; kind: RoadKind; width: number; points: Vec2[] }
@@ -18,7 +19,7 @@ export type ParcelKind = 'rect' | 'skew' | 'L' | 'U' | 'wide';
 /** How a parcel is used and dressed: each one has its own character. */
 export type LotStyle = 'yard' | 'full' | 'garden' | 'orchard' | 'farm' | 'walled' | 'overgrown' | 'vacant' | 'work';
 export type FenceKind = 'none' | 'wood' | 'iron' | 'wall' | 'hedge' | 'wire';
-export interface Lot { id: string; block: string; polygon: Vec2[]; front: [Vec2, Vec2]; dir: Vec2; obb: Obb; cls: LotClass | 'green' | 'empty'; shape?: ParcelKind; style?: LotStyle; fence?: FenceKind; flora?: number }
+export interface Lot { id: string; block: string; polygon: Vec2[]; front: [Vec2, Vec2]; dir: Vec2; obb: Obb; cls: LotClass | 'green' | 'empty'; shape?: ParcelKind; style?: LotStyle; fence?: FenceKind; flora?: number; /** Urban layout: what the plot is for, and its district. */ use?: LotUse; district?: string }
 
 interface ParcelShape { kind: ParcelKind; a: number; b: number; depth: number; outline: Vec2[] }
 /**
@@ -58,7 +59,7 @@ function parcelRun(run: Array<{ a: number; b: number }>, D: number, rng: Rng, ra
   }
   return out;
 }
-export interface PlacedBuilding { id: string; asset: number; x: number; z: number; y: number; yaw: number; obb: Obb; door: Vec2; lot?: string; cls: LotClass; manual?: boolean; /** Kit building (brick / concrete / modular storeys) instead of one model. */ recipe?: CompositeRecipe }
+export interface PlacedBuilding { id: string; asset: number; x: number; z: number; y: number; yaw: number; obb: Obb; door: Vec2; lot?: string; cls: LotClass; manual?: boolean; /** Kit building (brick / concrete / modular storeys) instead of one model. */ recipe?: CompositeRecipe; /** Abandoned: complete but long unused; ruined: a gutted shell among debris. */ condition?: BuildingCondition }
 export interface PlacedProp { id: string; asset: number; kind: PropKind; x: number; z: number; y: number; yaw: number; scale: number; obb: Obb; manual?: boolean; /** Stretch along the model's x (fence pieces fitted to a side). */ sx?: number }
 export interface SettlementIssue { severity: 'error' | 'warning' | 'info'; code: string; message: string; x?: number; z?: number }
 export type SettlementLayer = 'roads' | 'buildings' | 'props';
@@ -76,6 +77,8 @@ export interface SettlementResult {
   props: PlacedProp[];
   issues: SettlementIssue[];
   stats: Record<string, number>;
+  /** Urban layout: the districts (seed points; lots carry their district id). */
+  districts?: District[];
   /** Cut and fill the region needs (applied to the map with the result; never stored in it). */
   grading?: { rect: CellRect; heights: Float32Array; surface: Uint8Array };
 }
@@ -209,6 +212,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   const prev = input.previous;
   const from: SettlementLayer = prev ? input.from ?? 'roads' : 'roads';
   const keepRoads = from !== 'roads', keepBuildings = from === 'props';
+  // How far each place has decayed: smooth over the town, so whole streets go together.
+  const decayAt = conditionField(seed, st.decay);
+  let districts: District[] | undefined = keepRoads ? prev?.districts : undefined;
   // Cut and fill on a copy: the map changes only when the result is applied.
   let terrain = input.terrain, grading: SettlementResult['grading'];
   if (!keepRoads && st.grading > 0 && validateRegion(polygon, terrain.size).every((i) => i.severity !== 'error')) {
@@ -303,6 +309,28 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
     };
     const extentU = umax - umin, extentV = vmax - vmin, bs = st.blockSize;
     const jitter = () => (rng.next() - .5) * .3 * bs * st.randomness;
+    if (st.layout === 'urban') {
+      // Streets traced through a tensor field (planning pattern, edges, incoming roads, terrain).
+      const pattern = st.pattern ?? 'mixed';
+      const field = urbanField({ polygon, center: analysis.center, angle: analysis.angle, radius: analysis.radius, pattern, seed, ground, externalRoads: input.externalRoads, randomness: st.randomness });
+      // The arterials start where the outside roads come closest.
+      const entries: Vec2[] = [];
+      for (const ext of input.externalRoads) {
+        let best: { p: Vec2; d: number } | null = null;
+        for (const s of walk(ext.points, 8)) {
+          if (!pointInPolygon(s.x, s.z, polygon)) { const d = Math.hypot(s.x - analysis.center[0], s.z - analysis.center[1]); if (!best || d < best.d) best = { p: [s.x, s.z], d }; continue; }
+          best = { p: [s.x, s.z], d: 0 }; break;
+        }
+        if (best) {
+          // Just inside the edge, towards the centre.
+          const [x, z] = best.p, dx = analysis.center[0] - x, dz = analysis.center[1] - z, l = Math.hypot(dx, dz) || 1;
+          for (let t = 0; t < l; t += 6) if (pointInPolygon(x + dx / l * t, z + dz / l * t, polygon)) { entries.push([x + dx / l * (t + 4), z + dz / l * (t + 4)]); break; }
+        }
+      }
+      for (const r of traceStreets({ field, polygon, ground, center: analysis.center, radius: analysis.radius, pattern, seed, passable: roadOk, settings: st, entries: entries.slice(0, 4) })) {
+        if (r.points.length > 1) pieces.push({ ...r, id: `r${n++}` });
+      }
+    } else {
     // Main street along the long axis (winding in organic layouts); a cross avenue in larger grids.
     const amp = st.layout === 'organic' ? bs * (.15 + .25 * st.randomness) : 0;
     const mainLine: Vec2[] = [];
@@ -330,6 +358,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         addLine('secondary', st.secondaryRoadWidth, [[at, side < .35 ? base : base - reach], [at, side > .65 ? base : base + reach]], 25);
         uLines.push({ at, width: st.secondaryRoadWidth });
       }
+    }
     }
     yield progress(3, .5);
     // Keep one connected network: join stray pieces to it, drop what cannot be joined.
@@ -527,11 +556,23 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       }
     }
 
+    if (st.layout === 'urban') {
+      const cut = frontageParcels({ roads, polygon, ground, pattern: st.pattern ?? 'mixed', seed, center: analysis.center, radius: analysis.radius, settings: st,
+        roadEdge: (x, z, range) => roadIndex0.edgeDistance(x, z, range), roadHits: (b, c) => roadIndex0.hits(b, c) });
+      for (const b of cut.blocks) blocks.push({ ...b, cls: 'residential' });
+      lots.push(...(cut.lots as Lot[]));
+    }
+
     /* 6. Zoning per block (coherent districts), then which lots are built. */
     yield progress(6);
     const lotsByBlock = new Map<string, Lot[]>();
     for (const l of lots) { let list = lotsByBlock.get(l.block); if (!list) lotsByBlock.set(l.block, list = []); list.push(l); }
-    for (const b of blocks) {
+    if (st.layout === 'urban') {
+      districts = planDistricts({ lots, roads, polygon, ground, pattern: st.pattern ?? 'mixed', seed, center: analysis.center, radius: analysis.radius, area, settings: st, externalRoads: input.externalRoads });
+      for (const b of blocks) b.cls = blockClass(lotsByBlock.get(b.id) ?? []);
+      // Working fields of the parcel cut, not part of the stored lot.
+      for (const l of lots as Array<Lot & { wide?: boolean; road?: string }>) { delete l.wide; delete l.road; }
+    } else for (const b of blocks) {
       const c = polygonCentroid(b.polygon), ratio = Math.min(1, Math.hypot(c[0] - frame.cx, c[1] - frame.cz) / R0);
       const z = st.zoning;
       const weights: Array<[LotClass, number]> = [
@@ -567,6 +608,12 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
             : l.style === 'full' || l.style === 'vacant' ? [['none', 4], ['wood', 1]]
               : [['none', st.fences ? 1.5 : 4], ['wood', 3], ['hedge', 2], ['iron', 1]];
       l.fence = weighted(fences);
+      // Urban plots: tube houses fill their frontage, public services stand in walled grounds, parks are gardens.
+      if (l.use === 'tube' || l.use === 'shophouse') { if (l.cls !== 'empty' && l.cls !== 'green') { l.style = 'full'; l.fence = 'none'; } else delete l.use; }
+      else if (l.use === 'park') { l.style = 'garden'; l.fence = 'hedge'; }
+      else if (isPublicUse(l.use)) { l.style = l.use === 'market' ? 'full' : 'walled'; l.fence = l.use === 'market' ? 'none' : l.use === 'temple' ? 'wall' : 'iron'; }
+      // Whole streets gone to seed where the place has decayed.
+      if (st.layout === 'urban' && l.style !== 'full' && decayAt(l.obb.x, l.obb.z).value > .55 && styleRng.next() < .7) l.style = 'overgrown';
     }
     if (alleyCount) issues.push({ severity: 'info', code: 'alleys', message: `Đã thêm ${alleyCount} ngõ trong các ô phố sâu.` });
   }
@@ -593,7 +640,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       if (buildings.length >= st.maxBuildings) { issues.push({ severity: 'info', code: 'building-cap', message: `Đạt giới hạn ${st.maxBuildings} công trình.` }); break; }
       if (taken.has(lot.id)) continue;
       const cls = lot.cls as LotClass;
-      const pool = catalog.buildings[st.decay > .7 && cls === 'residential' ? 'abandoned' : cls];
+      const condition = decayAt(lot.obb.x, lot.obb.z).condition;
+      const pool = lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
+        : catalog.buildings[(st.decay > .7 || condition !== 'intact') && cls === 'residential' ? 'abandoned' : cls];
       // Lot frame: width along the front, depth inward.
       const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], width = Math.hypot(fx, fz);
       const tx = fx / width, tz = fz / width, inward: Vec2 = [-lot.dir[0], -lot.dir[1]];
@@ -608,12 +657,11 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       ]);
       // Storeyed buildings from the brick / concrete / modular kits: the city core, offices,
       // barracks and flats. How often depends on the place (a village rarely, a city mostly).
-      const tall = cls === 'military' ? .8 : st.preset === 'small-city' ? .95 : st.preset === 'dense-town' ? .65 : st.sizeBias * .6;
+      const tall = cls === 'military' ? .8 : st.preset === 'small-city' || st.preset === 'planned-city' ? .95 : st.preset === 'dense-town' ? .65 : st.sizeBias * .6;
       const kitShare = cls === 'commercial' ? .55 + tall * .4 : cls === 'military' ? .75 : cls === 'industrial' ? .45 : tall * .7;
-      if (lot.style !== 'farm' && rng.next() < kitShare) {
-        const kits = compositeOptions(cls, rng, tall, availW, availD).map((o): Candidate => ({ item: { asset: o.recipe.kind === 'brick' ? 2050 : 2051, name: o.recipe.kind, w: o.w, d: o.d, ox: 0, oz: 0, height: o.height }, turned: false, recipe: o.recipe }));
-        fits.unshift(...kits);
-      }
+      const asCandidate = (o: ReturnType<typeof compositeOptions>[number]): Candidate => ({ item: { asset: o.recipe.kind === 'brick' ? 2050 : 2051, name: o.recipe.kind, w: o.w, d: o.d, ox: 0, oz: 0, height: o.height }, turned: false, recipe: o.recipe });
+      if (lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse')) fits.unshift(...urbanBuildingOptions(lot.use, rng, availW, availD).map(asCandidate));
+      else if (lot.style !== 'farm' && rng.next() < kitShare) fits.unshift(...compositeOptions(cls, rng, tall, availW, availD).map(asCandidate));
       fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
       if (!fits.length) continue;
       const first = lot.style === 'full' || rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
@@ -634,7 +682,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const door: Vec2 = [cx + lot.dir[0] * (extent + .5), cz + lot.dir[1] * (extent + .5)];
         // Model origin from the footprint centre.
         const c = Math.cos(yaw), s = Math.sin(yaw), x = cx - (item.ox * c + item.oz * s), z = cz - (-item.ox * s + item.oz * c);
-        const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: Math.min(...hs), yaw, obb: box, door, lot: lot.id, cls, ...(recipe ? { recipe } : {}) };
+        // A ruined kit building is a gutted shell (walls of the ground storey only).
+        const built = recipe && condition === 'ruined' && recipe.kind !== 'modular' ? { ...recipe, ruin: true } : recipe;
+        const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: Math.min(...hs), yaw, obb: box, door, lot: lot.id, cls, ...(built ? { recipe: built } : {}), ...(condition !== 'intact' ? { condition } : {}) };
         buildings.push(b);
         solids.insert({ ...box, tag: `b:${b.id}` });
         const corridor = doorCorridor(door, lot.dir, setback + 1);
@@ -689,7 +739,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   {
     const rng = stream(seed, 'props-signs');
     const S = catalog.props.sign, sign = (k: number) => S[k % S.length]!;
-    const lights = st.preset === 'small-city' || st.preset === 'dense-town' || st.preset === 'port' || st.preset === 'industrial-zone';
+    const lights = st.preset === 'small-city' || st.preset === 'dense-town' || st.preset === 'planned-city' || st.preset === 'mixed-city' || st.preset === 'port' || st.preset === 'industrial-zone';
     for (const r of roads) {
       if (r.points.length < 2) continue;
       for (const atEnd of [false, true]) {
@@ -897,7 +947,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       place(kind, pick(rng, catalog.props[kind]), px, pz, rng.next() * Math.PI * 2, .8 + rng.next() * .45, { margin: .6 });
     }
     // Boulevard trees along city main streets.
-    if (st.preset === 'small-city' || st.preset === 'dense-town') for (const r of roads.filter((q) => q.kind === 'main')) for (const p of walk(r.points, 16, 6)) for (const side of [-1, 1]) {
+    if (st.preset === 'small-city' || st.preset === 'dense-town' || st.preset === 'planned-city' || st.preset === 'mixed-city') for (const r of roads.filter((q) => q.kind === 'main')) for (const p of walk(r.points, 16, 6)) for (const side of [-1, 1]) {
       const off = r.width / 2 + 2.8;
       place('tree', catalog.props.tree[rng.int(4)]!, p.x - p.dz * side * off, p.z + p.dx * side * off, rng.next() * 6.28, .8, { margin: .3 });
     }
@@ -936,11 +986,37 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       }
     }
   }
+  // Ruins: rubble round the shell and saplings in it; abandoned houses: weeds round the walls.
+  {
+    const rng = stream(seed, 'props-ruins');
+    for (const b of buildings) {
+      if (!b.condition) continue;
+      const ruined = b.condition === 'ruined', count = ruined ? 3 + rng.int(4) : rng.int(2);
+      for (let k = 0; k < count; k++) {
+        const a = rng.next() * Math.PI * 2, r = 1 + rng.next() * 2.5, side = rng.next() < .5 ? -1 : 1;
+        const u = (b.obb.hx + r) * Math.cos(a) * side, v = (b.obb.hz + r) * Math.sin(a), c = Math.cos(b.yaw), s = Math.sin(b.yaw);
+        const x = b.obb.x + u * c + v * s, z = b.obb.z - u * s + v * c;
+        const kind: PropKind = ruined && rng.next() < .65 ? 'debris' : rng.next() < .5 ? 'bush' : ruined ? 'deadTree' : 'bush';
+        place(kind, pick(rng, catalog.props[kind]), x, z, rng.next() * 6.28, kind === 'bush' ? .6 + rng.next() * .5 : 1, { margin: .3 });
+      }
+    }
+    // Lanes and side streets in decayed quarters: bushes and saplings breaking through the edges.
+    for (const r of roads) {
+      if (r.kind === 'main' || r.kind === 'connector') continue;
+      for (const p of walk(r.points, 5, 2)) {
+        const d = decayAt(p.x, p.z).value;
+        if (d < .55 || rng.next() > (d - .5) * 1.4) continue;
+        const side = rng.next() < .5 ? -1 : 1, off = (r.width / 2 - .4) * side;
+        const kind: PropKind = d > .8 && rng.next() < .3 ? 'tree' : 'bush';
+        place(kind, pick(rng, catalog.props[kind]), p.x - p.dz * off, p.z + p.dx * off, rng.next() * 6.28, kind === 'tree' ? .5 + rng.next() * .3 : .5 + rng.next() * .4, { onRoad: true, margin: .2 });
+      }
+    }
+  }
   if (props.length >= st.maxProps) issues.push({ severity: 'info', code: 'prop-cap', message: `Đạt giới hạn ${st.maxProps} vật thể phụ.` });
 
   /* 9. Collisions, access and connectivity, checked independently of how things were placed. */
   yield progress(9);
-  const result: SettlementResult = { version: 1, seed, settings: st, analysis, roads, blocks, lots, buildings, props, issues, stats: {} };
+  const result: SettlementResult = { version: 1, seed, settings: st, analysis, roads, blocks, lots, buildings, props, issues, stats: {}, ...(districts ? { districts } : {}) };
   result.issues = [...issues, ...checkSettlement(result, { ...input, terrain }, roadIndex)];
 
   /* 10. Summary for review. */
@@ -949,6 +1025,10 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   result.stats = {
     roads: roads.length, roadLength: Math.round(roads.reduce((s, r) => s + length(r.points), 0)), blocks: blocks.length, lots: lots.length,
     builtLots: buildings.length, buildings: buildings.length, props: props.length, ms: Date.now() - t0,
+    ...(districts ? { districts: districts.length } : {}),
+    ...Object.fromEntries(Object.entries(count(buildings.filter((b) => b.condition), (b) => b.condition!)).map(([k, v]) => [`c_${k}`, v])),
+    ...Object.fromEntries(Object.entries(count(lots.filter((l) => l.use && builtLots.has(l.id)), (l) => l.use!)).map(([k, v]) => [`u_${k}`, v])),
+    roadMain: roads.filter((r) => r.kind === 'main').length, roadSecondary: roads.filter((r) => r.kind === 'secondary').length, roadAlley: roads.filter((r) => r.kind === 'alley').length,
     ...Object.fromEntries(Object.entries(count(buildings, (b) => b.cls)).map(([k, v]) => [`b_${k}`, v])),
     ...Object.fromEntries(Object.entries(count(props, (p) => p.kind)).map(([k, v]) => [`p_${k}`, v])),
   };

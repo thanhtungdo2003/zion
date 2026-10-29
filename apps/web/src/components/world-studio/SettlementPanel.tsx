@@ -1,7 +1,7 @@
 'use client';
 
 import { createDefaultRegistry } from '@zion/assets';
-import { SETTLEMENT_PRESETS, levelRegion, polygonArea, presetSettings, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
+import { SETTLEMENT_PRESETS, URBAN_PATTERNS, levelRegion, polygonArea, presetSettings, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
 import type { EditorApi } from './editor-api';
 import { Btn, Check, NumberField, Section, Seg, Slider, TextField, fmt, fmtTime } from './ui';
@@ -74,7 +74,9 @@ function RegionSection({ api, region }: { api: EditorApi; region: Region }) {
       </div>
     </Section>
     <Section title="Quy hoạch" icon="layout-grid" collapsible>
-      <div className={s.field}><span className={s.fieldRow}>Bố cục đường</span><Seg value={st.layout} options={[{ id: 'grid', name: 'Lưới ô phố' }, { id: 'organic', name: 'Trục uốn lượn' }]} onChange={(layout) => set({ layout }, 'layout')} /></div>
+      <div className={s.field}><span className={s.fieldRow}>Bố cục đường</span><Seg value={st.layout} options={[{ id: 'grid', name: 'Lưới ô phố' }, { id: 'organic', name: 'Trục uốn lượn' }, { id: 'urban', name: 'Đô thị (trường tensor)' }]} onChange={(layout) => set(layout === 'urban' ? { layout, pattern: st.pattern ?? 'mixed' } : { layout }, 'layout')} /></div>
+      {st.layout === 'urban' && <div className={s.field}><span className={s.fieldRow}>Kiểu đô thị</span><Seg value={st.pattern ?? 'mixed'} options={URBAN_PATTERNS} onChange={(pattern) => set({ pattern }, 'pattern')} />
+        <p className={s.lead} style={{ margin: 0 }}>Đường chính → đường khu vực → ngõ hẻm theo địa hình (bám đường đồng mức), lô mặt tiền, phân khu, trường/trạm y tế/chợ/chùa, nhà bỏ hoang/đổ nát theo từng khu (mức xuống cấp).</p></div>}
       <Slider label="Mật độ xây dựng" min={0} max={1} step={.05} value={st.density} onChange={(density) => set({ density }, 'density')} format={(v) => `${Math.round(v * 100)}%`} testId="density" />
       <Slider label="Độ ngẫu nhiên" min={0} max={1} step={.05} value={st.randomness} onChange={(randomness) => set({ randomness }, 'randomness')} format={(v) => `${Math.round(v * 100)}%`} />
       <Slider label="Mức tập trung về tâm" min={0} max={1} step={.05} value={st.concentration} onChange={(concentration) => set({ concentration }, 'concentration')} format={(v) => `${Math.round(v * 100)}%`} />

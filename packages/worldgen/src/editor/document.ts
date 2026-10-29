@@ -70,7 +70,7 @@ const coord = n.min(-64).max(8256);
 const vec = z.tuple([coord, coord]);
 const obb = z.object({ x: n, z: n, hx: n.min(0), hz: n.min(0), yaw: n }).strict();
 const settingsSchema = z.object({
-  preset: z.enum(SETTLEMENT_PRESET_IDS), layout: z.enum(['grid', 'organic']), density: n, randomness: n, concentration: n,
+  preset: z.enum(SETTLEMENT_PRESET_IDS), layout: z.enum(['grid', 'organic', 'urban']), pattern: z.enum(['vietnamese', 'planned', 'mixed']).optional(), density: n, randomness: n, concentration: n,
   mainRoadWidth: n, secondaryRoadWidth: n, alleyWidth: n, blockSize: n, lotWidth: n, lotDepth: n, setback: n, sizeBias: n,
   zoning: z.object({ residential: n, commercial: n, industrial: n, military: n }).strict(),
   treeDensity: n, propDensity: n, decay: n, fences: z.boolean(), lamps: z.boolean(), perimeter: z.boolean(), harbour: z.boolean().default(false), maxSlope: n, grading: n, maxBuildings: n.int(), maxProps: n.int(),
@@ -81,11 +81,12 @@ const resultSchema = z.object({
   analysis: z.object({ area: n, buildableShare: n, waterShare: n, steepShare: n, meanHeight: n, center: vec, angle: n, radius: n }).strict(),
   roads: z.array(z.object({ id: z.string(), kind: z.enum(['main', 'secondary', 'alley', 'connector']), width: n, points: z.array(vec).min(2).max(4096) }).strict()).max(2000),
   blocks: z.array(z.object({ id: z.string(), polygon: z.array(vec).max(512), cls: z.union([cls, z.literal('green')]) }).strict()).max(5000),
-  lots: z.array(z.object({ id: z.string(), block: z.string(), polygon: z.array(vec).max(96), front: z.tuple([vec, vec]), dir: z.tuple([n, n]), obb, cls: z.union([cls, z.enum(['green', 'empty'])]), shape: z.enum(['rect', 'skew', 'L', 'U', 'wide']).optional(), style: z.enum(['yard', 'full', 'garden', 'orchard', 'farm', 'walled', 'overgrown', 'vacant', 'work']).optional(), fence: z.enum(['none', 'wood', 'iron', 'wall', 'hedge', 'wire']).optional(), flora: n.int().optional() }).strict()).max(20000),
-  buildings: z.array(z.object({ id: z.string(), asset: n.int(), x: n, z: n, y: n, yaw: n, obb, door: z.tuple([n, n]), lot: z.string().optional(), cls, manual: z.boolean().optional(), recipe: z.object({ kind: z.enum(['brick', 'concrete', 'modular', 'site']), w: n, d: n, floors: n.int(), finish: z.enum(['ivory', 'gray', 'darkred']).optional(), seed: n.int() }).strict().optional() }).strict()).max(4000),
+  lots: z.array(z.object({ id: z.string(), block: z.string(), polygon: z.array(vec).max(96), front: z.tuple([vec, vec]), dir: z.tuple([n, n]), obb, cls: z.union([cls, z.enum(['green', 'empty'])]), shape: z.enum(['rect', 'skew', 'L', 'U', 'wide']).optional(), style: z.enum(['yard', 'full', 'garden', 'orchard', 'farm', 'walled', 'overgrown', 'vacant', 'work']).optional(), fence: z.enum(['none', 'wood', 'iron', 'wall', 'hedge', 'wire']).optional(), flora: n.int().optional(), use: z.enum(['shophouse', 'tube', 'school', 'clinic', 'market', 'temple', 'office', 'park']).optional(), district: z.string().max(16).optional() }).strict()).max(20000),
+  buildings: z.array(z.object({ id: z.string(), asset: n.int(), x: n, z: n, y: n, yaw: n, obb, door: z.tuple([n, n]), lot: z.string().optional(), cls, manual: z.boolean().optional(), recipe: z.object({ kind: z.enum(['brick', 'concrete', 'modular', 'site']), w: n, d: n, floors: n.int(), finish: z.enum(['ivory', 'gray', 'darkred']).optional(), seed: n.int(), ruin: z.boolean().optional() }).strict().optional(), condition: z.enum(['intact', 'abandoned', 'ruined']).optional() }).strict()).max(4000),
   props: z.array(z.object({ id: z.string(), asset: n.int(), kind: z.string().max(32), x: n, z: n, y: n, yaw: n, scale: n, obb, manual: z.boolean().optional(), sx: n.optional() }).strict()).max(20000),
   issues: z.array(z.object({ severity: z.enum(['error', 'warning', 'info']), code: z.string(), message: z.string(), x: n.optional(), z: n.optional() }).strict()).max(5000),
   stats: z.record(n),
+  districts: z.array(z.object({ id: z.string().max(16), cls: z.enum(['residential', 'commercial', 'industrial', 'military', 'green']), x: n, z: n }).strict()).max(64).optional(),
 }).strict();
 const regionSchema = z.object({
   id: z.string().min(1).max(64), name: z.string().min(1).max(80), polygon: z.array(vec).min(3).max(128), preset: z.enum(SETTLEMENT_PRESET_IDS),

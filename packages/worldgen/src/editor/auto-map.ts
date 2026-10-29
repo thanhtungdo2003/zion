@@ -31,9 +31,9 @@ export interface AutoParams {
 export const DEFAULT_AUTO: AutoParams = { cities: 1, towns: 2, villages: 4, industrial: 1, military: 1, ports: 1, lakes: 2, rivers: 2, forest: .45, roads: true };
 
 const SITE: Array<{ key: keyof AutoParams; preset: SettlementPresetId; radius: number; label: string }> = [
-  { key: 'cities', preset: 'small-city', radius: 330, label: 'Thành phố' },
+  { key: 'cities', preset: 'mixed-city', radius: 330, label: 'Thành phố' },
   { key: 'ports', preset: 'port', radius: 210, label: 'Cảng' },
-  { key: 'towns', preset: 'dense-town', radius: 230, label: 'Thị trấn' },
+  { key: 'towns', preset: 'vn-town', radius: 230, label: 'Thị trấn' },
   { key: 'industrial', preset: 'industrial-zone', radius: 190, label: 'Khu công nghiệp' },
   { key: 'military', preset: 'military-base', radius: 170, label: 'Căn cứ' },
   { key: 'villages', preset: 'small-village', radius: 120, label: 'Làng' },
@@ -230,7 +230,7 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   const br = doc.gameplay[0]!;
   br.name = 'Battle Royale — tự động';
   br.pois = doc.regions.map((r) => { const c = polygonCentroid(r.polygon); return { id: `poi-${r.id}`, name: r.name, kind: r.preset, x: Math.round(c[0]), z: Math.round(c[1]), radius: Math.round(Math.sqrt(r.result?.analysis.area ?? 10000) / 2) }; });
-  br.hotspots = doc.regions.filter((r) => r.preset === 'military-base' || r.preset === 'small-city' || r.preset === 'port').map((r) => { const c = polygonCentroid(r.polygon); return { id: `hot-${r.id}`, name: r.name, x: Math.round(c[0]), z: Math.round(c[1]), radius: 200, danger: r.preset === 'military-base' ? 5 : 4 }; });
+  br.hotspots = doc.regions.filter((r) => r.preset === 'military-base' || r.preset === 'small-city' || r.preset === 'mixed-city' || r.preset === 'port').map((r) => { const c = polygonCentroid(r.polygon); return { id: `hot-${r.id}`, name: r.name, x: Math.round(c[0]), z: Math.round(c[1]), radius: 200, danger: r.preset === 'military-base' ? 5 : 4 }; });
   const ctx = { terrain: hf, water: doc.water, seaLevel: sea };
   br.spawnPoints = autoSpawnPoints(br, ctx, req.seed, br.maxPlayers);
   br.loot.points = autoLootPoints(br, doc.regions.flatMap((r) => r.result?.buildings ?? []).map((b) => ({ x: b.obb.x, z: b.obb.z, cls: b.cls, door: b.door })), req.seed);

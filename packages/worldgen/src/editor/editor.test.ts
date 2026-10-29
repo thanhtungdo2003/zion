@@ -6,7 +6,7 @@ import { WorldGenerator } from '../generator';
 import {
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, SettlementError, StrokeRecorder, applyBrush, autoSpawnPoints, buildCatalog, carveLake, carveRiver,
   checkSettlement, createMapDoc, levelRegion, defaultBattleConfig, defaultTerrainSettings, duplicateMap, generateSettlement, generateTerrain, obbInsidePolygon, obbOverlap,
-  parseMapFile, presetSettings, riverLevels, serializeMap, simulateZones, stream, validateBattleConfig, validateMap, validateRegion, waterLevelAt, fromStoredBattleMap, toBattleMap,
+  parseMapFile, presetSettings, riverLevels, serializeMap, simulateZones, stream, validateBattleConfig, validateMap, validateRegion, waterLevelAt, fromStoredBattleMap, toBattleMap, newRegion, checkDoc,
   type SettlementInput, type SettlementResult, type Vec2,
 } from './index';
 import { Simplex2 } from '../noise';
@@ -302,5 +302,79 @@ describe('published battle maps back into the studio', () => {
     expect(back.doc.flora).toHaveLength(2);
     expect([...back.terrain.heights]).toEqual([...hf.heights]);
     expect(() => validateMap(back.doc, back.terrain)).not.toThrow();
+  });
+});
+
+describe('urban layout (tensor-field streets, parcels, districts)', () => {
+  const { hf, s } = hills('urban', 1024);
+  const poly: Vec2[] = Array.from({ length: 12 }, (_, i): Vec2 => { const a = i / 12 * Math.PI * 2, r = 330 * (.85 + .15 * Math.sin(i * 1.9)); return [512 + Math.cos(a) * r, 512 + Math.sin(a) * r]; });
+  const ext = [{ points: [[0, 500], [200, 505]] as Vec2[], width: 9 }];
+  const gen = (preset: 'vn-town' | 'planned-city' | 'mixed-city' | 'abandoned-city', seed = 'u1') => run(generateSettlement({ ...region(hf, s, poly, preset, { externalRoads: ext }), seed }));
+  const results = { vn: gen('vn-town'), planned: gen('planned-city'), mixed: gen('mixed-city'), ruined: gen('abandoned-city') };
+
+  it('is deterministic per seed and differs between seeds', () => {
+    const again = gen('mixed-city');
+    expect(again.roads).toEqual(results.mixed.roads);
+    expect(again.buildings.map((b) => [b.x, b.z, b.asset])).toEqual(results.mixed.buildings.map((b) => [b.x, b.z, b.asset]));
+    expect(gen('mixed-city', 'u2').roads).not.toEqual(results.mixed.roads);
+  });
+  it('builds a connected street network with a road hierarchy', () => {
+    for (const [name, r] of Object.entries(results)) {
+      const kinds = new Set(r.roads.map((x) => x.kind));
+      expect(kinds.has('main'), name).toBe(true);
+      expect(kinds.has('secondary'), name).toBe(true);
+      expect(r.issues.some((i) => i.code === 'disconnected'), name).toBe(false);
+      expect(r.issues.filter((i) => i.severity === 'error'), name).toEqual([]);
+    }
+    // Lanes in the irregular towns, none in the planned district.
+    expect(results.vn.roads.some((x) => x.kind === 'alley')).toBe(true);
+    expect(results.planned.roads.some((x) => x.kind === 'alley')).toBe(false);
+  });
+  it('cuts street-front parcels: every lot faces a road and the buildings have access', () => {
+    for (const r of Object.values(results)) {
+      expect(r.lots.length).toBeGreaterThan(100);
+      expect(r.buildings.length).toBeGreaterThan(60);
+      expect(r.issues.filter((i) => i.code === 'no-access').length).toBeLessThan(r.buildings.length * .05);
+    }
+    // Vietnamese frontages: narrow, deep tube houses built to the street.
+    const tubes = results.vn.lots.filter((l) => l.use === 'tube' && l.style === 'full');
+    expect(tubes.length).toBeGreaterThan(30);
+    expect(tubes.every((l) => l.obb.hx * 2 < 11 && l.obb.hz * 2 >= 9)).toBe(true);
+  });
+  it('zones coherent districts with public services', () => {
+    for (const r of [results.planned, results.mixed]) {
+      expect(r.districts!.length).toBeGreaterThanOrEqual(3);
+      const classes = new Set(r.districts!.map((d) => d.cls));
+      expect(classes.has('commercial') && classes.has('residential')).toBe(true);
+      expect(r.lots.some((l) => l.use === 'school')).toBe(true);
+      // Lots of one district mostly share its class.
+      const byDistrict = new Map(r.districts!.map((d) => [d.id, d.cls]));
+      const built = r.lots.filter((l) => l.cls !== 'empty' && l.cls !== 'green' && !l.use);
+      const agree = built.filter((l) => byDistrict.get(l.district!) === l.cls).length;
+      expect(agree / built.length).toBeGreaterThan(.7);
+    }
+  });
+  it('decays whole quarters together: ruins and abandoned buildings with debris', () => {
+    const r = results.ruined;
+    expect(r.stats.c_ruined).toBeGreaterThan(5);
+    expect(r.buildings.filter((b) => b.condition === 'ruined' && b.recipe).every((b) => b.recipe!.ruin)).toBe(true);
+    expect(r.props.some((p) => p.kind === 'debris')).toBe(true);
+    // Spatially coherent: a ruin's nearest building is more often decayed than at random.
+    const decayed = r.buildings.filter((b) => b.condition);
+    const share = decayed.length / r.buildings.length;
+    let together = 0;
+    for (const b of decayed) {
+      const near = r.buildings.filter((o) => o !== b).sort((a, c) => Math.hypot(a.x - b.x, a.z - b.z) - Math.hypot(c.x - b.x, c.z - b.z))[0]!;
+      if (near.condition) together++;
+    }
+    expect(together / decayed.length).toBeGreaterThan(share);
+    expect(results.planned.stats.c_ruined ?? 0).toBeLessThan(r.stats.c_ruined!);
+  });
+  it('stays within the generation budget and stores into a map document', () => {
+    for (const r of Object.values(results)) expect(r.stats.ms).toBeLessThan(8000);
+    const doc = createMapDoc({ name: 'Đô thị', kind: 'battle-royale', template: 'hills', terrain: s as never });
+    const { grading: _g, ...stored } = results.mixed;
+    doc.regions.push({ ...newRegion(poly, 'mixed-city', 0, 'u1'), result: JSON.parse(JSON.stringify(stored)) });
+    expect(() => checkDoc(JSON.parse(JSON.stringify(doc)))).not.toThrow();
   });
 });
