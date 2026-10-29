@@ -221,16 +221,26 @@ describe('model studio agent', () => {
     expect(done.doc.plans![0]!.built).toBeTruthy();
   });
 
-  it('stops and asks the admin when the design lacks data it cannot verify, instead of guessing', async () => {
-    const replies = [{ thought: 'Không rõ số tầng và kích thước khu đất.', need_info: ['Công trình mấy tầng?', 'Khu đất rộng bao nhiêu?'], summary: 'Đã nghiên cứu, chưa vẽ.' }];
-    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[0]) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  it('never stops to ask the admin: a question becomes an assumption and the run goes on', async () => {
+    const replies = [
+      { thought: 'Không rõ số tầng và kích thước khu đất.', need_info: ['Công trình mấy tầng?', 'Khu đất rộng bao nhiêu?'], summary: 'Đã nghiên cứu, chưa vẽ.' },
+      { thought: 'Tự chọn: một tầng, khu đất 10×10 m.', done: true, summary: 'Đã tự chọn giả định và làm tiếp.' },
+    ];
+    const seen: string[] = [];
+    let i = 0;
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      seen.push(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[Math.min(i++, replies.length - 1)]) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
     const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
     const { store } = fakeStore();
     const agent = new ModelAgent(store, llm, () => catalog, log, 1);
-    const done = await finish(agent, agent.start('p8', 'Một tòa nhà', emptyDoc('Nhà', 'building'), 1).id);
+    const done = await finish(agent, agent.start('p8', 'Một bức tượng đá', emptyDoc('Tượng', 'prop'), 1).id);
     expect(done.status).toBe('done');
-    expect(done.usage.turns).toBe(1);
-    expect(done.issues).toEqual(expect.arrayContaining(['Cần bổ sung: Công trình mấy tầng?', 'Cần bổ sung: Khu đất rộng bao nhiêu?']));
+    expect(done.summary).toBe('Đã tự chọn giả định và làm tiếp.');
+    expect(done.usage.turns).toBeGreaterThanOrEqual(2);
+    expect(seen[1]).toContain('read_floor_plan');
+    expect(done.issues).toEqual(expect.arrayContaining(['Giả định (tự chọn): Công trình mấy tầng?']));
   });
 
   it('researches on the web: search results and the passages of public pages, never private addresses', async () => {

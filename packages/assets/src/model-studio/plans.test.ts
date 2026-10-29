@@ -43,7 +43,7 @@ describe('floor plans', () => {
     { id: 'stone_plinth', name: 'Đá rửa', uses: ['chân tường ngoài'], preset: 'concrete' },
   ] }, s);
   /** The designer's own review of each flight, given with the approval. */
-  const approve = (s: ToolState, level: number) => runTool('approve_floor_plan', { level, basis: 'Nhà ở hai tầng: thang trong sảnh, bậc theo quy tắc nhà ở, giếng thang khít cầu thang.', stairs: s.doc.plans!.find((p) => p.level === level)!.stairs.map((st) => ({ id: st.id, position: 'sát tường sảnh', direction: 'lên theo hướng vẽ', start: 'chân thang ra sảnh, nhìn ra cửa', landing: 'chiếu nghỉ vuông bằng bề rộng vế', turn: 'quay theo turn ra sảnh', link: 'lên phòng tầng trên', headroom: 'giếng thang phủ hết các bậc' })) }, s);
+  const approve = (s: ToolState, level: number, assumptions?: string[]) => runTool('approve_floor_plan', { level, ...(assumptions ? { assumptions } : {}), basis: 'Nhà ở hai tầng: thang trong sảnh, bậc theo quy tắc nhà ở, giếng thang khít cầu thang.', stairs: s.doc.plans!.find((p) => p.level === level)!.stairs.map((st) => ({ id: st.id, position: 'sát tường sảnh', direction: 'lên theo hướng vẽ', start: 'chân thang ra sảnh, nhìn ra cửa', landing: 'chiếu nghỉ vuông bằng bề rộng vế', turn: 'quay theo turn ra sảnh', link: 'lên phòng tầng trên', headroom: 'giếng thang phủ hết các bậc' })) }, s);
 
   it('reviews a plan like an architect and builds it exactly as drawn', async () => {
     const s = state();
@@ -212,11 +212,14 @@ describe('floor plans', () => {
     expect(rise / steps).toBeLessThanOrEqual(.165);
     expect(2 * rise / steps + st.tread!).toBeGreaterThan(.6); expect(2 * rise / steps + st.tread!).toBeLessThan(.65);
     expect(st.landing).toBeGreaterThanOrEqual(1.2);
-    // Approval needs the designer's review of every flight, and nothing left unverified.
+    // Approval needs the designer's review of every flight; what the brief left open is recorded as an assumption, not a stop.
     expect((await runTool('approve_floor_plan', { level: 0, basis: 'Trường học: buồng thang U ở đầu hồi theo tiêu chuẩn công trình công cộng.' }, s)).ok).toBe(false);
-    const unsure = await runTool('approve_floor_plan', { level: 0, basis: 'Trường học: buồng thang U ở đầu hồi theo tiêu chuẩn công trình công cộng.', unresolved: ['chưa rõ chiều cao tầng thực tế'] }, s);
-    expect(!unsure.ok && unsure.error).toMatch(/chưa xác minh/);
-    expect((await approve(s, 0)).ok).toBe(true);
+    const read = await runTool('read_floor_plan', { level: 0 }, s) as { ok: true; result: { errors: string[]; drawing: { walls: Array<{ a: number[] }>; stairs: Array<{ riser: number }> } } };
+    expect(read.ok && read.result.errors).toEqual([]);
+    expect(read.ok && read.result.drawing.walls[0]!.a).toHaveLength(2);
+    expect(read.ok && read.result.drawing.stairs[0]!.riser).toBe(.165);
+    expect((await approve(s, 0, ['chiều cao tầng 3.6 m theo trường học thông thường'])).ok).toBe(true);
+    expect(s.doc.plans![0]!.approved!.assumptions).toEqual(['chiều cao tầng 3.6 m theo trường học thông thường']);
     const built = await runTool('build_floor', { level: 0 }, s) as { ok: true; result: { verification: { ok: boolean } } };
     expect(built.ok && built.result.verification).toEqual({ ok: true });
     const node = s.doc.nodes.find((n) => n.kind === 'stairs')!;

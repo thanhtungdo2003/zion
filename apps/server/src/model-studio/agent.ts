@@ -58,7 +58,7 @@ CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN
 (a) NGHIÊN CỨU TRƯỚC KHI THIẾT KẾ (bắt buộc — draw_floor_plan bị từ chối khi chưa research): tra cứu nhiều lượt (research, cụm từ ngắn tiếng Anh/Việt như "school floor plan", "school stair core", "U-shaped stair dimensions", "tiêu chuẩn cầu thang trường học", "stairwell balustrade height") về mặt bằng, mặt cắt, ảnh công trình thực tế và tiêu chuẩn kích thước của ĐÚNG loại công trình này để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
 Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
 (c) CẦU THANG thiết kế riêng cho công trình, không dùng một kích thước cho mọi nơi: tự xác định vị trí buồng thang, chiều cao tầng, hướng tiếp cận, bề rộng vế (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), chiều cao bậc (riser), mặt bậc (tread, 2h + b ≈ 0.60–0.65 m), số bậc mỗi vế (≤ 18), chiếu nghỉ (landing ≥ bề rộng vế), chiều quay (turn), khe giữa hai vế U (gap) và giếng thang tầng trên. BUỒNG THANG là không gian giao thông đứng (room type stair), KHÔNG phải phòng chức năng: thông ra hành lang/sảnh bằng lối mở hoặc cửa, không mở cửa thẳng vào phòng học/phòng ngủ, không chia thành phòng kín; cầu thang không đặt trong phòng chức năng. Giếng thang tự có lan can ở các cạnh hở.
-(d) Làm TỪNG TẦNG TỪ DƯỚI LÊN theo chu trình THIẾT KẾ → KIỂM ĐỊNH → SỬA → PHÊ DUYỆT → DỰNG → ĐỐI CHIẾU: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → đọc errors và stairApproval (vị trí sát tường trong buồng thang, hướng lên, bậc đầu nhìn ra lối tiếp cận, chiếu nghỉ, vế tiếp theo, kích thước bậc, khoảng trống đầu, kết nối tầng); còn lỗi thì tự chỉnh và draw_floor_plan lại — KHÔNG được chuyển sang dựng chỉ vì đã vẽ xong → approve_floor_plan với căn cứ (basis) và tự đánh giá từng cầu thang; điều gì chưa xác minh được thì ghi unresolved (không duyệt) và research thêm, hoặc trả {"need_info": ["…"]} để admin bổ sung thay vì tự đoán → build_floor (chỉ dựng bản vẽ đã duyệt) → đọc verification (model đối chiếu bản vẽ); lệch thì sửa và dựng lại → rồi mới sang tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
+(d) Làm TỪNG TẦNG TỪ DƯỚI LÊN theo chu trình THIẾT KẾ → KIỂM ĐỊNH → SỬA → PHÊ DUYỆT → DỰNG → ĐỐI CHIẾU: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → đọc errors và stairApproval (vị trí sát tường trong buồng thang, hướng lên, bậc đầu nhìn ra lối tiếp cận, chiếu nghỉ, vế tiếp theo, kích thước bậc, khoảng trống đầu, kết nối tầng); còn lỗi thì tự chỉnh và draw_floor_plan lại — KHÔNG được chuyển sang dựng chỉ vì đã vẽ xong → approve_floor_plan với căn cứ (basis) và tự đánh giá từng cầu thang; cần toạ độ/bản vẽ hiện tại thì read_floor_plan (không bao giờ hỏi admin); điều yêu cầu không nói rõ thì TỰ chọn giá trị hợp lý theo research/tiêu chuẩn và ghi vào assumptions → build_floor (chỉ dựng bản vẽ đã duyệt) → đọc verification (model đối chiếu bản vẽ); lệch thì sửa và dựng lại → rồi mới sang tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
 
@@ -69,7 +69,7 @@ Nguyên tắc: tái dùng model game (cây, bàn ghế, xe…) bằng assemble_m
 Mỗi lượt trả về DUY NHẤT một JSON object:
 {"thought": "suy luận ngắn", "plan": ["bước…"] (lượt đầu), "actions": [{"tool": "tên", "args": {…}}], "done": false}
 Khi xong: {"thought": "…", "done": true, "summary": "đã làm gì (tiếng Việt)", "issues": ["vấn đề còn tồn tại"]}
-Thiếu dữ liệu quan trọng không tự xác minh được (vd không rõ số tầng, kích thước khu đất, loại cầu thang yêu cầu): {"thought": "…", "need_info": ["câu hỏi cho admin"], "summary": "đã làm tới đâu"} — dừng và chờ admin, không tự đoán.
+Làm TỰ ĐỘNG tới khi xong: không dừng để hỏi admin. Yêu cầu thiếu thông tin (số tầng, kích thước khu đất, loại cầu thang…) thì tự chọn giá trị hợp lý cho loại công trình theo research/tiêu chuẩn, ghi lại là giả định (assumptions khi duyệt bản vẽ, issues khi kết thúc) rồi làm tiếp.
 Tối đa ${MAX_ACTIONS} action mỗi lượt; kết quả từng tool sẽ được gửi lại.
 
 Tools:
@@ -79,10 +79,14 @@ function toolCatalog(): string {
   return TOOLS.map((t) => `- ${t.name} [${t.permission}]: ${t.description}\n  args: ${JSON.stringify(t.params)}`).join('\n');
 }
 
-function clip(v: unknown): unknown {
+/** Results the agent edits from (a whole drawing) get the room for their coordinates. */
+const WIDE_RESULTS: Record<string, number> = { read_floor_plan: 12000, draw_floor_plan: 5000 };
+
+function clip(v: unknown, tool = ''): unknown {
   const s = JSON.stringify(v);
   if (s === undefined) return null;
-  return s.length <= MAX_RESULT_CHARS ? v : `${s.slice(0, MAX_RESULT_CHARS)}… (cắt bớt)`;
+  const max = WIDE_RESULTS[tool] ?? MAX_RESULT_CHARS;
+  return s.length <= max ? v : `${s.slice(0, max)}… (cắt bớt${tool === 'draw_floor_plan' ? '; toạ độ đầy đủ: read_floor_plan' : ''})`;
 }
 
 export class ModelAgent {
@@ -194,8 +198,8 @@ export class ModelAgent {
     if (signal.aborted) throw new Error('cancelled');
     const r = await runTool(tool, args, state);
     if (r.ok && state.changed) { job.doc = state.doc; job.revision++; }
-    this.step(job, 'tool', r.ok ? `${tool} ✓` : `${tool} ✗ ${r.error}`, { tool, args, ok: r.ok, result: r.ok ? clip(r.result) : r.error });
-    return r.ok ? clip(r.result) : { error: r.error };
+    this.step(job, 'tool', r.ok ? `${tool} ✓` : `${tool} ✗ ${r.error}`, { tool, args, ok: r.ok, result: r.ok ? clip(r.result, tool) : r.error });
+    return r.ok ? clip(r.result, tool) : { error: r.error };
   }
 
   private async run(job: AgentJob, baseVersion: number, signal: AbortSignal): Promise<void> {
@@ -349,10 +353,14 @@ export class ModelAgent {
       }
       const needs = Array.isArray(reply.need_info) ? reply.need_info.map(String) : typeof reply.need_info === 'string' ? [reply.need_info] : [];
       if (needs.length) {
-        this.step(job, 'info', `Cần admin bổ sung trước khi thiết kế tiếp: ${needs.join(' | ')}`);
-        job.summary = typeof reply.summary === 'string' ? reply.summary : 'Dừng để chờ admin bổ sung thông tin.';
-        job.issues = [...(job.issues ?? []), ...needs.map((n) => `Cần bổ sung: ${n}`)].slice(0, 30);
-        return;
+        // Never stop to ask: the agent answers its own questions (assumptions, read_floor_plan) and goes on.
+        this.step(job, 'info', `Tự giải quyết thay vì hỏi admin: ${needs.join(' | ')}`);
+        job.issues = [...(job.issues ?? []), ...needs.map((n) => `Giả định (tự chọn): ${n}`)].slice(0, 30);
+        messages.push({ role: 'user', content: scrub(JSON.stringify({
+          not_allowed: 'Không dừng để hỏi admin. Thiếu toạ độ/bản vẽ hiện tại: read_floor_plan {level}. Thiếu thông tin trong yêu cầu: tự chọn giá trị hợp lý theo research/tiêu chuẩn của loại công trình, ghi vào assumptions khi approve_floor_plan, rồi làm tiếp ngay.',
+          questions: needs, progress: progress(state.doc, texts()),
+        })) });
+        continue;
       }
       if (reply.done === true) {
         // Unfinished drawings: storeys with errors or never built. Go on with them, not stop.

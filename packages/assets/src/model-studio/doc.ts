@@ -228,6 +228,8 @@ export const planSchema = z.object({
    */
   approved: z.object({
     hash: z.string().max(40), at: z.number(), basis: z.string().max(1500),
+    /** What the designer assumed where the brief said nothing (lot size, storey height…). */
+    assumptions: z.array(z.string().max(300)).max(10).optional(),
     review: z.array(z.object({ id: z.string().max(80), notes: z.record(z.string().max(400)) }).strict()).max(16),
   }).strict().optional(),
   /** The group the plan was built into (absent: drawn, not built yet). */

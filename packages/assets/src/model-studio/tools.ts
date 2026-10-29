@@ -436,9 +436,35 @@ export const TOOLS: ToolDefinition<never>[] = [
       const review = reviewStairs(s.doc, parsed.data);
       const failed = review.stairs.filter((x) => !x.ok).map((x) => ({ id: x.id, failed: x.checks.filter((c) => !c.ok).map((c) => `${c.item}: ${c.note}`) }));
       const ok = !issues.some((i) => i.level === 'error') && review.approved;
-      return { plan: planSummary(s.doc, parsed.data), stairRules: stairRules(s.doc), ...(designed.length ? { designed } : {}), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm', errors: issues.filter((i) => i.level === 'error').map((i) => i.message), warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message), neighbourErrors: neighbours,
+      // The verdict first: a long result is cut at its end, never at the errors.
+      return { next: ok ? 'Kiểm định tự động đạt: tự đánh giá từng cầu thang rồi approve_floor_plan, sau đó build_floor.' : 'KHÔNG ĐẠT: sửa từng mục rồi draw_floor_plan lại tầng này (không duyệt, không dựng được). Cần toạ độ hiện tại: read_floor_plan.',
+        errors: issues.filter((i) => i.level === 'error').map((i) => i.message), neighbourErrors: neighbours,
         stairApproval: { approved: review.approved, ...(failed.length ? { failed } : {}), stairs: review.stairs.filter((x) => x.ok).map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`) },
-        next: ok ? 'Kiểm định tự động đạt: tự đánh giá từng cầu thang rồi approve_floor_plan, sau đó build_floor.' : 'KHÔNG ĐẠT: sửa từng mục rồi draw_floor_plan lại tầng này (không duyệt, không dựng được).' };
+        warnings: issues.filter((i) => i.level !== 'error').map((i) => i.message),
+        plan: planSummary(s.doc, parsed.data), stairRules: stairRules(s.doc), ...(designed.length ? { designed } : {}), ...(wells.length ? { wellsAdded: wells } : {}), ...(fitted.length ? { fitted } : {}), grid: '5 cm' };
+    },
+  }),
+  defineTool({
+    name: 'read_floor_plan', permission: 'read',
+    description: 'Đọc lại bản vẽ đã lưu của một tầng với ĐỦ toạ độ (rooms, walls + openings, stairs đã thiết kế, voids) và kết quả kiểm định hiện tại — dùng để sửa đúng chỗ rồi draw_floor_plan lại, thay vì vẽ lại từ trí nhớ. Không có level: danh sách các tầng đã vẽ.',
+    params: { level: 'int (tùy chọn)' },
+    schema: z.object({ level: z.number().int().optional() }).strict(),
+    run: (a, s) => {
+      const plans = s.doc.plans ?? [];
+      if (a.level === undefined) return { plans: plans.map((p) => ({ level: p.level, name: p.name, elevation: p.elevation, approved: !!p.approved, built: !!p.built })) };
+      const plan = plans.find((p) => p.level === a.level);
+      if (!plan) throw new Error(`Chưa có bản vẽ tầng ${a.level}. Các tầng đã vẽ: ${plans.map((p) => p.level).join(', ') || 'chưa có'}.`);
+      const r2 = (v: number) => +v.toFixed(2);
+      const issues = checkPlan(s.doc, plan), review = reviewStairs(s.doc, plan);
+      const { built: _built, approved, ...drawing } = plan;
+      return {
+        errors: [...issues.filter((i) => i.level === 'error').map((i) => i.message), ...review.stairs.flatMap((x) => x.checks.filter((c) => !c.ok).map((c) => `Cầu thang ${x.id} — ${c.item}: ${c.note}`))],
+        approved: !!approved && approved.hash === planHash(s.doc, plan), built: !!plan.built,
+        drawing: { ...drawing,
+          rooms: plan.rooms.map((r) => ({ ...r, x0: r2(r.x0), z0: r2(r.z0), x1: r2(r.x1), z1: r2(r.z1) })),
+          walls: plan.walls.map((w) => ({ ...w, a: w.a.map(r2), b: w.b.map(r2) })) },
+        next: 'Sửa trên chính dữ liệu này rồi gửi lại cả tầng bằng draw_floor_plan.',
+      };
     },
   }),
   defineTool({
@@ -447,19 +473,20 @@ export const TOOLS: ToolDefinition<never>[] = [
       'Phê duyệt bản vẽ một tầng trước khi dựng. Chỉ duyệt được khi kiểm định tự động KHÔNG còn lỗi nào (mặt bằng, tường, cửa, buồng thang, kích thước bậc, khoảng trống đầu, giếng thang, kết nối tầng).',
       'basis: căn cứ thiết kế (đã research được gì: bố trí thực tế của loại công trình, tiêu chuẩn kích thước cầu thang áp dụng).',
       'stairs: với MỖI cầu thang, tự đánh giá bằng lời từng mục: position (vị trí trong buồng thang, sát tường nào), direction (hướng lên), start (chân thang, lối tiếp cận), landing (chiếu nghỉ), turn (vế tiếp theo quay đâu), link (lên tới đâu ở tầng trên), headroom (khoảng trống đầu, giếng thang).',
-      'unresolved: những điều chưa xác minh được hoặc thiếu dữ liệu — có thì KHÔNG duyệt (research thêm hoặc trả need_info cho admin).',
+      'assumptions: những giả định tự đặt khi yêu cầu không nói rõ (kích thước khu đất, chiều cao tầng…) — ghi lại rồi duyệt bình thường; KHÔNG dừng để hỏi admin. Cần xem lại toạ độ thì read_floor_plan.',
       'Vẽ lại tầng sẽ huỷ phê duyệt.',
     ].join('\n'),
-    params: { level: 'int', basis: 'string', stairs: '[{id, position, direction, start, landing, turn, link, headroom}]', unresolved: '[string]' },
+    params: { level: 'int', basis: 'string', stairs: '[{id, position, direction, start, landing, turn, link, headroom}]', assumptions: '[string]' },
     schema: z.object({
       level: z.number().int(), basis: z.string().min(20).max(1500),
       stairs: z.array(z.object({ id: z.string().min(1).max(40), position: z.string().min(3).max(400), direction: z.string().min(3).max(400), start: z.string().min(3).max(400), landing: z.string().max(400).optional(), turn: z.string().max(400).optional(), link: z.string().min(3).max(400), headroom: z.string().min(3).max(400) }).strict()).max(8).optional(),
+      assumptions: z.array(z.string().max(300)).max(10).optional(),
+      /** Older answers: what could not be verified — kept as assumptions; the automatic checks decide. */
       unresolved: z.array(z.string().max(300)).max(10).optional(),
     }).strict(),
     run: (a, s) => {
       const plan = s.doc.plans?.find((p) => p.level === a.level);
       if (!plan) throw new Error(`Chưa có bản vẽ tầng ${a.level}: draw_floor_plan trước.`);
-      if (a.unresolved?.length) throw new Error(`Không duyệt khi còn điều chưa xác minh: ${a.unresolved.join(' | ')} — research thêm, vẽ lại, hoặc trả need_info để admin bổ sung.`);
       const errors = checkPlan(s.doc, plan).filter((i) => i.level === 'error').map((i) => i.message);
       const review = reviewStairs(s.doc, plan);
       for (const x of review.stairs) for (const c of x.checks) if (!c.ok) errors.push(`Cầu thang ${x.id} — ${c.item}: ${c.note}`);
@@ -467,7 +494,8 @@ export const TOOLS: ToolDefinition<never>[] = [
       const given = new Map((a.stairs ?? []).map((x) => [x.id, x]));
       const missing = plan.stairs.filter((st) => !given.has(st.id) || ((st.shape === 'l' || st.shape === 'u') && (!given.get(st.id)!.landing || !given.get(st.id)!.turn)));
       if (missing.length) throw new Error(`Thiếu phần tự đánh giá cho cầu thang ${missing.map((x) => x.id).join(', ')} (position, direction, start, link, headroom${missing.some((x) => x.shape !== 'straight') ? ', landing, turn với thang L/U' : ''}).`);
-      plan.approved = { hash: planHash(s.doc, plan), at: Date.now(), basis: a.basis, review: plan.stairs.map((st) => { const { id: _id, ...notes } = given.get(st.id)!; return { id: st.id, notes: Object.fromEntries(Object.entries(notes).filter(([, v]) => typeof v === 'string')) as Record<string, string> }; }) };
+      const assumptions = [...(a.assumptions ?? []), ...(a.unresolved ?? [])].slice(0, 10);
+      plan.approved = { hash: planHash(s.doc, plan), at: Date.now(), basis: a.basis, ...(assumptions.length ? { assumptions } : {}), review: plan.stairs.map((st) => { const { id: _id, ...notes } = given.get(st.id)!; return { id: st.id, notes: Object.fromEntries(Object.entries(notes).filter(([, v]) => typeof v === 'string')) as Record<string, string> }; }) };
       s.changed = true;
       return { level: a.level, approved: true, stairs: review.stairs.map((x) => `${x.id}: ${x.checks.map((c) => c.note).join('; ')}`), next: `build_floor {level: ${a.level}}` };
     },
