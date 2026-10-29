@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyDoc, parseDoc } from './doc';
-import { stairFootprint, stairRise, verifyBuilt } from './plans';
+import { railSides, stairFootprint, stairRise, verifyBuilt } from './plans';
 import { runTool, type ToolState } from './tools';
 import { validateDoc } from './validate';
 
@@ -141,22 +141,26 @@ describe('floor plans', () => {
     }
   });
 
-  it('approves the stairs before building: against a wall, first tread facing the way in, landing, next flight, link up', async () => {
+  it('approves the stairs before building: where the designer put them, railings on the open sides, landing, next flight, link up', async () => {
     const s = state();
     await schedule(s);
-    // A straight flight in the middle of the hall, climbing towards the door it should start from.
+    // A straight flight standing free in the middle of the hall: a valid design, kept where it was drawn.
     const g = ground(true);
     g.stairs = [{ ...g.stairs[0]!, shape: 'straight', x: 2.5, z: 2, direction: 's' }] as typeof g.stairs;
     delete (g.stairs[0] as { turn?: string }).turn;
     const r = await runTool('draw_floor_plan', g, s) as R & { result: { stairApproval: { approved: boolean; stairs: string[] } } };
     expect(r.ok && r.result.errors).toEqual([]);
     expect(r.ok && r.result.stairApproval.approved).toBe(true);
-    const st = s.doc.plans![0]!.stairs[0]!, f = stairFootprint(st, stairRise(s.doc, s.doc.plans![0]!));
-    // Now along a wall of the hall, and the doors of the hall are in front of its foot.
-    expect([f.x0, 5 - .06 - f.x1].some((d) => Math.abs(d - .125) < .04 || Math.abs(d) < .04)).toBe(true);
-    const ux = st.x - f.foot[0], uz = st.z - f.foot[1];
-    expect([[5, 2.5], [5, 6.5], [2, 8]].some(([x, z]) => (x! - f.foot[0]) * ux + (z! - f.foot[1]) * uz <= .3 * Math.hypot(ux, uz))).toBe(true);
-    expect(r.ok && r.result.stairApproval.stairs[0]).toMatch(/sát tường/);
+    const st = s.doc.plans![0]!.stairs[0]!;
+    expect([st.x, st.z, st.direction]).toEqual([2.5, 2, 's']);
+    // Open on both sides: a handrail on both.
+    expect(r.ok && r.result.stairApproval.stairs[0]).toMatch(/đứng tự do, lan can ở vế 1: hai bên/);
+    expect(railSides(s.doc, s.doc.plans![0]!, st)).toEqual([[true, true]]);
+    // Against the west wall instead: the handrail only on the open side.
+    const flush = ground(true);
+    flush.stairs = [{ ...g.stairs[0]!, x: .125 + .5, z: 2 }] as typeof flush.stairs;
+    await runTool('draw_floor_plan', flush, s);
+    expect(railSides(s.doc, s.doc.plans![0]!, s.doc.plans![0]!.stairs[0]!)).toEqual([[true, false]]);
     // An L flight: the review names its landing and the turn of the next flight.
     const l = await runTool('draw_floor_plan', ground(true), s) as R & { result: { stairApproval: { approved: boolean; stairs: string[] } } };
     expect(l.ok && l.result.stairApproval.stairs[0]).toMatch(/chiếu nghỉ .*quay (phải|trái)/);
@@ -192,7 +196,7 @@ describe('floor plans', () => {
     finishes: { skirting: 'wood_oak' },
   });
 
-  it('designs each flight for the building, keeps the stair hall circulation, and builds only an approved drawing it then checks', async () => {
+  it('designs each flight for the building, keeps doors off the treads, and builds only an approved drawing it then checks', async () => {
     const s = state();
     s.doc.brief = 'Trường học hai tầng, buồng thang chữ U ở đầu hồi.';
     await schedule(s);
@@ -200,9 +204,9 @@ describe('floor plans', () => {
     const narrow = await runTool('draw_floor_plan', school(0, { width: 1 }), s) as R;
     expect(narrow.ok && narrow.result.errors.join(' ')).toMatch(/rộng 1 m < 1.2 m/);
     expect((await approve(s, 0)).ok).toBe(false);
-    // A door from the stair hall straight into the classroom: the hall is circulation, not a room.
+    // A door that swings onto the treads: people would step through it onto the stairs.
     const door = await runTool('draw_floor_plan', school(0, { hallDoor: true }), s) as R;
-    expect(door.ok && door.result.errors.join(' ')).toMatch(/Buồng thang "Buồng thang" mở cửa thẳng vào "Phòng học"/);
+    expect(door.ok && door.result.errors.join(' ')).toMatch(/mở ra trùng cầu thang/);
     // As drawn: risers and treads designed for a school (16.5 cm at most, 2h + b in the stride), a deep enough landing.
     const good = await runTool('draw_floor_plan', school(0), s) as R;
     expect(good.ok && good.result.errors.join(' | ')).toBe('');
@@ -224,8 +228,9 @@ describe('floor plans', () => {
     expect(built.ok && built.result.verification).toEqual({ ok: true });
     const node = s.doc.nodes.find((n) => n.kind === 'stairs')!;
     expect(node.kind === 'stairs' && [node.steps, node.landing, node.gap, +(node.run / node.steps).toFixed(3)]).toEqual([steps, st.landing, st.gap, st.tread]);
-    // The U fills its hall: the well between the flights takes the slot that would be left by the wall.
-    expect(st.gap).toBeGreaterThan(.1);
+    // The U keeps the gap it was designed with (nothing widens it behind the designer's back); its open sides get handrails.
+    expect(st.gap).toBe(.1);
+    expect(node.kind === 'stairs' && node.rails!.flat().some(Boolean)).toBe(true);
     // The storey above: the well over the flight, a balustrade on its open edges, not where people step off.
     const up = await runTool('draw_floor_plan', school(1), s) as R;
     expect(up.ok && up.result.errors.join(' | ')).toBe('');
@@ -233,8 +238,8 @@ describe('floor plans', () => {
     expect((await runTool('build_floor', { level: 1 }, s)).ok).toBe(true);
     const guard = s.doc.nodes.find((n) => n.tags?.includes('well-guard'))!;
     expect(guard).toBeTruthy();
-    // The far edge and the part of the near edge above the first flight; walls close the rest, people step off the second flight.
-    expect(s.doc.nodes.filter((n) => n.parent === guard.id)).toHaveLength(2);
+    // Every open edge of the well: the far edge (a slot is left to the wall there), and the near edge above the first flight; people step off the second.
+    expect(s.doc.nodes.filter((n) => n.parent === guard.id)).toHaveLength(3);
     for (const p of s.doc.plans!) expect(verifyBuilt(s.doc, p)).toEqual([]);
     // A change after the approval voids it; the built storey below no longer matches its drawing.
     const taller = { ...school(1), elevation: s.doc.plans![1]!.elevation + .4 };

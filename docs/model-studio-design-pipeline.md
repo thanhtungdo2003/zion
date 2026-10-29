@@ -57,6 +57,42 @@ research → draw_floor_plan → automatic checks → fix and redraw
 - **Missing data:** it can stop with `need_info` to ask the admin for data it cannot verify,
   instead of guessing.
 
+## Rules, not templates
+
+The system gives the designer rules, never a layout. Only these are checked:
+
+- **Units:** metres, a 5 cm grid, storey elevations that add up.
+- **Materials:** every material comes from the project's schedule.
+- **Usable in game:**
+  - every room is reachable through a door or an opening;
+  - stairs can be climbed (riser, tread, steps per flight, landing, width, headroom), with a free foot and a top that arrives on the floor above;
+  - no wall runs through a flight, and no door swings onto the treads;
+  - the model has collision.
+- **Safe:** every open edge above the ground (stairwell, balcony, open corridor, terrace) has a wall or a railing.
+
+Where the stairs go, their shape and their side, whether a stair stands against a wall or free,
+whether a corridor or a balcony is open, and how rooms connect are the designer's choices.
+
+What used to force one layout, and what replaced it:
+
+| What forced it | Now |
+|---|---|
+| Stairs had to stand against a wall (`flush`) and were moved there. | Kept where drawn. Each open side of a flight gets a handrail (`railSides`, the stairs node's `rails`); a side against a wall gets none. |
+| Stairs had to be in a "stair hall". The hall could not open into a room, and its first tread had to face the door. | Removed; a first tread facing away is only a hint. |
+| `fillHall` widened a flight or a U's gap to fill its hall. | Not applied. A flight keeps the width it was designed with, and the open well gets a balustrade. |
+| A single handrail on one side of every flight. | A handrail on each open side. |
+| Generated walls closed every room edge, and were generated even when walls were simply left out. | Walls are generated only when `walls: "auto"` is asked for. A room's `open` sides, and the outer edges of balconies and terraces, get no wall: a railing above the ground, nothing on it. Plan walls can be `kind: "railing"`. |
+| The prompt carried example layouts (a school's stair cores, a stair hall that must not open into classrooms). | Removed. The prompt lists the rules above and asks the designer to choose a scheme and give the reasons. |
+| An edit meant redrawing the whole storey from a truncated summary, so changes were lost or never really made. | `read_floor_plan` returns the full drawing. `edit_floor_plan` makes targeted changes (`remove_wall_between`, `set_room`, `set_stair`…) and returns a before/after diff. `build_floor` reports what really changed in the model (walls 9 → 8). |
+| Nobody looked at the result. | `render_views` draws the built model from six sides with a software rasterizer. The pictures go to the model's next turn when it can read images, alongside each storey's geometry figures. |
+
+Regression tests in `variants.test.ts` cover:
+- the same house built as two schemes;
+- handrails on the open sides of a flight only;
+- open corridors and balconies (and the refusal when a railing is taken away);
+- taking a wall out, checked in the drawing, the model and the pictures;
+- the renders.
+
 ## Generated geometry (from open-source research)
 
 The agent can describe a storey as rooms on a grid and links between them, and let

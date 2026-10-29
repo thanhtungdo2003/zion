@@ -243,6 +243,32 @@ describe('model studio agent', () => {
     expect(done.issues).toEqual(expect.arrayContaining(['Giả định (tự chọn): Công trình mấy tầng?']));
   });
 
+  it('shows the rendered views to the model on its next turn, and goes on without them when it cannot read images', async () => {
+    const replies = [
+      { thought: 'Dựng một khối rồi xem.', actions: [{ tool: 'create_geometry', args: { type: 'primitive', name: 'Khối', params: { shape: 'box', width: 2, height: 2, depth: 2 } } }, { tool: 'render_views', args: { views: ['front', 'iso'], size: 64 } }] },
+      { thought: 'Đã xem ảnh.', done: true, summary: 'Xong.' },
+    ];
+    const bodies: string[] = [];
+    let i = 0;
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      const body = String(init.body);
+      bodies.push(body);
+      // This model refuses images.
+      if (body.includes('image_url')) return new Response('{"error":{"message":"image input not supported"}}', { status: 400, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(replies[Math.min(i++, replies.length - 1)]) } }], usage: { total_tokens: 10 } }), { headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const llm = new LlmClient({ apiKey: 'k-12345678', baseUrl: 'http://ai.local/v1', model: 'm', timeoutMs: 5000, retries: 1, temperature: .3 }, fetchImpl);
+    const { store } = fakeStore();
+    const agent = new ModelAgent(store, llm, () => catalog, log, 1);
+    const done = await finish(agent, agent.start('p7', 'Một khối đá', emptyDoc('Khối', 'prop'), 1).id);
+    expect(done.status).toBe('done');
+    // The turn after render_views carried two PNG views; refused, it was sent again without them.
+    const withImages = bodies.find((b) => b.includes('image_url'))!;
+    expect(withImages.match(/data:image\/png;base64,/g)).toHaveLength(2);
+    expect(bodies.indexOf(withImages)).toBeLessThan(bodies.length - 1);
+    expect(done.steps.some((x) => x.kind === 'info' && /không nhận ảnh/.test(x.text))).toBe(true);
+  });
+
   it('researches on the web: search results and the passages of public pages, never private addresses', async () => {
     const ddg = '<div><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fstairs.example.org%2Fschool&amp;rut=1">School stair design</a><a class="result__snippet" href="#">Riser 150 mm, tread 300 mm</a></div>'
       + '<div><a class="result__a" href="https://inside.example.org/x">Inside</a><a class="result__snippet" href="#">private</a></div>';

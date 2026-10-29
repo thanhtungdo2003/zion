@@ -491,6 +491,20 @@ export interface StairDesign {
   width: number; rise: number; run: number; steps: number;
   shape?: 'straight' | 'l' | 'u' | 'spiral'; style?: 'solid' | 'stringer' | 'open';
   turn?: 'left' | 'right'; landing?: number; gap?: number; treadThickness?: number; railing?: boolean;
+  /** Per flight, a railing on its [left, right] side as you climb it; absent: the outer side only. */
+  rails?: Array<[boolean, boolean]>;
+}
+
+/** The flights of a designed stair in its own space (first tread edge at the origin, climbing +z): start, direction, steps. */
+export function stairFlightLines(d: StairDesign): Array<{ x: number; z: number; dx: number; dz: number; count: number }> {
+  const n = Math.max(1, Math.round(d.steps)), W = d.width / 2, g = d.run / n, turn = d.turn === 'left' ? -1 : 1, shape = d.shape ?? 'straight';
+  if (shape === 'spiral') return [];
+  if (shape === 'straight') return [{ x: 0, z: 0, dx: 0, dz: 1, count: n }];
+  const n1 = Math.ceil((n - 1) / 2), n2 = n - 1 - n1, L = d.landing ?? d.width, lz = n1 * g;
+  const out = [{ x: 0, z: 0, dx: 0, dz: 1, count: n1 }];
+  if (shape === 'l') out.push({ x: turn * W, z: lz + L / 2, dx: turn, dz: 0, count: n2 });
+  else out.push({ x: turn * (d.width + (d.gap ?? .1)), z: lz, dx: 0, dz: -1, count: n2 });
+  return out.filter((f) => f.count > 0);
 }
 
 /** Footprint of a spiral flight (post at its centre): the square it needs. */
@@ -561,15 +575,18 @@ export function stairsDesign(d: StairDesign): MeshPart[] {
   if (d.railing !== false) {
     if (shape === 'spiral') {
       for (let i = 0; i < n; i += 2) { const a = i * spiralStep - Math.PI / 2 + spiralStep / 2, x = Math.cos(a) * (R - .05), z = R + Math.sin(a) * (R - .05), y = (i + 1) * r; prism(rail, rect(x, z, 1, 0, .04, .04), y - t, y + .9); }
-    } else for (const f of flights) {
-      // Handrail on the outside of the turn: posts every other tread, the rail 0.9 m above the nosings.
-      const side = shape === 'straight' ? 1 : -turn, px = -f.dz * side * (W - .04), pz = f.dx * side * (W - .04), len = f.count * g;
+    } else flights.forEach((f, k) => {
+      // Handrails where the flight is open (or on the outside of the turn): posts every other tread, the rail 0.9 m above the nosings.
+      const open = d.rails?.[k];
+      for (const side of open ? ([-1, 1] as const).filter((_, i) => open[i]) : [shape === 'straight' ? 1 : -turn]) {
+      const px = -f.dz * side * (W - .04), pz = f.dx * side * (W - .04), len = f.count * g;
       for (let i = 0; i <= f.count; i += 2) {
         const k = Math.min(i, f.count - 1), x = f.x + f.dx * (k + .5) * g + px, z = f.z + f.dz * (k + .5) * g + pz, y = (f.first + k + 1) * r;
         prism(rail, rect(x, z, 1, 0, .04, .04), y, y + .9);
       }
       slopedBeam(hand, f.x + px, f.z + pz, (f.first + 1) * r + .95, f.x + f.dx * len + px, f.z + f.dz * len + pz, (f.first + f.count) * r + .95, .06, .05);
-    }
+      }
+    });
   }
   return [{ slot: 'main', mesh: main.build() }, { slot: 'tread', mesh: tread.build() }, { slot: 'rail', mesh: rail.build() }, { slot: 'handrail', mesh: hand.build() }];
 }

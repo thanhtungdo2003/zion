@@ -7,7 +7,10 @@
  * come from the server's environment (AI_API_KEY, AI_BASE_URL, AI_MODEL) — never the browser.
  */
 export interface LlmConfig { apiKey: string; baseUrl: string; model: string; timeoutMs: number; retries: number; temperature: number }
+export type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
+/** What is sent: a message, or one carrying images (rendered views) beside its text. */
+export type WireMessage = ChatMessage | { role: ChatMessage['role']; content: ChatPart[] };
 export interface ChatResult { text: string; model: string; usage?: { prompt: number; completion: number; total: number } }
 
 export class LlmError extends Error {
@@ -27,7 +30,7 @@ function reasoningEffort(model: string): string | undefined { return /claude/i.t
 export class LlmClient {
   constructor(readonly config: LlmConfig, private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async complete(messages: ChatMessage[], opts: CallOptions = {}): Promise<ChatResult> {
+  async complete(messages: WireMessage[], opts: CallOptions = {}): Promise<ChatResult> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < Math.max(1, this.config.retries); attempt++) {
       if (opts.signal?.aborted) throw new LlmError('Đã hủy.');
@@ -43,7 +46,7 @@ export class LlmClient {
     throw lastErr instanceof LlmError ? lastErr : new LlmError(redact(String((lastErr as Error)?.message ?? lastErr), this.config.apiKey), undefined, false);
   }
 
-  private async once(messages: ChatMessage[], opts: CallOptions): Promise<ChatResult> {
+  private async once(messages: WireMessage[], opts: CallOptions): Promise<ChatResult> {
     const timeout = AbortSignal.timeout(this.config.timeoutMs);
     const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
     const modelId = opts.model ?? this.config.model, effort = reasoningEffort(modelId);

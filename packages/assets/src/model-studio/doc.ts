@@ -136,6 +136,8 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     gap: finite.min(.02).max(3).optional(),
     treadThickness: finite.min(.02).max(.4).optional(),
     railing: z.boolean().optional(),
+    /** Per flight, a handrail on its [left, right] side — where the flight is open (absent: the outer side only). */
+    rails: z.array(z.tuple([z.boolean(), z.boolean()])).max(4).optional(),
     /** Railing posts, balusters and beams (else the stairs material). */
     railMaterial: z.string().max(64).optional(),
     /** Tread and landing finish (granite, terrazzo, tiles, boards; else the stairs material). */
@@ -188,9 +190,15 @@ export const planSchema = z.object({
     windowFrame: z.string().max(64).optional(), glass: z.string().max(64).optional(), sill: z.string().max(64).optional(),
     doorFrame: z.string().max(64).optional(), doorLeaf: z.string().max(64).optional(),
   }).strict().optional(),
-  rooms: z.array(z.object({ id: z.string().min(1).max(40), name: z.string().min(1).max(60), type: z.string().max(30), x0: finite, z0: finite, x1: finite, z1: finite, floorMaterial: z.string().max(64).optional() }).strict()).max(60),
+  rooms: z.array(z.object({
+    id: z.string().min(1).max(40), name: z.string().min(1).max(60), type: z.string().max(30), x0: finite, z0: finite, x1: finite, z1: finite, floorMaterial: z.string().max(64).optional(),
+    /** Edges left open (n = −z, s = +z, w = −x, e = +x): no wall — a railing where it drops to the outside above the ground. */
+    open: z.array(z.enum(['n', 's', 'e', 'w'])).max(4).optional(),
+  }).strict()).max(60),
   walls: z.array(z.object({
     id: z.string().min(1).max(40), a: pt, b: pt, thickness: finite.min(.05).max(2), height: finite.min(.3).max(30).optional(),
+    /** A solid wall (default), or a railing: a balustrade guarding an open edge (balcony, gallery, open corridor). */
+    kind: z.enum(['wall', 'railing']).optional(),
     material: z.string().max(64), innerMaterial: z.string().max(64).optional(), exterior: z.boolean(),
     openings: z.array(z.object({
       kind: z.enum(OPENING_KINDS), at: finite, width: finite.min(.2).max(20), height: finite.min(.2).max(20), sill: finite.min(0).max(20),

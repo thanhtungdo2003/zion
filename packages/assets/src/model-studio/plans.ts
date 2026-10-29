@@ -1,7 +1,7 @@
 import { DocBuilder } from './build';
 import { subtree, type FloorPlan, type ModelDoc, type Opening } from './doc';
 import { materialFromPreset, matchPreset } from './materials';
-import { spiralRadius } from './mesh';
+import { spiralRadius, stairFlightLines } from './mesh';
 import { doorZone, junctionBands } from './procedural';
 
 /**
@@ -82,6 +82,10 @@ export function snapPlan(plan: FloorPlan): FloorPlan {
  * moved against it. Returns what moved.
  */
 /** Why a flight is placed wrong: off the rooms, through a wall, or its foot or its top in a wall / off the floor. */
+/** What makes a flight unusable in game (as opposed to design choices the designer makes). */
+const HARD = new Set(['off-rooms', 'wall', 'foot', 'top', 'door']);
+const hard = (probs: string[]) => probs.filter((x) => HARD.has(x));
+
 function stairProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): string[] {
   const out: string[] = [], f = stairFootprint(s, stairRise(doc, plan));
   const rooms = plan.rooms.map(norm), up = above(doc, plan), upRooms = (up ?? plan).rooms.map(norm);
@@ -114,6 +118,24 @@ function stairProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): string[] {
   if (access.length && !access.some((p) => faces(s, f, p))) out.push('approach');
   if (doorsOnFlight(plan, f).length) out.push('door');
   return out;
+}
+
+/**
+ * Which sides of each flight are open (no solid wall alongside): [left, right] per flight, in the
+ * flight's own frame. Those sides get a handrail; a side against a wall does not need one.
+ */
+export function railSides(doc: ModelDoc, plan: FloorPlan, s: Stair): Array<[boolean, boolean]> {
+  const rise = stairRise(doc, plan), { steps, run } = stairCounts(rise, s), W = s.width / 2;
+  const th = DIRS[s.direction], c = Math.cos(th), sn = Math.sin(th);
+  const world = (x: number, z: number): [number, number] => [s.x + c * x + sn * z, s.z - sn * x + c * z];
+  const solid = plan.walls.filter((w) => w.kind !== 'railing');
+  return stairFlightLines({ width: s.width, rise, run, steps, shape: s.shape, ...(s.turn ? { turn: s.turn } : {}), ...(s.landing ? { landing: s.landing } : {}), ...(s.gap ? { gap: s.gap } : {}) }).map((f) => {
+    const len = f.count * run / steps;
+    return ([-1, 1] as const).map((side) => ![.2, .5, .8].every((t) => {
+      const p = world(f.x + f.dx * len * t - f.dz * side * (W + .12), f.z + f.dz * len * t + f.dx * side * (W + .12));
+      return solid.some((w) => distToSegment(p[0], p[1], w.a, w.b) <= w.thickness / 2 + .1);
+    })) as [boolean, boolean];
+  });
 }
 
 /** Doors whose clear zone (where the leaf swings and people step through, 0.5 m each side) lies on a flight. */
@@ -169,15 +191,10 @@ function faces(s: Stair, f: ReturnType<typeof stairFootprint>, p: [number, numbe
 
 export interface StairReview { id: string; ok: boolean; checks: Array<{ item: string; ok: boolean; note: string }> }
 
-/** Rooms people move through (where stairs belong), as opposed to rooms used for something. */
-const CIRCULATION = /stair|hall|corridor|lobby|foyer|landing|living|entry|gallery|sảnh|hành lang|buồng thang|cầu thang|lối|phòng khách|tiền sảnh|chiếu/i;
-const isCirculation = (r: { type: string; name: string }) => CIRCULATION.test(r.type) || CIRCULATION.test(r.name);
-const isStairHall = (r: { type: string; name: string }) => /stair|buồng thang|cầu thang/i.test(`${r.type} ${r.name}`);
 
 /**
  * A flight measured against the building's stair rules: width, riser, tread and stride, risers
- * per flight, landing depth, clear headroom under the storey above, and the room it stands in
- * (a hall, corridor or stair hall — not a bedroom or a classroom).
+ * per flight, landing depth and clear headroom under the storey above.
  */
 export function stairDesignProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): string[] {
   const rules = stairRules(doc), rise = stairRise(doc, plan), { steps, riser, tread } = stairCounts(rise, s), out: string[] = [];
@@ -191,45 +208,11 @@ export function stairDesignProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): s
   if (flights.some((n) => n > rules.maxFlight)) out.push(`một vế ${Math.max(...flights)} bậc > ${rules.maxFlight}: cần chiếu nghỉ (dạng l hoặc u)`);
   if ((s.shape === 'l' || s.shape === 'u') && (s.landing ?? s.width) < s.width - 1e-3) out.push(`chiếu nghỉ sâu ${s.landing} m < bề rộng vế ${s.width} m`);
   if (s.shape === 'spiral' && rules.use === 'public') out.push('thang xoắn không dùng làm thang chính của công trình công cộng');
-  const f = stairFootprint(s, rise), room = plan.rooms.find((r) => inside(norm(r), (f.x0 + f.x1) / 2, (f.z0 + f.z1) / 2));
-  if (room && !isCirculation(room)) out.push(`đặt trong "${room.name}" (${room.type}) — cầu thang thuộc buồng thang/sảnh/hành lang, không đặt trong phòng chức năng`);
   // Clear height above every tread: under the storey above unless a well is cut there.
   const up = above(doc, plan);
   if (up) {
     const low = stairTreads(s, rise).filter((t) => !up.voids.some((v) => inside(norm(v), t.x, t.z, -.02))).map((t) => ({ ...t, clear: up.elevation - up.slab - (plan.elevation + t.y) })).filter((t) => t.clear < rules.headroom);
     if (low.length) out.push(`khoảng trống đầu chỉ ${Math.min(...low.map((t) => t.clear)).toFixed(2)} m < ${rules.headroom} m trên ${low.length} bậc (giếng thang tầng trên phải phủ hết các bậc đó)`);
-  }
-  return out;
-}
-
-/**
- * The stair hall is circulation, not a room: it opens onto a corridor, hall or the outside, and
- * no door leads from it straight into a classroom, bedroom or office.
- */
-function stairHallProblems(plan: FloorPlan): string[] {
-  const out: string[] = [], rooms = plan.rooms.map((r) => ({ ...r, ...norm(r) }));
-  const roomAt = (x: number, z: number) => rooms.find((r) => inside(r, x, z));
-  for (const hall of rooms.filter(isStairHall)) {
-    let opens = false;
-    for (const w of plan.walls) {
-      const dx = w.b[0] - w.a[0], dz = w.b[1] - w.a[1], len = Math.hypot(dx, dz) || 1, nx = -dz / len, nz = dx / len, off = w.thickness / 2 + .3;
-      for (const o of w.openings) {
-        if (o.kind === 'window' || o.sill > .3) continue;
-        const px = w.a[0] + dx / len * o.at, pz = w.a[1] + dz / len * o.at;
-        const sides = [roomAt(px + nx * off, pz + nz * off), roomAt(px - nx * off, pz - nz * off)];
-        if (!sides.some((r) => r?.id === hall.id || (r && r.name === hall.name && r.type === hall.type))) continue;
-        const other = sides.find((r) => !(r && r.name === hall.name && r.type === hall.type));
-        if (!other) { if (w.exterior) opens = true; continue; }
-        if (isCirculation(other)) opens = true;
-        else out.push(`Buồng thang "${hall.name}" mở cửa thẳng vào "${other.name}" (${other.type}) ở tường ${w.id}: buồng thang chỉ thông ra sảnh/hành lang/bên ngoài — bỏ cửa đó, phòng mở cửa ra hành lang.`);
-      }
-    }
-    // Open edges onto a hall or corridor count as the way in.
-    for (const r of rooms) if (r.id !== hall.id && isCirculation(r) && Math.min(r.x1, hall.x1) - Math.max(r.x0, hall.x0) > -.01 && Math.min(r.z1, hall.z1) - Math.max(r.z0, hall.z0) > -.01) {
-      const cx = (Math.max(r.x0, hall.x0) + Math.min(r.x1, hall.x1)) / 2, cz = (Math.max(r.z0, hall.z0) + Math.min(r.z1, hall.z1)) / 2;
-      if (!plan.walls.some((w) => distToSegment(cx, cz, w.a, w.b) <= w.thickness / 2 + .2)) opens = true;
-    }
-    if (!opens) out.push(`Buồng thang "${hall.name}" kín: không thông ra sảnh, hành lang hay bên ngoài — mở lối (cửa/vòm hoặc cạnh mở) ra không gian giao thông.`);
   }
   return out;
 }
@@ -279,8 +262,11 @@ export function verifyBuilt(doc: ModelDoc, plan: FloorPlan): string[] {
   if (!plan.built) return [];
   const parts = subtree(doc, plan.built), out: string[] = [];
   if (!parts.length) return [`Tầng ${plan.name}: nhóm đã dựng không còn trong model — dựng lại.`];
-  const walls = parts.filter((n) => n.kind === 'wall').length, drawn = plan.walls.filter((w) => Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]) >= .05).length;
+  const long = plan.walls.filter((w) => Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]) >= .05);
+  const walls = parts.filter((n) => n.kind === 'wall').length, drawn = long.filter((w) => w.kind !== 'railing').length;
   if (walls !== drawn) out.push(`${walls} tường trong model, bản vẽ có ${drawn}.`);
+  const rails = parts.filter((n) => n.kind === 'group' && n.tags?.includes('railing') && n.name === 'Lan can').length, railsDrawn = long.length - drawn;
+  if (rails !== railsDrawn) out.push(`${rails} đoạn lan can trong model, bản vẽ có ${railsDrawn}.`);
   const slabs = parts.filter((n) => n.kind === 'slab');
   if (slabs.length !== plan.rooms.length) out.push(`${slabs.length} sàn trong model, bản vẽ có ${plan.rooms.length} phòng.`);
   const holes = slabs.reduce((sum, n) => sum + (n.kind === 'slab' ? n.holes.reduce((a, h) => a + h.width * h.depth, 0) : 0), 0);
@@ -314,9 +300,9 @@ export function reviewStairs(doc: ModelDoc, plan: FloorPlan): { approved: boolea
   for (const s of plan.stairs) {
     const rise = stairRise(doc, plan), f = stairFootprint(s, rise), probs = stairProblems(doc, plan, s), flush = flushWalls(plan, s, f);
     const checks: StairReview['checks'] = [
-      { item: 'vị trí', ok: !['off-rooms', 'wall', 'gap', 'flush', 'door'].some((x) => probs.includes(x)), note: `chiếm [${f.x0.toFixed(2)}, ${f.z0.toFixed(2)}] → [${f.x1.toFixed(2)}, ${f.z1.toFixed(2)}]${flush.length ? `, sát tường ${flush.join(', ')}` : ', không sát tường nào'}${probs.includes('wall') ? ', có tường cắt qua' : ''}${probs.includes('off-rooms') ? ', lấn ra ngoài phòng' : ''}${probs.includes('gap') ? ', khe hở với tường' : ''}${probs.includes('door') ? `, cửa ${doorsOnFlight(plan, f).join(', ')} mở ra trên bậc` : ''}` },
+      { item: 'vị trí', ok: !['off-rooms', 'wall', 'door'].some((x) => probs.includes(x)), note: `chiếm [${f.x0.toFixed(2)}, ${f.z0.toFixed(2)}] → [${f.x1.toFixed(2)}, ${f.z1.toFixed(2)}]${flush.length ? `, sát tường ${flush.join(', ')}` : ', đứng tự do'}, lan can ở ${railSides(doc, plan, s).map((r, i) => `vế ${i + 1}: ${r[0] && r[1] ? 'hai bên' : r[0] || r[1] ? 'một bên' : 'không (sát tường)'}`).join(', ')}${probs.includes('wall') ? ', có tường cắt qua' : ''}${probs.includes('off-rooms') ? ', lấn ra ngoài phòng' : ''}${probs.includes('gap') ? ', khe hở với tường' : ''}${probs.includes('door') ? `, cửa ${doorsOnFlight(plan, f).join(', ')} mở ra trên bậc` : ''}` },
       { item: 'hướng lên', ok: !probs.includes('top'), note: `đi lên về hướng ${s.direction}, ${stairCounts(rise, s).steps} bậc, lên tới ${pt(f.top)}${probs.includes('top') ? ' — đầu trên đâm vào tường hoặc ra ngoài: ngược chiều' : ''}` },
-      { item: 'điểm bắt đầu', ok: !probs.includes('foot') && !probs.includes('approach'), note: `chân thang ${pt(f.foot)}${probs.includes('foot') ? ' — sát tường hoặc ngoài phòng' : ''}${probs.includes('approach') ? ' — bậc đầu quay lưng với cửa/lối vào buồng thang' : ''}` },
+      { item: 'điểm bắt đầu', ok: !probs.includes('foot'), note: `chân thang ${pt(f.foot)}${probs.includes('foot') ? ' — sát tường hoặc ngoài phòng' : ''}${probs.includes('approach') ? ' — lưu ý: bậc đầu quay lưng với lối vào gần nhất' : ''}` },
     ];
     const design = stairDesignProblems(doc, plan, s), c = stairCounts(rise, s);
     checks.push({ item: 'kích thước', ok: !design.some((m) => !m.startsWith('khoảng trống đầu') && !m.startsWith('đặt trong')), note: `rộng ${s.width} m, ${c.steps} bậc cao ${(c.riser * 100).toFixed(1)} cm × sâu ${(c.tread * 100).toFixed(1)} cm${design.filter((m) => !m.startsWith('khoảng trống đầu') && !m.startsWith('đặt trong')).map((m) => ` — ${m}`).join('')}` });
@@ -349,7 +335,7 @@ export function reviewStairs(doc: ModelDoc, plan: FloorPlan): { approved: boolea
 export function orientStairs(doc: ModelDoc, plan: FloorPlan): string[] {
   const out: string[] = [];
   for (const s of plan.stairs) {
-    const was = stairProblems(doc, plan, s);
+    const was = hard(stairProblems(doc, plan, s));
     if (!was.length) continue;
     const rise = stairRise(doc, plan), f0 = stairFootprint(s, rise), orig = { x: s.x, z: s.z, direction: s.direction, turn: s.turn };
     const turns: Array<Stair['turn']> = s.shape === 'l' || s.shape === 'u' ? [s.turn ?? 'right', s.turn === 'left' ? 'right' : 'left'] : [s.turn];
@@ -377,7 +363,7 @@ export function orientStairs(doc: ModelDoc, plan: FloorPlan): string[] {
       for (let i = zs.length - 1; i >= 0; i--) if (!within(zs[i]!, hall.z0, hall.z1 - (f.z1 - f.z0))) zs.splice(i, 1);
       for (const x of xs) for (const z of zs) {
         s.x = r3(orig.x + x - f.x0); s.z = r3(orig.z + z - f.z0);
-        const n = stairProblems(doc, plan, s).length, d = Math.hypot(x + (f.x1 - f.x0) / 2 - cx0, z + (f.z1 - f.z0) / 2 - cz0) + (direction === orig.direction ? 0 : .5);
+        const n = hard(stairProblems(doc, plan, s)).length, d = Math.hypot(x + (f.x1 - f.x0) / 2 - cx0, z + (f.z1 - f.z0) / 2 - cz0) + (direction === orig.direction ? 0 : .5);
         if (!best || n < best.n || (n === best.n && d < best.d)) best = { x: s.x, z: s.z, direction, turn, n, d };
       }
     }
@@ -414,40 +400,10 @@ export function fitStairs(doc: ModelDoc, plan: FloorPlan): string[] {
       }
       if (!dx && !dz) break;
       s.x = r3(s.x + dx); s.z = r3(s.z + dz);
-      moved.push(`Cầu thang ${s.id} dời ${dx ? `x ${(dx * 100).toFixed(1)} cm` : ''}${dx && dz ? ', ' : ''}${dz ? `z ${(dz * 100).toFixed(1)} cm` : ''} cho sát tường.`);
+      moved.push(`Cầu thang ${s.id} dời ${dx ? `x ${(dx * 100).toFixed(1)} cm` : ''}${dx && dz ? ', ' : ''}${dz ? `z ${(dz * 100).toFixed(1)} cm` : ''} cho sát tường, hoặc để vậy (cạnh hở có lan can).`);
     }
-    const filled = fillHall(doc, plan, s);
-    if (filled) moved.push(filled);
   }
   return moved;
-}
-
-/**
- * A flight against one wall of its hall with a slot under 60 cm to the opposite wall fills the
- * hall: a straight flight gets wider, a U a wider well between its flights.
- */
-function fillHall(doc: ModelDoc, plan: FloorPlan, s: Stair): string | null {
-  if (s.shape !== 'straight' && s.shape !== 'u') return null;
-  const f = stairFootprint(s, stairRise(doc, plan)), acrossX = s.direction === 'n' || s.direction === 's';
-  const lo = acrossX ? f.x0 : f.z0, hi = acrossX ? f.x1 : f.z1, a0 = acrossX ? f.z0 : f.x0, a1 = acrossX ? f.z1 : f.x1;
-  let low = Infinity, high = Infinity;
-  for (const w of plan.walls) {
-    const parallel = acrossX ? Math.abs(w.b[0] - w.a[0]) < 1e-3 : Math.abs(w.b[1] - w.a[1]) < 1e-3;
-    if (!parallel) continue;
-    const c = acrossX ? w.a[0] : w.a[1], half = w.thickness / 2, w0 = Math.min(acrossX ? w.a[1] : w.a[0], acrossX ? w.b[1] : w.b[0]), w1 = Math.max(acrossX ? w.a[1] : w.a[0], acrossX ? w.b[1] : w.b[0]);
-    if (Math.min(w1, a1) - Math.max(w0, a0) < .3) continue;
-    if (c < (lo + hi) / 2) low = Math.min(low, lo - (c + half)); else high = Math.min(high, (c - half) - hi);
-  }
-  const slot = Math.abs(low) <= .02 && high > .02 && high < .6 ? high : Math.abs(high) <= .02 && low > .02 && low < .6 ? -low : 0;
-  if (!slot) return null;
-  const d = Math.abs(slot), sign = Math.sign(slot);
-  // The slot's side in the flight's own x (turn side positive).
-  const yaw = DIRS[s.direction], localX = acrossX ? Math.cos(yaw) : -Math.sin(yaw), towardTurn = sign * localX * (s.turn === 'left' ? -1 : 1) > 0;
-  const shift = (v: number) => { if (acrossX) s.x = r3(s.x + v); else s.z = r3(s.z + v); };
-  if (s.shape === 'straight') { s.width = r3(s.width + d); shift(sign * d / 2); return `Cầu thang ${s.id} rộng thêm ${(d * 100).toFixed(0)} cm cho kín buồng thang (rộng ${s.width} m).`; }
-  s.gap = r3((s.gap ?? .1) + d);
-  if (!towardTurn) shift(sign * d);
-  return `Cầu thang ${s.id}: khe giữa hai vế nới thêm ${(d * 100).toFixed(0)} cm (${s.gap} m) cho kín buồng thang.`;
 }
 
 /** Wells the storey needs: exactly over each flight of the storey below (where none is drawn yet). */
@@ -582,6 +538,7 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
   for (const w of plan.walls) {
     const len = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), h = w.height ?? plan.height;
     if (len < .2) { err(`Tường ${w.id} dài ${len.toFixed(2)} m — quá ngắn.`); continue; }
+    if (w.kind === 'railing' && w.openings.length) err(`Lan can ${w.id} có lỗ mở: lan can không có cửa — chừa khoảng trống bằng cách tách lan can thành hai đoạn.`);
     for (const o of w.openings) {
       if (o.at - o.width / 2 < -.01 || o.at + o.width / 2 > len + .01) err(`Tường ${w.id}: ${o.kind} ở ${o.at.toFixed(2)} m (rộng ${o.width}) vượt ra ngoài tường dài ${len.toFixed(2)} m.`);
       if (o.sill + o.height > h + .01) err(`Tường ${w.id}: ${o.kind} cao tới ${(o.sill + o.height).toFixed(2)} m, quá trần ${h.toFixed(2)} m.`);
@@ -618,7 +575,8 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
     ];
     for (const [side, pts] of edges) {
       const bare = pts.filter(([x, z]) => !covered(x, z) && !shared(x, z, k)).length;
-      if (bare > 3) warn(`Phòng "${r.name}" thiếu tường ${side} (${Math.round(bare / 9 * 100)}% cạnh không có tường hay phòng bên cạnh).`);
+      // Above the ground an open edge is a drop: it needs a wall or a railing (kind: railing). On the ground it may stay open.
+      if (bare > 3) (plan.elevation > 1 ? err : warn)(`Phòng "${r.name}" ${plan.elevation > 1 ? 'hở cạnh' : 'thiếu tường'} ${side} (${Math.round(bare / 9 * 100)}% cạnh không có tường, lan can hay phòng bên cạnh)${plan.elevation > 1 ? ' ở trên cao: người chơi rơi xuống — thêm tường hoặc lan can (walls kind railing / rooms open)' : ''}.`);
     }
   });
   // Reachability through doors (and open edges between rooms).
@@ -664,9 +622,8 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
     const probs = stairProblems(doc, plan, s);
     if (probs.includes('foot')) err(`Chân cầu thang ${s.id} (${f.foot.map((v) => v.toFixed(1)).join(', ')}) sát tường hoặc ngoài phòng: không bước lên được — xoay hướng (direction) cho chân thang quay ra phòng.`);
     if (!up && probs.includes('top')) err(`Đầu trên cầu thang ${s.id} (${f.top.map((v) => v.toFixed(1)).join(', ')}) đâm vào tường hoặc ra ngoài mặt bằng: cầu thang bị ngược — xoay hướng (direction) hoặc chiều quay (turn).`);
-    if (probs.includes('flush')) err(`Cầu thang ${s.id} đứng giữa phòng, không sát tường nào${s.shape === 'straight' ? ' (thang thẳng phải có một cạnh dài sát tường)' : ''}: dời cho một cạnh áp vào tường buồng thang.`);
     if (probs.includes('door')) err(`Cửa ở tường ${doorsOnFlight(plan, f).join(', ')} mở ra trùng cầu thang ${s.id}: cánh cửa và lối bước qua cửa cần ≥ 0.5 m sàn trống — dời cửa hoặc cầu thang.`);
-    if (probs.includes('approach')) err(`Bậc đầu cầu thang ${s.id} quay lưng với lối vào buồng thang (chân thang ${f.foot.map((v) => v.toFixed(1)).join(', ')}): xoay hướng (direction) để bậc đầu nhìn ra cửa/lối tiếp cận.`);
+    if (probs.includes('approach')) info(`Bậc đầu cầu thang ${s.id} quay lưng với lối vào buồng thang (chân thang ${f.foot.map((v) => v.toFixed(1)).join(', ')}): xoay hướng (direction) để bậc đầu nhìn ra cửa/lối tiếp cận.`);
     for (const m of stairDesignProblems(doc, plan, s)) err(`Cầu thang ${s.id}: ${m}.`);
     if (!up) info(`Cầu thang ${s.id} lên tầng ${plan.level + 1} chưa có bản vẽ.`);
     else {
@@ -686,7 +643,6 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
       if (Math.max(...over) > .06) err(`Giếng thang [${v.x0.toFixed(2)}, ${v.z0.toFixed(2)}] → [${v.x1.toFixed(2)}, ${v.z1.toFixed(2)}] rộng hơn cầu thang ${s.id} (khe hở tới ${(Math.max(...over) * 100).toFixed(0)} cm): sửa đúng bằng [${f.x0.toFixed(2)}, ${f.z0.toFixed(2)}] → [${f.x1.toFixed(2)}, ${f.z1.toFixed(2)}].`);
     }
   }
-  for (const m of stairHallProblems(plan)) err(m);
   // Two flights never share the floor.
   for (let i = 0; i < plan.stairs.length; i++) for (let j = i + 1; j < plan.stairs.length; j++) {
     const a = plan.stairs[i]!, b = plan.stairs[j]!, o = overlap(stairFootprint(a, stairRise(doc, plan)), stairFootprint(b, stairRise(doc, plan)));
@@ -709,13 +665,13 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
         if (Math.min(hi, f.z1) - Math.max(lo, f.z0) < .3) continue;
         const gap = c < cx ? f.x0 - (c + half) : (c - half) - f.x1;
         if (gap < -.02 && (c < cx ? c - half < f.x0 : c + half > f.x1)) err(`Cầu thang ${s.id} lấn ${(-gap * 100).toFixed(0)} cm vào tường ${w.id}: dời x của cầu thang ${c < cx ? '+' : '−'}${(-gap).toFixed(2)} m.`);
-        else if (gap > .02 && gap < .6) err(`Khe hở ${(gap * 100).toFixed(0)} cm giữa cầu thang ${s.id} và tường ${w.id}: dời x của cầu thang ${c < cx ? '−' : '+'}${gap.toFixed(2)} m (tới ${(s.x + (c < cx ? -gap : gap)).toFixed(2)}) cho sát tường.`);
+        else if (gap > .02 && gap < .6) info(`Khe hở ${(gap * 100).toFixed(0)} cm giữa cầu thang ${s.id} và tường ${w.id}: dời x của cầu thang ${c < cx ? '−' : '+'}${gap.toFixed(2)} m (tới ${(s.x + (c < cx ? -gap : gap)).toFixed(2)}) cho sát tường, hoặc để vậy (cạnh hở có lan can).`);
       } else {
         const c = w.a[1], lo = Math.min(w.a[0], w.b[0]), hi = Math.max(w.a[0], w.b[0]);
         if (Math.min(hi, f.x1) - Math.max(lo, f.x0) < .3) continue;
         const gap = c < cz ? f.z0 - (c + half) : (c - half) - f.z1;
         if (gap < -.02 && (c < cz ? c - half < f.z0 : c + half > f.z1)) err(`Cầu thang ${s.id} lấn ${(-gap * 100).toFixed(0)} cm vào tường ${w.id}: dời z của cầu thang ${c < cz ? '+' : '−'}${(-gap).toFixed(2)} m.`);
-        else if (gap > .02 && gap < .6) err(`Khe hở ${(gap * 100).toFixed(0)} cm giữa cầu thang ${s.id} và tường ${w.id}: dời z của cầu thang ${c < cz ? '−' : '+'}${gap.toFixed(2)} m (tới ${(s.z + (c < cz ? -gap : gap)).toFixed(2)}) cho sát tường.`);
+        else if (gap > .02 && gap < .6) info(`Khe hở ${(gap * 100).toFixed(0)} cm giữa cầu thang ${s.id} và tường ${w.id}: dời z của cầu thang ${c < cz ? '−' : '+'}${gap.toFixed(2)} m (tới ${(s.z + (c < cz ? -gap : gap)).toFixed(2)}) cho sát tường, hoặc để vậy (cạnh hở có lan can).`);
       }
     }
   }
@@ -794,6 +750,7 @@ export function buildPlan(doc: ModelDoc, plan: FloorPlan): { group: string; part
     }
     const dx = w.b[0] - w.a[0], dz = w.b[1] - w.a[1], len = Math.hypot(dx, dz);
     if (len < .05) continue;
+    if (w.kind === 'railing') { guardRun(b, wallsG, w.a, w.b, e, stairRules(doc).guard, ensureMaterial(doc, w.material), ensureMaterial(doc, w.innerMaterial ?? w.material), 'Lan can'); continue; }
     const h = w.height ?? plan.height, base = w.exterior ? e - t : e, extra = w.exterior ? t : 0;
     const openings: Opening[] = w.openings.map((o) => ({ kind: o.kind, offset: o.at - len / 2, width: o.width, height: o.height, sill: o.sill + extra }));
     const wallId = b.wall(w.exterior ? 'Tường ngoài' : 'Vách', wallsG, len, h + extra, w.thickness, openings, ensureMaterial(doc, w.material),
@@ -805,7 +762,7 @@ export function buildPlan(doc: ModelDoc, plan: FloorPlan): { group: string; part
     const id = b.stairs(`Cầu thang ${s.id}`, g, s.width, rise, run, steps, ensureMaterial(doc, s.material), { position: [s.x, e, s.z], rotation: [0, DIRS[s.direction], 0] });
     const n = doc.nodes.find((x) => x.id === id);
     if (n && n.kind === 'stairs') Object.assign(n, {
-      shape: s.shape, style: s.style, ...(s.turn ? { turn: s.turn } : {}), railing: s.railing ?? true,
+      shape: s.shape, style: s.style, ...(s.turn ? { turn: s.turn } : {}), railing: s.railing ?? true, ...(s.railing !== false && s.shape !== 'spiral' ? { rails: railSides(doc, plan, s) } : {}),
       ...(s.landing && (s.shape === 'l' || s.shape === 'u') ? { landing: s.landing } : {}), ...(s.gap && s.shape === 'u' ? { gap: s.gap } : {}),
       ...(s.treadMaterial ? { treadMaterial: ensureMaterial(doc, s.treadMaterial) } : {}),
       ...(s.railMaterial ? { railMaterial: ensureMaterial(doc, s.railMaterial) } : {}),
@@ -818,21 +775,24 @@ export function buildPlan(doc: ModelDoc, plan: FloorPlan): { group: string; part
     const low = below(doc, plan), from = low?.stairs[0], rules = stairRules(doc);
     const m = ensureMaterial(doc, from?.railMaterial ?? from?.material ?? 'metal_steel'), hm = ensureMaterial(doc, from?.handrailMaterial ?? from?.railMaterial ?? from?.material ?? 'metal_steel');
     const gg = b.group('Lan can giếng thang', g, {}, { tags: ['well-guard'] });
-    for (const { a, b: c } of guards) {
-      const len = Math.hypot(c[0] - a[0], c[1] - a[1]), rot: [number, number, number] = [0, Math.atan2(-(c[1] - a[1]), c[0] - a[0]), 0];
-      const seg = b.group('Đoạn lan can', gg, { position: [(a[0] + c[0]) / 2, e, (a[1] + c[1]) / 2], rotation: rot });
-      b.box('Tay vịn', seg, [-len / 2, rules.guard - .05, -.03], [len / 2, rules.guard, .03], hm);
-      b.box('Thanh giữa', seg, [-len / 2, rules.guard / 2, -.015], [len / 2, rules.guard / 2 + .03, .015], m);
-      b.box('Gờ chân', seg, [-len / 2, 0, -.01], [len / 2, .1, .01], m);
-      const posts = Math.max(1, Math.ceil(len / 1));
-      for (let k = 0; k <= posts; k++) { const x = -len / 2 + len * k / posts; b.box('Trụ', seg, [x - .025, 0, -.025], [x + .025, rules.guard - .05, .025], m); }
-      // Balusters 11 cm apart: nobody slips through.
-      for (let x = -len / 2 + .11; x < len / 2 - .05; x += .11) b.box('Song', seg, [x - .008, .1, -.008], [x + .008, rules.guard / 2, .008], m, { collision: 'none' });
-      for (let x = -len / 2 + .11; x < len / 2 - .05; x += .11) b.box('Song', seg, [x - .008, rules.guard / 2 + .03, -.008], [x + .008, rules.guard - .05, .008], m, { collision: 'none' });
-    }
+    for (const { a, b: c } of guards) guardRun(b, gg, a, c, e, rules.guard, m, hm, 'Đoạn lan can');
   }
   plan.built = g;
   return { group: g, parts: doc.nodes.length - before };
+}
+
+/** A balustrade from a to c at floor level y: handrail, mid rail, kick plate, posts about every metre, balusters 11 cm apart. */
+function guardRun(b: DocBuilder, parent: string, a: [number, number], c: [number, number], y: number, height: number, m: string, hm: string, name: string): void {
+  const len = Math.hypot(c[0] - a[0], c[1] - a[1]), rot: [number, number, number] = [0, Math.atan2(-(c[1] - a[1]), c[0] - a[0]), 0];
+  const seg = b.group(name, parent, { position: [(a[0] + c[0]) / 2, y, (a[1] + c[1]) / 2], rotation: rot }, { tags: ['railing'] });
+  b.box('Tay vịn', seg, [-len / 2, height - .05, -.03], [len / 2, height, .03], hm);
+  b.box('Thanh giữa', seg, [-len / 2, height / 2, -.015], [len / 2, height / 2 + .03, .015], m);
+  b.box('Gờ chân', seg, [-len / 2, 0, -.01], [len / 2, .1, .01], m);
+  const posts = Math.max(1, Math.ceil(len / 1));
+  for (let k = 0; k <= posts; k++) { const x = -len / 2 + len * k / posts; b.box('Trụ', seg, [x - .025, 0, -.025], [x + .025, height - .05, .025], m); }
+  // Balusters 11 cm apart: nobody slips through.
+  for (let x = -len / 2 + .11; x < len / 2 - .05; x += .11) b.box('Song', seg, [x - .008, .1, -.008], [x + .008, height / 2, .008], m, { collision: 'none' });
+  for (let x = -len / 2 + .11; x < len / 2 - .05; x += .11) b.box('Song', seg, [x - .008, height / 2 + .03, -.008], [x + .008, height - .05, .008], m, { collision: 'none' });
 }
 
 /** Runs along a wall (local x, centred) minus the openings that reach the floor. */

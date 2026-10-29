@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
-import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type ModelDoc, type ModelNode } from './doc';
-import { buildPlan, checkPlan, designStairs, fitStairs, planHash, planSummary, reviewStairs, snapPlan, stairRules, verifyBuilt, wellsFor } from './plans';
+import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type FloorPlan, type ModelDoc, type ModelNode } from './doc';
+import { buildPlan, checkPlan, designStairs, fitStairs, planHash, planSummary, railSides, reviewStairs, snapPlan, stairFootprint, stairRise, stairRules, verifyBuilt, wellsFor } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
 import { ROOM_TYPES, generateHouse } from './house';
 import { searchKnowledge } from './knowledge';
-import { buildRoof, openLinks, placeEntrance, placeWindows, roomsFromBays, roofCovers, snapSeams, wallsFromRooms } from './procedural';
+import { renderViews, type ViewImage, type ViewName } from './render';
+import { buildRoof, openLinks, placeEntrance, placeWindows, removeWallBetween, roomsFromBays, roofCovers, snapSeams, wallsFromRooms } from './procedural';
 import { MATERIAL_PRESETS, materialFromPreset, matchPreset } from './materials';
 import { Random } from './noise';
 import { materialTextures } from './textures';
@@ -34,6 +35,8 @@ export interface ToolHost {
   requestPublish?: (doc: ModelDoc, options: { lotClass?: string; replaceAsset?: number; note: string }) => Promise<{ request: string }>;
   /** Optional external research (documentation search). */
   research?: (query: string) => Promise<string[]>;
+  /** Shows rendered views to the designer (attached to its next turn when the model can see images). Returns whether they will be seen. */
+  showViews?: (views: ViewImage[]) => boolean;
   /** The AI designs every building itself: the whole-house generator is not offered. */
   designOnly?: boolean;
   /** Real texture sets: a PBR library to search and download, and AI painting. */
@@ -391,14 +394,14 @@ export const TOOLS: ToolDefinition<never>[] = [
     description: [
       'Vẽ (hoặc vẽ lại) bản vẽ mặt bằng một tầng TRƯỚC khi dựng; bản vẽ hiện ngay trong khung 3D ở cao độ của tầng. Trả về phần kiểm tra của kiến trúc sư: phòng chồng nhau/thiếu tường, cửa không đi qua được, phòng không tới được, cầu thang không vừa/thiếu giếng thang, cao độ lệch. Sửa đến khi hết lỗi rồi build_floor.',
       'Toạ độ mặt bằng x, z (mét), y lên. level 0 = tầng trệt. elevation = cao độ mặt sàn hoàn thiện (mặc định: tầng dưới + chiều cao + sàn). height = sàn tới trần. slab = dày sàn.',
-      'rooms: [{id, name, type (living|bedroom|kitchen|bathroom|hall|stair|office|storage|shop|…), x0, z0, x1, z1, floorMaterial}] — phòng chữ L = nhiều hình chữ nhật cùng name.',
-      'walls: [{id, a:[x,z], b:[x,z], thickness, exterior, material, innerMaterial?, height?, openings:[{kind: door|window|arch|hole, at (m tính từ a tới tâm lỗ), width, height, sill}]}] — đường tim tường; tường ngoài tự quay mặt material ra ngoài.',
+      'rooms: [{id, name, type (living|bedroom|kitchen|bathroom|hall|corridor|balcony|terrace|stair|office|storage|shop|…), x0, z0, x1, z1, floorMaterial, open?: [n|s|e|w]}] — phòng chữ L = nhiều hình chữ nhật cùng name; open = cạnh để thoáng (n = −z, s = +z, w = −x, e = +x).',
+      'walls: [{id, a:[x,z], b:[x,z], thickness, exterior, material, innerMaterial?, height?, openings:[{kind: door|window|arch|hole, at (m tính từ a tới tâm lỗ), width, height, sill}]}] — đường tim tường; tường ngoài tự quay mặt material ra ngoài. kind: "railing" = lan can (không phải tường) cho cạnh hở: ban công, hành lang hở, sân thượng, mép sàn — không có lỗ mở.',
       'stairs: [{id, x, z (điểm giữa mép bậc đầu tiên), width, direction: n|s|e|w (hướng đi lên; s = +z, e = +x), shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, material, railing}] — số bậc và chiều dài tự tính theo chiều cao lên tầng trên (bậc ≤ 18 cm, mặt bậc 27 cm); kết quả trả về chỗ cầu thang chiếm và nơi lên tới.',
       'stairs còn nhận treadMaterial (mặt bậc), railMaterial (con tiện/trụ), handrailMaterial (tay vịn); material là kết cấu.',
-      'Cầu thang THIẾT KẾ RIÊNG cho công trình: width theo công năng (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), riser = chiều cao bậc tối đa (số bậc tự tính theo chiều cao tầng), tread = mặt bậc (2h + b ≈ 0.60–0.65 m), landing = chiều sâu chiếu nghỉ (≥ bề rộng vế), gap = khe giữa hai vế thang U (giếng thang hở, có lan can). Bỏ trống thì tự tính theo quy tắc của loại công trình. Một vế ≤ 18 bậc. Cầu thang đặt trong buồng thang / sảnh / hành lang (room type stair|hall|corridor), KHÔNG trong phòng chức năng; buồng thang thông ra hành lang/sảnh, không mở cửa thẳng vào phòng học/phòng ngủ.',
+      'Cầu thang THIẾT KẾ RIÊNG cho công trình: width theo công năng (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), riser = chiều cao bậc tối đa (số bậc tự tính theo chiều cao tầng), tread = mặt bậc (2h + b ≈ 0.60–0.65 m), landing = chiều sâu chiếu nghỉ (≥ bề rộng vế), gap = khe giữa hai vế thang U (giếng thang hở, có lan can). Bỏ trống thì tự tính theo quy tắc của loại công trình. Một vế ≤ 18 bậc. Vị trí, dạng, hướng là quyết định thiết kế của bạn: sát tường hay đứng tự do đều được — cạnh nào của vế thang không có tường sẽ tự có tay vịn; chỉ cần chân thang có chỗ bước lên, đầu thang ra sàn tầng trên, không tường cắt qua, cánh cửa không mở ra trên bậc.',
       'Quy trình bắt buộc: research → draw_floor_plan → đọc kiểm định (errors + stairApproval) → sửa, vẽ lại tới khi đạt → approve_floor_plan (tự đánh giá từng cầu thang) → build_floor → đọc verification.',
       'voids: [{x0, z0, x1, z1}] — lỗ sàn; để trống thì giếng thang được tự tính ĐÚNG khít cầu thang tầng dưới.',
-      'SINH HÌNH HỌC TỰ ĐỘNG (khuyên dùng, ít lỗi hơn tự viết toạ độ): grid: {cols: [{size} | {flex}], rows: [...], width?, depth?, x?, z?} = các đường lưới trục; phòng ghi cols: [i, j], rows: [k, l] (từ trục i tới j, k tới l) thay cho x0..z1 → phòng khít nhau không hở không chồng. Mép phòng lệch < 15 cm được gom về một trục. walls: "auto" (hoặc bỏ trống) → tường tự sinh trên mép phòng: mép một phòng = tường ngoài, mép chung = một vách; wallSpec: {exterior: {thickness, material, innerMaterial}, interior: {thickness, material}}. links: [{a, b, kind: door|open|arch, width}] (tên/id phòng) → cửa/lối mở trên đúng tường chung, tránh góc và chỗ nối tường; phòng nào chưa tới được sẽ tự nối vào hành lang/sảnh kề bên. entrance: tên phòng có cửa chính (tầng trệt). windows: "auto" hoặc {bay, width, height, sill} → cửa sổ chỉ trên tường ngoài, chia đều theo nhịp mặt đứng, cỡ theo loại phòng, thẳng hàng với cửa sổ tầng dưới, tránh cửa đi và góc.',
+      'SINH HÌNH HỌC TỰ ĐỘNG (tuỳ chọn, chỉ là công cụ — bố cục vẫn do bạn quyết): grid: {cols: [{size} | {flex}], rows: [...], width?, depth?, x?, z?} = các đường lưới trục; phòng ghi cols: [i, j], rows: [k, l] (từ trục i tới j, k tới l) thay cho x0..z1 → phòng khít nhau không hở không chồng. Mép phòng lệch < 15 cm được gom về một trục. walls: "auto" → tường sinh trên mép phòng: mép một phòng = tường ngoài, mép chung = một vách; cạnh open của phòng (và cạnh ngoài của ban công/sân thượng) KHÔNG xây tường: giữa hai phòng để thông, ra ngoài trên cao thành lan can; wallSpec: {exterior: {thickness, material, innerMaterial}, interior: {thickness, material}, railing: {material, handrail}}. links: [{a, b, kind: door|open|arch, width}] (tên/id phòng) → cửa/lối mở trên đúng tường chung, tránh góc và chỗ nối tường; phòng nào chưa tới được sẽ tự nối vào hành lang/sảnh kề bên. entrance: tên phòng có cửa chính (tầng trệt). windows: "auto" hoặc {bay, width, height, sill} → cửa sổ chỉ trên tường ngoài, chia đều theo nhịp mặt đứng, cỡ theo loại phòng, thẳng hàng với cửa sổ tầng dưới, tránh cửa đi và góc.',
       'finishes: {plinth, plinthHeight, skirting, windowFrame, glass, sill, doorFrame, doorLeaf} — vật liệu từng bộ phận (chân tường, len chân tường, khung/kính/bậu cửa sổ, khuôn/cánh cửa); mỗi lỗ mở có thể ghi đè (frameMaterial, glassMaterial, leafMaterial, sillMaterial, leaf, open). ceilingMaterial = trần (mặt dưới sàn tầng này, tức trần tầng dưới).',
       'Mọi vật liệu PHẢI có trong bảng vật liệu (define_materials trước). Toạ độ được làm tròn theo lưới 5 cm (đơn vị đo chung của cả model): đo và đặt cho khít — cầu thang sát tường, giếng thang khít cầu thang; phần kiểm tra báo khe hở bằng cm và toạ độ cần dời.',
     ].join('\n'),
@@ -407,7 +410,7 @@ export const TOOLS: ToolDefinition<never>[] = [
       level: z.number().int().min(-5).max(80), name: z.string().min(1).max(80), elevation: z.number().finite().optional(), height: z.number().min(1.8).max(20).optional(), slab: z.number().min(.05).max(1).optional(),
       rooms: z.array(z.record(z.unknown())).max(60), walls: z.union([z.array(z.record(z.unknown())).max(200), z.literal('auto')]).optional(),
       grid: z.object({ cols: z.array(z.object({ size: z.number().min(.3).max(200).optional(), flex: z.number().min(.01).max(100).optional() }).strict()).min(1).max(40), rows: z.array(z.object({ size: z.number().min(.3).max(200).optional(), flex: z.number().min(.01).max(100).optional() }).strict()).min(1).max(40), width: z.number().min(1).max(400).optional(), depth: z.number().min(1).max(400).optional(), x: z.number().optional(), z: z.number().optional() }).strict().optional(),
-      wallSpec: z.object({ exterior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional(), innerMaterial: z.string().max(64).optional() }).strict().optional(), interior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional() }).strict().optional() }).strict().optional(),
+      wallSpec: z.object({ exterior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional(), innerMaterial: z.string().max(64).optional() }).strict().optional(), interior: z.object({ thickness: z.number().min(.05).max(1).optional(), material: z.string().max(64).optional() }).strict().optional(), railing: z.object({ material: z.string().max(64).optional(), handrail: z.string().max(64).optional() }).strict().optional() }).strict().optional(),
       links: z.array(z.object({ a: z.string().min(1).max(60), b: z.string().min(1).max(60), kind: z.enum(['door', 'open', 'arch']).optional(), width: z.number().min(.7).max(4).optional() }).strict()).max(80).optional(),
       entrance: z.string().max(60).optional(),
       windows: z.union([z.literal('auto'), z.object({ bay: z.number().min(1).max(12).optional(), width: z.number().min(.4).max(6).optional(), height: z.number().min(.3).max(4).optional(), sill: z.number().min(0).max(3).optional() }).strict()]).optional(),
@@ -424,7 +427,8 @@ export const TOOLS: ToolDefinition<never>[] = [
       // Rooms from the bays of a grid, their edges on shared seams; walls from the rooms when not drawn.
       const generated: string[] = [];
       let rooms = a.grid ? roomsFromBays(a.rooms, a.grid) : a.rooms;
-      const auto = a.walls === 'auto' || !a.walls?.length;
+      // Walls are generated only when asked for: the designer may leave edges open (a pavilion, a gallery, a balcony).
+      const auto = a.walls === 'auto';
       if (rooms.every((r) => [r.x0, r.z0, r.x1, r.z1].every((v) => typeof v === 'number'))) {
         const seams = snapSeams(rooms as Array<{ x0: number; z0: number; x1: number; z1: number }>);
         if (seams.moved) generated.push(`${seams.moved} phòng được gom mép về chung trục.`);
@@ -434,7 +438,7 @@ export const TOOLS: ToolDefinition<never>[] = [
       if (auto) {
         const typed = planSchema.shape.rooms.safeParse(rooms);
         if (!typed.success) throw new Error(`Phòng sai cấu trúc: ${typed.error.issues.slice(0, 4).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
-        walls = wallsFromRooms(typed.data, a.wallSpec ?? {}) as unknown as Array<Record<string, unknown>>;
+        walls = wallsFromRooms(typed.data, a.wallSpec ?? {}, { ground: elevation < 1 }) as unknown as Array<Record<string, unknown>>;
         generated.push(`${walls.length} tường sinh từ mép phòng (${walls.filter((w) => w.exterior).length} tường ngoài).`);
       }
       const parsed = planSchema.safeParse({
@@ -449,14 +453,16 @@ export const TOOLS: ToolDefinition<never>[] = [
       s.doc.plans = [...plans.filter((p) => p.level !== a.level), plan].sort((x, y) => x.level - y.level);
       // Doors from the links (and to every room left unreachable), the way in, before the stairs are placed round them.
       const unreached: string[] = [];
+      // Generated doors keep off the flights the designer drew.
+      const avoid = (() => { const rise = stairRise(s.doc, plan); return plan.stairs.map((st) => stairFootprint(st, rise)); })();
       if (a.links?.length || auto) {
         const stairRoom = low?.stairs.length ? plan.rooms.find((r) => /stair|thang/i.test(`${r.type} ${r.name}`))?.name : undefined;
-        const r = openLinks(plan, a.links ?? [], { start: a.entrance ?? stairRoom });
+        const r = openLinks(plan, a.links ?? [], { start: a.entrance ?? stairRoom, avoid });
         if (r.added.length) generated.push(`Lối mở: ${r.added.join(', ')}.`);
         unreached.push(...r.problems);
       }
-      if (a.level === 0 && (a.entrance || auto)) {
-        const p = placeEntrance(plan, a.entrance);
+      if (a.level === 0 && a.entrance) {
+        const p = placeEntrance(plan, a.entrance, 1, avoid);
         if (p) unreached.push(p);
       }
       // Each flight designed for this building (riser, tread, landing), then placed in its hall.
@@ -510,6 +516,50 @@ export const TOOLS: ToolDefinition<never>[] = [
     },
   }),
   defineTool({
+    name: 'edit_floor_plan', permission: 'edit',
+    description: [
+      'SỬA CÓ MỤC TIÊU bản vẽ đã có của một tầng (thay vì vẽ lại cả tầng): mỗi thao tác nhắm đúng một đối tượng theo id (xem read_floor_plan). Sau khi sửa: kiểm định lại như draw_floor_plan và trả về TRƯỚC/SAU (tường, lỗ mở, phòng, cầu thang nào đổi). Tầng đã dựng: approve_floor_plan rồi build_floor để model, collision cập nhật theo.',
+      'ops: remove_wall {id} | remove_wall_between {a, b} (bỏ tường chung của hai phòng, giữ phần tường còn lại) | set_wall {id, …trường mới} | add_wall {wall} | add_opening {wall, kind, at, width, height, sill} | remove_opening {wall, index} | set_room {id, …} | add_room {room} | remove_room {id} | set_stair {id, …} | add_stair {stair} | remove_stair {id} | set_storey {name?, height?, elevation?}.',
+    ].join('\n'),
+    params: { level: 'int', ops: '[{op, …}]' },
+    schema: z.object({ level: z.number().int(), ops: z.array(z.record(z.unknown())).min(1).max(30) }).strict(),
+    run: async (a, s) => {
+      const old = s.doc.plans?.find((p) => p.level === a.level);
+      if (!old) throw new Error(`Chưa có bản vẽ tầng ${a.level}: draw_floor_plan trước.`);
+      const before = structuredClone(old);
+      const p = structuredClone(old) as FloorPlan & { [k: string]: unknown };
+      const byId = <T extends { id: string }>(list: T[], id: unknown, what: string): T => {
+        const x = list.find((v) => v.id === id);
+        if (!x) throw new Error(`Không có ${what} id "${String(id)}" trên tầng ${a.level} (có: ${list.map((v) => v.id).slice(0, 30).join(', ')}).`);
+        return x;
+      };
+      const done: string[] = [];
+      for (const raw of a.ops) {
+        const { op, ...o } = raw as { op?: string } & Record<string, unknown>;
+        switch (op) {
+          case 'remove_wall': { const w = byId(p.walls, o.id, 'tường'); p.walls = p.walls.filter((x) => x !== w); done.push(`bỏ tường ${w.id}`); break; }
+          case 'remove_wall_between': { const r = removeWallBetween(p, String(o.a), String(o.b)); done.push(`bỏ tường giữa ${String(o.a)} và ${String(o.b)}: ${r}`); break; }
+          case 'set_wall': { const { id, ...f } = o; Object.assign(byId(p.walls, id, 'tường'), f); done.push(`sửa tường ${String(id)}`); break; }
+          case 'add_wall': { const w = o.wall as FloorPlan['walls'][number]; p.walls.push({ ...w, openings: w.openings ?? [] }); done.push(`thêm tường ${w?.id}`); break; }
+          case 'add_opening': { const { wall, ...f } = o; byId(p.walls, wall, 'tường').openings.push({ sill: f.kind === 'window' ? .9 : 0, ...f } as never); done.push(`thêm ${String(f.kind)} trên tường ${String(wall)}`); break; }
+          case 'remove_opening': { const w = byId(p.walls, o.wall, 'tường'), i = Number(o.index); if (!w.openings[i]) throw new Error(`Tường ${w.id} không có lỗ mở số ${i} (có ${w.openings.length}).`); w.openings.splice(i, 1); done.push(`bỏ lỗ mở ${i} của tường ${w.id}`); break; }
+          case 'set_room': { const { id, ...f } = o; Object.assign(byId(p.rooms, id, 'phòng'), f); done.push(`sửa phòng ${String(id)}`); break; }
+          case 'add_room': { p.rooms.push(o.room as never); done.push('thêm phòng'); break; }
+          case 'remove_room': { const r = byId(p.rooms, o.id, 'phòng'); p.rooms = p.rooms.filter((x) => x !== r); done.push(`bỏ phòng ${r.id}`); break; }
+          case 'set_stair': { const { id, ...f } = o; Object.assign(byId(p.stairs, id, 'cầu thang'), f); done.push(`sửa cầu thang ${String(id)}`); break; }
+          case 'add_stair': { p.stairs.push(o.stair as never); done.push('thêm cầu thang'); break; }
+          case 'remove_stair': { const st = byId(p.stairs, o.id, 'cầu thang'); p.stairs = p.stairs.filter((x) => x !== st); done.push(`bỏ cầu thang ${st.id}`); break; }
+          case 'set_storey': { for (const k of ['name', 'height', 'elevation'] as const) if (o[k] !== undefined) (p as Record<string, unknown>)[k] = o[k]; done.push('sửa thông số tầng'); break; }
+          default: throw new Error(`Thao tác không có: ${String(op)}.`);
+        }
+      }
+      const { built: _b, approved: _a, level: _l, ...rest } = p;
+      const r = await toolByName('draw_floor_plan')!.run({ level: a.level, ...rest, rooms: p.rooms, walls: p.walls, stairs: p.stairs, voids: p.voids } as never, s) as Record<string, unknown>;
+      const after = s.doc.plans!.find((x) => x.level === a.level)!;
+      return { done, diff: planDiff(before, after), ...r, next: before.built ? `Bản vẽ đã đổi: approve_floor_plan {level: ${a.level}} rồi build_floor để model và collision cập nhật.` : r.next };
+    },
+  }),
+  defineTool({
     name: 'approve_floor_plan', permission: 'edit',
     description: [
       'Phê duyệt bản vẽ một tầng trước khi dựng. Chỉ duyệt được khi kiểm định tự động KHÔNG còn lỗi nào (mặt bằng, tường, cửa, buồng thang, kích thước bậc, khoảng trống đầu, giếng thang, kết nối tầng).',
@@ -558,11 +608,31 @@ export const TOOLS: ToolDefinition<never>[] = [
       // Built only from the drawing that was approved, unchanged since (nor the storeys around it).
       if (!plan.approved) throw new Error(`Bản vẽ tầng ${a.level} chưa được phê duyệt: approve_floor_plan trước (tự đánh giá từng cầu thang).`);
       if (plan.approved.hash !== planHash(s.doc, plan)) throw new Error(`Bản vẽ tầng ${a.level} (hoặc cao độ, cầu thang tầng kề) đã đổi sau khi duyệt: kiểm tra và approve_floor_plan lại.`);
+      const was = plan.built ? storeyParts(s.doc, plan.built) : {};
       const r = buildPlan(s.doc, plan);
       s.changed = true;
-      // The model against its drawing.
-      const deviations = verifyBuilt(s.doc, plan);
-      return { level: a.level, group: r.group, parts: r.parts, verification: deviations.length ? { ok: false, deviations } : { ok: true }, next: deviations.length ? 'Model lệch bản vẽ: sửa bản vẽ/duyệt lại rồi build_floor lại.' : 'Đã đối chiếu khớp bản vẽ. Vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
+      // The model against its drawing, and what the rebuild really changed.
+      const deviations = verifyBuilt(s.doc, plan), now = storeyParts(s.doc, r.group);
+      const changes = Object.fromEntries([...new Set([...Object.keys(was), ...Object.keys(now)])].filter((k) => was[k] !== now[k]).map((k) => [k, `${was[k] ?? 0} → ${now[k] ?? 0}`]));
+      return { level: a.level, group: r.group, parts: r.parts, changes: Object.keys(changes).length ? changes : (Object.keys(was).length ? 'không đổi số phần nào (kiểm tra lại thao tác sửa)' : 'dựng lần đầu'), verification: deviations.length ? { ok: false, deviations } : { ok: true }, next: deviations.length ? 'Model lệch bản vẽ: sửa bản vẽ/duyệt lại rồi build_floor lại.' : 'Đã đối chiếu khớp bản vẽ. Vẽ tầng tiếp theo (hoặc mái, nội thất, texture).' };
+    },
+  }),
+  defineTool({
+    name: 'render_views', permission: 'read',
+    description: 'Chụp ảnh model ĐÃ DỰNG từ nhiều góc (front, right, back, left, top, iso — chiếu thẳng, tô theo màu vật liệu) để tự xem kết quả thật: tường chắn lối, lan can thiếu, mái hở, phần lơ lửng, cầu thang sai hướng. Ảnh được gửi kèm lượt sau (nếu model xem được ảnh); luôn kèm số liệu hình học của từng tầng để đối chiếu. Dùng sau build_floor / build_roof / sửa.',
+    params: { views: '[front|right|back|left|top|iso] (mặc định đủ 6)', size: 'px (mặc định 384)' },
+    schema: z.object({ views: z.array(z.enum(['front', 'right', 'back', 'left', 'top', 'iso'])).min(1).max(6).optional(), size: z.number().int().min(64).max(768).optional() }).strict(),
+    run: (a, s) => {
+      const views = renderViews(s.doc, (a.views ?? ['front', 'right', 'back', 'left', 'top', 'iso']) as ViewName[], a.size ?? 384);
+      const seen = s.host.showViews?.(views) ?? false;
+      // The geometry beside the pictures: each storey against its drawing, the open sides of every flight, roof cover.
+      const storeys = (s.doc.plans ?? []).map((p) => ({
+        level: p.level, built: !!p.built, deviations: p.built ? verifyBuilt(s.doc, p) : [],
+        errors: checkPlan(s.doc, p).filter((i) => i.level === 'error').map((i) => i.message).slice(0, 6),
+        stairs: p.stairs.map((st) => ({ id: st.id, handrails: railSides(s.doc, p, st).map((r) => (r[0] && r[1] ? 'hai bên' : r[0] || r[1] ? 'một bên' : 'sát tường')) })),
+        railings: p.walls.filter((w) => w.kind === 'railing').length,
+      }));
+      return { views: views.map((v) => ({ view: v.view, coverage: +v.coverage.toFixed(3) })), images: seen ? 'đã gửi kèm lượt sau' : 'model hiện tại không xem được ảnh — đánh giá bằng số liệu hình học', empty: views.every((v) => v.coverage === 0), storeys, roof: roofCovers(s.doc) };
     },
   }),
   defineTool({
@@ -781,6 +851,30 @@ export async function runTool(name: string, args: unknown, state: ToolState): Pr
  * Fields a drawing may leave out: openings (none), each opening's sill (doors 0, windows 0.9 m)
  * and whether a wall is exterior (no room on one of its sides).
  */
+/** What a storey group holds, by part: walls, railings, slabs, stairs, openings. */
+function storeyParts(doc: ModelDoc, group: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of subtree(doc, group)) {
+    const k = n.kind === 'group' ? (n.tags?.includes('railing') ? 'railing' : null) : n.kind;
+    if (k) out[k] = (out[k] ?? 0) + 1;
+    if (n.kind === 'wall') out.opening = (out.opening ?? 0) + n.openings.length;
+  }
+  return out;
+}
+
+/** A drawing before and after an edit: which walls, openings, rooms and flights changed. */
+function planDiff(a: FloorPlan, b: FloorPlan) {
+  const ids = <T extends { id: string }>(x: T[]) => new Set(x.map((v) => v.id));
+  const key = (w: FloorPlan['walls'][number]) => JSON.stringify([w.a, w.b, w.kind ?? 'wall', w.thickness, w.material, w.openings.map((o) => [o.kind, o.at, o.width])]);
+  const diff = <T extends { id: string }>(x: T[], y: T[], k: (v: T) => string) => {
+    const ax = ids(x), by = ids(y), old = new Map(x.map((v) => [v.id, k(v)]));
+    return { removed: [...ax].filter((i) => !by.has(i)), added: [...by].filter((i) => !ax.has(i)), changed: y.filter((v) => old.has(v.id) && old.get(v.id) !== k(v)).map((v) => v.id) };
+  };
+  const out = { walls: diff(a.walls, b.walls, key), rooms: diff(a.rooms, b.rooms, (r) => JSON.stringify(r)), stairs: diff(a.stairs, b.stairs, (r) => JSON.stringify(r)) };
+  const changed = Object.values(out).some((d) => d.removed.length || d.added.length || d.changed.length);
+  return { ...out, changed };
+}
+
 function withPlanDefaults(rooms: Array<Record<string, unknown>>, walls: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
   const num = (v: unknown) => (typeof v === 'number' ? v : NaN);
   const inRoom = (x: number, z: number) => rooms.some((r) => {

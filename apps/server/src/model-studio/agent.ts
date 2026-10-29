@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import type { Logger } from 'pino';
-import { TOOLS, checkPlan, planHash, runTool, summarizeReport, validateDoc, verifyBuilt, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
-import { LlmError, parseJsonObject, type ChatMessage, type LlmClient } from './llm';
+import { TOOLS, checkPlan, encodePng, planHash, runTool, summarizeReport, validateDoc, verifyBuilt, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
+import { LlmError, parseJsonObject, type ChatMessage, type LlmClient, type WireMessage } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
 import type { TextureLibrary } from './textures';
@@ -54,11 +55,17 @@ const SYSTEM = (tools: string) => `Bạn là trợ lý dựng model 3D trong Mod
 
 Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong cách, cấu trúc, mục đích trong game; (2) tìm tài nguyên có sẵn (search_assets) và tra cứu khi cần (research); (3) lập kế hoạch; (4) dựng bằng tool; (5) inspect_scene / validate_asset để tự kiểm tra; (6) auto_fix và sửa tiếp các lỗi còn lại; (7) kết thúc với tóm tắt và các vấn đề còn tồn tại.
 
-CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ, không có mẫu dựng sẵn.
-(a) NGHIÊN CỨU TRƯỚC KHI THIẾT KẾ (bắt buộc — draw_floor_plan bị từ chối khi chưa research): tra cứu nhiều lượt (research, cụm từ ngắn tiếng Anh/Việt như "school floor plan", "school stair core", "U-shaped stair dimensions", "tiêu chuẩn cầu thang trường học", "stairwell balustrade height") về mặt bằng, mặt cắt, ảnh công trình thực tế và tiêu chuẩn kích thước của ĐÚNG loại công trình này để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
-Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
-(c) CẦU THANG thiết kế riêng cho công trình, không dùng một kích thước cho mọi nơi: tự xác định vị trí buồng thang, chiều cao tầng, hướng tiếp cận, bề rộng vế (nhà ở ≥ 0.9 m, công cộng/trường học ≥ 1.2 m), chiều cao bậc (riser), mặt bậc (tread, 2h + b ≈ 0.60–0.65 m), số bậc mỗi vế (≤ 18), chiếu nghỉ (landing ≥ bề rộng vế), chiều quay (turn), khe giữa hai vế U (gap) và giếng thang tầng trên. BUỒNG THANG là không gian giao thông đứng (room type stair), KHÔNG phải phòng chức năng: thông ra hành lang/sảnh bằng lối mở hoặc cửa, không mở cửa thẳng vào phòng học/phòng ngủ, không chia thành phòng kín; cầu thang không đặt trong phòng chức năng. Giếng thang tự có lan can ở các cạnh hở.
-(d) Làm TỪNG TẦNG TỪ DƯỚI LÊN theo chu trình THIẾT KẾ → KIỂM ĐỊNH → SỬA → PHÊ DUYỆT → DỰNG → ĐỐI CHIẾU: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → đọc errors và stairApproval (vị trí sát tường trong buồng thang, hướng lên, bậc đầu nhìn ra lối tiếp cận, chiếu nghỉ, vế tiếp theo, kích thước bậc, khoảng trống đầu, kết nối tầng); còn lỗi thì tự chỉnh và draw_floor_plan lại — KHÔNG được chuyển sang dựng chỉ vì đã vẽ xong → approve_floor_plan với căn cứ (basis) và tự đánh giá từng cầu thang; cần toạ độ/bản vẽ hiện tại thì read_floor_plan (không bao giờ hỏi admin); điều yêu cầu không nói rõ thì TỰ chọn giá trị hợp lý theo research/tiêu chuẩn và ghi vào assumptions → build_floor (chỉ dựng bản vẽ đã duyệt) → đọc verification (model đối chiếu bản vẽ); lệch thì sửa và dựng lại → rồi mới sang tầng kế. Vẽ bằng LƯỚI TRỤC thay vì tự viết toạ độ tường: grid {cols, rows} + phòng ghi cols/rows, walls "auto" + wallSpec (vật liệu tường ngoài/trong), links (cặp phòng nối cửa/lối mở), entrance (tầng trệt), windows "auto" — tường, cửa, cửa sổ được sinh đúng hình học (không hở, không đè góc, cửa sổ chỉ trên tường ngoài, thẳng hàng giữa các tầng); chỉ tự viết walls khi cần hình dạng đặc biệt. Mái: build_roof (lợp theo mặt bằng tầng trên cùng), không tự đặt roof bằng create_geometry. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
+CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN là kiến trúc sư — tự phân tích yêu cầu (công năng, số người, luồng đi lại, khí hậu, phong cách, trạng thái), tự lập phương án và tự quyết bố cục; không có mẫu dựng sẵn, hệ thống KHÔNG áp một kiểu cầu thang, hành lang, ban công hay cách chia phòng nào. Cùng một loại công trình có thể có nhiều phương án đúng (thang thẳng/L/U/xoắn, sát tường hay đứng tự do, hành lang trong hay hành lang hở một bên, ban công đua hay lô gia…) — chọn theo yêu cầu và khu đất, nói rõ lý do trong basis.
+(a) NGHIÊN CỨU (bắt buộc trước khi vẽ — draw_floor_plan bị từ chối khi chưa research): tra cứu mặt bằng, mặt cắt, tiêu chuẩn kích thước của đúng loại công trình để có căn cứ; dùng làm tham khảo, không phải khuôn. Trạng thái "bỏ hoang" = xây xong, đủ bộ phận, lâu không dùng (bụi, ố, bong sơn), không phải đổ nát.
+Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu và nơi dùng, đúng thực tế từng khu vực; mỗi mục có texture_query để tải texture thật.
+(c) LUẬT BẮT BUỘC (chỉ những điều này được kiểm tra; còn lại là quyết định thiết kế của bạn):
+ • Đơn vị: mét, trục x/z mặt bằng, y lên; lưới 5 cm; cao độ tầng = tầng dưới + chiều cao + sàn.
+ • Vật liệu: chỉ dùng vật liệu trong bảng vật liệu; PBR thật (metalness 0 hoặc 1).
+ • Đi lại được trong game: mọi phòng tới được qua cửa/lối mở (cửa ≥ 0.82×1.95 m, bậu 0); cầu thang leo được (bậc ≤ 18 cm nhà ở / 16.5 cm công cộng, 2h + b 58–67 cm, ≤ 18 bậc một vế, chiếu nghỉ ≥ bề rộng vế, bề rộng ≥ 0.9 / 1.2 m), chân thang có chỗ bước lên, đầu thang ra sàn tầng trên, khoảng trống đầu ≥ 2.0 / 2.1 m (giếng thang phủ các bậc); cánh cửa không mở ra trên bậc thang; không tường nào cắt qua cầu thang.
+ • An toàn: mọi cạnh hở trên cao (giếng thang, ban công, hành lang hở, sân thượng) phải có tường hoặc lan can — cạnh hở của cầu thang tự có tay vịn, giếng thang tự có lan can; ban công/hành lang hở: rooms open [n|s|e|w] hoặc walls kind "railing". Không tự xây tường kín ở nơi thiết kế để thoáng.
+ • Hình học: phòng không chồng nhau; lỗ mở không cắt vào chỗ nối tường; tường ngoài khép kín nơi cần kín; model có collision.
+(d) Làm TỪNG TẦNG TỪ DƯỚI LÊN: draw_floor_plan (phòng, tường + vật liệu, cửa, finishes, cầu thang do bạn thiết kế: vị trí, dạng, hướng, bề rộng, riser/tread/landing/gap) → đọc errors (chỉ là vi phạm luật ở (c)) và stairApproval → sửa đúng chỗ bằng edit_floor_plan (hoặc vẽ lại) tới khi hết lỗi → approve_floor_plan (basis: phương án và lý do; tự đánh giá từng cầu thang; assumptions cho điều yêu cầu không nói rõ — không bao giờ hỏi admin; cần toạ độ thì read_floor_plan) → build_floor → đọc verification và changes → render_views để tự xem model thật (lối đi bị chắn? cạnh hở thiếu lan can? phần lơ lửng?) → sửa nếu sai → sang tầng kế. Tuỳ chọn khi tiện: grid + phòng cols/rows, walls "auto" (+ wallSpec, cạnh open), links, entrance, windows "auto" để sinh hình học tự động — chỉ là công cụ, không bắt buộc. Mái: build_roof (theo mặt bằng tầng trên cùng) hoặc tự dựng nếu thiết kế khác. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
+YÊU CẦU SỬA (vd "bỏ bức tường giữa sảnh và phòng khách", "mở hành lang ra", "đổi cầu thang sang chữ L"): xác định đúng đối tượng (read_floor_plan / inspect_scene), sửa bằng thao tác có mục tiêu (edit_floor_plan: remove_wall_between, remove_wall, set_room open, set_stair…; hoặc edit_transform với phần không thuộc bản vẽ), duyệt và build_floor lại, rồi kiểm tra changes (trước → sau) và render_views — chỉ báo đã sửa khi số liệu cho thấy geometry thật sự đổi.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
 
@@ -82,6 +89,12 @@ function toolCatalog(): string {
 /** Results the agent edits from (a whole drawing) get the room for their coordinates. */
 const WIDE_RESULTS: Record<string, number> = { read_floor_plan: 12000, draw_floor_plan: 5000 };
 
+/** The last message with the rendered views attached as images. */
+function withImages(messages: ChatMessage[], urls: string[]): WireMessage[] {
+  const last = messages[messages.length - 1]!, text = last.content;
+  return [...messages.slice(0, -1), { role: last.role, content: [{ type: 'text', text: `${text}\n(Ảnh render của model ở lượt trước: ${urls.length} góc nhìn — kiểm tra lối đi, lan can, mái, phần lơ lửng.)` }, ...urls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))] }];
+}
+
 function clip(v: unknown, tool = ''): unknown {
   const s = JSON.stringify(v);
   if (s === undefined) return null;
@@ -92,6 +105,9 @@ function clip(v: unknown, tool = ''): unknown {
 export class ModelAgent {
   private readonly jobs = new Map<string, AgentJob>();
   private readonly controllers = new Map<string, AbortController>();
+  /** Rendered views waiting for the next turn (data URLs), and the jobs whose model cannot see images. */
+  private readonly views = new Map<string, string[]>();
+  private readonly noVision = new Set<string>();
 
   /** `llm`: the client, or where to get the current one (the key and model can change at runtime). */
   constructor(private readonly store: ModelStudioStore, private readonly llm: LlmClient | null | (() => LlmClient | null), private readonly catalog: () => CatalogAsset[], private readonly log: Logger, private readonly retryDelayMs = 2000, private readonly fallbackModels: () => string[] = () => []) {}
@@ -170,6 +186,16 @@ export class ModelAgent {
       // The language model designs every building itself; the built-in planner keeps the house generator.
       designOnly: job.mode === 'ai',
       research: (q: string) => this.research(q),
+      // Rendered views go with the next turn, when the model can look at images.
+      showViews: (views) => {
+        if (this.noVision.has(job.id)) return false;
+        this.views.set(job.id, views.slice(0, 6).map((v) => {
+          const rgba = new Uint8Array(v.width * v.height * 4);
+          for (let i = 0; i < v.width * v.height; i++) { rgba[i * 4] = v.rgb[i * 3]!; rgba[i * 4 + 1] = v.rgb[i * 3 + 1]!; rgba[i * 4 + 2] = v.rgb[i * 3 + 2]!; rgba[i * 4 + 3] = 255; }
+          return `data:image/png;base64,${Buffer.from(encodePng(v.width, v.height, rgba, (d) => deflateSync(d), false)).toString('base64')}`;
+        }));
+        return true;
+      },
       save: async (doc, note) => {
         const r = await this.store.save(job.projectId, doc, version.current, { snapshot: true, note: `AI: ${note}`.slice(0, 200), author: 'agent' });
         version.current = r.version;
@@ -281,7 +307,15 @@ export class ModelAgent {
       if (!llm) return stop('API key AI đã bị gỡ trong lúc chạy');
       let raw: string;
       try {
-        const r = await llm.complete(messages, { signal, maxTokens: 16000, ...call });
+        // Views rendered last turn: shown with this one only (never kept in the history).
+        const views = this.views.get(job.id);
+        this.views.delete(job.id);
+        const send = views?.length ? withImages(messages, views) : messages;
+        const r = await llm.complete(send, { signal, maxTokens: 16000, ...call }).catch((err: unknown) => {
+          // A model that cannot read images: go on without them, and stop offering them.
+          if (views?.length && err instanceof LlmError && err.status === 400) { this.noVision.add(job.id); this.step(job, 'info', 'Model AI không nhận ảnh: đánh giá bằng số liệu hình học.'); return llm.complete(messages, { signal, maxTokens: 16000, ...call }); }
+          throw err;
+        });
         raw = r.text;
         job.usage.turns++;
         if (r.usage) { job.usage.prompt += r.usage.prompt; job.usage.completion += r.usage.completion; job.usage.total += r.usage.total; }

@@ -103,42 +103,57 @@ export function snapSeams<T extends Rect>(rooms: T[], tol = .15): { rooms: T[]; 
 // ---------------------------------------------------------------------------------------------
 // Walls from rooms
 
-export type WallSpec = { exterior?: { thickness?: number; material?: string; innerMaterial?: string }; interior?: { thickness?: number; material?: string } };
+export type WallSpec = { exterior?: { thickness?: number; material?: string; innerMaterial?: string }; interior?: { thickness?: number; material?: string }; railing?: { material?: string; handrail?: string } };
+
+/** Rooms open to the air on their outer edges (a railing, not a wall, where they drop away). */
+export const OPEN_AIR = /balcony|terrace|veranda|loggia|deck|porch|roof ?garden|ban công|sân thượng|hiên|lô gia/i;
 
 /**
  * Every room edge as a wall centre line: an edge one room owns is exterior, an edge two rooms
  * share is one partition, pieces of the same room (an L) get none. Runs with the same owners on
  * one line are merged. Three rooms on one stretch of line means overlapping rooms: refused.
+ * Edges the designer left open (a room's `open` sides, the outer edges of a balcony or terrace)
+ * get no wall: between two rooms nothing, on the outside a railing — or nothing on the ground.
  */
-export function wallsFromRooms(rooms: Room[], spec: WallSpec = {}): Wall[] {
+export function wallsFromRooms(rooms: Room[], spec: WallSpec = {}, o: { ground?: boolean } = {}): Wall[] {
   const ext = { thickness: spec.exterior?.thickness ?? .25, material: spec.exterior?.material ?? 'brick_red', innerMaterial: spec.exterior?.innerMaterial };
   const int = { thickness: spec.interior?.thickness ?? .12, material: spec.interior?.material ?? 'plaster_white' };
-  const lines = new Map<string, { horizontal: boolean; at: number; spans: Array<[number, number, string]> }>();
-  const add = (horizontal: boolean, at: number, lo: number, hi: number, owner: string) => {
+  const rail = { material: spec.railing?.material ?? 'metal_steel', handrail: spec.railing?.handrail };
+  const lines = new Map<string, { horizontal: boolean; at: number; spans: Array<[number, number, string, boolean]> }>();
+  const add = (horizontal: boolean, at: number, lo: number, hi: number, owner: string, open: boolean) => {
     const k = `${horizontal ? 'h' : 'v'}:${at.toFixed(3)}`;
     const line = lines.get(k) ?? { horizontal, at, spans: [] };
-    line.spans.push([lo, hi, owner]);
+    line.spans.push([lo, hi, owner, open]);
     lines.set(k, line);
   };
   for (const raw of rooms) {
-    const r = norm(raw), owner = r.name;
-    add(true, r.z0, r.x0, r.x1, owner); add(true, r.z1, r.x0, r.x1, owner);
-    add(false, r.x0, r.z0, r.z1, owner); add(false, r.x1, r.z0, r.z1, owner);
+    const r = norm(raw), owner = r.name, sides = new Set(raw.open ?? []), air = OPEN_AIR.test(`${raw.type} ${raw.name}`);
+    add(true, r.z0, r.x0, r.x1, owner, sides.has('n')); add(true, r.z1, r.x0, r.x1, owner, sides.has('s'));
+    add(false, r.x0, r.z0, r.z1, owner, sides.has('w')); add(false, r.x1, r.z0, r.z1, owner, sides.has('e'));
+    // The outer edges of a balcony or terrace are open unless walls are asked for on them.
+    if (air && !raw.open) for (const line of lines.values()) for (const sp of line.spans) if (sp[2] === owner) sp[3] = true;
   }
+  const openAt = (spans: Array<[number, number, string, boolean]>, m: number) => spans.some(([a, b, , open]) => a < m && m < b && open);
+  const exteriorOpen = (spans: Array<[number, number, string, boolean]>, m: number, owners: string[]) => owners.length === 1 && openAt(spans, m);
   const out: Wall[] = [];
   const keys = [...lines.keys()].sort();
   for (const k of keys) {
     const { horizontal, at, spans } = lines.get(k)!;
     const cuts = [...new Set(spans.flatMap(([a, b]) => [a, b]))].sort((a, b) => a - b);
-    let run: { lo: number; hi: number; owners: string } | null = null;
+    let run: { lo: number; hi: number; owners: string; open: boolean } | null = null;
     const flush = () => {
       if (!run) return;
       const owners = run.owners.split('|');
-      const lo = run.lo, hi = run.hi;
+      const lo = run.lo, hi = run.hi, open = run.open;
       run = null;
       if (owners.length > 2) throw new Error(`Phòng chồng nhau trên đường ${horizontal ? 'z' : 'x'} = ${at}: ${owners.join(', ')}.`);
       if (owners.length === 2 && owners[0] === owners[1]) return;
       const exterior = owners.length === 1;
+      if (open) {
+        // Open between two rooms: nothing. Open to the outside: a railing above the ground, nothing on it.
+        if (exterior && !o.ground) out.push({ id: `r${out.length + 1}`, a: horizontal ? [lo, at] : [at, lo], b: horizontal ? [hi, at] : [at, hi], thickness: .1, exterior: true, kind: 'railing', material: rail.material, ...(rail.handrail ? { innerMaterial: rail.handrail } : {}), openings: [] });
+        return;
+      }
       out.push({
         id: `w${out.length + 1}`, a: horizontal ? [lo, at] : [at, lo], b: horizontal ? [hi, at] : [at, hi],
         thickness: exterior ? ext.thickness : int.thickness, exterior,
@@ -147,9 +162,11 @@ export function wallsFromRooms(rooms: Room[], spec: WallSpec = {}): Wall[] {
     };
     for (let i = 0; i + 1 < cuts.length; i++) {
       const m = (cuts[i]! + cuts[i + 1]!) / 2;
-      const owners = spans.filter(([a, b]) => a < m && m < b).map((s) => s[2]).sort().join('|');
-      if (run && run.owners === owners) run.hi = cuts[i + 1]!;
-      else { flush(); if (owners) run = { lo: cuts[i]!, hi: cuts[i + 1]!, owners }; }
+      const list = spans.filter(([a, b]) => a < m && m < b).map((s) => s[2]).sort(), owners = list.join('|');
+      // Shared edges are open when either side leaves them open; outer edges when the room does.
+      const open = list.length === 2 ? openAt(spans, m) : exteriorOpen(spans, m, list);
+      if (run && run.owners === owners && run.open === open) run.hi = cuts[i + 1]!;
+      else { flush(); if (owners) run = { lo: cuts[i]!, hi: cuts[i + 1]!, owners, open }; }
     }
     flush();
   }
@@ -219,6 +236,7 @@ const PRIVATE = /bed|ngủ/i;
 /** The walls that lie along an edge, with where the edge covers each (from `a`). */
 function wallsAlong(plan: FloorPlan, e: { a: [number, number]; b: [number, number] }): Array<{ wall: Wall; lo: number; hi: number }> {
   return plan.walls.flatMap((w) => {
+    if (w.kind === 'railing') return [];
     if (offLine(w, e.a) > w.thickness / 2 + EPS || offLine(w, e.b) > w.thickness / 2 + EPS) return [];
     const p = along(w, e.a), q = along(w, e.b), lo = Math.max(0, Math.min(p, q)), hi = Math.min(wallLen(w), Math.max(p, q));
     return hi - lo > .3 ? [{ wall: w, lo, hi }] : [];
@@ -230,11 +248,13 @@ function wallsAlong(plan: FloorPlan, e: { a: [number, number]; b: [number, numbe
  * it can, `margin` clear of the ends (corners, the walls that meet it) and 0.2 m clear of any
  * other opening. Returns where, or null when it does not fit.
  */
-export function placeOpening(w: Wall, lo: number, hi: number, width: number, prefer = (lo + hi) / 2, margin = .3, junctions?: Array<{ lo: number; hi: number }>): number | null {
+export function placeOpening(w: Wall, lo: number, hi: number, width: number, prefer = (lo + hi) / 2, margin = .3, junctions?: Array<{ lo: number; hi: number }>, avoid: Rect[] = []): number | null {
   const min = lo + margin + width / 2, max = hi - margin - width / 2;
   if (max < min - 1e-9) return null;
   const bands = junctions ?? [];
-  const free = (at: number) => w.openings.every((o) => Math.abs(o.at - at) >= (o.width + width) / 2 + .2) && bands.every((b) => at + width / 2 <= b.lo || at - width / 2 >= b.hi);
+  // Clear of other openings, of junctions, and of what the door would swing onto (stairs).
+  const clear = (at: number) => { const z = doorZone(w, { at, width }, .5); return avoid.every((r) => Math.min(z.x1, r.x1) - Math.max(z.x0, r.x0) <= .05 || Math.min(z.z1, r.z1) - Math.max(z.z0, r.z0) <= .05); };
+  const free = (at: number) => w.openings.every((o) => Math.abs(o.at - at) >= (o.width + width) / 2 + .2) && bands.every((b) => at + width / 2 <= b.lo || at - width / 2 >= b.hi) && clear(at);
   const start = Math.min(max, Math.max(min, prefer));
   for (let d = 0; d <= max - min + PLAN_GRID; d += PLAN_GRID) {
     for (const at of [start + d, start - d]) if (at >= min - 1e-9 && at <= max + 1e-9 && free(at)) return snap(at);
@@ -249,7 +269,7 @@ function roomsNamed(plan: FloorPlan, key: string): Room[] {
   return plan.rooms.filter((r) => r.name === name);
 }
 
-function linkOpening(plan: FloorPlan, link: Link, doorWidth: number): string | null {
+function linkOpening(plan: FloorPlan, link: Link, doorWidth: number, avoid: Rect[] = []): string | null {
   const as = roomsNamed(plan, link.a), bs = roomsNamed(plan, link.b);
   if (!as.length || !bs.length) return `Liên kết ${link.a}–${link.b}: không có phòng tên/id này.`;
   const edges = as.flatMap((a) => bs.map((b) => sharedEdge(a, b))).filter((e): e is NonNullable<typeof e> => !!e)
@@ -258,7 +278,7 @@ function linkOpening(plan: FloorPlan, link: Link, doorWidth: number): string | n
   const kind = link.kind ?? 'door';
   for (const e of edges) for (const { wall, lo, hi } of wallsAlong(plan, e)) {
     const width = kind === 'open' ? Math.max(doorWidth, Math.min(hi - lo - .4, 3)) : link.width ?? (kind === 'arch' ? Math.max(1.2, doorWidth) : doorWidth);
-    const at = placeOpening(wall, lo, hi, width, (lo + hi) / 2, .3, junctionBands(plan.walls, wall));
+    const at = placeOpening(wall, lo, hi, width, (lo + hi) / 2, .3, junctionBands(plan.walls, wall), avoid);
     if (at == null) continue;
     wall.openings.push(kind === 'door'
       ? { kind: 'door', at, width, height: 2.1, sill: 0 }
@@ -266,6 +286,28 @@ function linkOpening(plan: FloorPlan, link: Link, doorWidth: number): string | n
     return null;
   }
   return `${as[0]!.name}–${bs[0]!.name}: tường chung quá ngắn hoặc đã kín lỗ mở cho cửa ${doorWidth} m.`;
+}
+
+/**
+ * Takes out the wall between two rooms: only the stretch along their shared edge — what the wall
+ * runs on beyond it stays as its own pieces, with their openings. Returns what was done.
+ */
+export function removeWallBetween(plan: FloorPlan, a: string, b: string): string {
+  const as = roomsNamed(plan, a), bs = roomsNamed(plan, b);
+  if (!as.length || !bs.length) throw new Error(`Không có phòng ${!as.length ? a : b} (id hoặc tên).`);
+  const edges = as.flatMap((x) => bs.map((y) => sharedEdge(x, y))).filter((e): e is NonNullable<typeof e> => !!e);
+  if (!edges.length) throw new Error(`${as[0]!.name} và ${bs[0]!.name} không chung cạnh: không có tường chung để bỏ.`);
+  const out: string[] = [];
+  for (const e of edges) for (const { wall, lo, hi } of wallsAlong(plan, e)) {
+    const len = wallLen(wall), at = (t: number): [number, number] => [wall.a[0] + (wall.b[0] - wall.a[0]) * t / len, wall.a[1] + (wall.b[1] - wall.a[1]) * t / len];
+    const keep: Wall[] = [];
+    if (lo > .2) keep.push({ ...wall, id: `${wall.id}a`, b: at(lo), openings: wall.openings.filter((o) => o.at + o.width / 2 <= lo) });
+    if (len - hi > .2) keep.push({ ...wall, id: `${wall.id}b`, a: at(hi), openings: wall.openings.filter((o) => o.at - o.width / 2 >= hi).map((o) => ({ ...o, at: o.at - hi })) });
+    plan.walls.splice(plan.walls.indexOf(wall), 1, ...keep);
+    out.push(`tường ${wall.id} (${lo.toFixed(2)}–${hi.toFixed(2)} m)${keep.length ? ` còn lại ${keep.map((k) => k.id).join(', ')}` : ''}`);
+  }
+  if (!out.length) throw new Error(`Giữa ${as[0]!.name} và ${bs[0]!.name} đã không có tường.`);
+  return out.join('; ');
 }
 
 /** Whether a wall already has an opening between two rooms (a door the model drew itself). */
@@ -282,12 +324,12 @@ function linked(plan: FloorPlan, a: Room[], b: Room[]): boolean {
  * arrive): a room left out is joined to a reached neighbour — a circulation space first, never
  * one bedroom through another. Returns what could not be done.
  */
-export function openLinks(plan: FloorPlan, links: Link[], o: { start?: string; doorWidth?: number } = {}): { added: string[]; problems: string[] } {
-  const doorWidth = o.doorWidth ?? .9, added: string[] = [], problems: string[] = [];
+export function openLinks(plan: FloorPlan, links: Link[], o: { start?: string; doorWidth?: number; avoid?: Rect[] } = {}): { added: string[]; problems: string[] } {
+  const avoid = o.avoid ?? [], doorWidth = o.doorWidth ?? .9, added: string[] = [], problems: string[] = [];
   for (const l of links) {
     const as = roomsNamed(plan, l.a), bs = roomsNamed(plan, l.b);
     if (as.length && bs.length && linked(plan, as, bs)) continue;
-    const p = linkOpening(plan, l, doorWidth);
+    const p = linkOpening(plan, l, doorWidth, avoid);
     if (p) problems.push(p); else added.push(`${l.a}–${l.b}`);
   }
   const names = [...new Set(plan.rooms.map((r) => r.name))];
@@ -310,7 +352,7 @@ export function openLinks(plan: FloorPlan, links: Link[], o: { start?: string; d
         .filter((m) => roomsNamed(plan, n).some((a) => roomsNamed(plan, m).some((b) => sharedEdge(a, b))))
         .sort((p, q) => Number(CIRCULATION.test(typeOf(q))) - Number(CIRCULATION.test(typeOf(p))));
       for (const m of options) {
-        if (!linkOpening(plan, { a: m, b: n }, doorWidth)) { added.push(`${m}–${n} (nối để tới được)`); joined = true; break; }
+        if (!linkOpening(plan, { a: m, b: n }, doorWidth, avoid)) { added.push(`${m}–${n} (nối để tới được)`); joined = true; break; }
       }
       if (joined) break;
     }
@@ -323,13 +365,13 @@ export function openLinks(plan: FloorPlan, links: Link[], o: { start?: string; d
  * The way in: a door on the longest exterior wall of the entrance room (a hall, lobby or living
  * room when not named), unless the storey already has one.
  */
-export function placeEntrance(plan: FloorPlan, room?: string, width = 1): string | null {
+export function placeEntrance(plan: FloorPlan, room?: string, width = 1, avoid: Rect[] = []): string | null {
   if (plan.walls.some((w) => w.exterior && w.openings.some((o) => o.kind === 'door' || o.kind === 'arch'))) return null;
   const candidates = room ? roomsNamed(plan, room) : plan.rooms.filter((r) => /hall|lobby|foyer|entry|living|corridor|sảnh|phòng khách|hành lang/i.test(`${r.name} ${r.type}`));
   const walls = (candidates.length ? candidates : plan.rooms).flatMap((r) => exteriorRuns(plan, r).map((x) => ({ ...x, r })))
     .sort((p, q) => (q.hi - q.lo) - (p.hi - p.lo));
   for (const { wall, lo, hi } of walls) {
-    const at = placeOpening(wall, lo, hi, width, (lo + hi) / 2, .4, junctionBands(plan.walls, wall));
+    const at = placeOpening(wall, lo, hi, width, (lo + hi) / 2, .4, junctionBands(plan.walls, wall), avoid);
     if (at == null) continue;
     wall.openings.push({ kind: 'door', at, width, height: 2.2, sill: 0 });
     return null;
@@ -347,7 +389,7 @@ function exteriorRuns(plan: FloorPlan, r0: Room): Array<{ wall: Wall; lo: number
     { a: [r.x0, r.z0], b: [r.x1, r.z0] }, { a: [r.x0, r.z1], b: [r.x1, r.z1] },
     { a: [r.x0, r.z0], b: [r.x0, r.z1] }, { a: [r.x1, r.z0], b: [r.x1, r.z1] },
   ];
-  return edges.flatMap((e) => wallsAlong(plan, e).filter((x) => x.wall.exterior));
+  return edges.flatMap((e) => wallsAlong(plan, e).filter((x) => x.wall.exterior && x.wall.kind !== 'railing'));
 }
 
 /** Window size per room type: [width, height, sill]; null: none. */

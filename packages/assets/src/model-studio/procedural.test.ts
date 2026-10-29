@@ -81,6 +81,7 @@ describe('procedural layout: rooms → walls, doors, windows, roof', () => {
     }
     // Redraw the ground floor now the upper storey exists (its well and arrival are checked against it).
     expect(((await runTool('draw_floor_plan', storey(0), s)) as Drawn).ok).toBe(true);
+    expect(((await runTool('draw_floor_plan', storey(1), s)) as Drawn).ok).toBe(true);
     const [g, u] = s.doc.plans!;
     for (const p of [g!, u!]) {
       expect(checkPlan(s.doc, p).filter((i) => i.level === 'error')).toEqual([]);
