@@ -5,7 +5,7 @@ import { buildChunkCollision, createDefaultRegistry, glbTriangles, uploadedMapHi
 import { emptyDoc, exportModel, generateHouse, studioModelAsset, type CatalogAsset, type ModelDoc } from '@zion/assets/model-studio';
 import { CharacterController, CollisionWorld, createCharacterState } from '@zion/physics';
 import { CHUNK_SIZE, quantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type ChunkData } from '@zion/shared';
-import { ModelAgent } from './agent';
+import { ModelAgent, missingParts } from './agent';
 import { LlmClient, parseJsonObject } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
@@ -209,6 +209,18 @@ describe('model studio agent', () => {
     expect(done.summary).toBe('Đã dựng tầng trệt.');
     expect(done.steps.some((x) => x.kind === 'info' && x.text.startsWith('Chưa xong'))).toBe(true);
     expect(done.doc.plans![0]!.built).toBeTruthy();
+  });
+
+  it('knows a building is not finished after its first storey: storeys planned, stairs leading up, the roof', () => {
+    const doc = emptyDoc('Trường', 'building');
+    doc.plans = [{ level: 0, name: 'Trệt', elevation: 0, height: 3.3, slab: .15, rooms: [], walls: [], stairs: [{ id: 'st', x: 0, z: 0, width: 1.2, direction: 's', shape: 'u', style: 'solid', material: 'bt' }], voids: [], built: 'g0' }] as unknown as NonNullable<typeof doc.plans>;
+    const missing = missingParts(doc, ['Thiết kế ba dãy 3 tầng quanh sân']);
+    expect(missing.join(' ')).toMatch(/1\/3 tầng/);
+    expect(missing.join(' ')).toMatch(/dẫn lên/);
+    expect(missing.join(' ')).toMatch(/mái/);
+    doc.storeys = 1; doc.plans![0]!.stairs = [];
+    doc.nodes.push({ id: 'roof', name: 'Mái', kind: 'roof', style: 'flat', width: 8, depth: 6, rise: 0, overhang: .3, thickness: .2, parent: null, transform: { position: [0, 3.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } } as never);
+    expect(missingParts(doc, ['một tầng'])).toEqual([]);
   });
 
   it('parses JSON from fenced or wrapped answers', () => {

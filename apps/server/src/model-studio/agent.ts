@@ -25,7 +25,7 @@ import { webResearch } from './web-research';
  * job per project at a time. The agent cannot publish into the game or delete anything outside
  * the project: `export_asset` with publish only files a request the admin confirms in the Studio.
  */
-const MAX_TURNS = 80, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_PLAN_ROUNDS = 6, MAX_RESULT_CHARS = 5000;
+const MAX_TURNS = 80, MAX_ACTIONS = 8, MAX_FIX_ROUNDS = 3, MAX_PLAN_ROUNDS = 12, MAX_RESULT_CHARS = 5000;
 const MAX_TOKENS = 600_000, MAX_MS = 25 * 60_000, MAX_AI_FAILURES = 6, MAX_IDLE_TURNS = 3, MAX_REPEATS = 4;
 const JOB_TTL_MS = 60 * 60 * 1000;
 
@@ -50,7 +50,7 @@ Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong các
 
 CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN tự thiết kế toàn bộ, không có mẫu dựng sẵn.
 (a) HIỂU ĐÚNG ngữ cảnh: tra cứu (research, cụm từ ngắn tiếng Anh/Việt như "school building", "trường học", "stairs", "terrazzo") để biết loại công trình này thật sự bố trí thế nào (vd trường học: dãy phòng học dọc hành lang, buồng thang ở GIỮA và hai đầu dãy) và trạng thái (bỏ hoang = xây xong, đủ bộ phận, lâu không dùng: bụi, ố, bong sơn — không phải đổ nát).
-(b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
+Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu công trình dùng và nơi dùng — kết cấu, tường từng khu vực, sàn từng loại phòng, trần, mặt bậc, lan can, tay vịn, khung/kính/bậu cửa sổ, khuôn/cánh cửa, chân tường ngoài, len chân tường, mái, phụ kiện (gỗ, đá granite, terrazzo, gạch men, sơn nước, thép, inox, nhôm, kính, nhựa PVC, tôn…) — đúng thực tế từng khu vực và có biến thể tự nhiên giữa các khu (không phải một vật liệu cho mọi thứ). Mỗi mục có texture_query để tải texture thật.
 (c) Làm TỪNG TẦNG TỪ DƯỚI LÊN: draw_floor_plan (phòng, tường + vật liệu từng mặt, cửa, finishes cho mọi bộ phận, cầu thang với vật liệu kết cấu/mặt bậc/lan can/tay vịn riêng) → ĐO ĐẠC: đọc kiểm tra, sửa đến khi KHÔNG còn lỗi (khe hở cầu thang–tường, giếng thang khít, cửa, lối đi; toạ độ theo lưới 5 cm là đơn vị đo chung) → build_floor → rồi mới sang bản vẽ tầng kế. Bản vẽ hiện lên khung 3D, mỗi lượt một tầng. Cầu thang chọn dạng/kiểu hợp công trình, không lặp một kiểu. Sau các tầng: mái/tầng thượng, nội thất, bụi bẩn/phong hóa theo trạng thái.
 
 Đa dạng: kho game có rất nhiều model cùng loại khác màu/kiểu (search_assets gom theo nhóm). Khi đặt nhiều cây, bụi, ghế, bàn, xe, thùng, đá…, dùng NHIỀU biến thể khác nhau trong nhóm (ưu tiên model chưa dùng), đổi góc xoay và tỉ lệ; không đặt cùng một model lặp lại.
@@ -316,11 +316,13 @@ export class ModelAgent {
           return errors.length || !p.built ? [{ level: p.level, name: p.name, built: !!p.built, errors: errors.slice(0, 8) }] : [];
         });
         const nothingBuilt = job.mode === 'ai' && !(state.doc.plans ?? []).some((p) => p.built) && (state.doc.schedule?.length ?? 0) > 0;
-        if ((open.length || nothingBuilt) && planRounds < MAX_PLAN_ROUNDS) {
+        // What the design itself still calls for: the storeys it was planned with, the floor its stairs lead to, a roof.
+        const missing = job.mode === 'ai' ? missingParts(state.doc, [job.prompt, ...job.steps.filter((x) => x.kind === 'plan' || x.kind === 'thought').map((x) => x.text)]) : [];
+        if ((open.length || nothingBuilt || missing.length) && planRounds < MAX_PLAN_ROUNDS) {
           planRounds++;
-          this.step(job, 'info', `Chưa xong: ${open.length ? `${open.length} bản vẽ còn lỗi hoặc chưa dựng` : 'chưa dựng tầng nào'} — yêu cầu agent làm tiếp (vòng ${planRounds}/${MAX_PLAN_ROUNDS}).`);
+          this.step(job, 'info', `Chưa xong: ${[open.length ? `${open.length} bản vẽ còn lỗi hoặc chưa dựng` : '', nothingBuilt ? 'chưa dựng tầng nào' : '', ...missing].filter(Boolean).join('; ')} — yêu cầu agent làm tiếp (vòng ${planRounds}/${MAX_PLAN_ROUNDS}).`);
           messages.push({ role: 'user', content: scrub(JSON.stringify({
-            unfinished: open, nothing_built: nothingBuilt,
+            unfinished: open, nothing_built: nothingBuilt, missing,
             note: 'Chưa được kết thúc. Sửa từng lỗi của bản vẽ (draw_floor_plan lại đúng tầng đó với toạ độ đã chỉnh: cầu thang nằm gọn trong buồng thang và sát tường, thêm cửa cho phòng chưa đi tới được), kiểm tra hết lỗi thì build_floor, rồi sang tầng kế; sau đó mái, công trình phụ, nội thất, cảnh quan. Lỗi một tool (vd dịch vụ ảnh 502) thì bỏ qua bằng cách khác (find_texture/download_texture hoặc preset), không dừng.',
           })) });
           continue;
@@ -371,4 +373,26 @@ function sceneBrief(state: ToolState) {
 
 function offlineSummary(doc: ModelDoc, v: ReturnType<typeof summarizeReport>): string {
   return `${doc.name}: ${doc.nodes.length} phần, ${doc.materials.length} vật liệu PBR, ${v.stats.triangles.toLocaleString('vi-VN')} tam giác${v.stats.size ? `, ${v.stats.size.join(' × ')} m` : ''}. ${v.ok ? 'Kiểm tra: hợp lệ.' : `Kiểm tra: còn ${v.errors.length} lỗi.`}`;
+}
+
+/**
+ * What a building still lacks by its own design: storeys (the number set with set_model_info, or
+ * stated in the request or the agent's own plan, e.g. "3 tầng"), the floor above stairs that lead
+ * up, and a roof over the top storey.
+ */
+export function missingParts(doc: ModelDoc, texts: string[]): string[] {
+  const plans = doc.plans ?? [], built = plans.filter((p) => p.built);
+  if (doc.kind !== 'building' || !plans.length) return [];
+  const out: string[] = [];
+  let target = doc.storeys ?? 0;
+  for (const t of texts) for (const m of t.matchAll(/(\d{1,2})\s*(?:tầng|tang|storeys?|stories|floors?)\b/giu)) { const n = Number(m[1]); if (n >= 1 && n <= 40) target = Math.max(target, n); }
+  const levels = new Set(built.map((p) => p.level));
+  if (target > levels.size) {
+    const need = Array.from({ length: target }, (_, i) => i).filter((l) => !levels.has(l));
+    out.push(`mới dựng ${levels.size}/${target} tầng — còn thiếu tầng ${need.map((l) => l + 1).join(', ')} (level ${need.join(', ')})`);
+  }
+  const top = built.reduce<typeof built[number] | null>((a, p) => (!a || p.level > a.level ? p : a), null);
+  if (top && top.stairs.length && !plans.some((p) => p.level === top.level + 1)) out.push(`cầu thang tầng ${top.level + 1} dẫn lên nhưng chưa có bản vẽ level ${top.level + 1} (tầng trên hoặc tầng mái/sân thượng)`);
+  if (built.length && !doc.nodes.some((n) => n.kind === 'roof')) out.push('chưa có mái (create_geometry type roof: gable/hip/shed hoặc flat cho mái bằng/sân thượng) trên tầng trên cùng');
+  return out;
 }

@@ -38,8 +38,89 @@ export function snapPlan(plan: FloorPlan): FloorPlan {
  * grid: a 25 cm wall's face sits at 12.5 cm): a flight within 6 cm of a parallel wall face is
  * moved against it. Returns what moved.
  */
+/** Why a flight is placed wrong: off the rooms, through a wall, or its foot or its top in a wall / off the floor. */
+function stairProblems(doc: ModelDoc, plan: FloorPlan, s: Stair): string[] {
+  const out: string[] = [], f = stairFootprint(s, stairRise(doc, plan));
+  const rooms = plan.rooms.map(norm), up = above(doc, plan), upRooms = (up ?? plan).rooms.map(norm);
+  const inset = { x0: f.x0 + .05, z0: f.z0 + .05, x1: f.x1 - .05, z1: f.z1 - .05 };
+  const clearOfWalls = (p: [number, number], walls: FloorPlan['walls']) => walls.every((w) => distToSegment(p[0], p[1], w.a, w.b) > w.thickness / 2 + .2);
+  if ([[f.x0, f.z0], [f.x1, f.z0], [f.x1, f.z1], [f.x0, f.z1]].some(([x, z]) => !rooms.some((r) => inside(r, x!, z!, .05)))) out.push('off-rooms');
+  if (plan.walls.some((w) => segmentHitsRect(w.a, w.b, inset))) out.push('wall');
+
+  // Slots between the flight and a wall beside it (or the flight in the wall).
+  const cx = (f.x0 + f.x1) / 2, cz = (f.z0 + f.z1) / 2;
+  for (const w of plan.walls) {
+    const vertical = Math.abs(w.b[0] - w.a[0]) < 1e-3, horizontal = Math.abs(w.b[1] - w.a[1]) < 1e-3, half = w.thickness / 2;
+    if (!vertical && !horizontal) continue;
+    const c = vertical ? w.a[0] : w.a[1], lo = Math.min(vertical ? w.a[1] : w.a[0], vertical ? w.b[1] : w.b[0]), hi = Math.max(vertical ? w.a[1] : w.a[0], vertical ? w.b[1] : w.b[0]);
+    if (Math.min(hi, vertical ? f.z1 : f.x1) - Math.max(lo, vertical ? f.z0 : f.x0) < .3) continue;
+    const m = vertical ? cx : cz, a0 = vertical ? f.x0 : f.z0, a1 = vertical ? f.x1 : f.z1;
+    const gap = c < m ? a0 - (c + half) : (c - half) - a1;
+    if ((gap < -.02 && (c < m ? c - half < a0 : c + half > a1)) || (gap > .02 && gap < .6)) out.push('gap');
+  }
+  // From the last tread to where you step off, no wall in the way.
+  const cross = (p: [number, number], q: [number, number], a: [number, number], b: [number, number]) => {
+    const d = (u: [number, number], v: [number, number], w: [number, number]) => (v[0] - u[0]) * (w[1] - u[1]) - (v[1] - u[1]) * (w[0] - u[0]);
+    return d(p, q, a) * d(p, q, b) < 0 && d(a, b, p) * d(a, b, q) < 0;
+  };
+  const through = (up ?? plan).walls.some((w) => cross([cx, cz], f.top, w.a, w.b));
+  if (plan.walls.some((w) => cross([cx, cz], f.foot, w.a, w.b)) || !rooms.some((r) => inside(r, f.foot[0], f.foot[1], -.15)) || !clearOfWalls(f.foot, plan.walls) || inside(f, f.foot[0], f.foot[1], -.05)) out.push('foot');
+  if (through || !upRooms.some((r) => inside(r, f.top[0], f.top[1], -.15)) || !clearOfWalls(f.top, (up ?? plan).walls) || (s.shape !== 'u' && inside(f, f.top[0], f.top[1], -.05))) out.push('top');
+  return out;
+}
+
+/**
+ * A flight drawn the wrong way round (its foot or its top against a wall, through a wall, off the
+ * floor) is turned: every direction and turn is tried in the same stair hall (the footprint
+ * kept on the same corner) and the first that works is taken.
+ */
+export function orientStairs(doc: ModelDoc, plan: FloorPlan): string[] {
+  const out: string[] = [];
+  for (const s of plan.stairs) {
+    const was = stairProblems(doc, plan, s);
+    if (!was.length) continue;
+    const rise = stairRise(doc, plan), f0 = stairFootprint(s, rise), orig = { x: s.x, z: s.z, direction: s.direction, turn: s.turn };
+    const turns: Array<Stair['turn']> = s.shape === 'l' || s.shape === 'u' ? [s.turn ?? 'right', s.turn === 'left' ? 'right' : 'left'] : [s.turn];
+    let best: { x: number; z: number; direction: Stair['direction']; turn: Stair['turn']; n: number; d: number } | null = null;
+    // The hall it was drawn in: the room holding the centre of the drawn footprint.
+    const cx0 = (f0.x0 + f0.x1) / 2, cz0 = (f0.z0 + f0.z1) / 2;
+    const roomsN = plan.rooms.map(norm);
+    const hall = roomsN.find((r) => inside(r, cx0, cz0)) ?? [...roomsN].sort((a, b) => overlap(b, f0) - overlap(a, f0))[0] ?? norm(f0);
+    for (const direction of [s.direction, ...(['n', 'e', 's', 'w'] as const).filter((d) => d !== s.direction)]) for (const turn of turns) {
+      Object.assign(s, { x: orig.x, z: orig.z, direction, turn });
+      const f = stairFootprint(s, rise);
+      // Every placement of the turned flight inside the hall, on the 5 cm grid near the walls (25 cm elsewhere), nearest first.
+      const xs: number[] = [], zs: number[] = [];
+      for (let x = hall.x0; x <= hall.x1 - (f.x1 - f.x0) + 1e-6; x += .25) xs.push(x);
+      for (let z = hall.z0; z <= hall.z1 - (f.z1 - f.z0) + 1e-6; z += .25) zs.push(z);
+      xs.push(hall.x1 - (f.x1 - f.x0)); zs.push(hall.z1 - (f.z1 - f.z0));
+      // Flush against each wall face of the hall.
+      for (const w of plan.walls) {
+        const half = w.thickness / 2;
+        if (Math.abs(w.b[0] - w.a[0]) < 1e-3) xs.push(w.a[0] + half, w.a[0] - half - (f.x1 - f.x0));
+        if (Math.abs(w.b[1] - w.a[1]) < 1e-3) zs.push(w.a[1] + half, w.a[1] - half - (f.z1 - f.z0));
+      }
+      const within = (v: number, lo: number, hi: number) => v >= lo - .3 && v <= hi + .3;
+      for (let i = xs.length - 1; i >= 0; i--) if (!within(xs[i]!, hall.x0, hall.x1 - (f.x1 - f.x0))) xs.splice(i, 1);
+      for (let i = zs.length - 1; i >= 0; i--) if (!within(zs[i]!, hall.z0, hall.z1 - (f.z1 - f.z0))) zs.splice(i, 1);
+      for (const x of xs) for (const z of zs) {
+        s.x = r3(orig.x + x - f.x0); s.z = r3(orig.z + z - f.z0);
+        const n = stairProblems(doc, plan, s).length, d = Math.hypot(x + (f.x1 - f.x0) / 2 - cx0, z + (f.z1 - f.z0) / 2 - cz0) + (direction === orig.direction ? 0 : .5);
+        if (!best || n < best.n || (n === best.n && d < best.d)) best = { x: s.x, z: s.z, direction, turn, n, d };
+      }
+    }
+    if (best && best.n < was.length) {
+      Object.assign(s, { x: best.x, z: best.z, direction: best.direction, ...(best.turn ? { turn: best.turn } : {}) });
+      if (!best.turn) delete s.turn;
+      const turned = s.direction !== orig.direction || s.turn !== orig.turn;
+      out.push(`Cầu thang ${s.id} ${turned ? `được xoay cho đúng chiều (hướng ${orig.direction}${orig.turn ? `/${orig.turn}` : ''} → ${s.direction}${s.turn ? `/${s.turn}` : ''})` : 'được dời'} tới (${s.x}, ${s.z}): chân thang có chỗ bước lên, đầu trên ra phòng, sát tường, không vướng tường.`);
+    } else Object.assign(s, orig);
+  }
+  return out;
+}
+
 export function fitStairs(doc: ModelDoc, plan: FloorPlan): string[] {
-  const moved: string[] = [];
+  const moved: string[] = orientStairs(doc, plan);
   for (const s of plan.stairs) {
     for (let pass = 0; pass < 2; pass++) {
       const f = stairFootprint(s, stairRise(doc, plan)), cx = (f.x0 + f.x1) / 2, cz = (f.z0 + f.z1) / 2;
@@ -102,7 +183,7 @@ export function stairCounts(rise: number): { steps: number; run: number } {
 }
 
 /** The flight's footprint on the plan (axis-aligned box) and where you arrive at the top. */
-export function stairFootprint(s: Stair, rise: number): { x0: number; z0: number; x1: number; z1: number; top: [number, number] } {
+export function stairFootprint(s: Stair, rise: number): { x0: number; z0: number; x1: number; z1: number; top: [number, number]; foot: [number, number] } {
   const { steps } = stairCounts(rise), w = s.width, W = w / 2, turn = s.turn === 'left' ? -1 : 1;
   let lx0 = -W, lx1 = W, lz1 = steps * TREAD, top: [number, number] = [0, steps * TREAD + .6];
   if (s.shape === 'l' || s.shape === 'u') {
@@ -123,7 +204,7 @@ export function stairFootprint(s: Stair, rise: number): { x0: number; z0: number
   const yaw = DIRS[s.direction], c = Math.cos(yaw), sn = Math.sin(yaw);
   const tf = (x: number, z: number): [number, number] => [s.x + x * c + z * sn, s.z - x * sn + z * c];
   const pts = [tf(lx0, 0), tf(lx1, 0), tf(lx1, lz1), tf(lx0, lz1)];
-  return { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), z0: Math.min(...pts.map((p) => p[1])), z1: Math.max(...pts.map((p) => p[1])), top: tf(top[0], top[1]) };
+  return { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), z0: Math.min(...pts.map((p) => p[1])), z1: Math.max(...pts.map((p) => p[1])), top: tf(top[0], top[1]), foot: tf(0, -.6) };
 }
 
 const inside = (r: { x0: number; z0: number; x1: number; z1: number }, x: number, z: number, m = 0) => x >= Math.min(r.x0, r.x1) - m && x <= Math.max(r.x0, r.x1) + m && z >= Math.min(r.z0, r.z1) - m && z <= Math.max(r.z0, r.z1) + m;
@@ -240,6 +321,9 @@ export function checkPlan(doc: ModelDoc, plan: FloorPlan): PlanIssue[] {
     const rise = stairRise(doc, plan), { steps } = stairCounts(rise), f = stairFootprint(s, rise);
     const corners: Array<[number, number]> = [[f.x0, f.z0], [f.x1, f.z0], [f.x1, f.z1], [f.x0, f.z1]];
     if (corners.some(([x, z]) => !rooms.some((r) => inside(r, x, z, .05)))) warn(`Cầu thang ${s.id} (${s.shape}, ${steps} bậc, chiếm ${(f.x1 - f.x0).toFixed(1)}×${(f.z1 - f.z0).toFixed(1)} m từ (${f.x0.toFixed(1)}, ${f.z0.toFixed(1)})) lấn ra ngoài các phòng.`);
+    const probs = stairProblems(doc, plan, s);
+    if (probs.includes('foot')) err(`Chân cầu thang ${s.id} (${f.foot.map((v) => v.toFixed(1)).join(', ')}) sát tường hoặc ngoài phòng: không bước lên được — xoay hướng (direction) cho chân thang quay ra phòng.`);
+    if (!up && probs.includes('top')) err(`Đầu trên cầu thang ${s.id} (${f.top.map((v) => v.toFixed(1)).join(', ')}) đâm vào tường hoặc ra ngoài mặt bằng: cầu thang bị ngược — xoay hướng (direction) hoặc chiều quay (turn).`);
     if (!up) info(`Cầu thang ${s.id} lên tầng ${plan.level + 1} chưa có bản vẽ.`);
     else {
       const well = up.voids.reduce((sum, v) => sum + overlap(norm(v), f), 0), need = (f.x1 - f.x0) * (f.z1 - f.z0);

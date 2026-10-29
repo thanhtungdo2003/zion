@@ -228,6 +228,8 @@ export const modelDocSchema = z.object({
   materials: z.array(materialSchema).max(128),
   /** Settlement lot class a published building fills (World Studio, map generation). */
   lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(),
+  /** Storeys the building is designed with (above ground): the agent is not done before all are built. */
+  storeys: z.number().int().min(1).max(40).optional(),
   /** Floor plans, one per storey (drawn first, then built). */
   plans: z.array(planSchema).max(80).optional(),
   /** The material schedule: every material the model uses and where (decided before building). */

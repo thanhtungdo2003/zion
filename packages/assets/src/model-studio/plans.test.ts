@@ -6,22 +6,22 @@ import { validateDoc } from './validate';
 
 type R = { ok: true; result: { errors: string[]; warnings: string[]; plan: { stairs: Array<{ footprint: number[] }> } } } | { ok: false; error: string };
 
-/** A 10 × 8 m storey: hall with the stairs and a door in, living room, bedroom behind. */
+/** A 10 × 8 m storey: a 5 m hall with the stairs and a door in, living room, bedroom behind. */
 function ground(withDoor: boolean, stairs = true) {
   return {
     level: 0, name: 'Tầng trệt', height: 2.8,
     rooms: [
-      { id: 'hall', name: 'Sảnh', type: 'hall', x0: 0, z0: 0, x1: 4, z1: 8, floorMaterial: 'ceramic_tiles' },
-      { id: 'living', name: 'Phòng khách', type: 'living', x0: 4, z0: 0, x1: 10, z1: 5 },
-      { id: 'bed', name: 'Phòng ngủ', type: 'bedroom', x0: 4, z0: 5, x1: 10, z1: 8 },
+      { id: 'hall', name: 'Sảnh', type: 'hall', x0: 0, z0: 0, x1: 5, z1: 8, floorMaterial: 'ceramic_tiles' },
+      { id: 'living', name: 'Phòng khách', type: 'living', x0: 5, z0: 0, x1: 10, z1: 5 },
+      { id: 'bed', name: 'Phòng ngủ', type: 'bedroom', x0: 5, z0: 5, x1: 10, z1: 8 },
     ],
     walls: [
       { id: 'n', a: [0, 0], b: [10, 0], thickness: .25, exterior: true, material: 'brick_red', openings: [{ kind: 'window', at: 7, width: 1.2, height: 1.2, sill: .9 }] },
       { id: 'e', a: [10, 0], b: [10, 8], thickness: .25, exterior: true, material: 'brick_red', openings: [] },
       { id: 's', a: [10, 8], b: [0, 8], thickness: .25, exterior: true, material: 'brick_red', openings: withDoor ? [{ kind: 'door', at: 8, width: 1, height: 2.1, sill: 0 }] : [] },
       { id: 'w', a: [0, 8], b: [0, 0], thickness: .25, exterior: true, material: 'brick_red', openings: [] },
-      { id: 'i1', a: [4, 0], b: [4, 8], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'door', at: 2.5, width: .9, height: 2.1, sill: 0 }, { kind: 'door', at: 6.5, width: .9, height: 2.1, sill: 0 }] },
-      { id: 'i2', a: [4, 5], b: [10, 5], thickness: .12, exterior: false, material: 'plaster_white', openings: [] },
+      { id: 'i1', a: [5, 0], b: [5, 8], thickness: .12, exterior: false, material: 'plaster_white', openings: [{ kind: 'door', at: 2.5, width: .9, height: 2.1, sill: 0 }, { kind: 'door', at: 6.5, width: .9, height: 2.1, sill: 0 }] },
+      { id: 'i2', a: [5, 5], b: [10, 5], thickness: .12, exterior: false, material: 'plaster_white', openings: [] },
     ],
     stairs: stairs ? [{ id: 'st', x: .65, z: .15, width: 1, direction: 's', shape: 'l', style: 'solid', turn: 'right', material: 'concrete', treadMaterial: 'granite', railMaterial: 'steel', handrailMaterial: 'wood_oak' }] : [],
     finishes: { plinth: 'stone_plinth', skirting: 'wood_oak', windowFrame: 'wood_oak', doorLeaf: 'wood_oak' },
@@ -119,13 +119,19 @@ describe('floor plans', () => {
     expect(s.doc.materials.map((m) => m.id)).toEqual(expect.arrayContaining(['brick_red', 'granite', 'steel', 'stone_plinth']));
   });
 
-  it('measures the gap between a flight and the wall beside it', async () => {
+  it('places a flight drawn off the wall or the wrong way round: foot free, top in a room, against the wall', async () => {
     const s = state();
     await schedule(s);
-    const g = ground(true);
-    g.stairs[0]!.x = .875;
-    const r = await runTool('draw_floor_plan', g, s) as R;
-    expect(r.ok && r.result.errors.join(' ')).toMatch(/Khe hở 28 cm giữa cầu thang st và tường w: dời x của cầu thang −0.28 m/);
+    for (const [x, z, direction, shape] of [[.875, .15, 's', 'l'], [.65, 5, 'n', 'l'], [2, 3, 'e', 'l'], [.65, .15, 's', 'u'], [3, 7.8, 'n', 'u']] as const) {
+      const g = ground(true);
+      Object.assign(g.stairs[0]!, { x, z, direction, shape });
+      const r = await runTool('draw_floor_plan', g, s) as R;
+      expect(r.ok && r.result.errors).toEqual([]);
+      const st = s.doc.plans![0]!.stairs[0]!, f = stairFootprint(st, stairRise(s.doc, s.doc.plans![0]!));
+      // Inside the hall (0..5 × 0..8), the foot and the top on its floor, not in a wall.
+      expect(f.x0).toBeGreaterThanOrEqual(0); expect(f.x1).toBeLessThanOrEqual(5); expect(f.z0).toBeGreaterThanOrEqual(0); expect(f.z1).toBeLessThanOrEqual(8);
+      for (const p of [f.foot, f.top]) { expect(p[0]).toBeGreaterThan(.3); expect(p[0]).toBeLessThan(4.7); expect(p[1]).toBeGreaterThan(.3); expect(p[1]).toBeLessThan(7.7); }
+    }
   });
 
   it('finds rooms nobody can reach and overlapping rooms', async () => {
