@@ -9,8 +9,9 @@
  * Flags: --skip-web reuses the last web build; --no-zip leaves only the folder.
  *
  * Local test build (pnpm desktop:local): --local builds release/ZION-local-win-x64/ that never
- * updates from a server (autoUpdate off: it always plays the client just built), talking to the
- * local dev server (http://localhost:4000, `pnpm dev:server`) unless ZION_API_URL names another.
+ * updates from a server (autoUpdate off: it always plays the client just built). It plays on the
+ * online server of config.json, like the release; ZION_API_URL=http://localhost:4000 (and
+ * ZION_WEB_ORIGIN=http://localhost:3000) points it at the local dev server instead.
  * No update blobs, no zip, and the shared config.json is left alone.
  *
  * Content updates: the bundled client is described by resources/web-manifest.json (path → sha256),
@@ -101,7 +102,7 @@ if (!local) {
 // 4. config.json beside the exe: which online server the game plays on (players may edit it).
 const prev = path.join(desktop, 'config.json');
 let config = { apiUrl: 'http://localhost:4000', webOrigin: 'http://localhost:3000', autoUpdate: true };
-if (!local) try { config = { ...config, ...JSON.parse(await readFile(prev, 'utf8')) }; } catch { /* first build */ }
+try { config = { ...config, ...JSON.parse(await readFile(prev, 'utf8')) }; } catch { /* first build */ }
 if (process.env.ZION_API_URL) config.apiUrl = process.env.ZION_API_URL;
 if (process.env.ZION_WEB_ORIGIN) config.webOrigin = process.env.ZION_WEB_ORIGIN;
 if (local) config.autoUpdate = false;
