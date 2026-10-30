@@ -64,6 +64,9 @@ import {
   PointLight,
   SpotLight,
   Ray,
+  Frustum,
+  Matrix4,
+  Sphere,
 } from 'three';
 import {
   CHUNK_SIZE,
@@ -573,6 +576,10 @@ export class GameEngine {
   private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private readonly tankSight = new TankSight();
+  private readonly viewFrustum = new Frustum();
+  private readonly viewSphere = new Sphere();
+  private readonly viewPoint = new Vector3();
+  private readonly frustumMatrix = new Matrix4();
   private vehiclePrediction: VehiclePredictor | null = null;
   /** Piloting a helicopter: the mouse's virtual cyclic (x right, y forward), and where the look was reset to. */
   private heliStick: [number, number] = [0, 0];
@@ -2091,6 +2098,7 @@ export class GameEngine {
       const p = this.vehiclePrediction, id = p?.id;
       if (p && id != null) { const pose = this.passenger || !local.riding ? null : p.pose(this.accumulator / TICK_DT, dt); this.vehicles?.override(id, pose); if (!pose) p.stop(); }
       this.crashShake = Math.max(0, this.crashShake - dt * 1.8);
+      this.viewFrustum.setFromProjectionMatrix(this.frustumMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     }
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now(),this.input.axes().mz);
     // Aboard a vehicle: the driver steers it; a passenger rides along and can shoot.
@@ -2198,6 +2206,8 @@ export class GameEngine {
       r.avatar.setInfected(this.infectedIds.has(r.entity.id));
       r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
       r.avatar.setDetail(Math.hypot(pose.x - this.camera.position.x, pose.y - this.camera.position.y, pose.z - this.camera.position.z));
+      // Out of the view (last frame's camera, a body-sized sphere): not posed until it is seen.
+      r.avatar.offscreen = !this.viewFrustum.intersectsSphere(this.viewSphere.set(this.viewPoint.set(pose.x, pose.y + 1, pose.z), 2.5));
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
       { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0, m?.clip ?? null); }
@@ -4113,7 +4123,9 @@ export class GameEngine {
     const dead = (flags & EntityFlags.Dead) !== 0;
     let status = this.hud.get().status;
     if (status !== 'disconnected') {
-      if (dead) status = 'dead';
+      // (Still loading comes first: a warfare player joins dead, on the deploy screen, and must
+      // still finish loading and tell the server so — or it never takes their inputs.)
+      if (dead && status !== 'loading') status = 'dead';
       else if (status === 'loading' && local.ready && lod0 >= Math.min(expectedLod0, 25)) {
         // Join only once the whole view is in: every terrain ring, every model and the ground cover.
         const ring = LOD_RINGS[LOD_RINGS.length - 1]!, size = this.welcome!.world.sizeChunks;

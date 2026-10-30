@@ -515,12 +515,12 @@ export class Avatar {
         update(force);
         if (this.poseDirty && !this.humanRagdoll) {
           // Far: posed every third frame (the time in between carried over), still moving with its root.
-          if (this.detail === 2 && ++this.lodFrame % 3 !== 0) { this.lodDt += this.frame.dt; return; }
+          if (this.detail === 2 && ++this.lodFrame % (this.far ? 6 : 3) !== 0) { this.lodDt += this.frame.dt; return; }
           this.frame.dt += this.lodDt; this.lodDt = 0;
           this.poseDirty = false;
           // Hidden actors still advance their inexpensive clip clocks. Returning to third
           // person or revealing a remote player must not resume a stale foot/upper-body pose.
-          if (!this.root.visible) { this.stepRecordedMotion(); return; }
+          if (!this.root.visible || this.offscreen) { this.stepRecordedMotion(); this.poseDirty = this.offscreen; return; }
           this.finishPose();
           this.smoothBranchSwitch();
           // The pack swings from the posed shoulders (and its strap ends from the pack).
@@ -831,7 +831,12 @@ export class Avatar {
   private detail: 0 | 1 | 2 = 0;
   private lodFrame = 0;
   private lodDt = 0;
+  /** Outside the view: not posed (clip clocks still run), posed again the frame it is seen. */
+  offscreen = false;
+  private far = false;
   setDetail(distance: number): void {
+    // Very far: posed every sixth frame.
+    this.far = distance > 120;
     const level = distance < 14 ? 0 : distance < 45 ? 1 : 2;
     if (level === this.detail) return;
     this.detail = level;
