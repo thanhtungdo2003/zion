@@ -21,6 +21,7 @@
     "db:migrate": "pnpm --filter @zion/server migrate",
     "world:preview": "pnpm --filter @zion/worldgen preview",
     "assets:build": "pnpm --filter @zion/assets build:manifest",
+    "desktop:local": "pnpm --filter @zion/desktop build:local",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "camp:verify": "pnpm --filter @zion/server verify:camp"
   },

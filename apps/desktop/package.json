@@ -6,7 +6,8 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "build:local": "node scripts/build.mjs --local"
   },
   "devDependencies": {
     "electron": "^44.9.0"

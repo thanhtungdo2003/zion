@@ -8,6 +8,11 @@
  * Without the variables, config.json keeps the values of the previous build (or localhost).
  * Flags: --skip-web reuses the last web build; --no-zip leaves only the folder.
  *
+ * Local test build (pnpm desktop:local): --local builds release/ZION-local-win-x64/ that never
+ * updates from a server (autoUpdate off: it always plays the client just built), talking to the
+ * local dev server (http://localhost:4000, `pnpm dev:server`) unless ZION_API_URL names another.
+ * No update blobs, no zip, and the shared config.json is left alone.
+ *
  * Content updates: the bundled client is described by resources/web-manifest.json (path → sha256),
  * and release/update/ receives the same manifest plus every file as blobs/<sha256>. Copy that
  * folder to the server's DESKTOP_UPDATE_DIR (blobs accumulate; old ones may be deleted once every
@@ -23,7 +28,8 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(here, '..'), root = path.resolve(desktop, '../..'), web = path.join(root, 'apps/web');
 const args = new Set(process.argv.slice(2));
-const name = 'ZION-win-x64';
+const local = args.has('--local');
+const name = local ? 'ZION-local-win-x64' : 'ZION-win-x64';
 const out = path.join(desktop, 'release', name);
 const step = (msg) => process.stdout.write(`\n▶ ${msg}\n`);
 
@@ -60,7 +66,7 @@ const studioPage = (src) => /^studio([/.]|$)/.test(path.relative(exported, src))
 await cp(exported, path.join(out, 'resources/web'), { recursive: true, dereference: true, filter: (src) => !studioPage(src) });
 
 // 3b. The content manifest (bundled) and the update folder for the server.
-step('Writing the content manifest and update blobs');
+step(local ? 'Writing the content manifest' : 'Writing the content manifest and update blobs');
 const webDir = path.join(out, 'resources/web');
 const sha256 = (file) => new Promise((resolve, reject) => {
   const h = createHash('sha256');
@@ -80,28 +86,31 @@ try { rev = execSync('git rev-parse --short HEAD', { cwd: root }).toString().tri
 const builtAt = Date.now();
 const manifest = { version: `${new Date(builtAt).toISOString().slice(0, 16).replace(/[-:T]/g, '')}-${rev}`, builtAt, files };
 await writeFile(path.join(out, 'resources/web-manifest.json'), JSON.stringify(manifest));
-const update = path.join(desktop, 'release', 'update');
-await mkdir(path.join(update, 'blobs'), { recursive: true });
-let added = 0;
-for (const [rel, [hash]] of Object.entries(files)) {
-  const blob = path.join(update, 'blobs', hash);
-  if (!existsSync(blob)) { await copyFile(path.join(webDir, ...rel.split('/')), blob); added++; }
+if (!local) {
+  const update = path.join(desktop, 'release', 'update');
+  await mkdir(path.join(update, 'blobs'), { recursive: true });
+  let added = 0;
+  for (const [rel, [hash]] of Object.entries(files)) {
+    const blob = path.join(update, 'blobs', hash);
+    if (!existsSync(blob)) { await copyFile(path.join(webDir, ...rel.split('/')), blob); added++; }
+  }
+  await writeFile(path.join(update, 'manifest.json'), JSON.stringify(manifest));
+  step(`Content ${manifest.version}: ${Object.keys(files).length} files, ${added} new blobs in ${path.relative(root, update)}`);
 }
-await writeFile(path.join(update, 'manifest.json'), JSON.stringify(manifest));
-step(`Content ${manifest.version}: ${Object.keys(files).length} files, ${added} new blobs in ${path.relative(root, update)}`);
 
 // 4. config.json beside the exe: which online server the game plays on (players may edit it).
 const prev = path.join(desktop, 'config.json');
 let config = { apiUrl: 'http://localhost:4000', webOrigin: 'http://localhost:3000', autoUpdate: true };
-try { config = { ...config, ...JSON.parse(await readFile(prev, 'utf8')) }; } catch { /* first build */ }
+if (!local) try { config = { ...config, ...JSON.parse(await readFile(prev, 'utf8')) }; } catch { /* first build */ }
 if (process.env.ZION_API_URL) config.apiUrl = process.env.ZION_API_URL;
 if (process.env.ZION_WEB_ORIGIN) config.webOrigin = process.env.ZION_WEB_ORIGIN;
-await writeFile(prev, JSON.stringify(config, null, 2) + '\n');
+if (local) config.autoUpdate = false;
+else await writeFile(prev, JSON.stringify(config, null, 2) + '\n');
 await writeFile(path.join(out, 'config.json'), JSON.stringify(config, null, 2) + '\n');
 await writeFile(path.join(out, 'README.txt'), [
   'ZION — The Last Light',
   '',
-  'Chạy ZION.exe để chơi. Cần kết nối Internet (máy chủ game online).',
+  local ? 'Bản thử trên máy: không tự cập nhật, luôn chạy đúng bản vừa build.' : 'Chạy ZION.exe để chơi. Cần kết nối Internet (máy chủ game online).',
   'F11 hoặc Alt+Enter: bật/tắt toàn màn hình.',
   '',
   `Máy chủ: ${config.apiUrl}  (sửa trong config.json nếu cần)`,
@@ -109,7 +118,7 @@ await writeFile(path.join(out, 'README.txt'), [
 ].join('\r\n'));
 
 // 5. The zip to hand out.
-if (!args.has('--no-zip')) {
+if (!local && !args.has('--no-zip')) {
   step('Zipping');
   const zip = path.join(desktop, 'release', `${name}.zip`);
   await rm(zip, { force: true });

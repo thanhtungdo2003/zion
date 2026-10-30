@@ -248,7 +248,8 @@ else {
     Menu.setApplicationMenu(null);
     try {
       store = new ContentStore({ bundledDir: WEB_ROOT, bundledManifest: path.join(RES, 'web-manifest.json'), dataDir: app.getPath('userData'), apiOrigin: API.origin });
-      store.load();
+      // Updates off (a local test build): always the content bundled with this build, never a download.
+      if (config.autoUpdate !== false) store.load();
       await updateAtStart();
       watchUpdates(createWindow(await startServer()));
     } catch (err) {
