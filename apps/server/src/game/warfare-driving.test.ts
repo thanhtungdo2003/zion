@@ -51,7 +51,7 @@ function drive(kind: VehicleKind, w: CollisionWorld, from: { x: number; z: numbe
 }
 
 describe('bots driving the game\'s jeep and quad', () => {
-  it.each(['jeep', 'quad'] as const)('a bot drives a %s round to a point behind it on its own', (kind) => {
+  it.each(['jeep', 'quad', 't80u', 'marauder'] as const)('a bot drives a %s round to a point behind it on its own', (kind) => {
     const r = drive(kind, world(), { x: 40, z: 150, yaw: 0 }, { x: 150, z: 40 });
     expect(r.arrived).toBe(true);
     expect(Math.hypot(r.x - 150, r.z - 40)).toBeLessThan(14);
