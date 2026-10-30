@@ -3933,3 +3933,9 @@ kbd {
 
 /* Vehicle Studio (components/VehicleStudio.tsx): vehicle and seat lists. */
 .vs-item { width: 100%; justify-content: flex-start; text-align: left; }
+.vs-row { display: flex; gap: 6px; }
+.vs-row .btn { flex: 1; }
+.vs-point { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; }
+.vs-point i { width: 12px; height: 12px; border-radius: 50%; }
+.vs-point .btn { justify-content: flex-start; }
+.vs-point.on .btn { outline: 1px solid var(--accent, #f6c445); }

@@ -5,16 +5,18 @@ export type Gait = 'idle' | 'walk' | 'jog' | 'sprint';
 export type MoveDirection = 'forward' | 'backward' | 'left' | 'right';
 
 /**
- * Starting and stopping: a body only starts stepping above MOVE_START and only stops below
- * MOVE_STOP, so the small wobble of a networked speed never flips the legs between standing
+ * Starting and stopping. Our own body (predicted, exact) steps at once. A body seen over the
+ * network (bots, other players) only starts stepping above MOVE_START and only stops below
+ * MOVE_STOP, so the small wobble of an interpolated speed never flips its legs between standing
  * and stepping.
  */
 export const MOVE_START = .4, MOVE_STOP = .15;
-export const isStepping = (speed: number, wasStepping: boolean): boolean => speed > (wasStepping ? MOVE_STOP : MOVE_START);
+export const isStepping = (speed: number, wasStepping: boolean, hysteresis = true): boolean =>
+  hysteresis ? speed > (wasStepping ? MOVE_STOP : MOVE_START) : speed > .025;
 
 /** Thresholds match the controller's normal walk (3.4 m/s), with hysteresis at each boundary. */
-export function locomotionGait(speed: number, sprinting: boolean, previous: Gait): Gait {
-  if (!isStepping(speed, previous !== 'idle')) return 'idle';
+export function locomotionGait(speed: number, sprinting: boolean, previous: Gait, hysteresis = true): Gait {
+  if (!isStepping(speed, previous !== 'idle', hysteresis)) return 'idle';
   if (sprinting && speed > (previous === 'sprint' ? 4.35 : 4.8)) return 'sprint';
   if (speed > (previous === 'jog' ? 3.65 : 3.95)) return 'jog';
   return 'walk';

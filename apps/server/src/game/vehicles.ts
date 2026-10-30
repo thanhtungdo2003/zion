@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, damagePart, partAt, vehicleParts, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, seatCount, damagePart, partAt, vehicleParts, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { JoltVehicles, loadJolt, damageVehicle, vehicleHitBounds, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
@@ -153,7 +153,7 @@ export class Vehicles {
     if (!vehicleInReach(v, bot.state.x, bot.state.z, VEHICLE_REACH - .5) || Math.abs(v.y - bot.state.y) > 3) return false;
     let seat = -1;
     if (wantDriver && !v.driver) seat = 0;
-    else for (let i = 1; i < VEHICLES[v.kind].seats.length; i++) if (!v.passengers?.[i - 1]) { seat = i; break; }
+    else for (let i = 1; i < seatCount(v.kind); i++) if (!v.passengers?.[i - 1]) { seat = i; break; }
     if (seat < 0) return false;
     if (seat === 0) v.driver = bot.id;
     else { v.passengers ??= []; while (v.passengers.length < seat) v.passengers.push(0); v.passengers[seat - 1] = bot.id; }

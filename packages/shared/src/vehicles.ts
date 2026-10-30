@@ -1,6 +1,6 @@
 import type { VehicleArmsState } from './vehicle-arms';
 import type { VehiclePart } from './vehicle-parts';
-import { seatPosition } from './vehicle-seats';
+import { seatCount, seatPosition } from './vehicle-seats';
 export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly' | 't80u' | 't90a' | 't62a' | 'tank' | 'marauder' | 'mi17' | 'z10' | 'tiger';
 export interface VehicleState {
   id: number; kind: VehicleKind; x: number; y: number; z: number; yaw: number;
@@ -81,7 +81,7 @@ export function vehicleOccupants(v: VehicleState): number[] {
 /** First empty seat (0 = driver's), or −1 when full. */
 export function vehicleFreeSeat(v: VehicleState): number {
   if (!v.driver) return 0;
-  const seats = VEHICLES[v.kind].seats.length;
+  const seats = seatCount(v.kind);
   for (let i = 1; i < seats; i++) if (!v.passengers?.[i - 1]) return i;
   return -1;
 }

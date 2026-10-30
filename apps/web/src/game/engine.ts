@@ -1497,6 +1497,7 @@ export class GameEngine {
         const outfit = this.soldierOutfit(e.kind, e.id);
         const template = outfit ? this.character! : e.kind === EntityKind.Animal ? (this.animalTemplate(e.id) ?? this.character!) : e.kind === EntityKind.QuestNpc ? (this.questTemplates.get(this.questNpcDefinitions.find((n) => n.id === e.id)?.model ?? '') ?? this.character!) : e.kind === EntityKind.Architect ? (this.architectTemplate ?? this.merchantTemplate!) : e.kind === EntityKind.Merchant ? this.merchantTemplate! : e.kind === EntityKind.Nurse ? this.nurseTemplate! : this.character!;
         r = { entity: new RemoteEntity(e.id, e.kind), avatar: new Avatar(template, false), weapon: 0, ...(outfit ? { outfit } : {}) };
+        r.avatar.networked = true;
         // Every player and bot has its own body, skin and hair (bots: a look from their id).
         if (e.kind === EntityKind.Player || outfit) r.avatar.setAppearance(this.looks.get(e.id) ?? randomAppearance(e.id));
         r.avatar.ground = (x, z) => this.groundY(x, z);
@@ -2201,6 +2202,7 @@ export class GameEngine {
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
       r.avatar.seatFloor = ride ? this.vehicles!.seatFloor(r.entity.id) : null;
+      r.avatar.seatContacts = ride ? this.vehicles!.contacts(r.entity.id) : null;
       // Seats: the driver steers; a weapon seat stands at its gun, turning with the aim; anyone
       // else sits facing forward with the hands in the lap.
       const seatNo = ride ? this.vehicles!.seatIndex(r.entity.id) : -1, gunner = !!ride && seatNo > 0 && armedSeat(ride.kind, seatNo);
@@ -2305,7 +2307,7 @@ export class GameEngine {
     }));
     const flightFlags = local.state.flight === 1 ? EntityFlags.InPlane : local.state.flight === 2 ? EntityFlags.Freefall : local.state.flight === 3 ? EntityFlags.Parachute : 0;
     this.localAvatar?.flightPose(flightFlags, (local.lastButtons & Buttons.Sprint) !== 0, Math.hypot(local.state.vx, local.state.vz) > 2, dt);
-    if (this.localAvatar) this.localAvatar.seatFloor = aboard ? this.vehicles!.seatFloor(this.welcome!.playerId) : null;
+    if (this.localAvatar) { this.localAvatar.seatFloor = aboard ? this.vehicles!.seatFloor(this.welcome!.playerId) : null; this.localAvatar.seatContacts = aboard ? this.vehicles!.contacts(this.welcome!.playerId) : null; }
     // As for others: a weapon seat stands at its gun; the commander inside a hull is out of sight.
     const mySeat = aboard ? this.vehicles!.seatIndex(this.welcome!.playerId) : -1, atGun = !!aboard && mySeat > 0 && armedSeat(aboard.kind, mySeat);
     this.localAvatar?.drivingPose(aboard && !atGun ? VEHICLES[aboard.kind].quad : null, atGun ? this.input.yaw : driving?.yaw ?? this.input.yaw, aboard?.motion?.pitch, aboard?.motion?.roll, mySeat > 0);

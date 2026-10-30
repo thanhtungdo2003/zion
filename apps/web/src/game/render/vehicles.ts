@@ -1,5 +1,5 @@
-import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, armedSeat, mountedPoint, mountedSeat, seatAim, seatEye, seatMount, seatPosition, seatTuned, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { Group, Mesh, Vector3, type Scene } from 'three';
+import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, armedSeat, mountedPoint, mountedSeat, seatAim, seatContacts, seatEye, seatMount, seatPosition, seatTuned, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -143,6 +143,14 @@ export class VehicleRenderer {
     const [x,y,z]=seatPosition(v.kind,seat),standing=seat>0&&armedSeat(v.kind,seat),[ex,ey,ez]=seatEye(v.kind,seat,standing);
     const oy=fit?.y!=null&&!seatTuned(v.kind,seat)?fit.y:y,p=mountedPoint(v,seat,x+ex,oy+ey,z+ez,false);
     return vehiclePoint(v,p.x,p.y,p.z);
+  }
+  /** Where a rider's hands grip and feet rest (world), as set for the seat in the Studio. */
+  contacts(id:number):{hands?:[Vector3,Vector3];feet?:[Vector3,Vector3]}|null{
+    const view=this.viewOf(id);if(!view)return null;
+    const seat=Math.max(0,vehicleSeatOf(view.target,id)),c=seatContacts(view.pose.kind,seat);
+    if(!c.hands&&!c.feet)return null;
+    const at=(p:readonly [number,number,number])=>{const w=vehiclePoint(view.pose,p[0],p[1],p[2]);return new Vector3(w.x,w.y,w.z);};
+    return {...(c.hands?{hands:[at(c.hands[0]),at(c.hands[1])] as [Vector3,Vector3]}:{}),...(c.feet?{feet:[at(c.feet[0]),at(c.feet[1])] as [Vector3,Vector3]}:{})};
   }
   /** World height of the floor under a seated rider's feet (null: nothing to keep them off). */
   seatFloor(id:number):number|null{

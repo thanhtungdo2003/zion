@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { AmbientLight, DirectionalLight, GridHelper, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, SphereGeometry, SRGBColorSpace, WebGLRenderer } from 'three';
+import { AmbientLight, DirectionalLight, GridHelper, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, SphereGeometry, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
 import {
-  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, armedSeat, seatEye, seatPosition, seatTuned, setSeatTuning,
-  type SeatTune, type SeatTuning, type VehicleKind,
+  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, armedSeat, minSeats, seatContacts, seatCount, seatEye, seatHip, seatPosition, seatTuned, setSeatTuning,
+  type SeatTune, type SeatTuning, type SeatVec, type VehicleKind,
 } from '@zion/shared';
 import { studioLogin, studioSaveVehicleSeats, studioVehicleSeats, vehicleSeats } from '@/lib/api';
 import { AssetLibrary } from '@/game/render/asset-library';
@@ -19,43 +19,60 @@ import { fitSeats, type SeatFit } from '@/game/render/seat-fit';
 import { Icon } from './Icon';
 
 /**
- * Vehicle Studio (/studio/vehicles): every vehicle, its seats and the rider in each as the game
- * shows them (seated, or standing at a gun). Per seat, move where the rider sits and where their
- * eye is for the first-person view, watching it from outside (orbit) or from the eye itself.
- * Saved for every server and client: riders sit there and the first-person view starts there.
+ * Vehicle Studio (/studio/vehicles): every vehicle, its seats, and the rider in each as the game
+ * poses them. Each seat has its own contact points — where the hips rest, where each hand grips
+ * and each foot rests — and the first-person eye; pick a point and move it: the rider's body
+ * follows (hips on the seat, hands and feet by IK). Passenger seats can be added or the last ones
+ * removed. Seen from outside (orbit) or from the eye. Saved for every server and client.
  */
 type View = 'outside' | 'first';
+type Point = 'hip' | 'handL' | 'handR' | 'footL' | 'footR' | 'eye';
 const KINDS = Object.keys(VEHICLES) as VehicleKind[];
 const AXES = ['X (phải +)', 'Y (lên +)', 'Z (sau +)'] as const;
+const POINTS: Array<{ id: Point; name: string; color: number }> = [
+  { id: 'hip', name: 'Mông (điểm ngồi)', color: 0xffd34d },
+  { id: 'handL', name: 'Tay trái', color: 0x4dd2ff },
+  { id: 'handR', name: 'Tay phải', color: 0x2f7bff },
+  { id: 'footL', name: 'Chân trái', color: 0x7be08a },
+  { id: 'footR', name: 'Chân phải', color: 0x2fae4a },
+  { id: 'eye', name: 'Mắt (góc nhìn thứ nhất)', color: 0xff4d3a },
+];
 
-/** A seat where the game puts the rider: as tuned, else fitted to the model's cushion and floor. */
-function shownSeat(kind: VehicleKind, seat: number, fit: readonly SeatFit[]): readonly [number, number, number] {
+/** A seat where the game puts the rider: as set, else fitted to the model's cushion and floor. */
+function shownSeat(kind: VehicleKind, seat: number, fit: readonly SeatFit[]): SeatVec {
   const p = seatPosition(kind, seat), y = fit[seat]?.y;
   return seatTuned(kind, seat) || y == null ? p : [p[0], y, p[2]];
+}
+const add = (a: SeatVec, b: SeatVec): SeatVec => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+/** Where a hand or foot point starts when first switched on: about where a seated body has it. */
+function startPoint(origin: SeatVec, p: Point): SeatVec {
+  const side = p.endsWith('L') ? -1 : 1;
+  return p.startsWith('hand') ? add(origin, [side * .2, .95, -.45]) : add(origin, [side * .14, .02, -.62]);
 }
 
 export function VehicleStudioPage() {
   const host = useRef<HTMLDivElement>(null);
-  const [kind, setKind] = useState<VehicleKind>('z10');
+  const [kind, setKind] = useState<VehicleKind>('jeep');
   const [seat, setSeat] = useState(0);
+  const [point, setPoint] = useState<Point>('hip');
   const [view, setView] = useState<View>('outside');
   const [tuning, setTuning] = useState<SeatTuning>({});
   const [status, setStatus] = useState('');
   const [locked, setLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [ready, setReady] = useState(false);
-  /** The seats as the game fits them to this model (cushion, floor), where not tuned. */
+  /** The seats as the game fits them to this model (cushion, floor), where not set. */
   const [fit, setFit] = useState<SeatFit[]>([]);
-  const world = useRef<{ scene: Scene; avatar: Avatar; vehicle: Group; eye: Mesh; library: AssetLibrary; outside: PerspectiveCamera; first: PerspectiveCamera; controls: OrbitControls } | null>(null);
-  const live = useRef({ kind, seat, view, fit });
-  live.current = { kind, seat, view, fit };
+  const world = useRef<{ avatar: Avatar; vehicle: Group; markers: Map<Point, Mesh>; library: AssetLibrary; outside: PerspectiveCamera; controls: OrbitControls } | null>(null);
+  const live = useRef({ kind, seat, view, fit, point });
+  live.current = { kind, seat, view, fit, point };
 
-  // Tuning as saved (the Studio's copy if signed in, else the public one).
+  // The table as saved (the Studio's copy if signed in, else the public one).
   useEffect(() => {
     void studioVehicleSeats().catch(() => vehicleSeats()).then((t) => { setTuning(t); setSeatTuning(t); }).catch(() => setStatus('Không tải được cấu hình ghế.'));
   }, []);
 
-  // The scene: the vehicle at the origin, the rider in the chosen seat, a dot at the eye.
+  // The scene: the vehicle at the origin, the rider in the chosen seat, a marker per point.
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -72,7 +89,11 @@ export function VehicleStudioPage() {
     const first = new PerspectiveCamera(72, 1, .03, 300);
     const controls = new OrbitControls(outside, renderer.domElement); controls.target.set(0, 1.4, 0);
     const vehicle = new Group(); scene.add(vehicle);
-    const eye = new Mesh(new SphereGeometry(.06, 12, 8), new MeshBasicMaterial({ color: 0xff4d3a, depthTest: false })); eye.renderOrder = 5; scene.add(eye);
+    const markers = new Map<Point, Mesh>();
+    for (const p of POINTS) {
+      const m = new Mesh(new SphereGeometry(.045, 12, 8), new MeshBasicMaterial({ color: p.color, depthTest: false }));
+      m.renderOrder = 5; scene.add(m); markers.set(p.id, m);
+    }
     const resize = () => { const w = el.clientWidth || 1, h = el.clientHeight || 1; renderer.setSize(w, h, false); for (const c of [outside, first]) { c.aspect = w / h; c.updateProjectionMatrix(); } };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();
     const library = new AssetLibrary(createDefaultRegistry());
@@ -81,23 +102,30 @@ export function VehicleStudioPage() {
       const avatar = new Avatar(character, true);
       avatar.setAppearance(DEFAULT_APPEARANCE);
       avatar.addTo(scene);
-      world.current = { scene, avatar, vehicle, eye, library, outside, first, controls };
+      world.current = { avatar, vehicle, markers, library, outside, controls };
       setReady(true);
       let last = performance.now();
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
         const dt = Math.min(.1, (now - last) / 1000); last = now;
-        const { kind: k, seat: s, view: v, fit: f } = live.current, def = VEHICLES[k];
-        const gunner = s > 0 && armedSeat(k, s), [x, y, z] = shownSeat(k, s, f), [ex, ey, ez] = seatEye(k, s, gunner);
+        const { kind: k, seat: s, view: v, fit: f, point: picked } = live.current, def = VEHICLES[k];
+        const gunner = s > 0 && armedSeat(k, s), o = shownSeat(k, s, f), e = add(o, seatEye(k, s, gunner)), c = seatContacts(k, s);
+        // The vehicle stands at the origin unturned: its own metres are world metres here.
+        const v3 = (p: SeatVec) => new Vector3(p[0], p[1], p[2]);
         avatar.seatFloor = seatTuned(k, s) ? null : f[s]?.floor ?? null;
-        avatar.update(x, y, z, 0, EntityFlags.Grounded, dt, now / 1000);
-        avatar.root.position.set(x, y, z);
+        avatar.seatContacts = { ...(c.hands ? { hands: [v3(c.hands[0]), v3(c.hands[1])] as [Vector3, Vector3] } : {}), ...(c.feet ? { feet: [v3(c.feet[0]), v3(c.feet[1])] as [Vector3, Vector3] } : {}) };
+        avatar.update(o[0], o[1], o[2], 0, EntityFlags.Grounded, dt, now / 1000);
+        avatar.root.position.set(o[0], o[1], o[2]);
         avatar.drivingPose(gunner ? null : def.quad, 0, 0, 0, s > 0);
         // From the eye, the rider's own body is not drawn (as in the game).
         avatar.root.visible = v === 'outside';
-        eye.position.set(x + ex, y + ey, z + ez);
-        eye.visible = v === 'outside';
-        first.position.copy(eye.position); first.rotation.set(0, 0, 0);
+        const at: Record<Point, SeatVec | undefined> = { hip: add(o, [0, .47, .05]), eye: e, handL: c.hands?.[0], handR: c.hands?.[1], footL: c.feet?.[0], footR: c.feet?.[1] };
+        for (const [id, m] of markers) {
+          const p = at[id];
+          m.visible = v === 'outside' && !!p;
+          if (p) { m.position.set(p[0], p[1], p[2]); m.scale.setScalar(id === picked ? 1.6 : 1); }
+        }
+        first.position.set(e[0], e[1], e[2]); first.rotation.set(0, 0, 0);
         controls.update();
         renderer.render(scene, v === 'first' ? first : outside);
       };
@@ -130,18 +158,56 @@ export function VehicleStudioPage() {
     w.outside.position.set(def.halfX * 4 + 3, def.height * 1.6 + 1, def.halfZ * 1.6 + 3);
   }, [kind, ready]);
 
-  const tune: SeatTune = tuning[kind]?.[seat] ?? {};
+  const def = VEHICLES[kind], role = VEHICLE_ROLES[kind], count = seatCount(kind);
   const gunner = seat > 0 && armedSeat(kind, seat);
-  const pos = shownSeat(kind, seat, fit), eye = seatEye(kind, seat, gunner);
-  const change = (next: SeatTune | null) => {
-    const forKind = { ...(tuning[kind] ?? {}) };
-    if (next && (next.pos || next.eye)) forKind[seat] = next; else delete forKind[seat];
-    const t: SeatTuning = { ...tuning, [kind]: forKind };
-    if (!Object.keys(forKind).length) delete t[kind];
-    setTuning(t); setSeatTuning(t); setStatus('Chưa lưu');
+  const forKind = tuning[kind] ?? {}, tune: SeatTune = forKind.seats?.[seat] ?? {};
+  const origin = shownSeat(kind, seat, fit);
+  /** Writes the table (and applies it to this preview at once). */
+  const commit = (next: SeatTuning) => { setTuning(next); setSeatTuning(next); setStatus('Chưa lưu'); };
+  const setSeatTune = (i: number, t: SeatTune | null) => {
+    const seats = { ...(forKind.seats ?? {}) };
+    if (t && Object.keys(t).length) seats[i] = t; else delete seats[i];
+    commit({ ...tuning, [kind]: { ...forKind, seats } });
   };
-  const setPos = (i: number, v: number) => { const p = [...pos] as [number, number, number]; p[i] = v; change({ ...tune, pos: p }); };
-  const setEye = (i: number, v: number) => { const e = [...eye] as [number, number, number]; e[i] = v; change({ ...tune, eye: e }); };
+  // The value shown and edited for a point (where the game has it now).
+  const value = (p: Point): SeatVec | undefined => {
+    if (p === 'hip') return seatTuned(kind, seat) ? seatHip(kind, seat) : add(origin, [0, .47, .05]);
+    if (p === 'eye') return seatEye(kind, seat, gunner);
+    const c = seatContacts(kind, seat), i = p.endsWith('L') ? 0 : 1;
+    return p.startsWith('hand') ? c.hands?.[i] : c.feet?.[i];
+  };
+  const setPoint3 = (p: Point, v: SeatVec) => {
+    const t: SeatTune = { ...tune };
+    if (p === 'hip') { t.hip = v; delete t.pos; }
+    else if (p === 'eye') t.eye = v;
+    else {
+      const key = p.startsWith('hand') ? 'hands' : 'feet', i = p.endsWith('L') ? 0 : 1;
+      const now = (t[key] ?? [startPoint(origin, i ? p.replace('R', 'L') as Point : p), startPoint(origin, i ? p : p.replace('L', 'R') as Point)]) as [SeatVec, SeatVec];
+      const both: [SeatVec, SeatVec] = [now[0], now[1]]; both[i] = v; t[key] = both;
+    }
+    setSeatTune(seat, t);
+  };
+  const togglePoint = (p: Point, on: boolean) => {
+    if (p === 'hip' || p === 'eye') return;
+    const key = p.startsWith('hand') ? 'hands' : 'feet', t: SeatTune = { ...tune };
+    if (on) t[key] = [startPoint(origin, key === 'hands' ? 'handL' : 'footL'), startPoint(origin, key === 'hands' ? 'handR' : 'footR')]; else delete t[key];
+    setSeatTune(seat, t);
+  };
+  const addSeat = () => {
+    const last = seatPosition(kind, count - 1), seats = { ...(forKind.seats ?? {}) };
+    seats[count] = { pos: [last[0], last[1], last[2] + .8] };
+    commit({ ...tuning, [kind]: { count: count + 1, seats } });
+    setSeat(count);
+  };
+  const removeSeat = () => {
+    if (count <= minSeats(kind)) return;
+    const seats = { ...(forKind.seats ?? {}) };
+    delete seats[count - 1];
+    const next = { ...forKind, seats, count: count - 1 };
+    if (next.count === def.seats.length) delete (next as { count?: number }).count;
+    commit({ ...tuning, [kind]: next });
+    setSeat(Math.min(seat, count - 2));
+  };
   const save = async () => {
     setStatus('Đang lưu…');
     try { await studioSaveVehicleSeats(tuning); setStatus('✓ Đã lưu — áp dụng cho mọi máy chủ.'); }
@@ -153,16 +219,17 @@ export function VehicleStudioPage() {
   const unlock = async () => {
     try { await studioLogin(password); setLocked(false); setStatus('Đã mở khoá. Bấm Lưu lần nữa.'); } catch { setStatus('Sai mật khẩu.'); }
   };
-  const num = (label: string, value: number, min: number, max: number, set: (v: number) => void) => (
-    <label key={label} className="gs-num"><span>{label}</span><input type="range" min={min} max={max} step={.01} value={value} onChange={(e) => set(Number(e.target.value))} /><input type="number" min={min} max={max} step={.01} value={+value.toFixed(3)} onChange={(e) => set(Number(e.target.value) || 0)} /></label>
+  const num = (label: string, v: number, min: number, max: number, set: (v: number) => void) => (
+    <label key={label} className="gs-num"><span>{label}</span><input type="range" min={min} max={max} step={.01} value={v} onChange={(e) => set(Number(e.target.value))} /><input type="number" min={min} max={max} step={.01} value={+v.toFixed(3)} onChange={(e) => set(Number(e.target.value) || 0)} /></label>
   );
-  const def = VEHICLES[kind], role = VEHICLE_ROLES[kind];
+  const picked = value(point);
+  const range = (i: number): [number, number] => point === 'eye' ? (i === 1 ? [0, 2.5] : [-1.5, 1.5]) : i === 1 ? [-1, def.height + 1] : i === 0 ? [-def.halfX - 1, def.halfX + 1] : [-def.halfZ - 1, def.halfZ + 1];
 
   return (
     <div className="gs-page">
       <header className="gs-bar">
         <Link href="/studio" className="studio-back" title="Về Xưởng"><Icon name="lucide:arrow-left" /></Link>
-        <h1>Phương tiện · vị trí ngồi</h1>
+        <h1>Phương tiện · chỗ ngồi</h1>
         <div className="gs-motion">
           <button className={`btn${view === 'outside' ? ' btn-primary' : ''}`} onClick={() => setView('outside')}><Icon name="lucide:rotate-3d" /> Nhìn từ ngoài</button>
           <button className={`btn${view === 'first' ? ' btn-primary' : ''}`} onClick={() => setView('first')}><Icon name="lucide:eye" /> Góc nhìn thứ nhất</button>
@@ -182,18 +249,31 @@ export function VehicleStudioPage() {
       <div className="gs-view" ref={host} />
       <aside className="gs-panel">
         <h3>Ghế · {def.name}</h3>
-        {def.seats.map((_, i) => (
+        {Array.from({ length: count }, (_, i) => (
           <button key={i} className={`btn vs-item${i === seat ? ' btn-primary' : ''}`} onClick={() => setSeat(i)}>
-            {i + 1}. {role.seats[i] ?? `Ghế ${i + 1}`}{tuning[kind]?.[i] ? ' •' : ''}
+            {i + 1}. {role.seats[i] ?? `Ghế ${i + 1}`}{forKind.seats?.[i] ? ' •' : ''}
           </button>
         ))}
-        <h3>Vị trí ngồi</h3>
-        <p className="gs-hint">{gunner ? 'Đứng tại súng (gốc nhân vật là bàn chân).' : 'Ngồi (gốc nhân vật dưới mặt đệm khoảng 0,5 m).'} Mét, theo khung xe: −Z là mũi xe.</p>
-        {[0, 1, 2].map((i) => num(AXES[i]!, pos[i]!, i === 1 ? -2 : -def.halfZ - 2, i === 1 ? def.height + 1 : def.halfZ + 2, (v) => setPos(i, v)))}
-        <h3>Mắt (góc nhìn thứ nhất)</h3>
-        <p className="gs-hint">Tính từ gốc ghế. Mặc định {gunner ? STANDING_EYE[1] : SEATED_EYE[1]} m phía trên. Đổi sang “Góc nhìn thứ nhất” để xem đúng như người chơi thấy, rồi nâng hoặc đẩy mắt ra trước nếu bị ghế, khung kính che.</p>
-        {[0, 1, 2].map((i) => num(AXES[i]!, eye[i]!, i === 1 ? 0 : -1.5, i === 1 ? 2.5 : 1.5, (v) => setEye(i, v)))}
-        <button className="btn" onClick={() => change(null)} disabled={!tuning[kind]?.[seat]}><Icon name="lucide:rotate-ccw" /> Về mặc định ghế này</button>
+        <div className="vs-row">
+          <button className="btn" onClick={addSeat} disabled={count >= 24}><Icon name="lucide:plus" /> Thêm ghế</button>
+          <button className="btn" onClick={removeSeat} disabled={count <= minSeats(kind)} title="Bỏ ghế cuối (không bỏ được ghế lái và ghế súng)"><Icon name="lucide:minus" /> Bỏ ghế cuối</button>
+        </div>
+        <h3>Điểm đặt của ghế {seat + 1}</h3>
+        <p className="gs-hint">Mỗi ghế có điểm riêng. Chọn một điểm rồi kéo X/Y/Z (mét, theo khung xe: −Z là mũi xe). {gunner ? 'Ghế súng: nhân vật đứng.' : ''}</p>
+        {POINTS.map((p) => {
+          const optional = p.id !== 'hip' && p.id !== 'eye', on = !optional || !!value(p.id);
+          return (
+            <div key={p.id} className={`vs-point${point === p.id ? ' on' : ''}`}>
+              <i style={{ background: `#${p.color.toString(16).padStart(6, '0')}` }} />
+              <button className="btn" onClick={() => setPoint(p.id)}>{p.name}</button>
+              {optional && <input type="checkbox" title="Dùng điểm này" checked={on} onChange={(e) => { togglePoint(p.id, e.target.checked); setPoint(p.id); }} />}
+            </div>
+          );
+        })}
+        {picked ? [0, 1, 2].map((i) => { const [mn, mx] = range(i); return num(AXES[i]!, picked[i]!, mn, mx, (v) => { const n = [...picked] as [number, number, number]; n[i] = v; setPoint3(point, n); }); })
+          : <p className="gs-hint">Điểm này chưa dùng: tích ô bên cạnh để đặt.</p>}
+        {point === 'eye' && <p className="gs-hint">Tính từ gốc ghế; mặc định {gunner ? STANDING_EYE[1] : SEATED_EYE[1]} m phía trên. Xem ở “Góc nhìn thứ nhất” rồi nâng hoặc đẩy mắt ra trước nếu bị ghế, khung kính che.</p>}
+        <button className="btn" onClick={() => setSeatTune(seat, null)} disabled={!forKind.seats?.[seat] || seat >= def.seats.length}><Icon name="lucide:rotate-ccw" /> Về mặc định ghế này</button>
       </aside>
     </div>
   );

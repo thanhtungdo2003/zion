@@ -9,7 +9,7 @@ import { InfectionMatch } from './infection';
 import { WaveMatch } from './waves';
 import { WarfareMatch } from './warfare';
 import type { WarfareRoomConfig } from './warfare-rooms';
-import { ARMOR_BY_ITEM, NO_ARMOR, VEHICLE_ROLES, isAircraft, seatMount, slewMount, weaponMuzzle, vehicleInReach, armedSeat, seatWeapon, type VehicleState, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
+import { ARMOR_BY_ITEM, NO_ARMOR, VEHICLE_ROLES, seatCount, isAircraft, seatMount, slewMount, weaponMuzzle, vehicleInReach, armedSeat, seatWeapon, type VehicleState, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
 import { WarfareDirector, ledObjective, type DirectorUnit, type DirectorZone } from './warfare-director';
 import { driveTowards, newDriveMemory, type DriveMemory } from './warfare-driving';
 import { VehicleGunnery } from './vehicle-gunnery';
@@ -3102,7 +3102,7 @@ export class GameServer {
         // Aircraft for the longest trips, armour next, then whatever is closest.
         .sort((a, b) => this.wfVehicleScore(b, lead.state, far) - this.wfVehicleScore(a, lead.state, far))[0];
       if (!pick) continue;
-      const seats = VEHICLES[pick.kind].seats.length;
+      const seats = seatCount(pick.kind);
       const crew = [lead.id, ...sq.members.filter((id) => id !== lead.id && !bots.get(id)?.dead)].slice(0, seats);
       this.wfMount.set(pick.id, { squad: sq.id, crew, since: now, target: null, zone: zone.id, leg: 'out' });
       for (const id of crew) { const b = bots.get(id); if (b) b.objective = { x: pick.x, y: pick.y, z: pick.z, radius: 2.5, sprint: true }; }

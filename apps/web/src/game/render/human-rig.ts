@@ -615,6 +615,8 @@ export interface PoseRequest {
   hipDrop?: number;
   /** A floor the feet never go through (world height): a vehicle's floor under a seated rider. */
   floor?: number;
+  /** Where each foot is set (world, the ankle), e.g. a seat's footrests or pedals: two-bone leg IK. */
+  feet?: Partial<Record<Side, Vector3 | null>>;
   /**
    * A recorded clip mixed over the pose: the trunk and legs (and the arms when `arms`, else they
    * keep holding what they hold), at `time` seconds, by `weight`; `hips` keeps its hip bob.
@@ -1175,8 +1177,9 @@ export class HumanBody {
     // where the rig's planted foot stands; then the ankle is levelled when it is flat on the floor.
     if (recorded && req.mocap?.aim) this.aimTorso(req.mocap.aim);
     if (recorded && req.plant > .5 && !req.mocap?.ground) for (const s of ['L', 'R'] as const) this.groundFoot(s, req.plant);
-    // Seated: a foot that would sink into the vehicle's floor draws the knee up instead.
-    if (req.floor !== undefined) for (const s of ['L', 'R'] as const) this.groundFoot(s, 1, req.floor);
+    // Seated: feet set on the seat's own points (pedals, footrests), else kept off the floor.
+    for (const s of ['L', 'R'] as const) { const t = req.feet?.[s]; if (t) this.reachFoot(s, t); }
+    if (req.floor !== undefined) for (const s of ['L', 'R'] as const) if (!req.feet?.[s]) this.groundFoot(s, 1, req.floor);
     // Rolling on the ground: the whole body rests on the floor (never floats, never sinks).
     if (recorded && req.mocap!.ground) this.groundBody(Math.min(1, req.mocap!.weight), req.mocap!.clip.startsWith('prone_') ? req.dt : 0);
     else this.bodyFloorOffset = null;
@@ -1225,6 +1228,33 @@ export class HumanBody {
     const hips = this.bones[this.spine[0]!]!;
     hips.position.add(hips.parent!.worldToLocal(this.pos(this.spine[0]!, p).add(tmpV[10]!.set(0, shift, 0))).sub(hips.position));
     hips.updateMatrixWorld(true);
+  }
+
+  /**
+   * Two-bone leg IK: the ankle to `target` (world), the knee bending forward (out over the toes),
+   * as far as the leg reaches; the foot keeps its own turn.
+   */
+  private reachFoot(s: Side, target: Vector3): void {
+    const S = this.side[s];
+    const hip = this.pos(S.thigh, new Vector3()), knee0 = this.pos(S.shin, new Vector3()), ankle0 = this.pos(S.foot, new Vector3());
+    const a = hip.distanceTo(knee0), b = knee0.distanceTo(ankle0);
+    const to = target.clone().sub(hip), d = Math.min(Math.max(to.length(), Math.abs(a - b) + 1e-3), a + b - 1e-3);
+    if (to.lengthSq() < 1e-8) return;
+    const dir = to.normalize();
+    // Knee out along the body's forward (bent towards the toes), perpendicular to the thigh line.
+    const hipFrame = tmpQ[3]!.copy(this.worldQ[this.spine[0]!]!).multiply(tmpQ[4]!.copy(this.assets.restQ[this.spine[0]!]!).invert());
+    const fwd = new Vector3(0, 0, 1).applyQuaternion(hipFrame);
+    const pole = fwd.sub(dir.clone().multiplyScalar(fwd.dot(dir)));
+    if (pole.lengthSq() < 1e-6) pole.set(0, 1, 0); else pole.normalize();
+    const along = (a * a - b * b + d * d) / (2 * d), up = Math.sqrt(Math.max(0, a * a - along * along));
+    const knee = hip.clone().addScaledVector(dir, along).addScaledVector(pole, up), ankle = hip.clone().addScaledVector(dir, d);
+    // Thigh: turn it so the knee lands there; then the shin so the ankle does.
+    const turn = (from: Vector3, toV: Vector3) => new Quaternion().setFromUnitVectors(from.normalize(), toV.normalize());
+    this.setWorld(S.thigh, turn(knee0.clone().sub(hip), knee.clone().sub(hip)).multiply(this.worldQ[S.thigh]!.clone()));
+    for (const i of [S.thigh1, S.shin]) this.setLocal(i, tmpQ[1]!.copy(this.bones[i]!.quaternion));
+    const kneeNow = this.pos(S.shin, new Vector3()), ankleNow = this.pos(S.foot, new Vector3());
+    this.setWorld(S.shin, turn(ankleNow.clone().sub(kneeNow), ankle.clone().sub(kneeNow)).multiply(this.worldQ[S.shin]!.clone()));
+    for (const i of [S.shin1, S.foot, S.toe]) this.setLocal(i, tmpQ[1]!.copy(this.bones[i]!.quaternion));
   }
 
   /** Keeps a foot from going through the floor (the hips' rest height above the ground). */
