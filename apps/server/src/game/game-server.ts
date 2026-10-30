@@ -2667,7 +2667,7 @@ export class GameServer {
     return this.wfPreparing;
   }
 
-  private wfSideName(s: WarfareSide): string { return s === 'blue' ? 'Phe Xanh (tấn công)' : 'Phe Đỏ (phòng thủ)'; }
+  private wfSideName(s: WarfareSide): string { return s === 'blue' ? 'Xanh' : 'Đỏ'; }
   private wfSay(text: string, side?: WarfareSide): void {
     const msg = { t: 'chat' as const, from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text };
     for (const p of this.players.values()) if (!side || this.wfSide.get(p.id) === side) p.session.sendJson(msg);
@@ -2716,7 +2716,7 @@ export class GameServer {
     p.dead = true; p.deadAt = 0; p.health = 0; p.dirty = true;
     p.inv.load({ items: [], equipped: null }); this.syncLoadout(p);
     this.wfRespawn.add(p.id, side, this.serverTime);
-    this.wfSay(`${p.username} đã vào ${this.wfSideName(side)}.`);
+    this.wfSay(`+ ${p.username}`);
     this.broadcastWarfare(this.serverTime);
   }
 
@@ -2766,7 +2766,7 @@ export class GameServer {
     const humans = [...this.players.values()];
     const before = m.phase;
     const ev = m.tick(now, { humans: humans.length + this.rejoins.size, units: this.wfLiving() });
-    if (ev.started) this.wfSay('Trận chiến bắt đầu! Chiếm và giữ các cứ điểm, mỗi người ngã xuống tốn một quân số dự bị.');
+    if (ev.started) this.wfSay('Bắt đầu!');
     if (ev.flips.length) this.wfFlips(ev.flips);
     if (ev.over) this.wfEnd(now);
     if (ev.close) { this.wfClose(); return; }
@@ -2790,10 +2790,10 @@ export class GameServer {
     const living = this.wfLiving();
     for (const f of flips) {
       if (f.to) {
-        this.wfSay(`${this.wfSideName(f.to)} đã chiếm cứ điểm ${f.zone.name}.`);
+        this.wfSay(`${this.wfSideName(f.to)} chiếm ${f.zone.name}`);
         for (const u of living) if (u.side === f.to && Math.hypot(u.x - f.zone.x, u.z - f.zone.z) <= f.zone.radius) { const s = this.wfStats.get(u.id); if (s) s.captures++; }
-      } else if (f.from) this.wfSay(`Cứ điểm ${f.zone.name} đã bị ${this.wfSideName(otherSide(f.from))} vô hiệu hóa — đang tranh chấp.`);
-      if (f.from) this.wfSay(`Đã mất cứ điểm ${f.zone.name}!`, f.from);
+      } else if (f.from) this.wfSay(`${f.zone.name}: trung lập`);
+      if (f.from) this.wfSay(`Mất ${f.zone.name}!`, f.from);
     }
   }
 
@@ -2955,7 +2955,7 @@ export class GameServer {
         : [...points].filter((p) => p.kind !== 'squad').sort((a, b) => (a.kind === 'zone' ? 0 : 1) - (b.kind === 'zone' ? 0 : 1));
     if (pick && !chosen) {
       const p = this.players.get(unitId);
-      if (p) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: 'Điểm triển khai đã chọn không còn an toàn — triển khai tại căn cứ.' });
+      if (p) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: 'Điểm triển khai mất — về căn cứ' });
       this.wfSpawnPick.set(unitId, null);
     }
     const living = this.wfLiving();
@@ -2988,7 +2988,7 @@ export class GameServer {
     this.wfDeployReady.delete(id);
     const bot = this.bots?.bots.find((b) => b.id === id);
     if (bot) bot.objective = null;
-    if (m.ledger.tickets[side] > 0 && m.ledger.tickets[side] <= 30 && m.ledger.tickets[side] % 10 === 0) this.wfSay(`Chỉ còn ${m.ledger.tickets[side]} quân số dự bị!`, side);
+    if (m.ledger.tickets[side] > 0 && m.ledger.tickets[side] <= 30 && m.ledger.tickets[side] % 10 === 0) this.wfSay(`Còn ${m.ledger.tickets[side]} quân!`, side);
     this.broadcastWarfare(now);
   }
 
@@ -3028,7 +3028,7 @@ export class GameServer {
     const { objectives, calls } = this.wfDirector.think(now, this.wfZones, units, this.wfPresence, this.wfFlipped);
     this.wfFlipped = false;
     for (const b of this.bots?.bots ?? []) if (!b.dead && !this.wfLeader.has(b.id)) b.objective = objectives.get(b.id) ?? null;
-    for (const c of calls) this.wfSay(`Cứ điểm ${c.zone.name} đang bị tấn công — cần tiếp viện!`, c.side);
+    for (const c of calls) this.wfSay(`${c.zone.name} bị tấn công!`, c.side);
     this.wfMountPlan(now);
   }
 
@@ -3273,7 +3273,7 @@ export class GameServer {
       case 'wfSquad': {
         if (msg.action === 'create') this.wfSquads.create(p.id, side);
         else if (msg.action === 'leave') this.wfSquads.leave(p.id);
-        else if (msg.id === undefined || !this.wfSquads.join(p.id, side, msg.id)) say('Không vào được đội này (đầy hoặc khác phe).');
+        else if (msg.id === undefined || !this.wfSquads.join(p.id, side, msg.id)) say('Đội đã đầy');
         break;
       }
       case 'wfOrder': {
@@ -3286,13 +3286,13 @@ export class GameServer {
         if (msg.dismiss) {
           const n = this.wfFollowers(p.id);
           for (const id of n) this.wfRelease1(id);
-          if (n.length) say(`${n.length} đồng đội bot đã trở về đội AI.`);
+          if (n.length) say(`Giải tán ${n.length} bot`);
           break;
         }
         if (msg.target !== undefined) { this.wfRecruitBot(p, msg.target); break; }
         if (msg.at) {
           const at = this.wfReachable(msg.at.x, msg.at.y, msg.at.z);
-          if (!at) { say('Không thể đến vị trí đó — giữ lệnh cũ.'); break; }
+          if (!at) { say('Không đến được'); break; }
           this.wfCommand(p, { kind: 'move', x: at.x, z: at.z }, now);
           this.wfGesture(p, 'point', Math.atan2(-(at.x - p.state.x), -(at.z - p.state.z)));
           break;
@@ -3302,7 +3302,7 @@ export class GameServer {
         const idle = (this.bots?.bots ?? []).filter((b) => !b.dead && this.wfSide.get(b.id) === side && !this.wfLeader.has(b.id));
         const picked = pickRecruits(p.state, idle.map((b) => ({ id: b.id, x: b.state.x, z: b.state.z })), this.wfCfg.recruitRadius, room);
         for (const r of picked) this.wfTake(p, r.id);
-        say(picked.length ? `${picked.length} bot đã theo bạn.` : room <= 0 ? `Đã đủ ${this.wfCfg.followerCap} bot đi theo.` : 'Không có bot đồng minh rảnh ở gần.');
+        say(picked.length ? `+${picked.length} bot` : room <= 0 ? `Đủ ${this.wfCfg.followerCap} bot` : 'Không có bot gần');
         break;
       }
       case 'wfEmote': {
@@ -3312,7 +3312,7 @@ export class GameServer {
         this.wfGesture(p, msg.emote, yaw);
         const foes = this.wfLiving().filter((u) => u.side !== side);
         const order = emoteOrder(msg.emote, aim, !!aim && foes.some((f) => Math.hypot(f.x - aim.x, f.z - aim.z) < 15));
-        if (msg.emote === 'point' && msg.aim && !aim) say('Không thể đến vị trí đó — giữ lệnh cũ.');
+        if (msg.emote === 'point' && msg.aim && !aim) say('Không đến được');
         if (msg.emote === 'wave') {
           // Rally: allies close by who are not busy fighting come over too.
           const room = this.wfCfg.followerCap - this.wfFollowers(p.id).length;
@@ -3331,15 +3331,15 @@ export class GameServer {
   private wfRecruitBot(p: Player, id: number): void {
     const say = (text: string) => p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text });
     const bot = this.bots?.bots.find((b) => b.id === id);
-    if (!bot || bot.dead || this.wfSide.get(id) !== this.wfSide.get(p.id)) { say('Chỉ tuyển được bot đồng minh còn sống.'); return; }
-    if (Math.hypot(bot.state.x - p.state.x, bot.state.z - p.state.z) > this.wfCfg.recruitRadius) { say('Bot ở quá xa — lại gần hơn.'); return; }
+    if (!bot || bot.dead || this.wfSide.get(id) !== this.wfSide.get(p.id)) { say('Không tuyển được'); return; }
+    if (Math.hypot(bot.state.x - p.state.x, bot.state.z - p.state.z) > this.wfCfg.recruitRadius) { say('Quá xa'); return; }
     const owner = this.wfLeader.get(id);
-    if (owner === p.id) { say(`${bot.name} đã đi theo bạn.`); return; }
+    if (owner === p.id) { say(`${bot.name} ✓`); return; }
     // Following another player: only taken when that player is gone or down.
-    if (owner !== undefined && this.players.get(owner) && !this.players.get(owner)!.dead) { say(`${bot.name} đang theo ${this.players.get(owner)!.username}.`); return; }
-    if (this.wfFollowers(p.id).length >= this.wfCfg.followerCap) { say(`Đã đủ ${this.wfCfg.followerCap} bot đi theo.`); return; }
+    if (owner !== undefined && this.players.get(owner) && !this.players.get(owner)!.dead) { say(`${bot.name} → ${this.players.get(owner)!.username}`); return; }
+    if (this.wfFollowers(p.id).length >= this.wfCfg.followerCap) { say(`Đủ ${this.wfCfg.followerCap} bot`); return; }
     this.wfTake(p, id);
-    say(`${bot.name} đã gia nhập đội của bạn.`);
+    say(`+ ${bot.name}`);
   }
 
   private wfTake(p: Player, botId: number): void {
@@ -3359,7 +3359,7 @@ export class GameServer {
       if (order.kind === 'move' || order.kind === 'attack') this.wfTurnUntil.set(id, { until: now + 600, yaw });
     }
     this.wfPlayerOrder.set(p.id, order.kind === 'hold' ? { kind: 'follow' } : order);
-    if (followers.length) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: `${followers.length} bot nhận lệnh: ${({ follow: 'đi theo', hold: 'giữ vị trí', move: 'di chuyển tới điểm', attack: 'tấn công', defend: 'phòng thủ', regroup: 'tập hợp' } as const)[order.kind]}.` });
+    if (followers.length) p.session.sendJson({ t: 'chat', from: 'CHIẾN TRƯỜNG', fromId: 0, system: true, text: `${followers.length} bot: ${({ follow: 'theo', hold: 'giữ', move: 'đi', attack: 'đánh', defend: 'thủ', regroup: 'tập hợp' } as const)[order.kind]}` });
   }
 
   /** A hand signal, shown on the player's avatar for everyone near. */
@@ -3412,8 +3412,7 @@ export class GameServer {
     for (const id of [...this.wfRespawnIds()]) this.wfRespawn.remove(id);
     this.wfDeployReady.clear();
     for (const b of this.bots?.bots ?? []) { b.objective = null; b.target = null; b.mode = 'idle'; }
-    const why = r.reason === 'tickets' ? 'đối phương đã hết quân số dự bị' : r.reason === 'time' ? 'hết giờ, còn nhiều quân số hơn' : r.reason === 'objectives' ? 'giữ toàn bộ cứ điểm' : 'đối phương đã rời trận';
-    this.wfSay(`${this.wfSideName(r.winner)} chiến thắng — ${why}.`);
+    this.wfSay(`${this.wfSideName(r.winner)} thắng`);
     this.broadcastWarfare(now);
   }
 

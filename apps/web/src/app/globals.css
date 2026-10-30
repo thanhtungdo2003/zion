@@ -3782,39 +3782,36 @@ kbd {
 
 /* Warfare: tickets and zones on top, squad and tactical map at the side, the deploy screen. */
 .wf-top { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; gap: 2px; pointer-events: none; z-index: 5; }
-.wf-tickets { display: grid; align-content: center; gap: 2px; min-width: 104px; padding: 6px 14px; background: rgba(8, 10, 9, .74); }
+.wf-tickets { display: grid; align-content: center; gap: 3px; min-width: 64px; padding: 4px 10px; background: rgba(8, 10, 9, .66); }
+.wf-tickets.bleeding b { color: #ff8a80; }
+.wf-side { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .wf-tickets.blue { border-top: 3px solid #4fa3ff; text-align: right; }
 .wf-tickets.red { border-top: 3px solid #ff5a4a; }
 .wf-tickets small { font: 700 10px var(--cond); letter-spacing: .18em; color: var(--muted); }
-.wf-tickets b { font: 900 26px/1 var(--cond); font-variant-numeric: tabular-nums; }
+.wf-tickets b { font: 900 20px/1 var(--cond); font-variant-numeric: tabular-nums; }
 .wf-tickets i { display: block; height: 3px; background: rgba(255, 255, 255, .1); }
 .wf-tickets i em { display: block; height: 100%; transition: width .4s; }
-.wf-bleed { font: 700 10px var(--cond); color: #ff8a80; display: inline-flex; gap: 3px; align-items: center; }
-.wf-bleed svg { width: 11px; height: 11px; }
-.wf-mid { display: grid; justify-items: center; gap: 3px; padding: 6px 16px; background: rgba(8, 10, 9, .74); border-top: 3px solid var(--accent); }
+.wf-mid { display: grid; justify-items: center; gap: 3px; padding: 4px 10px; background: rgba(8, 10, 9, .66); border-top: 3px solid var(--accent); }
 .wf-mid small { font: 600 10px var(--cond); letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
-.wf-mid b { font: 900 20px/1 var(--cond); letter-spacing: .1em; font-variant-numeric: tabular-nums; }
+.wf-mid b { font: 900 15px/1 var(--cond); letter-spacing: .1em; font-variant-numeric: tabular-nums; }
 .wf-zones { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.wf-zones li { position: relative; width: 26px; height: 26px; display: grid; place-items: center; background: rgba(150, 150, 150, .25); border: 1px solid rgba(255, 255, 255, .2); overflow: hidden; }
+.wf-zones li { position: relative; width: 20px; height: 20px; display: grid; place-items: center; background: rgba(150, 150, 150, .25); border: 1px solid rgba(255, 255, 255, .2); overflow: hidden; }
 .wf-zones li.blue { background: rgba(79, 163, 255, .45); }
 .wf-zones li.red { background: rgba(255, 90, 74, .45); }
 .wf-zones li.contested { animation: wf-pulse 1s ease-in-out infinite; border-color: var(--accent); }
-.wf-zones li span { position: relative; z-index: 1; font: 900 13px var(--cond); }
+.wf-zones li span { position: relative; z-index: 1; font: 900 11px var(--cond); }
 .wf-zones li i { position: absolute; left: 0; bottom: 0; height: 3px; }
 @keyframes wf-pulse { 50% { box-shadow: 0 0 0 2px rgba(255, 176, 0, .6); } }
-.wf-squad { position: absolute; left: 12px; top: 140px; width: 230px; padding: 8px 10px; background: rgba(8, 10, 9, .7); border-left: 3px solid var(--accent); font-size: 12px; z-index: 4; }
-.wf-squad h3 { margin: 4px 0; font: 700 11px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
-.wf-squad ul { margin: 0 0 6px; padding: 0; list-style: none; display: grid; gap: 2px; }
-.wf-squad li { display: grid; grid-template-columns: 14px 1fr auto; gap: 6px; align-items: center; }
-.wf-squad li svg { width: 12px; height: 12px; }
-.wf-squad li.down { opacity: .45; }
-.wf-squad li em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wf-squad { position: absolute; left: 12px; top: 140px; display: flex; gap: 4px; align-items: center; padding: 4px; background: rgba(8, 10, 9, .6); border-left: 3px solid var(--accent); font-size: 12px; z-index: 4; }
+.wf-squad-count { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wf-squad-count b { color: var(--text); }
+.wf-squad svg { width: 14px; height: 14px; }
+.wf-squad button { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; background: rgba(255, 255, 255, .06); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.wf-squad button.on { background: var(--accent); color: var(--accent-ink); }
 .wf-orders { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
 .wf-orders .btn, .wf-chips .btn { padding: 3px 8px; font-size: 11px; min-height: 0; }
 .wf-orders .btn.on, .wf-chips .btn.on { background: var(--accent); color: var(--accent-ink); }
-.wf-hint, .wf-keys { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .wf-map { display: block; width: 100%; height: auto; border: 1px solid var(--line); }
-.wf-map.small { position: absolute; right: 12px; bottom: 120px; width: 180px; z-index: 4; pointer-events: none; opacity: .92; }
 .wf-map .click { cursor: pointer; }
 .wf-map .unsafe { cursor: not-allowed; }
 .wf-deploy { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at 50% 30%, rgba(14, 18, 20, .7), rgba(4, 5, 6, .92)); }
@@ -3844,7 +3841,6 @@ kbd {
 @media (max-width: 900px) {
   .wf-deploy-body { grid-template-columns: 1fr; }
   .wf-squad { top: auto; bottom: 150px; width: 200px; }
-  .wf-map.small { width: 130px; }
 }
 /* Studio: the Warfare part of a map. */
 .wf-studio .wf-tools { margin: 6px 0; }

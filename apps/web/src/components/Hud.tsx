@@ -156,16 +156,14 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           <span>{state.vehicle.speed} km/h</span>
           <div className="hud-vehicle-durability"><progress aria-label="Độ bền xe" max={100} value={state.vehicle.health} /><small>{state.vehicle.health}%</small></div>
         </>}
-        {state.vehicle.seat && <small className="hud-vehicle-seat">{state.vehicle.seat}</small>}
-        {state.vehicle.aircraft && state.vehicle.driving && <span>Độ cao {state.vehicle.altitude} m</span>}
+        {state.vehicle.aircraft && state.vehicle.driving && <span>{state.vehicle.altitude} m</span>}
         {state.vehicle.weapons?.map((w) => <div key={w.name} className="hud-vehicle-weapon">
-          <kbd>{w.trigger === 'primary' ? 'Chuột trái' : 'Chuột phải'}</kbd><b>{w.name}</b>
-          <span>{w.reloadMs > 0 ? `Nạp đạn ${(w.reloadMs / 1000).toFixed(1)} s` : `${w.mag}/${w.magazine}`} · dự trữ {w.reserve}</span>
+          <kbd>{w.trigger === 'primary' ? 'LMB' : 'RMB'}</kbd><b>{w.name}</b>
+          <span>{w.reloadMs > 0 ? `${(w.reloadMs / 1000).toFixed(1)} s` : `${w.mag}/${w.magazine}`} · {w.reserve}</span>
         </div>)}
         {state.vehicle.cm && <div className={`hud-vehicle-cm${state.vehicle.cm.active ? ' on' : ''}`}><kbd>V</kbd><b>{state.vehicle.cm.name}</b>
-          <span>{state.vehicle.cm.active ? 'Đang kích hoạt' : state.vehicle.cm.readyMs > 0 ? `Hồi ${Math.ceil(state.vehicle.cm.readyMs / 1000)} s` : `${state.vehicle.cm.charges} lần`}</span></div>}
-        {state.vehicle.aircraft && state.vehicle.driving && <small className="hud-vehicle-help">W/S tiến · A/D xoay · Space lên · Shift xuống · F nhảy dù khi đang bay</small>}
-        {state.vehicle.exploding && <b>XE SẮP NỔ! NHẤN F ĐỂ THOÁT!</b>}
+          <span>{state.vehicle.cm.active ? '●' : state.vehicle.cm.readyMs > 0 ? `${Math.ceil(state.vehicle.cm.readyMs / 1000)} s` : `×${state.vehicle.cm.charges}`}</span></div>}
+        {state.vehicle.exploding && <b>SẮP NỔ · F</b>}
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }))}>F · {state.vehicle.driving ? 'Xuống xe' : 'Lên xe'}</button>
       </div>}
       {state.visorVision > 0 && <div className="hud-visor" style={{ '--visor': state.visorVision } as React.CSSProperties} />}

@@ -52,11 +52,10 @@ export function WarfareHud({ state, selfId, dead, scoreboard, onSend, onModal, o
       <div className="wf-top" role="status" aria-live="polite">
         <Tickets side={you.side} state={state} />
         <div className="wf-mid">
-          <small>{state.map.name} · {state.active}/{state.maxActive} trên chiến trường</small>
-          <b>{state.phase === 'lobby' ? 'ĐANG CHỜ' : state.phase === 'countdown' ? `BẮT ĐẦU SAU ${Math.ceil(left / 1000)}` : state.phase === 'over' ? 'KẾT THÚC' : state.msLeft ? clock(left) : '∞'}</b>
+          <b>{state.phase === 'lobby' ? '—' : state.phase === 'countdown' ? Math.ceil(left / 1000) : state.phase === 'over' ? '■' : state.msLeft ? clock(left) : '∞'}</b>
           <ul className="wf-zones" aria-label="Cứ điểm">
             {state.zones.map((z) => (
-              <li key={z.id} className={`${z.owner ?? 'neutral'}${z.contested ? ' contested' : ''}`} title={`${z.name}${z.contested ? ' · đang tranh chấp' : ''} · Xanh ${z.presence.blue} / Đỏ ${z.presence.red}`}>
+              <li key={z.id} className={`${z.owner ?? 'neutral'}${z.contested ? ' contested' : ''}`} title={z.name}>
                 <span>{z.name.slice(0, 1)}</span>
                 <i style={{ width: `${Math.abs(z.progress) * 100}%`, background: z.progress > 0 ? SIDE.blue.color : SIDE.red.color }} />
               </li>
@@ -65,8 +64,7 @@ export function WarfareHud({ state, selfId, dead, scoreboard, onSend, onModal, o
         </div>
         <Tickets side={enemy} state={state} />
       </div>
-      {!deploying && state.phase !== 'over' && <SquadPanel state={state} selfId={selfId} onSend={onSend} />}
-      {!deploying && state.phase !== 'over' && <TacticalMap state={state} selfId={selfId} small />}
+      {!deploying && state.phase !== 'over' && <SquadPanel state={state} onSend={onSend} />}
       {deploying && <DeployScreen state={state} selfId={selfId} elapsed={elapsed} onSend={onSend} onLeave={onLeave} />}
       {(state.phase === 'over' || (scoreboard && !deploying)) && <Results state={state} selfId={selfId} onLeave={onLeave} final={state.phase === 'over'} />}
     </>
@@ -76,38 +74,27 @@ export function WarfareHud({ state, selfId, dead, scoreboard, onSend, onModal, o
 function Tickets({ side, state }: { side: WarfareSide; state: WarfareStateMessage }) {
   const t = state.tickets[side], bleed = state.bleed[side];
   return (
-    <div className={`wf-tickets ${side}`} title={`${SIDE[side].name}: ${t} quân số dự bị${bleed ? ` · đang mất ${bleed.toFixed(1)}/giây` : ''}`}>
-      <small>{SIDE[side].short}{side === state.you?.side ? ' · BẠN' : ''}</small>
+    <div className={`wf-tickets ${side}${bleed > 0 ? ' bleeding' : ''}`} title={SIDE[side].name}>
       <b>{t}</b>
       <i><em style={{ width: `${Math.max(0, t / Math.max(1, state.startTickets)) * 100}%`, background: SIDE[side].color }} /></i>
-      {bleed > 0 && <span className="wf-bleed"><Icon name="lucide:trending-down" /> −{bleed.toFixed(1)}/s</span>}
     </div>
   );
 }
 
-function SquadPanel({ state, selfId, onSend }: { state: WarfareStateMessage; selfId: number | null; onSend: (m: WarfareMsg) => void }) {
+/** Your bot followers: a count and the three orders (icons; no text on screen). */
+function SquadPanel({ state, onSend }: { state: WarfareStateMessage; onSend: (m: WarfareMsg) => void }) {
   const you = state.you!;
-  const byId = new Map(state.units.map((u) => [u.id, u]));
-  const squad = you.squad !== null ? state.squads.find((s) => s.id === you.squad) : undefined;
-  const self = selfId !== null ? byId.get(selfId) : undefined;
-  const dist = (id: number) => { const u = byId.get(id); return self?.x !== undefined && u?.x !== undefined && u.z !== undefined && self.z !== undefined ? `${Math.round(Math.hypot(u.x - self.x, u.z - self.z))} m` : ''; };
+  if (!you.followers.length) return null;
+  const alive = you.followers.filter((id) => state.units.some((u) => u.id === id && u.alive)).length;
   const order = (kind: WarfareOrderKind) => onSend({ t: 'wfOrder', order: { kind } });
   return (
-    <aside className="wf-squad" aria-label="Đội của bạn">
-      {squad && <>
-        <h3>Đội #{squad.id}</h3>
-        <ul>{squad.members.map((id, i) => { const u = byId.get(id); return <li key={id} className={u?.alive ? '' : 'down'}><Icon name={i === 0 ? 'lucide:star' : 'lucide:user'} /><span>{u?.name ?? '?'}</span><em>{id === selfId ? 'bạn' : u?.alive ? dist(id) : 'đã hạ'}</em></li>; })}</ul>
-      </>}
-      <h3>Bot theo bạn · {you.followers.length}{you.order ? ` · ${ORDERS[you.order]}` : ''}</h3>
-      {you.followers.length ? <ul>{you.followers.map((id) => { const u = byId.get(id); return <li key={id} className={u?.alive ? '' : 'down'}><Icon name="lucide:bot" /><span>{u?.name ?? '?'}</span><em>{u?.alive ? dist(id) : 'đang chờ'}</em></li>; })}</ul>
-        : <p className="wf-hint">Nhắm vào bot đồng minh và nhấn <kbd>G</kbd> để tuyển (hoặc <kbd>G</kbd> để gọi bot gần nhất).</p>}
-      {you.followers.length > 0 && <div className="wf-orders">
-        {(['follow', 'hold', 'regroup'] as const).map((k) => <button key={k} type="button" className={`btn${you.order === k ? ' on' : ''}`} onClick={() => order(k)}>{ORDERS[k]}</button>)}
-      </div>}
-      <p className="wf-keys"><kbd>G</kbd> tuyển / chỉ điểm · <kbd>Z</kbd> vẫy gọi · <kbd>Y</kbd> dừng lại · <kbd>Shift</kbd>+<kbd>G</kbd> giải tán</p>
+    <aside className="wf-squad" aria-label="Bot theo bạn">
+      <span className="wf-squad-count" title="Bot theo bạn"><Icon name="lucide:bot" /><b>{alive}</b>/{you.followers.length}</span>
+      {ORDER_ICONS.map(([k, icon]) => <button key={k} type="button" className={you.order === k ? 'on' : ''} title={ORDERS[k]} aria-label={ORDERS[k]} onClick={() => order(k)}><Icon name={icon} /></button>)}
     </aside>
   );
 }
+const ORDER_ICONS = [['follow', 'lucide:footprints'], ['hold', 'lucide:hand'], ['regroup', 'lucide:users']] as const;
 
 /** The battlefield from above: zones by owner, bases, allies, your followers, deploy points. */
 function TacticalMap({ state, selfId, small, pick, onPick, onZone }: { state: WarfareStateMessage; selfId: number | null; small?: boolean; pick?: string | null; onPick?: (id: string) => void; onZone?: (id: string) => void }) {
@@ -248,25 +235,15 @@ function Results({ state, selfId, onLeave, final }: { state: WarfareStateMessage
     <div className={`br-results wf-results${won ? ' won' : ''}${final ? '' : ' peek'}`} role="dialog" aria-label="Kết quả">
       <div className="br-results-card">
         <header className="br-results-head">
-          <div className="br-results-place"><small>{final ? 'KẾT QUẢ' : 'TỈ SỐ'}</small><b>{final ? (won ? 'THẮNG' : 'THUA') : `${state.tickets.blue}:${state.tickets.red}`}</b><span>{SIDE[you.side].short}</span></div>
-          <div className="br-results-title">
-            <small>{state.map.name} · Chiến trường</small>
-            <h2>{r ? `${SIDE[r.winner].name} chiến thắng` : 'Trận đang diễn ra'}</h2>
-            {r && <p>{r.reason === 'tickets' ? 'Đối phương hết quân số dự bị.' : r.reason === 'time' ? 'Hết giờ — nhiều quân số hơn.' : r.reason === 'objectives' ? 'Giữ toàn bộ cứ điểm.' : 'Đối phương đã rời trận.'}</p>}
-          </div>
+          <div className="br-results-place"><small>{final ? (won ? 'THẮNG' : 'THUA') : clock(state.msLeft)}</small><b>{state.tickets.blue}:{state.tickets.red}</b><span>{SIDE[you.side].short}</span></div>
+          {final && r && <div className="br-results-title"><h2>{SIDE[r.winner].short} thắng</h2></div>}
         </header>
-        {r && <div className="br-results-stats">
-          <div><small>Quân số đã dùng · Xanh</small><b>{r.ticketsUsed.blue}</b></div>
-          <div><small>Quân số đã dùng · Đỏ</small><b>{r.ticketsUsed.red}</b></div>
-          <div><small>Cứ điểm chiếm · Xanh</small><b>{r.captures.blue}</b></div>
-          <div><small>Cứ điểm chiếm · Đỏ</small><b>{r.captures.red}</b></div>
-        </div>}
         <div className="br-results-table" role="table" aria-label="Bảng điểm">
-          <div className="br-row br-row-head wf-row" role="row"><span>Phe</span><span>Tên</span><span>Hạ</span><span>Hỗ trợ</span><span>Chết</span><span>Chiếm</span></div>
+          <div className="br-row br-row-head wf-row" role="row"><span /><span /><span>K</span><span>A</span><span>D</span><span>C</span></div>
           <div className="br-rows">
             {rows.map((u) => (
               <div key={u.id} role="row" className={`br-row wf-row${u.id === selfId ? ' self' : ''}`}>
-                <span style={{ color: SIDE[u.side].color }}>{SIDE[u.side].short}</span>
+                <span><i className="wf-side" style={{ background: SIDE[u.side].color }} /></span>
                 <span className="br-name"><b>{u.name}</b>{u.bot && <i>BOT</i>}{u.id === selfId && <em>BẠN</em>}</span>
                 <span>{u.kills}</span><span>{u.assists}</span><span>{u.deaths}</span><span>{u.captures}</span>
               </div>

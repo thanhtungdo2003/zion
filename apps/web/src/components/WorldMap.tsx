@@ -9,6 +9,7 @@ import { mapTone } from '@/game/render/map-capture';
 import { MAP_SHADOW } from '@/game/render/minimap';
 const MAP_SHADOW_DIR = { x: MAP_SHADOW.x / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z), z: MAP_SHADOW.z / Math.hypot(MAP_SHADOW.x, MAP_SHADOW.z) };
 import { drawBattleCircles } from '@/game/battle-map-overlay';
+import { drawWarfareOverlay } from '@/game/warfare-map-overlay';
 import { BATTLE_FLIGHT, battlePlaneAt } from '@zion/shared';
 
 /** The transport plane's straight path over the island (start, end). */
@@ -18,6 +19,16 @@ function onPath(size: number, x: number, z: number) {
   const { ax, az, bx, bz } = flightPath(size), dx = bx - ax, dz = bz - az;
   const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
   return { t, x: ax + dx * t, z: az + dz * t };
+}
+
+/** The battlefield's frame: its zones and bases with a margin (centre and metres across). */
+function battlefield(hud: HudState): { x: number; z: number; extent: number } | null {
+  const wf = hud.warfare;
+  if (!wf) return null;
+  const pts = [...wf.zones.map((z) => ({ x: z.x, z: z.z, r: z.radius })), { ...wf.bases.blue, r: 30 }, { ...wf.bases.red, r: 30 }];
+  const x0 = Math.min(...pts.map((p) => p.x - p.r)), x1 = Math.max(...pts.map((p) => p.x + p.r));
+  const z0 = Math.min(...pts.map((p) => p.z - p.r)), z1 = Math.max(...pts.map((p) => p.z + p.r));
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, extent: Math.max(300, x1 - x0, z1 - z0) * 1.15 };
 }
 
 function decodeRaster(source: { pixels: number; rgb: string }): HTMLCanvasElement {
@@ -34,8 +45,11 @@ function decodeRaster(source: { pixels: number; rgb: string }): HTMLCanvasElemen
 export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: HudState; onClose: () => void }) {
   const state = useSyncExternalStore(store.subscribe, store.get, store.get);
   const battle = state.world?.mode === 'battle-royale';
+  // Warfare: the whole map is known (no exploring), framed on the battlefield.
+  const warfare = state.world?.mode === 'warfare', arena = battle || warfare;
   const worldMeters = state.world ? state.world.sizeChunks * state.world.chunkSize : 4096;
-  const overview = {
+  const field = warfare ? battlefield(hud) : null;
+  const overview = field ?? {
     x: battle ? worldMeters / 2 : state.world?.camp?.x ?? hud.position[0],
     z: battle ? worldMeters / 2 : state.world?.camp?.z ?? hud.position[2],
     extent: battle ? worldMeters * 1.05 : 2200,
@@ -86,11 +100,11 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
       if (!entry) return;
       const { width, height } = entry.contentRect;
       setSize({ width, height });
-      if (!fitted.current && width && height) { fitted.current = true; setCamera((c) => ({ ...c, ...(battle ? { x: worldMeters / 2, z: worldMeters / 2 } : {}), scale: Math.min(width, height) / (battle ? worldMeters * 1.05 : 2200) })); }
+      if (!fitted.current && width && height) { fitted.current = true; setCamera((c) => ({ ...c, ...(arena ? { x: overview.x, z: overview.z } : {}), scale: Math.min(width, height) / overview.extent })); }
     });
     resize.observe(el);
     return () => resize.disconnect();
-  }, [battle, worldMeters]);
+  }, [arena, overview.x, overview.z, overview.extent]);
   useEffect(() => {
     if (!state.atlas) return;
     raster.current = decodeRaster(state.atlas);
@@ -105,7 +119,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     const to = (x: number, z: number) => mapToScreen(x, z, size.width, size.height, camera);
     ctx.save(); ctx.beginPath();
     const camp = state.world?.camp;
-    if (state.world?.mode === 'battle-royale') { const o = to(0, 0); const side = state.world.sizeChunks * state.world.chunkSize * camera.scale; ctx.rect(o.x, o.y, side, side); }
+    if (arena && state.world) { const o = to(0, 0); const side = state.world.sizeChunks * state.world.chunkSize * camera.scale; ctx.rect(o.x, o.y, side, side); }
     if (camp) { const c = to(camp.x, camp.z); ctx.arc(c.x, c.y, 1000 * camera.scale, 0, Math.PI * 2); }
     for (const [z, spans] of store.exploration.rows) {
       const sy = to(0, z).y;
@@ -143,7 +157,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
       }
     }
     ctx.lineCap = 'butt';
-    const battleMap = state.world?.mode === 'battle-royale';
+    const battleMap = arena;
     // Man-made blocks: white and grey, a shadow cast east-north-east by the map's afternoon sun
     // and a lit edge, so buildings stand up off the ground.
     const shadowOff = Math.min(8, Math.max(1.5, 3 * camera.scale));
@@ -195,6 +209,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     ctx.restore();
     // Survey grid stays subtle; unknown terrain remains black beneath it.
     drawBattleCircles(ctx, hud.battle, to, camera.scale);
+    if (warfare) drawWarfareOverlay(ctx, hud.warfare, null, to, camera.scale);
     // Supply drops: a red X where each comes down and each transport plane with its heading.
     for (const target of hud.supply?.targets ?? []) {
       const p = to(target.x, target.z), r = Math.max(6, 7 * camera.scale);
@@ -235,6 +250,8 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
         ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       }
       ctx.restore();
+    }
+    if (arena) {
       // Area names, Google-maps style: big districts from afar, small places when zoomed in.
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
       for (const area of state.atlas?.areas ?? []) {
@@ -253,7 +270,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     for (let x = Math.ceil(tl.x / grid) * grid; x < br.x; x += grid) { const p = to(x, 0); ctx.beginPath(); ctx.moveTo(p.x, 0); ctx.lineTo(p.x, size.height); ctx.stroke(); ctx.fillText(String(x), p.x + 4, 14); }
     for (let z = Math.ceil(tl.z / grid) * grid; z < br.z; z += grid) { const p = to(0, z); ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(size.width, p.y); ctx.stroke(); ctx.fillText(String(z), 4, p.y - 4); }
     if (camp) { const c = to(camp.x, camp.z); ctx.beginPath(); ctx.arc(c.x, c.y, 1000 * camera.scale, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,176,0,.45)'; ctx.setLineDash([5, 7]); ctx.stroke(); }
-  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle]);
+  }, [camera, size, state.atlas, state.world, state.revision, state.jump, store, tileRevision, hud.battle, hud.warfare, arena, warfare]);
   useEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -287,7 +304,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     }
   }}>
     <section className="atlas-panel">
-      <header className="atlas-header"><div><span className="q-kicker">ZION // BẢN ĐỒ THỰC ĐỊA</span><h2 id="atlas-title"><Icon name="lucide:map" /> {battle ? 'Bản đồ Battle Royale' : 'Bản đồ sinh tồn'}</h2></div><span className="atlas-status"><i /> {battle ? 'Đảo Hắc Sơn' : 'Vùng căn cứ · R 1 KM'}</span><button ref={close} className="atlas-close" onClick={onClose} aria-label="Đóng bản đồ (M / Esc)"><Icon name="lucide:x" /><kbd>M</kbd></button></header>
+      <header className="atlas-header"><div><span className="q-kicker">ZION // BẢN ĐỒ THỰC ĐỊA</span><h2 id="atlas-title"><Icon name="lucide:map" /> {battle ? 'Bản đồ Battle Royale' : warfare ? 'Chiến trường' : 'Bản đồ sinh tồn'}</h2></div>{!warfare && <span className="atlas-status"><i /> {battle ? 'Đảo Hắc Sơn' : 'Vùng căn cứ · R 1 KM'}</span>}<button ref={close} className="atlas-close" onClick={onClose} aria-label="Đóng bản đồ (M / Esc)"><Icon name="lucide:x" /><kbd>M</kbd></button></header>
       <div className="atlas-body">
         <div className="atlas-viewport" ref={host}
           onPointerDown={(e) => {
@@ -319,7 +336,8 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
                 const point = onPath(worldMeters, p.x, p.z), boarding = !hud.battle || hud.battle.phase !== 'running' || hud.battle.drop?.phase === 'boarding' || !!hud.battle.plane;
                 if (boarding && Math.hypot(point.x - p.x, point.z - p.z) * camera.scale < 16) store.setJump(state.jump && Math.hypot(state.jump.x - point.x, state.jump.z - point.z) * camera.scale < 12 ? null : { x: point.x, z: point.z });
                 else store.setWaypoint(p.x, p.z);
-              } else beginDraft(p.x, p.z);
+              } else if (warfare) store.setWaypoint(p.x, p.z);
+              else beginDraft(p.x, p.z);
             }
           }} onPointerCancel={(e) => pointers.current.delete(e.pointerId)}>
           <canvas ref={canvas} aria-label="Địa hình và vùng đã khám phá" />
@@ -329,11 +347,11 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
           {hud.team?.members.filter((m) => m.inGame && (m.health ?? 1) > 0 && m.x !== undefined && m.z !== undefined && m.name !== hud.username).map((m) => { const p = mapToScreen(m.x!, m.z!, size.width, size.height, camera); return p.x >= 0 && p.y >= 0 && p.x <= size.width && p.y <= size.height ? <div key={m.accountId} className="atlas-teammate" style={{ left: p.x, top: p.y }} title={m.name}>{m.yaw !== undefined && <svg viewBox="0 0 24 24" style={{ transform: `rotate(${mapHeading(m.yaw)}rad)` }} aria-hidden="true"><path d="M12 1L17 9H7Z" fill="currentColor" /></svg>}<i /><span>{m.name}</span></div> : null; })}
           {draft && (() => { const p = mapToScreen(draft.x, draft.z, size.width, size.height, camera); return <div className="atlas-draft" style={{ left: p.x, top: p.y }}><Icon name={icon} /></div>; })()}
           <div className="atlas-compass">N<Icon name="lucide:arrow-up" /></div>
-          <div className="atlas-tools"><button onClick={() => zoom(1.4)} aria-label="Phóng to"><Icon name="lucide:plus" /></button><button onClick={() => zoom(1 / 1.4)} aria-label="Thu nhỏ"><Icon name="lucide:minus" /></button><button title="Về vị trí của bạn" onClick={() => setCamera((c) => ({ ...c, x: hud.position[0], z: hud.position[2] }))}><Icon name="lucide:locate-fixed" /></button><button title={battle ? 'Toàn cảnh đảo' : 'Toàn cảnh căn cứ'} onClick={() => setCamera({ x: overview.x, z: overview.z, scale: Math.min(size.width, size.height) / overview.extent })}><Icon name={battle ? 'lucide:map' : 'lucide:house'} /></button></div>
+          <div className="atlas-tools"><button onClick={() => zoom(1.4)} aria-label="Phóng to"><Icon name="lucide:plus" /></button><button onClick={() => zoom(1 / 1.4)} aria-label="Thu nhỏ"><Icon name="lucide:minus" /></button><button title="Về vị trí của bạn" onClick={() => setCamera((c) => ({ ...c, x: hud.position[0], z: hud.position[2] }))}><Icon name="lucide:locate-fixed" /></button><button title={arena ? 'Toàn cảnh' : 'Toàn cảnh căn cứ'} onClick={() => setCamera({ x: overview.x, z: overview.z, scale: Math.min(size.width, size.height) / overview.extent })}><Icon name={arena ? 'lucide:map' : 'lucide:house'} /></button></div>
           <div className="atlas-scale"><span style={{ width: barMeters * camera.scale }} />{barMeters >= 1000 ? `${barMeters / 1000} km` : `${barMeters} m`}</div>
           {!state.atlas && <div className="atlas-loading">{state.error ? <><span>{state.error}</span><button className="btn" onClick={() => { void store.loadAtlas(); }}>Tải lại</button></> : 'Đang nhận dữ liệu địa hình…'}</div>}
         </div>
-        {!battle && <aside className="atlas-sidebar">
+        {!arena && <aside className="atlas-sidebar">
           <div className="atlas-sidebar-head"><span className="q-label">Sổ tay vị trí · {state.locations.length}</span><label className="atlas-check"><input type="checkbox" checked={state.arrows} onChange={(e) => store.setArrows(e.target.checked)} /> Mũi tên chỉ đường</label><small>Tắt mũi tên để dùng biểu tượng ghim trên bản đồ nhỏ.</small></div>
           <div className="atlas-locations">{state.locations.map((m) => <div className={`atlas-location${m.id === selected ? ' selected' : ''}`} key={m.id}><button onClick={() => { choose(m.id); setCamera((c) => ({ ...c, x: m.x, z: m.z })); }}><Icon name={m.icon} /><span><b>{m.name}</b><small>{Math.round(Math.hypot(m.x - hud.position[0], m.z - hud.position[2]))} m · {m.fixed ? 'Căn cứ' : `${Math.round(m.x)}, ${Math.round(m.z)}`}</small></span>{m.fixed && <Icon name="lucide:lock-keyhole" />}</button><button className={m.guide ? 'on' : ''} title={m.guide ? 'Tắt chỉ đường' : 'Bật chỉ đường'} aria-label={`Chỉ đường đến ${m.name}`} aria-pressed={m.guide} onClick={() => store.edit(m.id, { guide: !m.guide })}><Icon name="lucide:navigation" /></button></div>)}</div>
           {(draft || location) ? <form className="atlas-editor" onSubmit={(e) => {
@@ -344,7 +362,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
           {notice && <p className="atlas-notice" role="status">{notice}</p>}
         </aside>}
       </div>
-      <footer className="atlas-footer"><span><i className="atlas-dot" /> Bạn <i className="atlas-dot team" /> Đồng đội</span><span>{battle ? 'Nhấp lên đường bay để chọn điểm tự nhảy · Nhấp nơi khác để cắm mốc có mũi tên chỉ hướng (nhấp lại để bỏ)' : 'Khám phá thêm ô 50 × 50 m quanh bước chân · Sổ tay lưu trên thiết bị này'}</span><span><kbd>M</kbd> / <kbd>Esc</kbd> Đóng</span></footer>
+      {!warfare && <footer className="atlas-footer"><span><i className="atlas-dot" /> Bạn <i className="atlas-dot team" /> Đồng đội</span><span>{battle ? 'Nhấp lên đường bay để chọn điểm tự nhảy · Nhấp nơi khác để cắm mốc có mũi tên chỉ hướng (nhấp lại để bỏ)' : 'Khám phá thêm ô 50 × 50 m quanh bước chân · Sổ tay lưu trên thiết bị này'}</span><span><kbd>M</kbd> / <kbd>Esc</kbd> Đóng</span></footer>}
     </section>
   </div>;
 }

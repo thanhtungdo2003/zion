@@ -1,6 +1,8 @@
 import gameIcons from '@iconify-json/game-icons/icons.json';
 import type { BattleState } from '@zion/shared';
 import { drawBattleCircles } from '../battle-map-overlay';
+import { drawWarfareOverlay } from '../warfare-map-overlay';
+import type { WarfareStateMessage } from '@zion/shared';
 import { BIOME_MAP_COLORS, Surface, CHUNK_SIZE, dequantizeHeight, heightIndex, propTransform, type Biome, type ChunkData } from '@zion/shared';
 import type { AssetDefinition, AssetRegistry } from '@zion/assets';
 import type { MapLocation } from '../world-map';
@@ -257,6 +259,8 @@ export class Minimap {
     battle: BattleState | null = null,
     /** Supply drops: transport planes on their way (heading) and the drop zone's red X. */
     supply: { planes: ReadonlyArray<{ x: number; z: number; yaw: number }>; targets: ReadonlyArray<{ x: number; z: number }> } | null = null,
+    /** Warfare: zones, bases, our commanders and the vehicles seen (and who is drawing it). */
+    warfare: { state: WarfareStateMessage; selfId: number | null } | null = null,
   ): void {
     const W = this.canvas.width;
     const scale = W / VIEW_METERS;
@@ -293,6 +297,7 @@ export class Minimap {
     ctx.restore();
     ctx.fillStyle = '#ff3b30';
     drawBattleCircles(ctx, battle, (x, z) => ({ x: (x - (px - half)) * scale, y: (z - (pz - half)) * scale }), scale);
+    if (warfare) { drawWarfareOverlay(ctx, warfare.state, warfare.selfId, (x, z) => ({ x: (x - (px - half)) * scale, y: (z - (pz - half)) * scale }), scale, -upYaw); ctx.fillStyle = '#ff3b30'; }
     for (const o of zombies) {
       const ox = (o.x - (px - half)) * scale;
       const oz = (o.z - (pz - half)) * scale;

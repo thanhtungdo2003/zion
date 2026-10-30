@@ -2412,7 +2412,9 @@ export class GameEngine {
       const others = [...this.remotes.entries()].filter(([id, r]) => !teamIds.has(id) && r.avatar.root.visible && r.entity.kind !== EntityKind.Animal && r.entity.kind !== EntityKind.QuestNpc).map(([, r]) => ({ x: r.entity.pose.x, z: r.entity.pose.z }));
       const seenZombies = [...this.zombies.values()].filter((zb) => zb.avatar.seen && !(zb.entity.pose.flags & EntityFlags.Dead)).map((zb) => ({ x: zb.entity.pose.x, z: zb.entity.pose.z }));
       const teammates = (this.hud.get().team?.members ?? []).filter((m) => m.entityId !== this.welcome?.playerId && m.inGame && m.x !== undefined && m.z !== undefined).filter((m) => (m.health ?? 1) > 0).map((m) => ({ x: m.x!, z: m.z!, yaw: m.yaw }));
-      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle(), this.hud.get().supply);
+      // Warfare: soldiers are not dots (only our commanders, drawn by the overlay).
+      const wf = this.hud.get().warfare, warfare = this.welcome?.mode === 'warfare' && wf ? { state: wf, selfId: this.welcome.playerId } : null;
+      this.minimap.draw(store.chunks.values(), px, pz, this.input.yaw, this.hud.get().mode === 'battle-royale' || warfare ? [] : others, seenZombies, this.minimapTint(), CAM_YAW, this.mapNpcs(), this.welcome?.world.camp ?? null, teammates, this.worldMap.get().locations, this.worldMap.get().arrows, this.liveBattle(), this.hud.get().supply, warfare);
     }
     this.updateSpeech(now);
     if (now - this.lastGuides > 100) {
