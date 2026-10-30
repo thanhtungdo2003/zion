@@ -20,7 +20,7 @@ import { HumanBody, STAND_CLIP, armorAnchors, SURVIVOR_SIZE, type RifleFit, type
 import { PostureMotion, type Posture } from './posture-motion';
 import { ReloadMagazine } from './reload-magazine';
 import { MixamoSkin } from './mixamo-body';
-import { locomotionClip, locomotionGait, type Gait } from './locomotion';
+import { isStepping, locomotionClip, locomotionGait, stepDirection, type Gait, type MoveDirection } from './locomotion';
 
 const DEG = Math.PI / 180;
 const PX = 1 / BB_UNITS_PER_METER;
@@ -344,6 +344,9 @@ export class Avatar {
   private labelText = '';
   private lastX = Number.NaN;
   private gait: Gait = 'idle';
+  /** Stepping (with hysteresis on the speed) and the way the legs step: see locomotion.ts. */
+  private stepping = false;
+  private moveDir: MoveDirection | null = null;
   private motionSpeed = 0;
   private stepPhase = 0;
   private lastY = 0;
@@ -1084,8 +1087,9 @@ export class Avatar {
     const measured = Math.hypot(dx, dz) * inv;
     if (reset) { this.motionSpeed = 0; this.bodyYaw = yaw; }
     // Filter the motion signal, not the rendered position or the gait's accumulated phase.
-    this.motionSpeed += (measured - this.motionSpeed) * (1 - Math.exp(-Math.max(0, motionDt) * 24));
+    this.motionSpeed += (measured - this.motionSpeed) * (1 - Math.exp(-Math.max(0, motionDt) * 12));
     const speed = this.motionSpeed;
+    this.stepping = isStepping(speed, this.stepping);
     const vy = reset ? 0 : (y - this.lastY) * inv;
     this.frame.speed = speed; this.frame.vy = vy; this.frame.dx = dx; this.frame.dz = dz;
     const wasRolling = this.cur.clip?.name === 'roll';
@@ -1120,7 +1124,7 @@ export class Avatar {
       let diff = wrapAngle(yaw - this.bodyYaw);
       // On the move the whole body squares up to where the player looks (strafing and
       // backpedalling included); standing still, only the head follows until it runs out of range.
-      const moving = speed > .025 && Math.hypot(dx, dz) > 1e-6 && !rolling;
+      const moving = this.stepping && Math.hypot(dx, dz) > 1e-6 && !rolling;
       // Attacking (shots, swings, throws) squares the body up to the mouse at once.
       const attacking = this.attackIntent || (flags & EntityFlags.Attacking) !== 0 || !!this.recAction || this.oneShot !== null;
       const following = moving || prone || attacking || (flags & EntityFlags.Aiming) !== 0;
@@ -1387,7 +1391,7 @@ export class Avatar {
       grasp.L = grasp.R = null;
       this.poseBranch = recorded.weight > .98 ? 'gun' : 'gun-driver';
       if (recorded.weight > .98) human.poseMocap(recorded, dt);
-      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
+      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
       this.attachRecordedGun(held, bracing, recorded.action?.weight ?? 0);
       this.heldMagazine.update(held.obj, recorded.action && this.reloadAnim ? this.reloadAnim.t / this.reloadAnim.dur : -1, human.palmMatrix('L'));
       return;
@@ -1425,7 +1429,7 @@ export class Avatar {
     }
     else {
       this.poseBranch = 'driver';
-      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
+      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
     }
     human.group.updateMatrixWorld(true);
   }
@@ -1860,7 +1864,7 @@ export class Avatar {
     } else if (recordedArms) grasp[trig] = null;
     grasp[sup] = null;
     if (recordedArms) { hands[trig] = 'fist'; reach[trig] = null; }
-    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: f.speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
+    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
     human.group.updateMatrixWorld(true);
     // The weapon in the hand.
     const world = trigLocal ? human.objectInHand(trig, trigLocal, scl) : null;
@@ -1912,7 +1916,7 @@ export class Avatar {
     const distance = Math.hypot(dx, dz);
     const climbingNow = (flags & EntityFlags.Climbing) !== 0, mantlingNow = !!this.mantleGrip;
     // A lunge's travel is the recording's own steps: no running lean, bob or forward alignment on top.
-    const moving = !busy && !airborne && !climbingNow && !mantlingNow && !this.recAction?.lunge && speed > .025 && distance > 1e-6;
+    const moving = !busy && !airborne && !climbingNow && !mantlingNow && !this.recAction?.lunge && this.stepping && distance > 1e-6;
     // Snaps on with the first step, releases gently so stopping does not swing the trunk.
     const aligning = this.viewAligned && moving && posture === 0 && roll === null;
     this.forwardBlend += ((aligning ? 1 : 0) - this.forwardBlend) * (1 - Math.exp(-dt * (aligning ? 24 : 5)));
@@ -1921,8 +1925,7 @@ export class Avatar {
     const transition = busy || airborne || roll !== null || moving ? null : this.postureMotion.step(posture, dt, (id) => clips.get(id)?.duration ?? 0);
     const ahead = (dx * fwd.x + dz * fwd.z) / Math.max(1e-6, distance);
     const sideways = (-dx * fwd.z + dz * fwd.x) / Math.max(1e-6, distance);
-    const strafe = Math.abs(sideways) > Math.abs(ahead) + .1;
-    const direction = this.facingTravel ? 'forward' : strafe ? sideways > 0 ? 'right' : 'left' : ahead < 0 ? 'backward' : 'forward';
+    const direction = this.moveDir = this.facingTravel ? 'forward' : stepDirection(ahead, sideways, moving ? this.moveDir : null);
     this.gait = locomotionGait(speed, (flags & EntityFlags.Sprinting) !== 0, this.gait);
     const standingMove = locomotionClip(this.gait, direction, gun);
     const legId = !moving || roll !== null ? null : posture === 2 ? 'prone_forward' : posture === 1 ? `crouch_${direction}`

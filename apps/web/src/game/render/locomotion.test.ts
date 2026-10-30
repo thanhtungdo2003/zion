@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
-import { closeMocapLoop, locomotionClip, locomotionGait } from './locomotion';
+import { closeMocapLoop, locomotionClip, locomotionGait, stepDirection } from './locomotion';
 import type { Mocap } from './human-rig';
 
 describe('locomotion states and loop continuity', () => {
@@ -30,5 +30,27 @@ describe('locomotion states and loop continuity', () => {
     expect(track.slice(15 * 4, 16 * 4)).toEqual(middle);
     clip.loop = false;
     const before = track.slice(); closeMocapLoop(clip); expect(track).toEqual(before);
+  });
+});
+
+describe('stepping without flicker', () => {
+  it('starts and stops stepping with hysteresis, so a wobbling speed keeps one state', () => {
+    let gait: ReturnType<typeof locomotionGait> = 'idle';
+    // A bot creeping at ~0.3 m/s with network wobble: never starts stepping.
+    for (let i = 0; i < 50; i++) { gait = locomotionGait(.3 + Math.sin(i) * .08, false, gait); expect(gait).toBe('idle'); }
+    gait = locomotionGait(1.5, false, gait);
+    expect(gait).toBe('walk');
+    // Slowing down through 0.2 ± 0.05: keeps walking until clearly stopped.
+    for (let i = 0; i < 50; i++) { gait = locomotionGait(.22 + Math.sin(i) * .05, false, gait); expect(gait).toBe('walk'); }
+    expect(locomotionGait(.05, false, gait)).toBe('idle');
+  });
+
+  it('keeps the stepping direction unless another clearly wins', () => {
+    // Travel at about 45° between forward and right, wobbling: the first choice holds.
+    let dir = stepDirection(.55, .7, null);
+    expect(dir).toBe('right');
+    for (let i = 0; i < 40; i++) { dir = stepDirection(.7 + Math.sin(i) * .1, .65, dir); expect(dir).toBe('right'); }
+    // A clear turn to forward travel switches.
+    expect(stepDirection(1, .1, dir)).toBe('forward');
   });
 });

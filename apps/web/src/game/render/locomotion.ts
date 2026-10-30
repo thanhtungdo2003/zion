@@ -4,12 +4,33 @@ import type { Mocap } from './human-rig';
 export type Gait = 'idle' | 'walk' | 'jog' | 'sprint';
 export type MoveDirection = 'forward' | 'backward' | 'left' | 'right';
 
+/**
+ * Starting and stopping: a body only starts stepping above MOVE_START and only stops below
+ * MOVE_STOP, so the small wobble of a networked speed never flips the legs between standing
+ * and stepping.
+ */
+export const MOVE_START = .4, MOVE_STOP = .15;
+export const isStepping = (speed: number, wasStepping: boolean): boolean => speed > (wasStepping ? MOVE_STOP : MOVE_START);
+
 /** Thresholds match the controller's normal walk (3.4 m/s), with hysteresis at each boundary. */
 export function locomotionGait(speed: number, sprinting: boolean, previous: Gait): Gait {
-  if (speed < .025) return 'idle';
+  if (!isStepping(speed, previous !== 'idle')) return 'idle';
   if (sprinting && speed > (previous === 'sprint' ? 4.35 : 4.8)) return 'sprint';
   if (speed > (previous === 'jog' ? 3.65 : 3.95)) return 'jog';
   return 'walk';
+}
+
+/**
+ * Which way the legs step relative to the body: the dominant component of travel, but a new
+ * direction must beat the current one by a clear margin (a bot drifting at 45° does not flicker
+ * between a forward and a sideways cycle).
+ */
+export function stepDirection(ahead: number, sideways: number, previous: MoveDirection | null): MoveDirection {
+  const score: Record<MoveDirection, number> = { forward: ahead, backward: -ahead, right: sideways, left: -sideways };
+  const strafe = Math.abs(sideways) > Math.abs(ahead) + .1;
+  const best: MoveDirection = strafe ? sideways > 0 ? 'right' : 'left' : ahead < 0 ? 'backward' : 'forward';
+  if (previous && previous !== best && score[previous] > .2 && score[best] < score[previous] + .35) return previous;
+  return best;
 }
 
 export function locomotionClip(gait: Gait, direction: MoveDirection, gun: boolean): string | null {
