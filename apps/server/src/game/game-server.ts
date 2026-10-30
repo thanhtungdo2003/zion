@@ -1403,8 +1403,9 @@ export class GameServer {
     if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
     if (this.waves) { this.syncLoadout(player); if (!this.waveCash.has(player.id)) this.waveCash.set(player.id, WAVE_START_CASH); }
     if (this.warfare) this.wfJoin(player, !!rejoin);
-    // A fixed map: the player acts only once their client has the map loaded.
-    if (this.fixedMap && !rejoin) { player.awaitingReady = true; player.awaitingSince = this.serverTime; }
+    // A fixed map: the player acts only once their client has the map loaded — rejoining too
+    // (the page reloaded and loads the map again).
+    if (this.fixedMap) { player.awaitingReady = true; player.awaitingSince = this.serverTime; session.loading = true; }
     if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : this.warfare ? 'CHIẾN TRƯỜNG' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
@@ -1533,7 +1534,7 @@ export class GameServer {
         this.vehicles.send(p, this.serverTime);
         return;
       case 'ready':
-        p.awaitingReady = false;
+        p.awaitingReady = false; p.session.loading = false;
         this.enterMatch(p);
         return;
       case 'pvp':
@@ -3643,8 +3644,8 @@ export class GameServer {
       if (retry !== undefined && Date.now() >= retry) { void this.receiveStudioCurrency(p.accountId); continue; }
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
       // Fixed maps: nobody acts before their client has loaded the map ('ready').
-      // (A client that never says so is let in after two minutes rather than frozen.)
-      if (p.awaitingReady && now - p.awaitingSince > 120_000) p.awaitingReady = false;
+      // (A client that never says so is let in after five minutes, as long as it may load, rather than frozen.)
+      if (p.awaitingReady && now - p.awaitingSince > 300_000) { p.awaitingReady = false; p.session.loading = false; }
       if (p.awaitingReady) { const last = p.inputs[p.inputs.length - 1]; if (last) p.lastProcessedSeq = last.s; p.inputs.length = 0; continue; }
       if (p.dead) {
         if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
@@ -5270,6 +5271,14 @@ export class GameServer {
     const tod = this.timeOfDay();
     for (const p of this.players.values()) {
       if (!p.active || p.questBusy) continue;
+      // Still loading the map: one bare snapshot a second (its own state, no one round it), so
+      // nothing plays or sounds before the player is in and the loading client is not swamped.
+      if (p.awaitingReady) {
+        if (this.tick % 30 !== 0) continue;
+        const s = p.state;
+        p.session.sendBinary(encodeSnapshot({ tick: this.tick, serverTime: now, timeOfDay: tod, ackSeq: p.lastProcessedSeq, self: { x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, flags: this.flagsOf(p, now), health: p.health, stuckTicks: s.stuckTicks, rollTicks: s.rollTicks, rollCooldown: s.rollCooldown, rollYaw: s.rollYaw, lungeTicks: s.lungeTicks ?? 0 }, entities: [] }), true);
+        continue;
+      }
       p.session.sendJson({ t: 'c4', charges: [...this.c4Charges.values()]
         .filter(c => Math.abs(Math.floor(c.s.x / CHUNK_SIZE) - p.chunkX) <= ENTITY_INTEREST_RADIUS_CHUNKS && Math.abs(Math.floor(c.s.z / CHUNK_SIZE) - p.chunkZ) <= ENTITY_INTEREST_RADIUS_CHUNKS)
         .map(c => c.pose()) });

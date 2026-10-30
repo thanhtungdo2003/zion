@@ -160,6 +160,7 @@ export class GameGateway {
 
     ws.on('pong', () => {
       session.alive = true;
+      session.missedPongs = 0;
     });
     ws.on('message', (data: RawData, isBinary: boolean) => this.onMessage(session, data, isBinary));
     ws.on('error', (err) => this.log.debug({ err: err.message, sid: session.id }, 'socket error'));
@@ -252,6 +253,9 @@ export class GameGateway {
   private beat(): void {
     for (const s of this.sessions) {
       if (!s.alive) {
+        // A client loading the map may not answer for a while (its socket backs up while it
+        // builds the terrain): up to a minute before it counts as gone.
+        if (s.loading && ++s.missedPongs < 6) continue;
         s.ws.terminate();
         continue;
       }

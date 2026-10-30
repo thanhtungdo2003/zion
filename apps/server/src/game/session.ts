@@ -16,6 +16,13 @@ export const SNAPSHOT_DROP_BYTES = 256 * 1024;
 export const STREAM_PAUSE_BYTES = 64 * 1024;
 /** A consumer this far behind is disconnected (slow-loris / stalled client protection). */
 export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+/**
+ * A client still loading the map is busy building it and reads its socket in bursts: it is let
+ * fall much further behind before being taken for a stalled one.
+ */
+export const LOADING_MAX_BUFFERED_BYTES = 64 * 1024 * 1024;
+/** Moment-to-moment events a loading client has no use for: dropped when its queue backs up. */
+const TRANSIENT = /^\{"t":"(shot|hit|armorHit|proj|projEnd|explosion|flashbang|grenade|smoke|speech|stagger|knock|chop|botDebug|c4|chat|reviving|distress)"/;
 const MAX_STRIKES = 12;
 
 export const CloseCode = {
@@ -50,6 +57,14 @@ export class ClientSession {
   lastChatAt = 0;
   /** Battle royale: joined with the squad ("Tiểu đội xuất phát") rather than solo. */
   squad = false;
+  /** Still loading the map (fixed maps, until 'ready'): more patience, no moment-to-moment events. */
+  loading = false;
+  /** Heartbeats in a row without a pong (a loading client is allowed several). */
+  missedPongs = 0;
+
+  private get maxBuffered(): number {
+    return this.loading ? LOADING_MAX_BUFFERED_BYTES : MAX_BUFFERED_BYTES;
+  }
 
   constructor(
     readonly id: number,
@@ -73,7 +88,8 @@ export class ClientSession {
   /** Sends an already-serialised JSON message (broadcasts serialise once for everyone). */
   sendText(text: string): void {
     if (!this.open) return;
-    if (this.buffered > MAX_BUFFERED_BYTES) {
+    if (this.loading && (this.buffered > SNAPSHOT_DROP_BYTES || text.startsWith('{"t":"c4"')) && TRANSIENT.test(text)) return;
+    if (this.buffered > this.maxBuffered) {
       this.close(CloseCode.SlowConsumer, 'slow consumer');
       return;
     }
@@ -85,7 +101,7 @@ export class ClientSession {
   sendBinary(data: Uint8Array, droppable: boolean): boolean {
     if (!this.open) return false;
     const buffered = this.buffered;
-    if (buffered > MAX_BUFFERED_BYTES) {
+    if (buffered > this.maxBuffered) {
       this.close(CloseCode.SlowConsumer, 'slow consumer');
       return false;
     }

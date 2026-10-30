@@ -749,6 +749,8 @@ export class GameEngine {
       onMessage: (m) => { if (!this.disposed) this.onMessage(m); },
       onClose: (info) => {
         if (this.disposed) return;
+        // Kept in the desktop app's crash.log: why the connection went.
+        console.warn(`connection closed: ${info.code} ${info.reason || ''} ${info.message || ''} (status ${this.hud.get().status})`);
         // Match modes: a dropped connection (not a refusal from the server) rejoins the same match
         // by itself; the server holds the place for a couple of minutes.
         const hud = this.hud.get(), arena = mode === 'battle-royale' || mode === 'infection' || mode === 'waves' || mode === 'warfare';
@@ -4174,7 +4176,8 @@ export class GameEngine {
     if (status !== 'disconnected') {
       // (Still loading comes first: a warfare player joins dead, on the deploy screen, and must
       // still finish loading and tell the server so — or it never takes their inputs.)
-      if (dead && status !== 'loading') status = 'dead';
+      // (Nor while reconnecting: the deploy screen flashed up over a dropped connection.)
+      if (dead && status !== 'loading' && status !== 'connecting') status = 'dead';
       else if (status === 'loading' && local.ready && lod0 >= Math.min(expectedLod0, 25)) {
         // Join only once the whole view is in: every terrain ring, every model and the ground cover.
         const ring = LOD_RINGS[LOD_RINGS.length - 1]!, size = this.welcome!.world.sizeChunks;
