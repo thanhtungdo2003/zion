@@ -1,9 +1,12 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
-import { deflateRaw } from 'node:zlib';
+import { deflateRaw, inflateRaw } from 'node:zlib';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
-import { CHUNK_SIZE, PROPS_MAX_LOD, encodeChunkBody, type ChunkData } from '@zion/shared';
+import { CHUNK_SIZE, PROPS_MAX_LOD, decodeChunkBody, encodeChunkBody, type ChunkData } from '@zion/shared';
 import type { AssetRegistry, AssetDefinitionInput } from '@zion/assets';
 import { CAMP_HALF_SIZE, CAMP_LAYOUT, campChunkProps, WorldGenerator, type CampPart, type WorldConfig } from '@zion/worldgen';
 import type { Logger } from '../logger';
@@ -11,6 +14,7 @@ import type { WorkerRequest, WorkerResponse } from './chunk-worker';
 import { LruCache } from './lru';
 
 const deflateRawAsync = promisify(deflateRaw);
+const inflateRawAsync = promisify(inflateRaw);
 
 export interface ChunkRecord {
   cx: number;
@@ -74,7 +78,7 @@ export class WorldService {
   private nextId = 1;
   private closed = false;
   private inlineScheduled = false;
-  readonly stats = { generated: 0, cacheHits: 0, genMsTotal: 0, failures: 0 };
+  readonly stats = { generated: 0, cacheHits: 0, genMsTotal: 0, failures: 0, baked: 0 };
   /** Camp Studio layout replacing the generated camp props (null = default). */
   private campOverride: readonly CampPart[] | null = null;
 
@@ -173,6 +177,7 @@ export class WorldService {
       return;
     }
     this.cache.set(job.key, rec);
+    this.writeBaked(rec);
     job.resolve(rec);
   }
 
@@ -249,14 +254,72 @@ export class WorldService {
       return pending;
     }
     if (this.queued >= MAX_QUEUED) return Promise.reject(new QueueFullError());
+    // A fixed map's chunk baked to disk earlier: read and inflate it (well under a millisecond)
+    // instead of generating it again (a detailed chunk takes ~110 ms of a worker).
+    if (this.bakeDir) {
+      const baked = this.readBaked(cx, cz, lod, key).then((rec) => rec ?? this.enqueue(cx, cz, lod, key, priority)).finally(() => this.inflight.delete(key));
+      this.inflight.set(key, baked);
+      return baked;
+    }
+    return this.enqueue(cx, cz, lod, key, priority);
+  }
+
+  private enqueue(cx: number, cz: number, lod: number, key: number, priority: ChunkPriority): Promise<ChunkRecord> {
     const p = new Promise<ChunkRecord>((resolve, reject) => {
       const job: Job = { id: this.nextId++, cx, cz, lod, key, resolve, reject };
       this.queues[priority]!.push(job);
       this.queued++;
-    }).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
+    }).finally(() => { if (!this.bakeDir) this.inflight.delete(key); });
+    if (!this.bakeDir) this.inflight.set(key, p);
     this.pump();
     return p;
+  }
+
+  /* ------------------------------ baked chunks (fixed maps) ------------------------------ */
+
+  /**
+   * Fixed maps never change, so each chunk needs generating only once: with a bake directory,
+   * generated chunks are written to disk (their deflated wire body), read back instead of being
+   * generated again — across restarts too — and `bake()` fills the whole map in the background.
+   * The directory is per world: the generator's configuration and version are its name.
+   */
+  private bakeDir: string | null = null;
+  bakeTo(root: string): void {
+    const id = createHash('sha1').update(JSON.stringify({ config: this.config, extra: this.extraAssets.map((a) => a.numericId) })).digest('hex').slice(0, 16);
+    this.bakeDir = path.join(root, `${this.config.seed}-${id}`);
+    void mkdir(this.bakeDir, { recursive: true }).catch((err: unknown) => { this.logger.error({ err }, 'chunk bake directory unavailable'); this.bakeDir = null; });
+  }
+  private bakedFile(cx: number, cz: number, lod: number): string { return path.join(this.bakeDir!, `${cx}_${cz}_${lod}.bin`); }
+  private async readBaked(cx: number, cz: number, lod: number, key: number): Promise<ChunkRecord | null> {
+    try {
+      const body = new Uint8Array(await readFile(this.bakedFile(cx, cz, lod)));
+      const data = decodeChunkBody(new Uint8Array(await inflateRawAsync(body)), cx, cz, lod);
+      const rec: ChunkRecord = { cx, cz, lod, data, body };
+      this.stats.baked++;
+      this.cache.set(key, rec);
+      return rec;
+    } catch { return null; }
+  }
+  private writeBaked(rec: ChunkRecord): void {
+    if (!this.bakeDir) return;
+    void writeFile(this.bakedFile(rec.cx, rec.cz, rec.lod), rec.body).catch(() => undefined);
+  }
+
+  /**
+   * Bakes the whole map, every LOD, in the background: one chunk at a time and only while no
+   * one is waiting for generation, so it never competes with play. Done chunks are skipped.
+   */
+  async bake(): Promise<void> {
+    if (!this.bakeDir) return;
+    const size = this.config.sizeChunks;
+    for (let lod = 2; lod >= 0 && !this.closed; lod--) for (let cz = 0; cz < size && !this.closed; cz++) for (let cx = 0; cx < size && !this.closed; cx++) {
+      if (!this.generator.inWorld(cx, cz) || existsSync(this.bakedFile(cx, cz, lod))) continue;
+      // Idle only: nothing queued, nothing being generated.
+      while (!this.closed && (this.queued > 0 || this.slots.some((s) => s.job))) await new Promise((r) => setTimeout(r, 200));
+      if (this.closed) return;
+      try { await this.getChunk(cx, cz, lod, ChunkPriority.Lod2); } catch { /* queue full or outside: next */ }
+    }
+    this.logger.info({ dir: this.bakeDir }, 'world baked');
   }
 
   /** Moves a queued job to a more urgent priority class (e.g. a player walked into it). */

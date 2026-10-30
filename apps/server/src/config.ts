@@ -66,6 +66,8 @@ const envSchema = z
     RANDOM_TICK_SPEED: z.coerce.number().int().min(0).max(1000).default(3),
     WORLDGEN_WORKERS: z.coerce.number().int().min(0).max(32).default(2),
     CHUNK_CACHE_SIZE: z.coerce.number().int().min(256).max(200_000).default(12_000),
+    /** Where fixed maps' generated chunks are baked to disk (empty: off). */
+    CHUNK_BAKE_DIR: z.string().default('data/chunk-bake'),
 
     MAX_CONNECTIONS: z.coerce.number().int().min(1).max(100_000).default(500),
     MAX_CONNECTIONS_PER_IP: z.coerce.number().int().min(1).max(1000).default(6),

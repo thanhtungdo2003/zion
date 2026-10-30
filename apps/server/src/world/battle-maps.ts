@@ -41,6 +41,9 @@ export class BattleMapService {
   /** Maps stored but not playable (their world failed to build), with the reason. */
   private readonly failed = new Map<string, string>();
 
+  /** Directory fixed maps' chunks are baked to (null: off). */
+  bakeRoot: string | null = null;
+
   constructor(
     private readonly db: Db,
     private readonly registry: AssetRegistry,
@@ -143,6 +146,8 @@ export class BattleMapService {
     const size = map.terrainGrid?.size ?? BATTLE_MAP.sizeChunks * 32;
     const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, 1, this.cacheSize, this.log, this.usedAssets(map));
     await world.start();
+    // A fixed map: chunks generated once, kept on disk, the rest baked in the background.
+    if (this.bakeRoot) { world.bakeTo(this.bakeRoot); void world.bake(); }
     const worldId = `br-${id}-${updatedAt.replace(/\D/g, '').slice(0, 14)}`;
     const entry: Entry = { id, name, thumbnail, updatedAt, warfare, modes: [], world, pool: null, worldId, atlas: atlasProvider(world.generator, worldId), tiles: atlasTileProvider(world.generator, worldId) };
     this.applyModes(entry, modes);

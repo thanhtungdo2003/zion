@@ -142,6 +142,8 @@ export interface HudState {
   /** F3 debug overlay numbers. */
   debug: { tps: number; drawCalls: number; geometries: number; textures: number; entities: number; zombies: number; heapMB: number | null; snapshotKB: number; frame: { update: number; render: number; gpu: number | null } | null;
     /** Our vehicle's client prediction: ticks predicted, corrections, inputs replayed, last error (cm), last step (ms). */
+    /** Terrain held (chunks per LOD), meshes built, chunks waiting to be built. */
+    world?: { lods: number[]; meshes: number; queued: number };
     prediction?: { steps: number; reconciles: number; replayed: number; error: number; ms: number } | null } | null;
   /** Melee combo: blows chained in quick succession (shown near the crosshair). */
   meleeCombo: { n: number; at: number } | null;

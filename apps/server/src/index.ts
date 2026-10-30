@@ -134,6 +134,7 @@ async function main(): Promise<void> {
   if (studioHouses.length) logger.info({ assets: trialAssets }, 'battle royale island: Model Studio houses on trial');
   const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', ...(studioHouses.length ? { studioHouses } : {}) }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger, modelStudio.definitions());
   await battleWorld.start();
+  if (config.CHUNK_BAKE_DIR) { battleWorld.bakeTo(config.CHUNK_BAKE_DIR); void battleWorld.bake(); }
   // Battle royale squads are separate from survival teams: three players, kept in memory.
   const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
   // Battle royale and infection run many matches at once over one shared world each; every
@@ -150,6 +151,7 @@ async function main(): Promise<void> {
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   }, () => modelStudio.definitions());
+  battleMaps.bakeRoot = config.CHUNK_BAKE_DIR || null;
   await battleMaps.load();
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
   // Infection maps come from the Studio; new matches are built on the active one.

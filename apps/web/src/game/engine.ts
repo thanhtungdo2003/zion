@@ -41,6 +41,7 @@ import {
   ACESFilmicToneMapping,
   Box3,
   BufferGeometry,
+  type BufferAttribute,
   Float32BufferAttribute,
   Line,
   LineDashedMaterial,
@@ -248,6 +249,20 @@ interface Interactable {
   name?: string;
   ground?: { id: number; itemId: string; count?: number };
   run: () => void;
+}
+
+/**
+ * A chunk's terrain or water geometry keeps its vertex data on the GPU only: once uploaded, the
+ * JavaScript copy is released (nothing reads it back: collision uses the chunk's own heights, the
+ * bounds are computed already). Some 90 KB of RAM per detailed chunk.
+ */
+function gpuOnly<T extends BufferGeometry | null>(g: T): T {
+  if (!g) return g;
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  const release = function (this: { array: ArrayLike<number> }) { this.array = new Float32Array(0) as unknown as ArrayLike<number>; };
+  for (const a of Object.values(g.attributes)) (a as BufferAttribute).onUpload(release);
+  g.index?.onUpload(release);
+  return g;
 }
 
 export class GameEngine {
@@ -4097,14 +4112,14 @@ export class GameEngine {
       const prev = this.meshes.get(key);
       if (prev) this.disposeChunkMeshes(prev);
       const seaLevel = this.welcome!.world.seaLevel;
-      const terrain = new Mesh(buildTerrainGeometry(chunk, seaLevel, this.welcome!.world.cosmeticSeed), this.terrainMaterial);
+      const terrain = new Mesh(gpuOnly(buildTerrainGeometry(chunk, seaLevel, this.welcome!.world.cosmeticSeed)), this.terrainMaterial);
       terrain.position.set(chunk.cx * CHUNK_SIZE, 0, chunk.cz * CHUNK_SIZE);
       terrain.receiveShadow = true;
       terrain.castShadow = chunk.lod === 0;
       terrain.matrixAutoUpdate = false;
       terrain.updateMatrix();
       this.terrainGroup.add(terrain);
-      const wg = buildWaterGeometry(chunk);
+      const wg = gpuOnly(buildWaterGeometry(chunk));
       let water: Mesh | null = null;
       if (wg && this.waterMaterial) {
         water = new Mesh(wg, this.waterMaterial);
@@ -4206,6 +4221,7 @@ export class GameEngine {
         zombies: this.zombies.size,
         heapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
         snapshotKB: Math.round(this.conn.bytesIn / 1024),
+        world: (() => { const lods = [0, 0, 0]; for (const c of store.chunks.values()) lods[c.lod] = (lods[c.lod] ?? 0) + 1; return { lods, meshes: this.meshes.size, queued: this.buildQueue.size }; })(),
         frame: this.profiler?.take() ?? null,
         prediction: this.vehiclePrediction?.id != null ? (({ steps, reconciles, replayed, error, ms }) => ({ steps, reconciles, replayed, error: +(error * 100).toFixed(1), ms: +ms.toFixed(2) }))(this.vehiclePrediction.stats) : null,
       },
