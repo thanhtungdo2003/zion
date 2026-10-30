@@ -12,8 +12,10 @@ import { WorldService } from '../world/world-service';
 import { GameServer } from './game-server';
 import type { WarfareMatch } from './warfare';
 import type { ClientSession } from './session';
+import type { BattleBotDirector } from './battle-bots';
 
 interface Harness {
+  bots: BattleBotDirector;
   warfare: WarfareMatch;
   wfCfg: WarfareConfig;
   prepareWarfareArea(): Promise<void>;
@@ -32,7 +34,7 @@ describe('warfare soak', () => {
     const repository = { load: vi.fn(), saveMany: vi.fn(), loadChest: vi.fn(), saveChestAndPlayer: vi.fn() };
     const game = new GameServer({ mode: 'warfare', warfare: { matchId: 'w1', mapId: 'warehouse', mapName: 'Kho', closed: vi.fn() }, world, registry, config: { DAY_LENGTH_MINUTES: 25 } as AppConfig, logger, metrics: new Metrics(), audit: { record: vi.fn() } as unknown as AuditLog, playerStates: repository as unknown as PlayerStateRepository, worlds: {} as WorldRepository, worldId: INFECTION_MAP.id, initialWorldTimeMs: 0 });
     const h = game as unknown as Harness;
-    Object.assign(h.wfCfg, { maxActive: 10, countdownSeconds: 1 });
+    Object.assign(h.wfCfg, { maxActive: 10, countdownSeconds: 40 });
     const sent: ServerJsonMessage[] = [];
     const session = { id: 1, open: true, buffered: 0, loading: false, state: 'joining', account: { accountId: '00000000-0000-0000-0000-000000000001', username: 'Ann' }, sendJson: vi.fn((m: ServerJsonMessage) => sent.push(m)), sendText: vi.fn(), sendBinary: vi.fn(() => true), sendError: vi.fn(), close: vi.fn() } as unknown as ClientSession;
     try {
@@ -54,10 +56,17 @@ describe('warfare soak', () => {
       };
       await run(60);
       game.handleMessage(session, { t: 'ready' });
-      await run(60);
-      game.handleMessage(session, { t: 'wfDeploy', cls: 'assault', ready: true });
+      // The field full of bots when the player presses deploy (as after a rejoin: their place went
+      // to a bot while they were away): fewer places than bots on the field, nobody dying.
       await run(600);
+      const bots = () => h.bots.bots.filter((b) => !b.dead).length;
+      expect(bots()).toBe(9);
+      h.wfCfg.maxActive = 9;
+      game.handleMessage(session, { t: 'wfDeploy', cls: 'assault', ready: true });
+      // In within a few seconds all the same: a bot of the side makes room.
+      await run(90);
       expect(p.dead).toBe(false);
+      expect(bots()).toBeLessThanOrEqual(8);
       // Playing: walking about while the bots fight.
       for (let s = 1; s < 300; s++) {
         game.handleMessage(session, { t: 'in', s, f: 1, yaw: s * .01, pitch: 0, dt: 33 } as never);

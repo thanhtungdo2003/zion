@@ -447,7 +447,8 @@ export class GameServer {
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
     // Collision streams round players and bots on every map and is evicted behind them: kept for
     // the whole match (keepAll) it grew with every chunk anyone crossed until the server ran out
-    // of memory mid-match, dropping every player.
+    // of memory mid-match, dropping every player. Fixed maps evict with a wide margin (bots roam).
+    if (this.fixedMap) this.physics.unloadRadius = 8;
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => {
@@ -2872,13 +2873,35 @@ export class GameServer {
   /** Deploys whoever is due: tickets left, room under the active cap, a safe spot to stand on. */
   private wfDeploy(now: number): void {
     const m = this.warfare!;
-    const living = this.wfLiving();
-    const room = this.wfCfg.maxActive - living.length;
+    let living = this.wfLiving();
     const caps = sideCaps(this.wfHumans(), this.wfCfg.maxActive);
+    // Players come first: one ready to deploy never waits for a bot to die (the field filled up
+    // with bots while they loaded, and nobody had died yet: the deploy button did nothing). A bot
+    // of their side over its share leaves the field for them — one out of the fight first.
+    const waiting = { blue: 0, red: 0 };
+    for (const p of this.players.values()) {
+      const side = this.wfSide.get(p.id), at = this.wfRespawn.readyAt(p.id);
+      if (side && p.dead && this.wfDeployReady.has(p.id) && at !== undefined && at <= now && m.ledger.canRespawn(side)) waiting[side]++;
+    }
+    let short = waiting.blue + waiting.red - (this.wfCfg.maxActive - living.length);
+    for (const side of WARFARE_SIDES) {
+      const up = (this.bots?.bots ?? []).filter((b) => !b.dead && this.wfSide.get(b.id) === side)
+        .sort((a, c) => Number(a.mode === 'fight') - Number(c.mode === 'fight') || Number(!!a.vehicleId) - Number(!!c.vehicleId));
+      let over = up.length - caps[side].bots;
+      for (let i = 0; short > 0 && waiting[side] > 0 && over > 0 && i < up.length; i++, over--, short--, waiting[side]--) {
+        const bot = up[i]!;
+        if (bot.vehicleId) this.vehicles.exitBot(bot, true);
+        this.wfRetireBot(bot);
+      }
+    }
+    living = this.wfLiving();
+    let room = this.wfCfg.maxActive - living.length;
     const botsUp = { blue: 0, red: 0 };
     for (const u of living) if (u.bot) botsUp[u.side]++;
-    // Humans who are due but have not pressed deploy simply stay in the queue.
-    const due = this.wfRespawn.release(now, Math.max(0, room), (s) => m.ledger.canRespawn(s), (id) => !this.players.has(id) || this.wfDeployReady.has(id));
+    // Players first, then bots, each oldest first; players due but not pressing deploy stay queued.
+    const players = this.wfRespawn.release(now, Math.max(0, room), (s) => m.ledger.canRespawn(s), (id) => this.players.has(id) && this.wfDeployReady.has(id));
+    room -= players.length;
+    const due = [...players, ...this.wfRespawn.release(now, Math.max(0, room), (s) => m.ledger.canRespawn(s), (id) => !this.players.has(id))];
     for (const { id, side } of due) {
       const p = this.players.get(id);
       if (p) {
