@@ -194,8 +194,14 @@ async function main(): Promise<void> {
   // Warfare: public rooms on the published Studio maps the admin turned Warfare on for; parties
   // of up to four fight on one side.
   const warfareTeams = new TeamService([], async () => {}, { limit: 4, squad: true });
-  const warfareMapList = () => infectionMaps.list().filter((m) => m.published && m.warfare && waveWorld(m.id));
+  // World Studio maps (published battle maps with a battlefield) first, then the walled Studio maps.
+  const warfareMapList = (): Array<{ id: string; name: string; thumbnail: string | null }> => [
+    ...battleMaps.warfareMaps().map((m) => ({ id: m.id, name: m.name, thumbnail: m.thumbnail })),
+    ...infectionMaps.list().filter((m) => m.published && m.warfare && waveWorld(m.id) && !battleMaps.entry(m.id)).map((m) => ({ id: m.id, name: m.name, thumbnail: null })),
+  ];
   const warfareRooms = new WarfareRooms((cfg) => {
+    const big = battleMaps.warfareMaps().find((m) => m.id === cfg.mapId);
+    if (big) return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: big.world, registry, playerStates, worlds, worldId: big.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: { ...cfg, layout: big.layout } });
     const b = waveWorld(cfg.mapId);
     if (!b) return null;
     return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: cfg });
@@ -276,8 +282,8 @@ async function main(): Promise<void> {
     gearFit,
     handStudio,
     progression,
-    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.atlas(map) : survivalAtlas(),
-    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.atlas() : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.atlas(map) : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.tiles(x, z) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
@@ -294,12 +300,13 @@ async function main(): Promise<void> {
       remove: (id) => battleMaps.remove(id),
       catalog: () => battleMaps.catalog(),
       stored: (id) => battleMaps.stored(id),
+      setWarfare: (id, layout) => battleMaps.setWarfare(id, layout),
     },
     teams,
     battleTeams,
     waveTeams,
     warfareTeams,
-    warfare: { maps: () => warfareMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: warfareRooms.players(m.id) })) },
+    warfare: { maps: () => warfareMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: m.thumbnail, players: warfareRooms.players(m.id) })) },
     waves: {
       maps: () => waveMapList().map((m) => ({ id: m.id, name: m.name, thumbnail: null, players: waveRooms.players(m.id) })),
       leaderboard: (mapId, board) => waveScores.top(mapId, board),

@@ -1,5 +1,5 @@
 import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
-import { JoltVehicles, loadJolt, damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CollisionWorld } from '@zion/physics';
+import { JoltVehicles, loadJolt, damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 
@@ -7,8 +7,13 @@ import type { Player } from './player';
 // The server simulates vehicles on Jolt from the first tick.
 await loadJolt();
 
+/** A bot in a seat (Warfare): it rides with the vehicle like a player; the driver's bot steers. */
+export interface BotRider { id: number; dead: boolean; state: CharacterState; yaw: number; vehicleId: number; vehicleSeat: number }
+
 export class Vehicles {
   readonly states = new Map<number, VehicleState>();
+  /** Bots aboard, by id. */
+  private readonly botRiders = new Map<number, BotRider>();
   private readonly controls = new Map<number, { throttle: number; steer: number; at: number }>();
   private readonly usedAt = new Map<number, number>();
   private readonly spawnAt = new Map<number, number>();
@@ -103,6 +108,68 @@ export class Vehicles {
     // Only the driver steers; passengers just ride (and shoot).
     if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, at: now });
   }
+  /**
+   * A bot gets in: the driver's seat when asked and free, otherwise a free passenger seat. Only an
+   * intact vehicle within reach, never one with a seat it would have to share or fight for.
+   */
+  boardBot(bot: BotRider, v: VehicleState, wantDriver: boolean): boolean {
+    if (!this.available || bot.dead || bot.vehicleId || v.health <= 0 || v.exploded || v.explodeAt) return false;
+    if (Math.hypot(v.x - bot.state.x, v.z - bot.state.z) > VEHICLE_REACH + 1.5 || Math.abs(v.y - bot.state.y) > 3) return false;
+    let seat = -1;
+    if (wantDriver && !v.driver) seat = 0;
+    else for (let i = 1; i < VEHICLES[v.kind].seats.length; i++) if (!v.passengers?.[i - 1]) { seat = i; break; }
+    if (seat < 0) return false;
+    if (seat === 0) v.driver = bot.id;
+    else { v.passengers ??= []; while (v.passengers.length < seat) v.passengers.push(0); v.passengers[seat - 1] = bot.id; }
+    bot.vehicleId = v.id; bot.vehicleSeat = seat;
+    this.botRiders.set(bot.id, bot);
+    this.seatBot(bot, v);
+    return true;
+  }
+  /** The driving bot's controls (forward / back, left / right), like a player's keys. */
+  driveBot(bot: BotRider, throttle: number, steer: number, now: number): void {
+    if (bot.vehicleId && bot.vehicleSeat === 0 && this.botRiders.get(bot.id) === bot) this.controls.set(bot.vehicleId, { throttle: Math.max(-1, Math.min(1, throttle)), steer: Math.max(-1, Math.min(1, steer)), at: now });
+  }
+  /** A bot gets out beside the vehicle (anywhere it stands clear; on the spot when `force`). */
+  exitBot(bot: BotRider, force = false): boolean {
+    const v = this.states.get(bot.vehicleId);
+    if (!v) { this.botRiders.delete(bot.id); bot.vehicleId = 0; bot.vehicleSeat = 0; return true; }
+    const point = this.exitPoint(v);
+    if (!point && !force) return false;
+    if (v.driver === bot.id) { v.driver = null; this.controls.delete(v.id); }
+    if (v.passengers) v.passengers = v.passengers.map((id) => (id === bot.id ? 0 : id));
+    this.botRiders.delete(bot.id);
+    bot.vehicleId = 0; bot.vehicleSeat = 0;
+    if (point) Object.assign(bot.state, point);
+    Object.assign(bot.state, { vx: 0, vy: 0, vz: 0, grounded: true });
+    return true;
+  }
+  /** Bots aboard a vehicle. */
+  botsIn(v: VehicleState): BotRider[] {
+    return vehicleOccupants(v).map((id) => this.botRiders.get(id)).filter((b): b is BotRider => !!b);
+  }
+  private seatBot(b: BotRider, v: VehicleState): void {
+    const seat = Math.max(0, vehicleSeatOf(v, b.id));
+    Object.assign(b.state, vehicleSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false, prone: false });
+    if (seat === 0) b.yaw = v.yaw;
+  }
+  /** A clear spot beside the vehicle to step out to (null when boxed in). */
+  private exitPoint(v: VehicleState): { x: number; y: number; z: number } | null {
+    this.world.removeOwnerColliders(vehicleOwner(v.id));
+    const def = VEHICLES[v.kind], c = Math.cos(v.yaw), s = Math.sin(v.yaw), hit = makeRayHit();
+    let point: { x: number; y: number; z: number } | null = null;
+    for (const [side, back] of [[-1, 0], [1, 0], [-1, 1], [1, 1], [0, 1]]) {
+      const dx = side! * (def.halfX + 1), dz = back! * (def.halfZ + 1);
+      const x = v.x + dx * c + dz * s, z = v.z - dx * s + dz * c, y = this.world.terrainHeight(x, z);
+      if (!Number.isFinite(y) || !this.world.inBounds(x, z) || this.world.waterLevel(x, z) > y + .5) continue;
+      if (!this.world.isAreaLoaded(x - .4, z - .4, x + .4, z + .4) || this.world.overlapsCapsule(x, y + .4, z, x, y + 1.4, z, .35, Mask.CharacterMovement, .04)) continue;
+      const dy = y + 1.2 - (v.y + 1.3), distance = Math.hypot(x - v.x, dy, z - v.z);
+      if (this.world.raycast(v.x, v.y + 1.3, v.z, (x - v.x) / distance, dy / distance, (z - v.z) / distance, distance + .3, Mask.LineOfSight, hit)) continue;
+      point = { x, y: y + .05, z }; break;
+    }
+    this.install(v);
+    return point;
+  }
   /** Runs fn with this vehicle's own collision removed (a passenger's shots leave the cabin). */
   withoutColliders<T>(v: VehicleState, fn: () => T): T {
     this.world.removeOwnerColliders(vehicleOwner(v.id));
@@ -181,6 +248,8 @@ export class Vehicles {
   step(now: number, dt: number, players: ReadonlyMap<number, Player>, explode: (v: VehicleState, occupants: Player[]) => void, impact: (p: Player, speed: number) => void): void {
     for (const v of this.states.values()) {
       for (const id of vehicleOccupants(v)) {
+        const bot = this.botRiders.get(id);
+        if (bot) { if (bot.dead || bot.vehicleId !== v.id) this.exitBot(bot, true); continue; }
         const p = players.get(id);
         if (!p || p.dead || p.downed || p.vehicleId !== v.id) {
           if (p && p.vehicleId === v.id) this.release(p);
@@ -192,6 +261,7 @@ export class Vehicles {
         const aboard = this.aboard(v, players);
         explode(v, aboard);
         for (const p of aboard) this.release(p);
+        for (const b of this.botsIn(v)) this.exitBot(b, true);
         this.install(v);
       }
     }
@@ -203,8 +273,8 @@ export class Vehicles {
     }
     // One Jolt step for every vehicle together, so they also collide with each other.
     const impacts = this.physics.step(this.states.values(), (v) => {
-      const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) : undefined;
-      const control = p && input && now - input.at < 250 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
+      const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
+      const control = p && input && now - input.at < 250 && v.health > 0 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
       v.throttle = control?.throttle ?? 0;
       return control;
     }, dt, now);
@@ -213,12 +283,17 @@ export class Vehicles {
       this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
       for (const p of this.aboard(v, players)) { this.seat(p, v); if (speed > 10) impact(p, speed); }
     }
+    this.seatBots();
+  }
+  /** Bots ride along wherever their vehicle went this step. */
+  private seatBots(): void {
+    for (const b of this.botRiders.values()) { const v = this.states.get(b.vehicleId); if (v) this.seatBot(b, v); }
   }
   private stepLegacy(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
     for (const v of this.states.values()) {
       v.throttle = 0;
       if (v.exploded) continue;
-      const p = v.driver ? players.get(v.driver) : undefined;
+      const p = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
       if (!v.driver && Math.abs(v.speed) < .01 && Math.abs(v.motion?.lateral ?? 0) < .01 && v.motion?.grounded && Math.abs(v.motion.vy) < .03) continue;
       this.world.removeOwnerColliders(vehicleOwner(v.id));
       const input = this.controls.get(v.id), fresh = p && input && now - input.at < 250;
@@ -230,6 +305,7 @@ export class Vehicles {
       this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
       for (const rider of this.aboard(v, players)) { this.seat(rider, v); if (speed > 10) impact(rider, speed); }
     }
+    this.seatBots();
   }
   dispose(): void { this.physics.dispose(); }
   /**
@@ -332,7 +408,9 @@ export class Vehicles {
   }
   /** Takes a vehicle off the map for good (eject its occupants first). */
   remove(id: number): void {
-    if (!this.states.has(id)) return;
+    const v = this.states.get(id);
+    if (!v) return;
+    for (const b of this.botsIn(v)) this.exitBot(b, true);
     this.world.removeOwnerColliders(vehicleOwner(id));
     this.physics.remove(id);
     this.states.delete(id); this.controls.delete(id); this.spawns.delete(id);

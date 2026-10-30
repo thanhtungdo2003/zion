@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { WARFARE_MAX_ROOMS } from '@zion/shared';
+import { WARFARE_MAX_ROOMS, type WarfareLayout } from '@zion/shared';
 import type { Logger } from '../logger';
 import type { GameServer } from './game-server';
 import type { MatchSource } from './wave-rooms';
@@ -9,6 +9,8 @@ export interface WarfareRoomConfig {
   matchId: string;
   mapId: string;
   mapName: string;
+  /** The battlefield of a World Studio map (absent: the walled Studio map's own layout). */
+  layout?: WarfareLayout;
   /** The match is over (or abandoned): the pool tears the room down. */
   closed: () => void;
 }

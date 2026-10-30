@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { warfareLayoutSchema, type WarfareLayout } from '@zion/shared';
 import { isSimplePolygon, pointInPolygon, polygonArea, type Vec2 } from './geometry';
 import { battleConfigSchema, defaultBattleConfig, validateBattleConfig, type BattleConfig, type GameplayIssue } from './gameplay';
 import { Heightfield, base64ToBytes, bytesToBase64, decodeHeights, encodeHeights } from './heightfield';
@@ -9,7 +10,7 @@ import { MAX_FLORA, type FloraItem } from './flora';
 import { lakeSpillLevel, riverLevels, riverMaxGrade, type WaterData } from './water';
 
 export const MAP_KINDS = [
-  { id: 'battle-royale', name: 'Battle Royale' }, { id: 'survival', name: 'Sinh tồn' }, { id: 'sandbox', name: 'Thử nghiệm' },
+  { id: 'battle-royale', name: 'Battle Royale' }, { id: 'warfare', name: 'Chiến trường' }, { id: 'survival', name: 'Sinh tồn' }, { id: 'sandbox', name: 'Thử nghiệm' },
 ] as const;
 export type MapKind = typeof MAP_KINDS[number]['id'];
 
@@ -61,6 +62,8 @@ export interface WorldMapDoc {
   /** Match setups, kept apart from the terrain so one map serves several. */
   gameplay: BattleConfig[];
   activeGameplay: string;
+  /** Warfare: the battlefield (area, zones, bases, vehicle spawns, rules), when the map has one. */
+  warfare?: WarfareLayout;
 }
 
 /* ------------------------------------------------------------------------------ schemas */
@@ -114,6 +117,7 @@ export const worldMapSchema = z.object({
   }).strict(),
   gameplay: z.array(battleConfigSchema).min(1).max(16),
   activeGameplay: z.string(),
+  warfare: warfareLayoutSchema.optional(),
 }).strict();
 const fileSchema = worldMapSchema.extend({ data: z.object({ heights: z.string(), surface: z.string() }).strict() });
 

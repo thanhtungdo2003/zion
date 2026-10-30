@@ -18,15 +18,18 @@ import type { EditorApi } from './editor-api';
 import { TerrainPanel } from './TerrainPanel';
 import { SettlementPanel } from './SettlementPanel';
 import { GameplayPanel } from './GameplayPanel';
+import { WarfarePanel } from './WarfarePanel';
+import { newZone } from '../WarfareStudioPanel';
+import type { WarfareLayout, WarfarePointKind, WarfareSide } from '@zion/shared';
 import { SettingsPanel } from './SettingsPanel';
-import { drawShape, isBrush, isDraw, isFlora, type DrawTool, type EditorTab, type Layers, type Overlay, type Selection, type Tool } from './types';
+import { drawShape, isBrush, isDraw, isFlora, isWarfareTool, type DrawTool, type EditorTab, type Layers, type Overlay, type Selection, type Tool } from './types';
 import s from './world-studio.module.css';
 
 const MapView3D = dynamic(() => import('./MapView3D'), { ssr: false, loading: () => <div className={s.empty3d}>Đang tải chế độ 3D…</div> });
 
 const TABS: Array<{ id: EditorTab; name: string; icon: string }> = [
   { id: 'terrain', name: 'Địa hình', icon: 'mountain' }, { id: 'settlement', name: 'Khu dân cư', icon: 'building-2' },
-  { id: 'gameplay', name: 'Gameplay', icon: 'crosshair' }, { id: 'settings', name: 'Thiết lập', icon: 'settings-2' },
+  { id: 'gameplay', name: 'Gameplay', icon: 'crosshair' }, { id: 'warfare', name: 'Chiến trường', icon: 'swords' }, { id: 'settings', name: 'Thiết lập', icon: 'settings-2' },
 ];
 const RAIL: Record<EditorTab, Array<Array<{ id: Tool; name: string; icon: string; key?: string }>>> = {
   terrain: [
@@ -47,6 +50,13 @@ const RAIL: Record<EditorTab, Array<Array<{ id: Tool; name: string; icon: string
       { id: 'place-loot', name: 'Điểm loot', icon: 'package' }, { id: 'place-rare', name: 'Vùng vật phẩm hiếm', icon: 'gem' }, { id: 'place-hotspot', name: 'Điểm nóng', icon: 'flame' },
       { id: 'draw-nogo', name: 'Vùng cấm', icon: 'ban' }, { id: 'place-poi', name: 'Địa điểm (POI)', icon: 'map-pin' }],
   ],
+  warfare: [
+    [{ id: 'select', name: 'Chọn / kéo (V)', icon: 'mouse-pointer-2', key: 'V' }, { id: 'pan', name: 'Kéo bản đồ (H)', icon: 'hand', key: 'H' }],
+    [{ id: 'wf-area', name: 'Tâm vùng chiến trường', icon: 'locate-fixed' }, { id: 'wf-zone', name: 'Cứ điểm (nhấp để thêm / chọn)', icon: 'flag' },
+      { id: 'wf-blue', name: 'Căn cứ phe Xanh', icon: 'shield' }, { id: 'wf-red', name: 'Căn cứ phe Đỏ', icon: 'castle' },
+      { id: 'wf-spawn', name: 'Điểm triển khai của cứ điểm đang chọn', icon: 'map-pin' }, { id: 'wf-point', name: 'Điểm chiến thuật cho AI', icon: 'crosshair' },
+      { id: 'wf-vehicle', name: 'Điểm xuất hiện xe (jeep / quad)', icon: 'car-front' }],
+  ],
   settings: [[{ id: 'select', name: 'Chọn (V)', icon: 'mouse-pointer-2', key: 'V' }, { id: 'pan', name: 'Kéo bản đồ (H)', icon: 'hand', key: 'H' }]],
 };
 const HINTS: Partial<Record<Tool, string>> = {
@@ -58,9 +68,11 @@ const HINTS: Partial<Record<Tool, string>> = {
   'draw-nogo': 'Vẽ vùng cấm / không thể chơi · Enter để hoàn tất',
   'draw-spawnzone': 'Vẽ vùng spawn · Enter để hoàn tất',
   'place-spawn': 'Nhấp để đặt điểm spawn', 'place-loot': 'Nhấp để đặt điểm loot (loại chọn ở bảng bên phải)',
+  'wf-area': 'Nhấp để đặt tâm vùng chiến trường (cả bố cục dời theo)', 'wf-zone': 'Nhấp để thêm cứ điểm · nhấp vào cứ điểm để chọn', 'wf-blue': 'Nhấp để đặt căn cứ phe Xanh', 'wf-red': 'Nhấp để đặt căn cứ phe Đỏ',
+  'wf-spawn': 'Chọn cứ điểm rồi nhấp để thêm điểm triển khai (nhấp lại để xóa)', 'wf-point': 'Chọn cứ điểm rồi nhấp để thêm điểm chiến thuật (loại chọn ở bảng phải)', 'wf-vehicle': 'Nhấp để thêm điểm xe (nhấp lại để xóa)',
   'place-hotspot': 'Nhấp để đặt điểm nóng', 'place-poi': 'Nhấp để đặt POI', 'place-rare': 'Nhấp để đặt vùng vật phẩm hiếm', 'place-playarea': 'Nhấp để đặt tâm vùng chơi',
 };
-const DEFAULT_TOOL: Record<EditorTab, Tool> = { terrain: 'raise', settlement: 'select', gameplay: 'select', settings: 'select' };
+const DEFAULT_TOOL: Record<EditorTab, Tool> = { terrain: 'raise', settlement: 'select', gameplay: 'select', warfare: 'select', settings: 'select' };
 
 interface Job { label: string; value: number; cancel: () => void }
 
@@ -75,6 +87,8 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
   const history = useRef(new EditHistory<WorldMapDoc>());
   const [, setHistoryTick] = useState(0);
   const [tab, setTab] = useState<EditorTab>('terrain');
+  const [wfPointKind, setWfPointKind] = useState<WarfarePointKind>('cover');
+  const [wfVehicleSide, setWfVehicleSide] = useState<WarfareSide>('blue');
   const [tool, setToolState] = useState<Tool>('raise');
   const [brush, setBrush] = useState<BrushSettings>({ ...DEFAULT_BRUSH, targetHeight: Math.round(initial.doc.terrain.seaLevel + 10) });
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -395,9 +409,53 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     setDraft({ tool: draft.tool, points: [] });
   }, [commit, draft, flash, riverWidth, terrainOp, updateGameplay]);
 
+  /** Edits the battlefield as one undo step (created empty the first time). */
+  const updateWarfare = useCallback((label: string, fn: (l: WarfareLayout) => void, key?: string) => {
+    const d = docRef.current, next: WarfareLayout = structuredClone(d.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] });
+    fn(next);
+    commit(label, { ...d, warfare: next }, key ? { key } : undefined);
+  }, [commit]);
+  const onPlaceWarfare = useCallback((x: number, z: number) => {
+    const hf = terrainRef.current, d = docRef.current, wf = d.warfare;
+    const r1 = (v: number) => Math.round(v * 2) / 2;
+    if (tool === 'wf-area') {
+      const half = wf?.area?.half ?? Math.min(250, Math.floor(hf.size / 2) - 10);
+      const cx = Math.max(half, Math.min(hf.size - half, r1(x))), cz = Math.max(half, Math.min(hf.size - half, r1(z)));
+      updateWarfare('Đặt vùng chiến trường', (l) => { l.area = { x: cx, z: cz, half }; });
+      return;
+    }
+    if (!wf?.area) { flash('Đặt tâm vùng chiến trường trước (công cụ ◎).', true); return; }
+    const lx = r1(x - wf.area.x), lz = r1(z - wf.area.z);
+    if (Math.abs(lx) > wf.area.half || Math.abs(lz) > wf.area.half) { flash('Điểm nằm ngoài vùng chiến trường.', true); return; }
+    const near = (p: { x: number; z: number }) => Math.hypot(p.x - lx, p.z - lz) < 6;
+    if (tool === 'wf-zone') {
+      const hit = wf.zones.findIndex((zn) => Math.hypot(zn.x - lx, zn.z - lz) <= zn.radius);
+      if (hit >= 0) { setSelection({ kind: 'wfZone', index: hit }); return; }
+      updateWarfare('Thêm cứ điểm', (l) => { l.zones.push(newZone(l, lx, lz)); });
+      setSelection({ kind: 'wfZone', index: wf.zones.length });
+    } else if (tool === 'wf-blue' || tool === 'wf-red') {
+      const side = tool === 'wf-blue' ? 'blue' : 'red';
+      updateWarfare('Đặt căn cứ', (l) => { l.bases = { ...(l.bases ?? { blue: { x: -lx, z: -lz }, red: { x: -lx, z: -lz } }), [side]: { x: lx, z: lz } }; });
+      setSelection({ kind: 'wfBase', side });
+    } else if (tool === 'wf-vehicle') {
+      const hit = wf.vehicleSpawns.findIndex(near);
+      updateWarfare(hit >= 0 ? 'Xóa điểm xe' : 'Thêm điểm xe', (l) => { if (hit >= 0) l.vehicleSpawns.splice(hit, 1); else l.vehicleSpawns.push({ side: wfVehicleSide, kind: 'jeep', x: lx, z: lz, yaw: 0 }); });
+      setSelection(hit >= 0 ? null : { kind: 'wfVehicle', index: wf.vehicleSpawns.length });
+    } else {
+      if (selection?.kind !== 'wfZone') { flash('Chọn một cứ điểm trước.', true); return; }
+      const zi = selection.index;
+      updateWarfare(tool === 'wf-spawn' ? 'Điểm triển khai' : 'Điểm chiến thuật', (l) => {
+        const zn = l.zones[zi]; if (!zn) return;
+        if (tool === 'wf-spawn') { const hit = zn.spawns.findIndex(near); if (hit >= 0) zn.spawns.splice(hit, 1); else if (zn.spawns.length < 8) zn.spawns.push({ x: lx, z: lz }); }
+        else { const hit = zn.points.findIndex(near); if (hit >= 0) zn.points.splice(hit, 1); else if (zn.points.length < 16) zn.points.push({ x: lx, z: lz, kind: wfPointKind }); }
+      });
+    }
+  }, [flash, selection, tool, updateWarfare, wfPointKind, wfVehicleSide]);
+
   const onPlace = useCallback((x: number, z: number) => {
     const hf = terrainRef.current;
     if (x < 0 || z < 0 || x > hf.size || z > hf.size) { flash('Điểm nằm ngoài bản đồ.', true); return; }
+    if (isWarfareTool(tool)) { onPlaceWarfare(x, z); return; }
     const rx = Math.round(x * 10) / 10, rz = Math.round(z * 10) / 10;
     if (pickPhase !== null) { const i = pickPhase; updateGameplay(`Đặt tâm phase ${i + 1}`, (g) => { g.phases[i]!.center = [rx, rz]; }); setPickPhase(null); setSelection({ kind: 'phase', index: i }); return; }
     const id = newId(tool.slice(6));
@@ -409,7 +467,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     else if (tool === 'place-playarea') { updateGameplay('Đặt tâm vùng chơi', (g) => { g.playArea.x = rx; g.playArea.z = rz; }); setSelection({ kind: 'play-area' }); return; }
     else return;
     setSelection({ kind: 'point', point: tool.slice(6) as 'spawn', id });
-  }, [flash, lootCategory, pickPhase, tool, updateGameplay]);
+  }, [flash, lootCategory, onPlaceWarfare, pickPhase, tool, updateGameplay]);
 
   const recheck = useCallback((r: Region, result: SettlementResult): SettlementResult => {
     const d = docRef.current;
@@ -440,13 +498,24 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
       });
       return;
     }
+    if (sel.kind === 'wfZone' || sel.kind === 'wfBase' || sel.kind === 'wfVehicle') {
+      const area = docRef.current.warfare?.area;
+      if (!area) return;
+      const lx = Math.round((rx - area.x) * 2) / 2, lz = Math.round((rz - area.z) * 2) / 2;
+      updateWarfare('Di chuyển', (l) => {
+        if (sel.kind === 'wfZone') { const zn = l.zones[sel.index]; if (!zn) return; const dx = lx - zn.x, dz = lz - zn.z; for (const p of [...zn.spawns, ...zn.points]) { p.x += dx; p.z += dz; } zn.x = lx; zn.z = lz; }
+        else if (sel.kind === 'wfVehicle') { const v = l.vehicleSpawns[sel.index]; if (v) { v.x = lx; v.z = lz; } }
+        else if (l.bases) l.bases[sel.side] = { x: lx, z: lz };
+      });
+      return;
+    }
     if (sel.kind === 'play-area') updateGameplay('Di chuyển vùng chơi', (g) => { g.playArea.x = rx; g.playArea.z = rz; });
     else if (sel.kind === 'phase') updateGameplay('Di chuyển tâm phase', (g) => { g.phases[sel.index]!.center = [rx, rz]; });
     else if (sel.kind === 'point') updateGameplay('Di chuyển điểm', (g) => {
       const list = (sel.point === 'spawn' ? g.spawnPoints : sel.point === 'poi' ? g.pois : sel.point === 'loot' ? g.loot.points : sel.point === 'hotspot' ? g.hotspots : g.loot.rareAreas) as Array<{ id: string; x: number; z: number }>;
       const q = list.find((o) => o.id === sel.id); if (q) { q.x = rx; q.z = rz; }
     });
-  }, [commit, recheck, updateGameplay, updateRegion]);
+  }, [commit, recheck, updateGameplay, updateRegion, updateWarfare]);
 
   const deleteSelection = useCallback((target?: Selection) => {
     const sel = target ?? selection, d = docRef.current;
@@ -482,9 +551,11 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
       if (sel.point === 'rare') g.loot.rareAreas = g.loot.rareAreas.filter((q) => q.id !== sel.id);
     });
     else if (sel.kind === 'phase') updateGameplay('Bỏ tâm cố định', (g) => { g.phases[sel.index]!.center = null; });
+    else if (sel.kind === 'wfZone') updateWarfare('Xóa cứ điểm', (l) => { const id = l.zones[sel.index]?.id; l.zones.splice(sel.index, 1); for (const zn of l.zones) zn.links = zn.links.filter((q) => q !== id); });
+    else if (sel.kind === 'wfVehicle') updateWarfare('Xóa điểm xe', (l) => { l.vehicleSpawns.splice(sel.index, 1); });
     else return;
     setSelection(null);
-  }, [commit, preview, recheck, selection, updateGameplay, updateRegion]);
+  }, [commit, preview, recheck, selection, updateGameplay, updateRegion, updateWarfare]);
 
   /* ----------------------------------------------------------------- keyboard */
 
@@ -583,7 +654,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
     <main className={s.view}>
       {view3d
         ? <MapView3D terrain={terrainRef.current} doc={doc} version={version} tool={tool} brush={brush} onBrush={onBrush} preview={preview?.result} />
-        : <MapCanvas ref={canvasRef} terrain={terrainRef.current} raster={rasterRef.current} version={version} doc={doc} gameplay={gameplay} overlay={overlay} layers={layers} tool={tool} selection={selection}
+        : <MapCanvas ref={canvasRef} terrain={terrainRef.current} raster={rasterRef.current} version={version} doc={doc} gameplay={gameplay} overlay={overlay} layers={layers} tool={tool} selection={selection} warfareEdit={tab === 'warfare'}
           onBrush={onBrush} onPlace={onPlace} onDraft={(points) => draft && setDraft({ ...draft, points })} onDraftFinish={finishDraft} onSelect={setSelection} onMove={onMove} onHover={onHover} />}
       {hint && <div className={s.hint}>{hint}</div>}
       <div className={s.viewTools}>
@@ -612,6 +683,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
         {tab === 'terrain' && <TerrainPanel api={api} />}
         {tab === 'settlement' && <SettlementPanel api={api} />}
         {tab === 'gameplay' && <GameplayPanel api={api} />}
+        {tab === 'warfare' && <WarfarePanel api={api} pointKind={wfPointKind} setPointKind={setWfPointKind} vehicleSide={wfVehicleSide} setVehicleSide={setWfVehicleSide} />}
         {tab === 'settings' && <SettingsPanel api={api} />}
       </div>
     </aside>

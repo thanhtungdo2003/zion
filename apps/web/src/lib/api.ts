@@ -26,7 +26,7 @@ export function playedBattleMap(): string | null {
 }
 const atlasQuery = (mode?: GameMode) => {
   if (!mode || mode === 'survival') return '';
-  const map = mode === 'battle-royale' || mode === 'infection' ? playedBattleMap() : null;
+  const map = mode === 'battle-royale' || mode === 'infection' || mode === 'warfare' ? playedBattleMap() : null;
   return `?mode=${mode}${map ? `&map=${map}` : ''}`;
 };
 
@@ -50,11 +50,15 @@ export async function listBattleMaps(): Promise<BattleMapInfo[]> {
   return (await request<{ maps: BattleMapInfo[] }>('/api/battle/maps')).maps;
 }
 /** Publishes a World Studio map to the server as a playable battle royale map. */
-export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown; source?: unknown }): Promise<{ id: string; name: string }> {
+export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown; source?: unknown; warfare?: unknown }): Promise<{ id: string; name: string }> {
   return studioRequest('/api/studio/battle-maps', { method: 'POST', body: JSON.stringify(body) });
 }
+/** Warfare on a published World Studio map: set (or clear with null) its battlefield. */
+export function studioSetBattleMapWarfare(id: string, warfare: unknown): Promise<{ id: string; warfare: unknown }> {
+  return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}/warfare`, { method: 'PUT', body: JSON.stringify({ warfare }) });
+}
 /** A battle map stored on the server, as the World Studio lists it. */
-export interface PublishedBattleMap { id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number }
+export interface PublishedBattleMap { id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number; warfare?: boolean }
 /** Every battle map stored on the server (also those published from other machines or not currently playable). */
 export async function studioBattleMaps(): Promise<PublishedBattleMap[]> {
   return (await studioRequest<{ maps: PublishedBattleMap[] }>('/api/studio/battle-maps')).maps;

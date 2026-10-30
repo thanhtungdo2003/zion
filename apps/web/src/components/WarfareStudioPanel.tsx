@@ -1,5 +1,6 @@
 'use client';
-import { WARFARE_DEFAULTS, WARFARE_POINT_KINDS, WARFARE_VEHICLE_KINDS, autoWarfareLayout, parseWarfareConfig, validateWarfareLayout, type InfectionMapDef, type WarfareLayout, type WarfarePointKind, type WarfareSide } from '@zion/shared';
+import { WARFARE_DEFAULTS, WARFARE_POINT_KINDS, WARFARE_VEHICLE_KINDS, autoWarfareLayout, parseWarfareConfig, validateWarfareLayout, type WarfareLayout, type WarfarePointKind, type WarfareSide } from '@zion/shared';
+import type React from 'react';
 import { Icon } from './Icon';
 
 /** What the Warfare tools place on the plan (the Studio's tool for Warfare). */
@@ -9,10 +10,10 @@ export type WarfareSel = { kind: 'wfZone'; index: number } | { kind: 'wfBase'; s
 export const WF_COLORS: Record<WarfareSide | 'neutral', string> = { blue: '#4fa3ff', red: '#ff5a4a', neutral: '#d6d6d6' };
 export const WF_POINT_LABEL: Record<WarfarePointKind, string> = { cover: 'Ẩn nấp', overwatch: 'Quan sát', sniper: 'Bắn tỉa', defend: 'Phòng thủ' };
 const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa'];
-const VEHICLE_NAMES: Record<string, string> = { car: 'Xe con', jeep: 'Jeep', quad: 'Xe địa hình', grizzly: 'Grizzly' };
+const VEHICLE_NAMES: Record<string, string> = { jeep: 'Jeep Willys', quad: 'Xe địa hình (quad)' };
 
 /** The map's Warfare layout, created empty when the map has none yet. */
-export function ensureWarfare(d: InfectionMapDef): WarfareLayout {
+export function ensureWarfare(d: { warfare?: WarfareLayout }): WarfareLayout {
   d.warfare ??= { enabled: false, zones: [], vehicleSpawns: [] };
   return d.warfare;
 }
@@ -25,15 +26,25 @@ export function newZone(layout: WarfareLayout, x: number, z: number): WarfareLay
 }
 
 /** The Warfare part of a map in the Studio: on/off, tools, the selected item, rules, checks. */
-export function WarfareStudioPanel({ draft, patch, sel, setSel, tool, setTool, pointKind, setPointKind, vehicleSide, setVehicleSide }: {
-  draft: InfectionMapDef; patch: (fn: (d: InfectionMapDef) => void) => void;
+export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel, tool, setTool, pointKind, setPointKind, vehicleSide, setVehicleSide, defaultArea, children }: {
+  /** The map's battlefield (absent until first edited). */
+  layout: WarfareLayout | undefined;
+  /** The map's own half width (walled maps); large maps use the layout's area instead. */
+  half: number;
+  /** Edits the layout (created empty when there is none). */
+  patchLayout: (fn: (l: WarfareLayout) => void) => void;
   sel: WarfareSel | null; setSel: (s: WarfareSel | null) => void;
-  tool: WarfareTool | null; setTool: (t: WarfareTool | null) => void;
+  /** The panel's own tool buttons (absent: the host has its own tool rail). */
+  tool?: WarfareTool | null; setTool?: (t: WarfareTool | null) => void;
   pointKind: WarfarePointKind; setPointKind: (k: WarfarePointKind) => void;
   vehicleSide: WarfareSide; setVehicleSide: (s: WarfareSide) => void;
+  /** Large maps: the battlefield area an automatic layout gets when none is set yet. */
+  defaultArea?: { x: number; z: number; half: number };
+  children?: React.ReactNode;
 }) {
-  const wf = draft.warfare;
-  const errors = wf ? validateWarfareLayout(wf, draft.half) : [];
+  type Draft = { warfare?: WarfareLayout };
+  const patch = (fn: (d: Draft) => void) => patchLayout((l) => { const d: Draft = { warfare: l }; fn(d); if (d.warfare !== l) { for (const k of Object.keys(l)) delete (l as Record<string, unknown>)[k]; Object.assign(l, d.warfare); } });
+  const errors = wf ? validateWarfareLayout(wf, half) : [];
   const cfg = parseWarfareConfig(wf?.config ?? {});
   const setCfg = (key: string, value: unknown) => patch((d) => { const l = ensureWarfare(d); l.config = { ...(l.config ?? {}), [key]: value }; });
   const setVeh = (key: string, value: unknown) => patch((d) => { const l = ensureWarfare(d); const c = parseWarfareConfig(l.config ?? {}); l.config = { ...(l.config ?? {}), vehicles: { ...c.vehicles, [key]: value } }; });
@@ -43,20 +54,23 @@ export function WarfareStudioPanel({ draft, patch, sel, setSel, tool, setTool, p
     <label className="ix-field" key={label}><span>{label}<b>{Number.isInteger(step) ? value : value.toFixed(step < .1 ? 2 : 1)}{unit}</b></span>
       <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => set(Number(e.target.value))} /></label>
   );
-  const toolBtn = (t: WarfareTool, icon: string, title: string) => <button key={t} className={tool === t ? 'on' : ''} onClick={() => setTool(tool === t ? null : t)} title={title}><Icon name={icon} /></button>;
+  const toolBtn = (t: WarfareTool, icon: string, title: string) => <button key={t} className={tool === t ? 'on' : ''} onClick={() => setTool?.(tool === t ? null : t)} title={title}><Icon name={icon} /></button>;
   return (
     <section className="ix-section wf-studio">
       <h3>Chiến trường (Warfare)</h3>
       <label className="ix-check"><input type="checkbox" checked={!!wf?.enabled} onChange={(e) => patch((d) => { ensureWarfare(d).enabled = e.target.checked; })} /> Dùng bản đồ này cho chế độ Chiến trường</label>
-      {!wf?.zones.length && <button className="btn" onClick={() => patch((d) => { const auto = autoWarfareLayout(d.half); d.warfare = { ...auto, enabled: d.warfare?.enabled ?? true, ...(d.warfare?.config ? { config: d.warfare.config } : {}) }; })}><Icon name="lucide:wand-2" /> Tạo bố cục tự động</button>}
-      <div className="ix-tools wf-tools">
+      {!wf?.zones.length && <button className="btn" onClick={() => patch((d) => { const area = d.warfare?.area ?? defaultArea; const auto = autoWarfareLayout(area?.half ?? half); d.warfare = { ...auto, enabled: d.warfare?.enabled ?? true, ...(area ? { area } : {}), ...(d.warfare?.config ? { config: d.warfare.config } : {}) }; })}><Icon name="lucide:wand-2" /> Tạo bố cục tự động</button>}
+      {defaultArea && wf?.area && field('Nửa cạnh vùng chiến trường', wf.area.half, (v) => patch((d) => { ensureWarfare(d).area!.half = v; }), 30, 400, 5, ' m')}
+      {defaultArea && !wf?.area && <p className="ix-hint">Đặt tâm vùng chiến trường bằng công cụ vùng (◎) trên thanh bên trái, hoặc bấm Tạo bố cục tự động.</p>}
+      {children}
+      {setTool && <div className="ix-tools wf-tools">
         {toolBtn('zone', 'lucide:flag', 'Cứ điểm: nhấp để thêm / chọn')}
         {toolBtn('blue', 'lucide:shield', 'Căn cứ phe Xanh (tấn công)')}
         {toolBtn('red', 'lucide:castle', 'Căn cứ phe Đỏ (phòng thủ)')}
         {toolBtn('spawn', 'lucide:map-pin', 'Điểm triển khai của cứ điểm đang chọn (bấm lại để xóa)')}
         {toolBtn('point', 'lucide:crosshair', 'Điểm chiến thuật cho AI trong cứ điểm đang chọn')}
         {toolBtn('vehicle', 'lucide:car-front', 'Điểm xuất hiện phương tiện (bấm lại để xóa)')}
-      </div>
+      </div>}
       {tool === 'point' && <div className="ix-row">{WARFARE_POINT_KINDS.map((k) => <button key={k} className={`btn${pointKind === k ? ' on' : ''}`} onClick={() => setPointKind(k)}>{WF_POINT_LABEL[k]}</button>)}</div>}
       {tool === 'vehicle' && <div className="ix-row">{(['blue', 'red'] as const).map((s) => <button key={s} className={`btn${vehicleSide === s ? ' on' : ''}`} onClick={() => setVehicleSide(s)}>Phe {s === 'blue' ? 'Xanh' : 'Đỏ'}</button>)}</div>}
       {(tool === 'spawn' || tool === 'point') && !zone && <p className="ix-hint">Chọn một cứ điểm trước (công cụ cờ hoặc con trỏ).</p>}

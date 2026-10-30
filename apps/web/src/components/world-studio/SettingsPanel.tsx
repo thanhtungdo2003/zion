@@ -66,8 +66,8 @@ function PublishSection({ api }: { api: EditorApi }) {
       const d = api.doc, map = toBattleMap(d, api.terrain);
       // The editor document goes along so the map can be opened again from any machine.
       const { thumbnail: _thumb, ...meta } = d.meta;
-      const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta } });
-      api.flash(`Đã xuất bản "${r.name}" — người chơi chọn được trong mục Bản đồ của Battle Royale.`);
+      const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta }, ...(d.warfare ? { warfare: d.warfare } : {}) });
+      api.flash(`Đã xuất bản "${r.name}" — người chơi chọn được trong mục Bản đồ của Battle Royale${d.warfare?.enabled ? ' và chế độ Chiến trường' : ''}.`);
     } catch (err) { api.flash(`Xuất bản thất bại: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
     finally { setBusy(false); }
   };

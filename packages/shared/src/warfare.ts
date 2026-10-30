@@ -18,7 +18,8 @@ export const otherSide = (s: WarfareSide): WarfareSide => (s === 'blue' ? 'red' 
 
 /* ------------------------------------------------------------------ config */
 
-export const WARFARE_VEHICLE_KINDS = ['car', 'jeep', 'quad', 'grizzly'] as const satisfies readonly VehicleKind[];
+/** The game's own jeep and quad bike: the vehicles bots and players drive on the battlefield. */
+export const WARFARE_VEHICLE_KINDS = ['jeep', 'quad'] as const satisfies readonly VehicleKind[];
 
 export const warfareConfigSchema = z.object({
   /** Tickets each side starts with. */
@@ -132,6 +133,12 @@ export type WarfareVehicleSpawn = z.infer<typeof warfareVehicleSpawnSchema>;
 export const warfareLayoutSchema = z.object({
   /** The admin turned Warfare on for this map (it is listed in the Warfare map picker). */
   enabled: z.boolean().default(false),
+  /**
+   * The battlefield on a large world (World Studio maps): its centre in world metres and half its
+   * width. Every other coordinate of the layout is relative to this centre. Absent on the walled
+   * Studio maps, whose centre and size are the map's own.
+   */
+  area: z.object({ x: z.number().finite().min(0).max(8256), z: z.number().finite().min(0).max(8256), half: z.number().min(30).max(400) }).strict().optional(),
   zones: z.array(warfareZoneSchema).max(16).default([]),
   /** Main base of each side: always a deploy point, never capturable. */
   bases: z.object({ blue: wfPoint, red: wfPoint }).strict().optional(),
@@ -142,8 +149,9 @@ export const warfareLayoutSchema = z.object({
 export type WarfareLayout = z.infer<typeof warfareLayoutSchema>;
 
 /** Problems that make a layout unplayable (empty = OK). */
-export function validateWarfareLayout(layout: WarfareLayout, half = 400): string[] {
+export function validateWarfareLayout(layout: WarfareLayout, mapHalf = 400): string[] {
   const errs: string[] = [];
+  const half = layout.area?.half ?? mapHalf;
   const ids = new Set<string>();
   const inside = (p: { x: number; z: number }) => Math.abs(p.x) <= half && Math.abs(p.z) <= half;
   for (const zn of layout.zones) {
@@ -193,17 +201,19 @@ export function autoWarfareLayout(half: number, zoneCount = 5): WarfareLayout {
 }
 
 /** Layout to actually play: the map's own if valid, else the auto layout. */
-export function resolveWarfareLayout(layout: WarfareLayout | undefined, half: number): { layout: WarfareLayout; auto: boolean; errors: string[] } {
+export function resolveWarfareLayout(layout: WarfareLayout | undefined, mapHalf: number): { layout: WarfareLayout; auto: boolean; errors: string[] } {
+  const half = layout?.area?.half ?? mapHalf;
+  const auto = (): WarfareLayout => ({ ...autoWarfareLayout(half), ...(layout?.area ? { area: layout.area } : {}), ...(layout?.config ? { config: layout.config } : {}) });
   if (layout) {
     const parsed = warfareLayoutSchema.safeParse(layout);
     if (parsed.success) {
       const errors = validateWarfareLayout(parsed.data, half);
       if (!errors.length) return { layout: parsed.data, auto: false, errors };
-      return { layout: autoWarfareLayout(half), auto: true, errors };
+      return { layout: auto(), auto: true, errors };
     }
-    return { layout: autoWarfareLayout(half), auto: true, errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) };
+    return { layout: auto(), auto: true, errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) };
   }
-  return { layout: autoWarfareLayout(half), auto: true, errors: [] };
+  return { layout: auto(), auto: true, errors: [] };
 }
 
 /* ------------------------------------------------------------------ tickets */

@@ -19,6 +19,8 @@ interface Props {
   layers: Layers;
   tool: Tool;
   selection: Selection | null;
+  /** The Chiến trường tab is open: the battlefield is drawn strongly and its items can be picked. */
+  warfareEdit?: boolean;
   onBrush: (phase: 'start' | 'move' | 'end', x: number, z: number) => void;
   onPlace: (x: number, z: number) => void;
   onDraft: (points: Vec2[]) => void;
@@ -200,6 +202,35 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       }
     }
 
+    /* Warfare: the battlefield area, links, zones by owner, their points, bases and vehicle spawns. */
+    const wf = doc.warfare;
+    if (wf?.area && (p.warfareEdit || (wf.enabled && layers.gameplay))) {
+      const ax = wf.area.x, az = wf.area.z, a = p.warfareEdit ? 1 : .5;
+      ctx.globalAlpha = a;
+      ctx.setLineDash([10 * px, 6 * px]); ctx.strokeStyle = '#ff8a5a'; ctx.lineWidth = 2 * px; ctx.strokeRect(ax - wf.area.half, az - wf.area.half, wf.area.half * 2, wf.area.half * 2); ctx.setLineDash([]);
+      const col = (o: 'blue' | 'red' | null) => (o === 'blue' ? '#4fa3ff' : o === 'red' ? '#ff5a4a' : '#d6d6d6');
+      ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1.5 * px; ctx.setLineDash([6 * px, 4 * px]);
+      for (const zn of wf.zones) for (const id of zn.links) { const o = wf.zones.find((q) => q.id === id); if (!o || o.id < zn.id) continue; ctx.beginPath(); ctx.moveTo(ax + zn.x, az + zn.z); ctx.lineTo(ax + o.x, az + o.z); ctx.stroke(); }
+      ctx.setLineDash([]);
+      wf.zones.forEach((zn, i) => {
+        const on = isSel({ kind: 'wfZone', index: i }), c = col(zn.owner);
+        ctx.beginPath(); ctx.arc(ax + zn.x, az + zn.z, zn.radius, 0, 6.283); ctx.fillStyle = `${c}38`; ctx.fill(); ctx.strokeStyle = on ? '#ffb000' : c; ctx.lineWidth = (on ? 3 : 2) * px; ctx.stroke();
+        for (const sp of zn.spawns) { ctx.fillStyle = c; ctx.fillRect(ax + sp.x - 3 * px, az + sp.z - 3 * px, 6 * px, 6 * px); }
+        for (const pt of zn.points) { ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.arc(ax + pt.x, az + pt.z, 3 * px, 0, 6.283); ctx.fill(); }
+      });
+      for (const side of ['blue', 'red'] as const) {
+        const b = wf.bases?.[side]; if (!b) continue;
+        const on = isSel({ kind: 'wfBase', side });
+        ctx.fillStyle = col(side); ctx.fillRect(ax + b.x - 7 * px, az + b.z - 7 * px, 14 * px, 14 * px); ctx.strokeStyle = on ? '#ffb000' : '#000'; ctx.lineWidth = (on ? 3 : 1) * px; ctx.strokeRect(ax + b.x - 7 * px, az + b.z - 7 * px, 14 * px, 14 * px);
+      }
+      wf.vehicleSpawns.forEach((v, i) => {
+        const on = isSel({ kind: 'wfVehicle', index: i }), x = ax + v.x, z = az + v.z, fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), r = 8 * px;
+        ctx.beginPath(); ctx.moveTo(x + fx * r, z + fz * r); ctx.lineTo(x - fz * r * .6 - fx * r * .6, z + fx * r * .6 - fz * r * .6); ctx.lineTo(x + fz * r * .6 - fx * r * .6, z - fx * r * .6 - fz * r * .6); ctx.closePath();
+        ctx.fillStyle = col(v.side); ctx.fill(); ctx.strokeStyle = on ? '#ffb000' : '#000'; ctx.lineWidth = (on ? 2.5 : 1) * px; ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+    }
+
     /* Validation markers. */
     for (const m of overlay.markers) { ctx.beginPath(); ctx.arc(m.x, m.z, 7 * px, 0, 6.283); ctx.strokeStyle = m.severity === 'error' ? '#ff3b30' : '#ffb000'; ctx.lineWidth = 2.5 * px; ctx.stroke(); }
 
@@ -310,6 +341,14 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       const i = pts?.findIndex(([px, pz]) => Math.hypot(px - x, pz - z) < tol) ?? -1;
       if (i >= 0) return { ...sel, vertex: i };
     }
+    const wf = p.doc.warfare;
+    if (p.warfareEdit && wf?.area) {
+      const lx = x - wf.area.x, lz = z - wf.area.z;
+      const vi = wf.vehicleSpawns.findIndex((v) => Math.hypot(v.x - lx, v.z - lz) < tol * 1.2); if (vi >= 0) return { kind: 'wfVehicle', index: vi };
+      for (const side of ['blue', 'red'] as const) { const b = wf.bases?.[side]; if (b && Math.hypot(b.x - lx, b.z - lz) < tol * 1.2) return { kind: 'wfBase', side }; }
+      const zi = wf.zones.findIndex((zn) => Math.hypot(zn.x - lx, zn.z - lz) <= zn.radius); if (zi >= 0) return { kind: 'wfZone', index: zi };
+      return null;
+    }
     const g = p.gameplay;
     if (p.layers.gameplay && g) {
       const near = <T extends { id: string; x: number; z: number }>(list: T[], r = tol) => list.find((q) => Math.hypot(q.x - x, q.z - z) < r);
@@ -394,7 +433,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
     schedule();
   };
 
-  const cursor = props.tool === 'pan' ? 'grab' : isBrush(props.tool) ? 'none' : isDraw(props.tool) || props.tool.startsWith('place-') ? 'crosshair' : 'default';
+  const cursor = props.tool === 'pan' ? 'grab' : isBrush(props.tool) ? 'none' : isDraw(props.tool) || props.tool.startsWith('place-') || props.tool.startsWith('wf-') ? 'crosshair' : 'default';
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', cursor, touchAction: 'none' }}
     aria-label="Bản đồ 2D" data-testid="map-canvas"
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
@@ -417,7 +456,11 @@ export function shapeOf(doc: WorldMapDoc, g: BattleConfig | undefined, shape: st
 
 /** Where a draggable item sits now. */
 function anchorOf(p: Props, sel: Selection): Vec2 | null {
-  const g = p.gameplay;
+  const g = p.gameplay, wf = p.doc.warfare;
+  if ((sel.kind === 'wfZone' || sel.kind === 'wfVehicle' || sel.kind === 'wfBase') && wf?.area) {
+    const q = sel.kind === 'wfZone' ? wf.zones[sel.index] : sel.kind === 'wfVehicle' ? wf.vehicleSpawns[sel.index] : wf.bases?.[sel.side];
+    return q ? [wf.area.x + q.x, wf.area.z + q.z] : null;
+  }
   if (sel.kind === 'play-area') return g ? [g.playArea.x, g.playArea.z] : null;
   if (sel.kind === 'phase') { const c = g?.phases[sel.index]?.center; return c ? [c[0], c[1]] : null; }
   if (sel.kind === 'point' && g) {

@@ -120,6 +120,9 @@ export class BattleBot implements Combatant {
   holdAt: { x: number; y: number; z: number; faceX: number; faceZ: number } | null = null;
   /** Warfare: the point its squad (or the player leading it) sent it to. */
   objective: BotObjective | null = null;
+  /** Riding in a vehicle (0 = on foot) and in which seat (0 = driving). */
+  vehicleId = 0;
+  vehicleSeat = 0;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -166,6 +169,8 @@ export interface BotHooks {
   enemy?(bot: BattleBot, id: number): boolean;
   /** Infection: a bot's blow or bullet on another bot, settled by the game (true = handled). */
   botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
+  /** Runs a riding bot's shot with its own vehicle's collision out of the way. */
+  fromVehicle?(bot: BattleBot, fn: () => void): void;
   /** A bot took damage (`by`: who dealt it, when known) — for kill assists. */
   hurt?(bot: BattleBot, amount: number, by: number | null): void;
   /** Whether a lethal hit knocks the bot down for a squadmate to revive (default: yes, in a squad). */
@@ -295,6 +300,16 @@ export class BattleBotDirector {
       if (!bot.active) continue;
       // Thrown by a vehicle: no thinking, no steering, the body just flies and slides.
       if (now < bot.knockedUntil) { this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: false }, TICK_DT); continue; }
+      // In a vehicle: the driver is steered by its commander; a passenger looks out and shoots.
+      if (bot.vehicleId) {
+        if (think) this.decide(bot, now, world, players);
+        if (bot.vehicleSeat > 0 && bot.mode === 'fight' && bot.target) {
+          const t = bot.target.state;
+          bot.yaw = Math.atan2(-(t.x - s.x), -(t.z - s.z));
+          if (this.hooks.fromVehicle) this.hooks.fromVehicle(bot, () => this.shoot(bot, now)); else this.shoot(bot, now);
+        }
+        continue;
+      }
       if (bot.downed) {
         // Bleeding on the ground; dies if nobody gets there in time (or the squad is gone).
         if (now >= bot.bleedUntil || !this.squad(bot).some(m => !m.downed)) { bot.health = 0; bot.downed = false; this.hit(bot, 1, 'mất máu', null, now, 'red_zone'); continue; }

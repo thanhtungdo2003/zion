@@ -711,7 +711,7 @@ export default function InfectionStudio() {
             </section>
           )}
           {sel && (sel.kind === 'spawn' || sel.kind === 'zombie') && <section className="ix-section"><h3>{sel.kind === 'spawn' ? 'Điểm xuất hiện người' : 'Điểm hồi sinh zombie'}</h3><button className="btn" onClick={removeSel}><Icon name="lucide:trash" /> Xóa điểm</button></section>}
-          <WarfareStudioPanel draft={draft} patch={patch} sel={sel && sel.kind.startsWith('wf') ? sel as WarfareSel : null} setSel={setSel}
+          <WarfareStudioPanel layout={draft.warfare} half={draft.half} patchLayout={(fn) => patch((d) => fn(ensureWarfare(d)))} sel={sel && sel.kind.startsWith('wf') ? sel as WarfareSel : null} setSel={setSel}
             tool={tool.kind === 'wf' ? tool.what : null} setTool={(t) => setTool(t ? { kind: 'wf', what: t } : { kind: 'select' })}
             pointKind={wfPointKind} setPointKind={setWfPointKind} vehicleSide={wfVehicleSide} setVehicleSide={setWfVehicleSide} />
 

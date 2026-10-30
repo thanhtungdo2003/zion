@@ -160,6 +160,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
             <span><Icon name="lucide:layers" />{m.template}</span>
             <span><Icon name="lucide:clock" />{fmtTime(m.updatedAt)}</span>
             {publishedIds.has(publishedMapId(m.id)) && <span style={{ color: 'var(--accent)' }}><Icon name="lucide:rocket" />Đã xuất bản</span>}
+            {published?.find((p) => p.id === publishedMapId(m.id))?.warfare && <span style={{ color: '#ff8a5a' }}><Icon name="lucide:swords" />Chiến trường</span>}
           </div>
           {m.description && <p className={s.lead} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.description}</p>}
           <div className={s.cardActions}>

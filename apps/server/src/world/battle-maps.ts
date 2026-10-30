@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AssetDefinitionInput, AssetRegistry } from '@zion/assets';
-import { BATTLE_MAP } from '@zion/shared';
+import { BATTLE_MAP, validateWarfareLayout, warfareLayoutSchema, type WarfareLayout } from '@zion/shared';
 import { GENERATOR_VERSION, authoredMapSchema, normalizeSeed, type AuthoredMap } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
@@ -27,10 +27,12 @@ export const publishSchema = z.object({
   map: z.unknown(),
   /** The editor document (without terrain) so the map can be opened again elsewhere. */
   source: z.record(z.unknown()).optional(),
+  /** Warfare battlefield on this map (absent: the map is not offered for Warfare). */
+  warfare: warfareLayoutSchema.optional(),
 }).strict();
 export type PublishInput = z.infer<typeof publishSchema>;
 
-interface Entry { id: string; name: string; thumbnail: string | null; updatedAt: string; world: WorldService; pool: MatchPool; worldId: string; atlas: ReturnType<typeof atlasProvider>; tiles: ReturnType<typeof atlasTileProvider> }
+interface Entry { id: string; name: string; thumbnail: string | null; updatedAt: string; warfare: WarfareLayout | null; world: WorldService; pool: MatchPool; worldId: string; atlas: ReturnType<typeof atlasProvider>; tiles: ReturnType<typeof atlasTileProvider> }
 
 export class BattleMapService {
   private readonly maps = new Map<string, Entry>();
@@ -56,9 +58,9 @@ export class BattleMapService {
 
   async load(): Promise<void> {
     try {
-      const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; sea_level: number; map: unknown; updated_at: Date }>('SELECT id, name, thumbnail, sea_level, map, updated_at FROM battle_maps ORDER BY updated_at')).rows;
+      const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; sea_level: number; map: unknown; updated_at: Date; warfare: unknown }>('SELECT id, name, thumbnail, sea_level, map, updated_at, warfare FROM battle_maps ORDER BY updated_at')).rows;
       for (const r of rows) {
-        try { await this.build(r.id, r.name, r.thumbnail, r.sea_level, authoredMapSchema.parse(r.map) as AuthoredMap, r.updated_at.toISOString()); }
+        try { await this.build(r.id, r.name, r.thumbnail, r.sea_level, authoredMapSchema.parse(r.map) as AuthoredMap, r.updated_at.toISOString(), this.parseWarfare(r.warfare)); }
         catch (err) { this.failed.set(r.id, err instanceof Error ? err.message : String(err)); this.log.error({ err, id: r.id }, 'battle map could not be built (skipped)'); }
       }
     } catch (err) {
@@ -66,14 +68,51 @@ export class BattleMapService {
     }
   }
 
-  private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string): Promise<Entry> {
+  /** A stored Warfare layout (an unreadable one is dropped, never fatal). */
+  private parseWarfare(raw: unknown): WarfareLayout | null {
+    if (!raw) return null;
+    const r = warfareLayoutSchema.safeParse(raw);
+    return r.success ? r.data : null;
+  }
+
+  /** Problems that keep a layout from being offered for Warfare on this map (empty = fine). */
+  private checkWarfare(layout: WarfareLayout, size: number): string[] {
+    const errs = layout.area ? [] : ['chưa chọn vùng chiến trường'];
+    if (layout.area && (layout.area.x - layout.area.half < 0 || layout.area.z - layout.area.half < 0 || layout.area.x + layout.area.half > size || layout.area.z + layout.area.half > size)) errs.push('vùng chiến trường vượt ra ngoài bản đồ');
+    return [...errs, ...validateWarfareLayout(layout)];
+  }
+
+  /**
+   * Turns Warfare on / updates its layout / turns it off (null) for a published map, without
+   * rebuilding the map's world: rooms opened afterwards use the new layout.
+   */
+  async setWarfare(id: string, input: unknown): Promise<{ id: string; warfare: WarfareLayout | null }> {
+    const e = this.maps.get(id);
+    if (!e) throw new Error('Bản đồ chưa được xuất bản lên máy chủ (hoặc chưa dựng xong) — hãy xuất bản trước.');
+    const layout = input === null ? null : warfareLayoutSchema.parse(input);
+    if (layout?.enabled) {
+      const errs = this.checkWarfare(layout, e.world.generator.worldSize);
+      if (errs.length) throw new Error(`Bố cục Chiến trường chưa hợp lệ: ${errs.slice(0, 4).join('; ')}`);
+    }
+    await this.db.query('UPDATE battle_maps SET warfare = $2::jsonb WHERE id = $1', [id, layout ? JSON.stringify(layout) : null]);
+    e.warfare = layout;
+    this.log.info({ id, warfare: !!layout?.enabled, zones: layout?.zones.length ?? 0 }, 'battle map warfare layout set');
+    return { id, warfare: layout };
+  }
+
+  /** Published maps with Warfare turned on. */
+  warfareMaps(): Array<{ id: string; name: string; thumbnail: string | null; world: WorldService; worldId: string; layout: WarfareLayout }> {
+    return [...this.maps.values()].filter((e) => e.warfare?.enabled).map((e) => ({ id: e.id, name: e.name, thumbnail: e.thumbnail, world: e.world, worldId: e.worldId, layout: e.warfare! }));
+  }
+
+  private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string, warfare: WarfareLayout | null = null): Promise<Entry> {
     const size = map.terrainGrid?.size ?? BATTLE_MAP.sizeChunks * 32;
     const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, 1, this.cacheSize, this.log, this.usedAssets(map));
     await world.start();
     const worldId = `br-${id}-${updatedAt.replace(/\D/g, '').slice(0, 14)}`;
     const pool = new MatchPool(() => this.createMatch(world, worldId), this.log.child({ module: `battle-map-${id}` }), 6);
     pool.start();
-    const entry: Entry = { id, name, thumbnail, updatedAt, world, pool, worldId, atlas: atlasProvider(world.generator, worldId), tiles: atlasTileProvider(world.generator, worldId) };
+    const entry: Entry = { id, name, thumbnail, updatedAt, warfare, world, pool, worldId, atlas: atlasProvider(world.generator, worldId), tiles: atlasTileProvider(world.generator, worldId) };
     const old = this.maps.get(id);
     this.maps.set(id, entry);
     // A republished map: new matches use the new world; the old one closes when its matches end.
@@ -87,12 +126,17 @@ export class BattleMapService {
     const map = authoredMapSchema.parse(body.map) as AuthoredMap;
     if (!map.terrainGrid) throw new Error('Bản đồ thiếu dữ liệu địa hình.');
     const updatedAt = new Date().toISOString();
+    const warfare = body.warfare ?? null;
+    if (warfare?.enabled) {
+      const errs = this.checkWarfare(warfare, map.terrainGrid.size);
+      if (errs.length) throw new Error(`Bố cục Chiến trường chưa hợp lệ: ${errs.slice(0, 4).join('; ')}`);
+    }
     // Built first: a map whose world cannot be made is refused instead of stored unplayable
     // (it would be listed nowhere in the game). The previous version keeps running meanwhile.
-    await this.build(body.id, body.name, body.thumbnail ?? null, body.seaLevel, map, updatedAt);
-    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at, source) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb)
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source`,
-      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt, body.source ? JSON.stringify(body.source) : null]);
+    await this.build(body.id, body.name, body.thumbnail ?? null, body.seaLevel, map, updatedAt, warfare);
+    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at, source, warfare) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb)
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source, warfare = EXCLUDED.warfare`,
+      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt, body.source ? JSON.stringify(body.source) : null, warfare ? JSON.stringify(warfare) : null]);
     this.failed.delete(body.id);
     this.log.info({ id: body.id, sites: map.placed?.length ?? 0, flora: map.flora?.length ?? 0 }, 'battle map published');
     return { id: body.id, name: body.name };
@@ -118,12 +162,12 @@ export class BattleMapService {
    * For the World Studio: every map stored on the server (straight from the table, so maps that
    * failed to build or were published from another machine are listed too), with its state.
    */
-  async catalog(): Promise<Array<{ id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number }>> {
+  async catalog(): Promise<Array<{ id: string; name: string; thumbnail: string | null; updatedAt: string; live: boolean; error?: string; players: number; matches: number; editable: boolean; bytes: number; warfare: boolean }>> {
     const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; updated_at: Date; editable: boolean; bytes: number }>(
       'SELECT id, name, thumbnail, updated_at, source IS NOT NULL AS editable, pg_column_size(map) AS bytes FROM battle_maps ORDER BY updated_at DESC')).rows;
     return rows.map((r) => {
       const e = this.maps.get(r.id), error = this.failed.get(r.id) ?? (e ? undefined : 'Chưa dựng được thế giới cho bản đồ này (xem log máy chủ); xuất bản lại để thử.');
-      return { id: r.id, name: r.name, thumbnail: r.thumbnail, updatedAt: r.updated_at.toISOString(), live: !!e, ...(error ? { error } : {}), editable: r.editable, bytes: Number(r.bytes),
+      return { id: r.id, name: r.name, thumbnail: r.thumbnail, updatedAt: r.updated_at.toISOString(), live: !!e, ...(error ? { error } : {}), editable: r.editable, bytes: Number(r.bytes), warfare: !!e?.warfare?.enabled,
         matches: e?.pool.matches.length ?? 0, players: e?.pool.matches.reduce((n, m) => n + m.playerCount, 0) ?? 0 };
     });
   }
