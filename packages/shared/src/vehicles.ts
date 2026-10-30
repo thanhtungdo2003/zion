@@ -1,5 +1,6 @@
 import type { VehicleArmsState } from './vehicle-arms';
 import type { VehiclePart } from './vehicle-parts';
+import { seatPosition } from './vehicle-seats';
 export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly' | 't80u' | 't90a' | 't62a' | 'tank' | 'marauder' | 'mi17' | 'z10' | 'tiger';
 export interface VehicleState {
   id: number; kind: VehicleKind; x: number; y: number; z: number; yaw: number;
@@ -64,7 +65,7 @@ export const VEHICLE_REACH = 3.6;
 export const vehicleOwner = (id: number): number => 0xc0000000 + id;
 /** World position of a seat (0 = driver, then the passenger seats). */
 export function vehicleSeat(v: VehicleState, index = 0): { x: number; y: number; z: number } {
-  const [x,y,z]=VEHICLES[v.kind].seats[index]??VEHICLES[v.kind].seat;
+  const [x,y,z]=seatPosition(v.kind,index);
   return vehiclePoint(v,x,y,z);
 }
 /** Seat of a player in this vehicle: 0 driving, 1… a passenger seat, −1 not aboard. */

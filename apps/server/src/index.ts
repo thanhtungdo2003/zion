@@ -2,7 +2,7 @@ import { WaveRooms } from './game/wave-rooms';
 import { WarfareRooms } from './game/warfare-rooms';
 import { WaveScoreRepository } from './repositories/wave-scores';
 import type { LifeWorld } from './game/base-life';
-import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent } from '@zion/shared';
+import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent, seatTuning, seatTuningSchema, setSeatTuning, type SeatTuning } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -233,6 +233,10 @@ async function main(): Promise<void> {
     const style = await db.query<{ value: { style?: string; blocky?: boolean } }>(`SELECT value FROM server_settings WHERE key = 'character_style'`);
     const saved = style.rows[0]?.value;
     characterLook = CHARACTER_STYLES.find((s) => s === saved?.style) ?? (saved?.blocky === true ? 'blocky' : 'survivor');
+    // Seats tuned in the Studio's vehicle tab (every server and match share the table).
+    const seats = await db.query<{ value: unknown }>(`SELECT value FROM server_settings WHERE key = 'vehicle_seats'`);
+    const tuned = seatTuningSchema.safeParse(seats.rows[0]?.value ?? {});
+    if (tuned.success) setSeatTuning(tuned.data as SeatTuning);
   } catch (err) {
     logger.error({ err }, 'failed to load server settings (using defaults)');
   }
@@ -366,6 +370,14 @@ async function main(): Promise<void> {
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ jolt })]);
         audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
         return { jolt };
+      },
+      vehicleSeats: () => seatTuning(),
+      setVehicleSeats: async (t) => {
+        setSeatTuning(t);
+        await db.query(`INSERT INTO server_settings (key, value) VALUES ('vehicle_seats', $1::jsonb)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify(t)]);
+        audit.record({ event: 'studio.vehicle_seats', details: { vehicles: Object.keys(t) } });
+        return t;
       },
       characterStyle: () => ({ style: characterLook, blocky: characterLook === 'blocky' }),
       setCharacterStyle: async (style) => {

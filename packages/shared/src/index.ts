@@ -36,6 +36,7 @@ export * from './vehicle-arms';
 export * from './vehicle-mounts';
 export * from './vehicle-parts';
 export * from './helicopter-flight';
+export * from './vehicle-seats';
 export * from './infection';
 export * from './waves';
 export * from './warfare';

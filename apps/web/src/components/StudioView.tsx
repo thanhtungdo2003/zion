@@ -530,6 +530,7 @@ export default function StudioView() {
             <Link href="/studio/weapons"><Icon name="game-icons:pistol-gun" /> Vũ khí</Link>
             <Link href="/studio/gear"><Icon name="game-icons:backpack" /> Trang bị</Link>
             <Link href="/studio/hands"><Icon name="lucide:hand" /> Bàn tay</Link>
+            <Link href="/studio/vehicles"><Icon name="lucide:car" /> Phương tiện</Link>
             <Link href="/studio/infection"><Icon name="game-icons:biohazard" /> Lây nhiễm</Link>
           </nav>
           <div className="studio-spacer" />

@@ -1,6 +1,7 @@
-import { VEHICLES, vehiclePoint, type VehicleKind, type VehicleState } from './vehicles';
+import { vehiclePoint, type VehicleKind, type VehicleState } from './vehicles';
 import { VEHICLE_ROLES, type VehicleWeapon } from './vehicle-arms';
 import { mountRate } from './vehicle-parts';
+import { seatPosition } from './vehicle-seats';
 
 /**
  * Turning weapon mounts: a tank's turret (its main gun pitching in it) and the machine guns on
@@ -114,7 +115,7 @@ export function weaponMuzzle(v: VehicleState, w: VehicleWeapon, k = 0): { x: num
 
 /** World position of a seat, carried round by its mount (a gunner standing at a roof gun). */
 export function mountedSeat(v: VehicleState, seat: number): { x: number; y: number; z: number } {
-  const [x, y, z] = VEHICLES[v.kind].seats[seat] ?? VEHICLES[v.kind].seat;
+  const [x, y, z] = seatPosition(v.kind, seat);
   const p = mountedPoint(v, seat, x, y, z, false);
   return vehiclePoint(v, p.x, p.y, p.z);
 }

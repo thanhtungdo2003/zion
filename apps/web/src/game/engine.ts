@@ -2,7 +2,7 @@ import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentMod
 import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, setSeatTuning, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -15,6 +15,7 @@ import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
 import { VehiclePredictor } from './vehicle-prediction';
+import { vehicleSeats } from '@/lib/api';
 import { CockpitPanel } from './render/cockpit-panel';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
@@ -1425,6 +1426,8 @@ export class GameEngine {
     }
     // Preload every registered model so first sight of an asset never stalls.
     for (const def of this.registry.all()) void this.library.load(def.numericId);
+    // Seats as tuned in the Studio (riders drawn on them, the first-person eye).
+    void vehicleSeats().then((t) => setSeatTuning(t)).catch(() => undefined);
 
     this.store.listen({
       onChunkSet: (chunk, prev) => {
@@ -3853,7 +3856,7 @@ export class GameEngine {
     if (vehicle && isAircraft(vehicle.kind)) {
       // The pilot's seat: first person through the windscreen, the view fixed to the airframe
       // (it pitches, banks and shakes with it), the instrument panel below.
-      const [sx, sy, sz] = VEHICLES[vehicle.kind].seats[0]!, eye = vehiclePoint(vehicle, sx, sy + 1.28, sz);
+      const eye = this.vehicles!.eye(this.welcome!.playerId) ?? vehiclePoint(vehicle, 0, 2, 0);
       cam.position.set(eye.x, eye.y, eye.z);
       cam.rotation.set(vehicle.motion?.pitch ?? 0, vehicle.yaw, vehicle.motion?.roll ?? 0, 'YXZ');
       if (this.crashShake) cam.position.add(this.focus.set((Math.random() - .5) * this.crashShake * .3, (Math.random() - .5) * this.crashShake * .3, 0));
@@ -3914,9 +3917,13 @@ export class GameEngine {
     }
     if (this.mouseLook) {
       // Smooth the eye: prediction corrections and step-ups would otherwise jolt the whole view.
-      const eye = py + (this.local?.riding ? 1.32 : this.local ? characterEyeHeight(this.local.state) : DEFAULT_CHARACTER.eyeHeight);
+      // Aboard: the seat's own eye (tuned per seat in the Studio), riding with the vehicle exactly.
+      const seatEye = this.local?.riding && this.welcome ? this.vehicles?.eye(this.welcome.playerId) : undefined;
+      if (seatEye) { px = seatEye.x; pz = seatEye.z; }
+      const eye = seatEye ? seatEye.y : py + (this.local?.riding ? 1.32 : this.local ? characterEyeHeight(this.local.state) : DEFAULT_CHARACTER.eyeHeight);
       const f = this.camFocus;
-      if (!this.camFocusInit || (f.x - px) ** 2 + (f.z - pz) ** 2 > 25) {
+      if (seatEye) f.set(px, eye, pz);
+      else if (!this.camFocusInit || (f.x - px) ** 2 + (f.z - pz) ** 2 > 25) {
         f.set(px, eye, pz);
         this.camFocusInit = true;
       } else {

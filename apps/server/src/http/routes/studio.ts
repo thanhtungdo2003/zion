@@ -4,7 +4,7 @@ import { MAX_MAP_BOXES } from '@zion/assets';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isBuiltinWeapon, validateContent, type GameContent } from '@zion/shared';
+import { isBuiltinWeapon, seatTuningSchema, validateContent, type GameContent, type SeatTuning } from '@zion/shared';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -38,6 +38,9 @@ export interface StudioBackend {
   previewInfectionMap(map: unknown): unknown;
   vehiclePhysics(): { jolt: boolean };
   setVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }>;
+  /** Seats tuned in the vehicle tab: seat positions and first-person eyes per vehicle. */
+  vehicleSeats(): SeatTuning;
+  setVehicleSeats(t: SeatTuning): Promise<SeatTuning>;
   /** Player character look for every client: the survivor model or the old block character. */
   characterStyle(): { style: CharacterStyle; blocky: boolean };
   setCharacterStyle(style: CharacterStyle): Promise<{ style: CharacterStyle; blocky: boolean }>;
@@ -371,6 +374,10 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
     });
   }
   app.get('/api/studio/vehicle-physics', { preHandler: guard }, async () => studio.vehiclePhysics());
+  app.get('/api/studio/vehicle-seats', { preHandler: guard }, async () => studio.vehicleSeats());
+  app.post('/api/studio/vehicle-seats', { preHandler: guard }, async (req) => studio.setVehicleSeats(seatTuningSchema.parse(req.body) as SeatTuning));
+  // Every client reads the tuned seats (riders drawn on them, the first-person eye).
+  app.get('/api/vehicle-seats', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async () => studio.vehicleSeats());
   app.post('/api/studio/vehicle-physics', { preHandler: guard }, async (req) => studio.setVehiclePhysics(z.object({ jolt: z.boolean() }).strict().parse(req.body).jolt));
   app.post('/api/studio/character-style', { preHandler: guard }, async (req) => studio.setCharacterStyle(z.object({ style: z.enum(CHARACTER_STYLES) }).strict().parse(req.body).style));
   app.get('/api/character-style', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_req, reply) => {

@@ -1,4 +1,4 @@
-import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult } from '@zion/shared';
+import type { CareerView, LeaderboardView, RankConfig, StudioCurrencyGrant, StudioCurrencyPlayer, StudioCurrencyResult, SeatTuning } from '@zion/shared';
 import type { AtlasTile, CustomWeapon, GameContent, GameMode, InfectionMapDef, InfectionMaps, TeamAction, TeamLobby, WorldAtlas } from '@zion/shared';
 import { serverMessage } from './i18n';
 import { settingsStore } from './settings';
@@ -464,6 +464,10 @@ export function studioActivateInfectionMap(id: string): Promise<InfectionMaps> {
 export function studioDeleteInfectionMap(id: string): Promise<InfectionMaps> { return studioRequest(`/api/studio/infection-maps/${encodeURIComponent(id)}`, { method: 'DELETE', body: JSON.stringify({}) }); }
 export function studioPreviewInfectionMap(map: InfectionMapDef): Promise<InfectionMapPreview> { return studioRequest('/api/studio/infection-maps/preview', { method: 'POST', body: JSON.stringify(map) }); }
 export function studioVehiclePhysics(): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics'); }
+/** Seats tuned in the Studio's vehicle tab (read by every client). */
+export function vehicleSeats(): Promise<SeatTuning> { return request('/api/vehicle-seats'); }
+export function studioVehicleSeats(): Promise<SeatTuning> { return studioRequest('/api/studio/vehicle-seats'); }
+export function studioSaveVehicleSeats(t: SeatTuning): Promise<SeatTuning> { return studioRequest('/api/studio/vehicle-seats', { method: 'POST', body: JSON.stringify(t) }); }
 export function studioSetVehiclePhysics(jolt: boolean): Promise<{ jolt: boolean }> { return studioRequest('/api/studio/vehicle-physics', { method: 'POST', body: JSON.stringify({ jolt }) }); }
 export function studioSetCharacterStyle(style: 'survivor' | 'mixamo' | 'blocky'): Promise<{ style: 'survivor' | 'mixamo' | 'blocky'; blocky: boolean }> { return studioRequest('/api/studio/character-style', { method: 'POST', body: JSON.stringify({ style }) }); }
 export type StudioWeapon = CustomWeapon & { modelUrl: string | null };

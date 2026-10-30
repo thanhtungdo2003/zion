@@ -3930,3 +3930,6 @@ kbd {
 .vhud-prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); pointer-events: auto; }
 .vhud-prompt button { padding: 8px 14px; font-size: 13px; color: #eef0e2; background: rgba(9, 12, 11, .86); }
 .touch-mode .vhud { bottom: auto; top: max(80px, env(safe-area-inset-top)); width: 260px; }
+
+/* Vehicle Studio (components/VehicleStudio.tsx): vehicle and seat lists. */
+.vs-item { width: 100%; justify-content: flex-start; text-align: left; }

@@ -1,5 +1,5 @@
 import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, mountedPoint, mountedSeat, seatAim, seatMount, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, armedSeat, mountedPoint, mountedSeat, seatAim, seatEye, seatMount, seatPosition, seatTuned, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -128,16 +128,28 @@ export class VehicleRenderer {
   seat(id:number):{x:number;y:number;z:number}|undefined{
     const view=this.viewOf(id);if(!view)return undefined;
     const seat=Math.max(0,vehicleSeatOf(view.target,id)),v={...view.pose,aim:this.shownAim(id)},fit=view.fit[seat];
-    if(fit?.y==null)return mountedSeat(v,seat);
-    const [x,,z]=VEHICLES[v.kind].seats[seat]??VEHICLES[v.kind].seat;
+    // A seat tuned in the Studio is taken as it is.
+    if(fit?.y==null||seatTuned(v.kind,seat))return mountedSeat(v,seat);
+    const [x,,z]=seatPosition(v.kind,seat);
     return vehiclePoint(v,x,fit.y,z);
+  }
+  /**
+   * A rider's first-person eye (world): the seat's origin as drawn plus the seat's eye offset
+   * (Studio), turned with the vehicle and any mount.
+   */
+  eye(id:number):{x:number;y:number;z:number}|undefined{
+    const view=this.viewOf(id);if(!view)return undefined;
+    const seat=Math.max(0,vehicleSeatOf(view.target,id)),v={...view.pose,aim:this.shownAim(id)},fit=view.fit[seat];
+    const [x,y,z]=seatPosition(v.kind,seat),standing=seat>0&&armedSeat(v.kind,seat),[ex,ey,ez]=seatEye(v.kind,seat,standing);
+    const oy=fit?.y!=null&&!seatTuned(v.kind,seat)?fit.y:y,p=mountedPoint(v,seat,x+ex,oy+ey,z+ez,false);
+    return vehiclePoint(v,p.x,p.y,p.z);
   }
   /** World height of the floor under a seated rider's feet (null: nothing to keep them off). */
   seatFloor(id:number):number|null{
     const view=this.viewOf(id);if(!view)return null;
     const seat=Math.max(0,vehicleSeatOf(view.target,id)),fit=view.fit[seat];
     if(fit?.floor==null)return null;
-    const [x,,z]=VEHICLES[view.pose.kind].seats[seat]??VEHICLES[view.pose.kind].seat;
+    const [x,,z]=seatPosition(view.pose.kind,seat);
     return vehiclePoint(view.pose,x,fit.floor,z-.5).y;
   }
   /**
