@@ -179,18 +179,33 @@ export async function playAsGuest(username: string): Promise<AccountInfo> {
   return adopt(await request<SessionResponse>('/api/auth/guest', { method: 'POST', body: JSON.stringify({ username }) }));
 }
 
+/** The refresh call, retried a few times when the server is unreachable or failing (not when it refuses). */
+async function refreshWithRetry(): Promise<SessionResponse> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await request<SessionResponse>('/api/auth/refresh', { method: 'POST', csrf: true, body: JSON.stringify({}) });
+    } catch (error) {
+      const transient = error instanceof ApiError && (error.status === 0 || error.status === 429 || error.status >= 500);
+      if (!transient || attempt >= 3) throw error;
+      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt));
+    }
+  }
+}
+
 /** Restores a session from the refresh cookie. Resolves false when there is none. */
 export function refreshSession(force = false): Promise<boolean> {
   if (!force && !hasHint()) return Promise.resolve(false);
-  refreshing ??= request<SessionResponse>('/api/auth/refresh', { method: 'POST', csrf: true, body: JSON.stringify({}) })
+  refreshing ??= refreshWithRetry()
     .then((s) => {
       adopt(s);
       return true;
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       accessToken = null;
       account = null;
-      setHint(false);
+      // Only a refused cookie ends the session; a lagging or unreachable server keeps the hint,
+      // so the next try (reload, reconnect) restores the session instead of asking to sign in.
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) setHint(false);
       return false;
     })
     .finally(() => {

@@ -192,8 +192,36 @@ function createWindow(port) {
     if (input.key === 'F11' || (input.alt && input.key === 'Enter')) win.setFullScreen(!win.isFullScreen());
     if (input.key === 'F12' && input.control && input.shift) win.webContents.toggleDevTools();
   });
+  watchCrashes(win, home);
   void win.loadURL(`${home}/`);
   return win;
+}
+
+/**
+ * When the game page dies (out of memory, a GPU fault), write why to crash.log in the app's data
+ * folder (%APPDATA%/zion) with the page's last errors, and reopen it rather than leave a dead window.
+ */
+function watchCrashes(win, home) {
+  const recent = [];
+  const log = (line) => { try { fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `${new Date().toISOString()} ${line}\n`); } catch { /* read-only disk */ } };
+  win.webContents.on('console-message', (e) => {
+    const level = e.level ?? '';
+    if (level !== 'error' && level !== 'warning' && level !== 3 && level !== 2) return;
+    recent.push(`${level} ${String(e.message ?? '').slice(0, 400)}`);
+    if (recent.length > 30) recent.shift();
+  });
+  let last = 0;
+  win.webContents.on('render-process-gone', (_e, d) => {
+    log(`game page gone: ${d.reason} (exit ${d.exitCode}); last messages:\n  ${recent.join('\n  ')}`);
+    if (d.reason === 'clean-exit' || win.isDestroyed()) return;
+    // Twice within a minute: stop reloading into the same crash; the player chooses.
+    const again = Date.now() - last < 60_000;
+    last = Date.now();
+    if (!again) { void win.loadURL(`${home}/`); return; }
+    void dialog.showMessageBox(win, { type: 'error', title: 'ZION', buttons: ['Mở lại', 'Thoát'], message: 'Game bị dừng đột ngột.', detail: `Lý do: ${d.reason}. Nhật ký lỗi: ${path.join(app.getPath('userData'), 'crash.log')}` })
+      .then(({ response }) => { if (response === 0) void win.loadURL(`${home}/`); else app.quit(); });
+  });
+  app.on('child-process-gone', (_e, d) => { if (d.type === 'GPU') log(`GPU process gone: ${d.reason} (exit ${d.exitCode})`); });
 }
 
 /** A small window showing the update's progress before the game opens. */
