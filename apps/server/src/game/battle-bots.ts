@@ -36,6 +36,9 @@ function playerLikeName(taken: ReadonlySet<string>): string {
 const SIGHT = 70, FOV = Math.cos(65 * Math.PI / 180);
 
 type Mode = 'idle' | 'loot' | 'zone' | 'fight' | 'roam' | 'camp' | 'revive' | 'brawl';
+/** Where round a bot to look for cover, turned from the direction away from the threat. */
+const COVER_ANGLES = [0, .7, -.7, 1.4, -1.4, 2.2, -2.2];
+
 /** Squad role: the lead picks the way, the gunner covers, the looter searches first. */
 export type BotRole = 'lead' | 'gunner' | 'looter';
 /** How long a downed bot bleeds out waiting for a squadmate (ms), and how long a revive takes. */
@@ -123,6 +126,17 @@ export class BattleBot implements Combatant {
   /** Riding in a vehicle (0 = on foot) and in which seat (0 = driving). */
   vehicleId = 0;
   vehicleSeat = 0;
+  /**
+   * Under fire or in a fight: the spot it is taking cover at (`full`: hidden standing, for
+   * reloading and when hurt; otherwise a low obstacle to shoot over), and until when. With no
+   * cover near: prone until `proneUntil`, or running (`fleeYaw`) until `fleeUntil`.
+   */
+  cover: { x: number; y: number; z: number; full: boolean; until: number } | null = null;
+  coverAt = 0;
+  proneUntil = 0;
+  fleeUntil = 0;
+  fleeYaw = 0;
+  hurtAt = 0;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -224,6 +238,8 @@ export class BattleBotDirector {
   }
 
   private steps = 0;
+  /** Cover searches left this step (each casts a few dozen rays). */
+  private coverBudget = 0;
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
 
   /** Ladders bots may climb (foot → top), for route searches. */
@@ -273,7 +289,7 @@ export class BattleBotDirector {
     const taken = zone === 'red_zone' ? amount : Math.max(1, Math.round(amount * (1 - armorProtection(bot.armor))));
     bot.health = Math.max(0, bot.health - taken);
     this.hooks.hurt?.(bot, taken, killerId);
-    bot.healUntil = 0; bot.campUntil = 0;
+    bot.healUntil = 0; bot.campUntil = 0; bot.hurtAt = now;
     if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
     // Shot at: roll out of the line of fire.
     if (bot.health > 0 && zone !== 'red_zone' && !bot.downed && now >= bot.rollReadyAt) { bot.rollRequest = true; bot.rollReadyAt = now + 2600 + Math.random() * 1500; }
@@ -295,6 +311,7 @@ export class BattleBotDirector {
     this.navigation.beginTick();
     // Each bot thinks every third step, a third of them per step (no spike every third tick).
     const turn = this.steps++;
+    this.coverBudget = 3;
     for (const bot of this.bots) {
       const s = bot.state;
       bot.history.push(now, s.x, s.y, s.z, bot.yaw, s.prone);
@@ -450,7 +467,13 @@ export class BattleBotDirector {
     const zoneUrgent = world.phase === 'running' && (outsideNow || (outsideNext && (world.shrinking || world.remainingMs < 25_000)));
     const armed = !!bot.gun && (bot.gunItem?.mag ?? 0) + bot.reserve > 0;
 
-    if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) { bot.mode = 'fight'; bot.campUntil = 0; return; }
+    if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) {
+      bot.mode = 'fight'; bot.campUntil = 0;
+      if (!zoneUrgent) this.takeCover(bot, now, bot.target.state.x, bot.target.state.y, bot.target.state.z);
+      return;
+    }
+    // Shot at by someone it cannot see: get behind something facing that way.
+    if (!bot.target && alerted && now - bot.hurtAt < 4000 && !zoneUrgent) this.takeCover(bot, now, bot.alert!.x, s.y, bot.alert!.z);
     // Infection escort: stay round the player wherever they go (up stairs, over ladders).
     const escorted = bot.follow !== null ? players.find((p) => p.id === bot.follow && !p.dead && !this.hooks.enemy?.(bot, p.id)) : undefined;
     if (escorted && !bot.zombie) {
@@ -571,10 +594,73 @@ export class BattleBotDirector {
 
   /* ------------------------------------------------------------------------------ movement */
 
+  /**
+   * Picks what to do about a threat at (tx,ty,tz): keep good cover; otherwise look round for an
+   * obstacle between it and a spot a few metres away (low enough to shoot over when fighting,
+   * tall enough to hide behind when reloading, hurt or shot at blind); none near: go prone and
+   * shoot at range, or run when hurt and close.
+   */
+  private takeCover(bot: BattleBot, now: number, tx: number, ty: number, tz: number): void {
+    if (bot.zombie || bot.holdAt || bot.follow !== null || bot.vehicleId || bot.downed) return;
+    const s = bot.state, hurt = bot.health < 45, full = hurt || !!bot.reloadUntil || !bot.target;
+    // Behind full cover with the gun loaded and health to spare: step out and fight again.
+    if (bot.cover?.full && !full && bot.target) { bot.cover = null; bot.coverAt = now + 1500; }
+    if (bot.cover && now < bot.cover.until) return;
+    if (now < bot.coverAt || this.coverBudget <= 0) return;
+    this.coverBudget--;
+    bot.coverAt = now + 2200 + Math.random() * 800;
+    bot.cover = this.findCover(s, tx, ty + 1.5, tz, full);
+    // A while in cover, then a spell of fighting forward before looking for the next (no stalemates).
+    if (bot.cover) { bot.cover.until = now + (full ? 4500 : 5000); bot.coverAt = bot.cover.until + (full ? 0 : 2500); bot.proneUntil = 0; return; }
+    const d = Math.hypot(tx - s.x, tz - s.z);
+    if (hurt && d < 25 && now >= bot.fleeUntil) { bot.fleeUntil = now + 2200 + Math.random() * 1000; bot.fleeYaw = Math.atan2(tx - s.x, tz - s.z) + (Math.random() - .5) * 1.2; }
+    else if (d > 12 && bot.target && Math.random() < .6) { bot.proneUntil = now + 2500 + Math.random() * 2000; bot.coverAt = bot.proneUntil + 2500; }
+  }
+
+  /** A spot within ~10 m, reachable in a straight line, that an obstacle shields from the eye at (ex,ey,ez). */
+  private findCover(s: CharacterState, ex: number, ey: number, ez: number, full: boolean): { x: number; y: number; z: number; full: boolean; until: number } | null {
+    const away = Math.atan2(s.x - ex, s.z - ez);
+    let other: { x: number; y: number; z: number; full: boolean; until: number } | null = null;
+    for (const r of [3, 6, 10]) {
+      for (const a of COVER_ANGLES) {
+        const ang = away + a, cx = s.x + Math.sin(ang) * r, cz = s.z + Math.cos(ang) * r;
+        const ground = this.collision.terrainHeight(cx, cz);
+        // Ground level near its own (no ledges, no floor above or below).
+        const cy = Number.isFinite(ground) && Math.abs(ground - s.y) < 1.2 ? Math.max(ground, s.y) : NaN;
+        if (!Number.isFinite(cy)) continue;
+        // Body shielded from the threat?
+        if (this.collision.lineOfSight(ex, ey, ez, cx, cy + 1, cz, Mask.LineOfSight, this.sight)) continue;
+        // Reachable on foot in a straight line.
+        if (!this.collision.lineOfSight(s.x, s.y + .5, s.z, cx, cy + .5, cz, Mask.LineOfSight, this.sight)) continue;
+        const hidden = !this.collision.lineOfSight(ex, ey, ez, cx, cy + 1.6, cz, Mask.LineOfSight, this.sight);
+        const spot = { x: cx, y: cy, z: cz, full: hidden, until: 0 };
+        if (hidden === full) return spot;
+        other ??= spot;
+      }
+    }
+    // Hurt and only a low wall: lie behind it. Fighting and only a tall wall: hide, then step out.
+    return other;
+  }
+
   private move(bot: BattleBot, now: number, world: BotWorld): void {
     const s = bot.state;
     let mx = 0, mz = 0, sprint = false, prone = false, yaw = bot.yaw;
-    if (bot.mode === 'brawl' && bot.target) {
+    // In a fight or shot at: cover, prone or running (see takeCover).
+    const threat = bot.mode === 'fight' && bot.target ? bot.target.state : !bot.target && now - bot.hurtAt < 4000 && bot.alert ? bot.alert : null;
+    if (!threat) { bot.cover = null; bot.proneUntil = 0; }
+    const covering = !!threat && !bot.zombie && (now < bot.fleeUntil || !!bot.cover || now < bot.proneUntil);
+    if (covering && threat) {
+      const face = Math.atan2(-(threat.x - s.x), -(threat.z - s.z));
+      if (now < bot.fleeUntil) { yaw = bot.fleeYaw; mz = 1; sprint = true; }
+      else if (bot.cover) {
+        const c = bot.cover, d = Math.hypot(c.x - s.x, c.z - s.z);
+        if (d > .7) { yaw = Math.atan2(-(c.x - s.x), -(c.z - s.z)); mz = 1; sprint = d > 2.5; }
+        // There: face the threat; behind a low wall while hurt, lie down.
+        else { yaw = face; prone = !c.full && bot.health < 45; }
+        // Stuck on the way: give it up.
+        if (d > .7 && now > bot.progress.at + 1400 && Math.hypot(s.x - bot.progress.x, s.z - bot.progress.z) < .4) bot.cover = null;
+      } else { yaw = face; prone = true; }
+    } else if (bot.mode === 'brawl' && bot.target) {
       // Rush in and keep at arm's length, weaving a little.
       const t = bot.target.state, dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
       yaw = Math.atan2(-dx, -dz);
@@ -632,7 +718,7 @@ export class BattleBotDirector {
       if ((mz || mx) && moved < .6 && !prone) { bot.detourUntil = now + 1200; bot.detourYaw = yaw + (Math.random() < .5 ? 1.3 : -1.3); }
       bot.progress = { x: s.x, z: s.z, at: now };
     }
-    const detour = now < bot.detourUntil && bot.mode !== 'fight';
+    const detour = now < bot.detourUntil && bot.mode !== 'fight' && !covering;
     if (detour) { yaw = bot.detourYaw; mz = 1; mx = 0; }
     if (bot.healUntil) { mx = mz = 0; sprint = false; }
     // Turn smoothly rather than snapping.

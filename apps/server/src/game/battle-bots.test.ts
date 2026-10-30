@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateBattleLoot, type PlacedItem } from '@zion/shared';
-import { CollisionWorld, Heightfield } from '@zion/physics';
+import { CollisionWorld, Heightfield, Layer, makeBox } from '@zion/physics';
 import { BattleBotDirector, type BotHooks, type BotWorld } from './battle-bots';
 
 function world() {
@@ -127,5 +127,41 @@ describe('battle royale bots', () => {
     const bot = director.spawn(120, 10, 128);
     run(director, 8);
     expect(bot.meleeItem?.itemId).toBe('machete');
+  });
+});
+
+describe('bots under fire', () => {
+  /** Flat ground with one 3 m wall running east-west, south-east of (128, 128). */
+  function walled() {
+    const w = new CollisionWorld({ worldSize: 256, seaLevel: 0 });
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) {
+      w.addChunk(x, z, new Heightfield(x * 32, z * 32, 1, 33, new Float32Array(1089).fill(10), new Float32Array(1089).fill(NaN)), x === 4 && z === 4 ? [{ shape: makeBox(134, 11.5, 131, 3, 1.5, .2), layer: Layer.Static }] : []);
+    }
+    return w;
+  }
+  const hooks: BotHooks = { shot: () => {}, projectile: () => {}, projectileEnd: () => {}, hitPlayer: () => {}, died: () => {}, chests: () => [], loot: () => [] };
+  beforeEach(() => { let seed = 11; vi.spyOn(Math, 'random').mockImplementation(() => (seed = (seed * 16807) % 2147483647) / 2147483647); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('shot at from the north, runs behind the nearby wall and faces the shooter', () => {
+    const director = new BattleBotDirector(walled(), hooks);
+    const bot = director.spawn(128, 10, 128);
+    bot.state.x = 128; bot.state.z = 128;
+    director.hit(bot, 20, 'test', { x: 128, z: 100 }, 0);
+    run(director, 3);
+    expect(bot.cover?.full).toBe(true);
+    expect(Math.hypot(bot.state.x - bot.cover!.x, bot.state.z - bot.cover!.z)).toBeLessThan(1);
+    // Behind the wall: the shooter's line to its chest is blocked.
+    expect(bot.state.z).toBeGreaterThan(131);
+  });
+
+  it('badly hurt in the open with the shooter close: runs away from it', () => {
+    const director = new BattleBotDirector(world(), hooks);
+    const bot = director.spawn(128, 10, 128);
+    bot.state.x = 128; bot.state.z = 128;
+    director.hit(bot, 70, 'test', { x: 128, z: 116 }, 0);
+    run(director, 2.5);
+    expect(bot.cover).toBeNull();
+    expect(bot.state.z).toBeGreaterThan(132);
   });
 });
