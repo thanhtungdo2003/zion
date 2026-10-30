@@ -143,7 +143,11 @@ export class InventoryStore {
     else this.send?.({ t: 'inv', op, id: chest.id, uid, revision: chest.revision });
   }
 
+  /** The bag cannot be opened at all (warfare: the kit is the class loadout, chosen at deploy). */
+  locked = false;
+
   setOpen(open: boolean, station: Station | null = null): void {
+    if (open && this.locked) return;
     if (!open) this.returnHeld();
     if ((!open || station !== 'chest') && this.chestId) { this.chestId = null; this.send?.({ t: 'inv', op: 'chestClose' }); this.set({ chest: null }); }
     this.set({ open, station: open ? station : null, ...(open ? {} : { attachGun: null }) });

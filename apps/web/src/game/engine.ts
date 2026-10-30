@@ -1342,6 +1342,9 @@ export class GameEngine {
 
   private onWelcome(m: WelcomeMessage): void {
     this.welcome = m;
+    // Warfare: no inventory — the kit is the class loadout picked on the deploy screen.
+    this.inventory.locked = m.mode === 'warfare';
+    if (this.inventory.locked) this.inventory.setOpen(false);
     // A Studio-uploaded map model this world is built on: known before its chunks arrive.
     for (const def of (m.world.assets ?? []) as AssetDefinitionInput[]) {
       try { this.registry.registerUploaded(def); } catch (err) { console.error('uploaded asset rejected', err); }
