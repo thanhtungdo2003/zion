@@ -1,5 +1,5 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, Group, Mesh, MeshLambertMaterial, type Material } from 'three';
-import { VEHICLES, VEHICLE_ROLES, seatAim, vehicleMounts, type VehicleKind, type VehicleState, type WeaponMount } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, seatAim, seatCount, vehicleMounts, type VehicleKind, type VehicleState, type WeaponMount } from '@zion/shared';
 import type { ModelPart } from './bbmodel-loader';
 
 /**
@@ -134,7 +134,10 @@ export function poseMountRigs(rigs: readonly MountRig[], v: VehicleState, dt: nu
     r.shownYaw += Math.atan2(Math.sin(yaw - r.shownYaw), Math.cos(yaw - r.shownYaw)) * k;
     r.shownPitch += (pitch - r.shownPitch) * k;
   }
+  const seats = seatCount(v.kind);
   for (const r of rigs) {
+    // A weapon seat removed in the Studio takes its gun off the vehicle too.
+    r.yaw.visible = r.seat < seats;
     const parent = r.parent !== undefined ? rigs.find((p) => p.seat === r.parent) : undefined;
     r.yaw.rotation.y = r.shownYaw - (parent?.shownYaw ?? 0);
     r.pitch.rotation.x = r.shownPitch;

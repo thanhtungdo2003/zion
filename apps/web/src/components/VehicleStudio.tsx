@@ -256,7 +256,7 @@ export function VehicleStudioPage() {
         ))}
         <div className="vs-row">
           <button className="btn" onClick={addSeat} disabled={count >= 24}><Icon name="lucide:plus" /> Thêm ghế</button>
-          <button className="btn" onClick={removeSeat} disabled={count <= minSeats(kind)} title="Bỏ ghế cuối (không bỏ được ghế lái và ghế súng)"><Icon name="lucide:minus" /> Bỏ ghế cuối</button>
+          <button className="btn" onClick={removeSeat} disabled={count <= minSeats(kind)} title="Bỏ ghế cuối (ghế lái không bỏ được; bỏ ghế súng thì khẩu súng đó không ai dùng)"><Icon name="lucide:minus" /> Bỏ ghế cuối</button>
         </div>
         <h3>Điểm đặt của ghế {seat + 1}</h3>
         <p className="gs-hint">Mỗi ghế có điểm riêng. Chọn một điểm rồi kéo X/Y/Z (mét, theo khung xe: −Z là mũi xe). {gunner ? 'Ghế súng: nhân vật đứng.' : ''}</p>

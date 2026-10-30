@@ -10,8 +10,8 @@ import { VEHICLE_ROLES } from './vehicle-arms';
  * - `hands`: where the left and right hands grip (wheel, bars, handles);
  * - `feet`: where the left and right feet rest (pedals, footrests, floor);
  * - `eye`: the first-person eye, from the rider's origin.
- * Seats can be added after the vehicle's own (`count` above its data) or the passenger seats at
- * the end removed (never the driver's or a weapon seat). Anything not set keeps the vehicle data.
+ * Seats can be added after the vehicle's own (`count` above its data) or the seats at
+ * the end removed (any but the driver's: a removed weapon seat's gun is never manned). Anything not set keeps the vehicle data.
  * The server places riders by it; clients draw riders on it and start the first-person view there.
  */
 const vec = z.tuple([z.number().finite().min(-20).max(20), z.number().finite().min(-5).max(10), z.number().finite().min(-20).max(20)]);
@@ -36,8 +36,9 @@ const vehicleTuning = z.preprocess(
 export const seatTuningSchema = z.record(z.string(), vehicleTuning)
   .refine((t) => Object.keys(t).every((k) => k in VEHICLES), 'unknown vehicle')
   .refine((t) => Object.entries(t).every(([k, v]) => {
+    if (!(k in VEHICLES)) return false;
     const kind = k as VehicleKind, count = v.count ?? VEHICLES[kind].seats.length;
-    // Never fewer seats than the driver's and the weapon seats; added seats need a place.
+    // Never without the driver's seat; added seats need a place.
     if (count < minSeats(kind)) return false;
     for (let i = VEHICLES[kind].seats.length; i < count; i++) if (!v.seats?.[i]?.pos && !v.seats?.[i]?.hip) return false;
     return true;
@@ -58,9 +59,12 @@ export function seatTuning(): SeatTuning { return tuning; }
 const tuneOf = (kind: VehicleKind, seat: number): SeatTune | undefined => tuning[kind]?.seats?.[seat];
 /** Seats a vehicle has (its own, plus or minus what the Studio set). */
 export const seatCount = (kind: VehicleKind): number => tuning[kind]?.count ?? VEHICLES[kind].seats.length;
-/** The fewest seats a vehicle may be left with: the driver's and every weapon seat. */
-export function minSeats(kind: VehicleKind): number {
-  return Math.max(1, ...VEHICLE_ROLES[kind].weapons.map((w) => w.seat + 1));
+/**
+ * The fewest seats a vehicle may be left with: the driver's. Any other seat can go, a weapon seat
+ * too (a tank without its roof gunner): its weapons are then simply never manned.
+ */
+export function minSeats(_kind: VehicleKind): number {
+  return 1;
 }
 /** A rider stands at this seat (a weapon seat other than the driver's). */
 const stands = (kind: VehicleKind, seat: number) => seat > 0 && VEHICLE_ROLES[kind].weapons.some((w) => w.seat === seat);
