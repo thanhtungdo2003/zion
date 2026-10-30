@@ -58,15 +58,19 @@ export class CoarseNav {
 
   private ground(cx: number, cz: number): number { return this.world.terrainHeight((cx + .5) * NAV_CELL, (cz + .5) * NAV_CELL); }
 
-  /** A cell one can stand in: on loaded ground, not under water, not inside a solid. */
+  /**
+   * A cell one can stand in: not under water, not inside a solid. Ground not loaded (collision
+   * streams round players and bots) is assumed open and not remembered: the long route plans
+   * through it and is corrected once the bot gets there and it loads.
+   */
   open(cx: number, cz: number): boolean {
     const k = key(cx, cz);
     const known = this.cells.get(k);
     if (known !== undefined) return known;
     const x = (cx + .5) * NAV_CELL, z = (cz + .5) * NAV_CELL, y = this.world.terrainHeight(x, z);
-    const ok = Number.isFinite(y) && this.world.waterLevel(x, z) - y < .9 && !this.world.overlapsCapsule(x, y + .5, z, x, y + 1.5, z, .35, Layer.Static);
-    // Unloaded ground is not remembered (it may load later).
-    if (Number.isFinite(y)) this.cells.set(k, ok);
+    if (!Number.isFinite(y)) return x >= 0 && z >= 0 && x < this.world.worldSize && z < this.world.worldSize;
+    const ok = this.world.waterLevel(x, z) - y < .9 && !this.world.overlapsCapsule(x, y + .5, z, x, y + 1.5, z, .35, Layer.Static);
+    this.cells.set(k, ok);
     return ok;
   }
 
@@ -75,10 +79,13 @@ export class CoarseNav {
     const id = ax < bx || (ax === bx && az < bz) ? `${ax},${az}>${bx},${bz}` : `${bx},${bz}>${ax},${az}`;
     const known = this.edges.get(id);
     if (known !== undefined) return known && !this.isBad(id);
+    const ha = this.ground(ax, az), hb = this.ground(bx, bz);
+    // Either end not loaded: assumed passable, tested (and remembered) once it loads.
+    if (!Number.isFinite(ha) || !Number.isFinite(hb)) return this.open(ax, az) && this.open(bx, bz) && !this.isBad(id);
     this.stats.edgeTests++;
     let ok = this.open(ax, az) && this.open(bx, bz);
     if (ok) {
-      const ha = this.ground(ax, az), hb = this.ground(bx, bz), len = Math.hypot(bx - ax, bz - az) * NAV_CELL;
+      const len = Math.hypot(bx - ax, bz - az) * NAV_CELL;
       ok = Math.abs(hb - ha) / len < SLOPE;
       const x0 = (ax + .5) * NAV_CELL, z0 = (az + .5) * NAV_CELL, dx = (bx - ax) * NAV_CELL / len, dz = (bz - az) * NAV_CELL / len;
       // Two rays each side of the line (a body's width), at step and chest height over the ground.

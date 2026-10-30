@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { HttpDeps } from '../app';
-import type { RequestContext, Session } from '../../security/auth-service';
+import { AuthError, type RequestContext, type Session } from '../../security/auth-service';
 import { registerSocialAuthRoutes } from './social-auth';
 import { randomToken, sha256 } from '../../security/tokens';
 
@@ -110,7 +110,9 @@ export function registerAuthRoutes(app: FastifyInstance, deps: HttpDeps): void {
     try {
       return sendSession(reply, await auth.refresh(token, ctx(req)));
     } catch (err) {
-      reply.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
+      // Only a refused token ends the session: a server error (database busy, restarting) keeps
+      // the cookie so the client's retry still signs the player back in.
+      if (err instanceof AuthError) reply.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
       throw err;
     }
   });

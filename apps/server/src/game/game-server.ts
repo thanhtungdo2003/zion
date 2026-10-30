@@ -445,8 +445,9 @@ export class GameServer {
     });
     this.controller = new CharacterController(this.collision);
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
-    // Fixed maps are loaded whole (in the background) and never evicted; only survival streams.
-    this.physics.keepAll = this.fixedMap;
+    // Collision streams round players and bots on every map and is evicted behind them: kept for
+    // the whole match (keepAll) it grew with every chunk anyone crossed until the server ran out
+    // of memory mid-match, dropping every player.
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => {
