@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, toBattleMap, climateTint, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
+import { CLIMATES, MAP_KINDS, MAP_SIZES, TERRAIN_PRESETS, publishModesOf, toBattleMap, climateTint, type Climate, cellFor, validateTerrainSettings, type MapKind, type TerrainPreset, type TerrainSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
 import { renderThumbnail, storageEstimate } from '@/studio/world/map-store';
-import { hasStudioSession, publishedMapId, studioLogin, studioPublishBattleMap } from '@/lib/api';
+import { hasStudioSession, publishedMapId, studioLogin, studioPublishBattleMap, studioSetBattleMapModes } from '@/lib/api';
+import { WORLD_MAP_MODES, type WorldMapMode } from '@zion/shared';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { EditorApi } from './editor-api';
 import { Btn, Check, NumberField, Section, Seg, Slider, TextField, fmtTime } from './ui';
@@ -56,25 +57,44 @@ export function SettingsPanel({ api }: { api: EditorApi }) {
   </>;
 }
 
-/** Puts the map on the game server as a battle royale map players can pick in the mode menu. */
+/**
+ * Puts the map on the game server for the chosen game modes (only those: a battlefield is not
+ * offered as a battle royale map unless that mode is ticked). Used by Thiết lập and Chiến trường.
+ */
+export async function publishWorldMap(api: EditorApi, modes: WorldMapMode[]): Promise<string> {
+  const d = api.doc, map = toBattleMap(d, api.terrain);
+  // The editor document goes along so the map can be opened again from any machine.
+  const { thumbnail: _thumb, ...meta } = d.meta;
+  const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta: { ...meta, modes } }, modes, ...(d.warfare ? { warfare: d.warfare } : {}) });
+  return r.name;
+}
+
+/** Which game modes the map is published for, and the publish / update buttons. */
 function PublishSection({ api }: { api: EditorApi }) {
-  const [asking, setAsking] = useState(false), [busy, setBusy] = useState(false);
-  const publish = async (password?: string) => {
+  const [asking, setAsking] = useState<null | 'publish' | 'modes'>(null), [busy, setBusy] = useState(false);
+  const modes = publishModesOf(api.doc.meta);
+  const toggle = (m: WorldMapMode, on: boolean) => {
+    const next = on ? [...new Set([...modes, m])] : modes.filter((x) => x !== m);
+    if (!next.length) { api.flash('Chọn ít nhất một chế độ chơi.', true); return; }
+    api.commit('Chế độ chơi của bản đồ', { ...api.doc, meta: { ...api.doc.meta, modes: next } });
+  };
+  const names = modes.map((m) => WORLD_MAP_MODES.find((x) => x.id === m)?.name ?? m).join(' và ');
+  const run = async (what: 'publish' | 'modes', password?: string) => {
     setBusy(true);
     try {
       if (password) await studioLogin(password);
-      const d = api.doc, map = toBattleMap(d, api.terrain);
-      // The editor document goes along so the map can be opened again from any machine.
-      const { thumbnail: _thumb, ...meta } = d.meta;
-      const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta }, ...(d.warfare ? { warfare: d.warfare } : {}) });
-      api.flash(`Đã xuất bản "${r.name}" — người chơi chọn được trong mục Bản đồ của Battle Royale${d.warfare?.enabled ? ' và chế độ Chiến trường' : ''}.`);
-    } catch (err) { api.flash(`Xuất bản thất bại: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
+      if (what === 'publish') api.flash(`Đã xuất bản "${await publishWorldMap(api, modes)}" cho ${names}.`);
+      else { await studioSetBattleMapModes(publishedMapId(api.doc.meta.id), modes); api.flash(`Bản đồ giờ chỉ dùng cho ${names}.`); }
+    } catch (err) { api.flash(`Không thực hiện được: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
     finally { setBusy(false); }
   };
-  return <Section title="Xuất bản Battle Royale" icon="rocket" collapsible initiallyOpen={false}>
-    <p className="lead" style={{ margin: 0, fontSize: 12, opacity: .75 }}>Gửi địa hình, đường, công trình, vật thể và cây của bản đồ này lên máy chủ. Mỗi lần xuất bản thay bản cũ; trận đang chạy giữ bản cũ tới khi kết thúc.</p>
-    <Btn icon="rocket" kind="primary" disabled={busy} onClick={() => { if (hasStudioSession()) void publish().catch(() => {}); else setAsking(true); }} testId="publish-br">{busy ? 'Đang xuất bản…' : 'Xuất bản lên máy chủ'}</Btn>
-    {asking && <ConfirmDialog title="Đăng nhập Studio" message="Nhập mật khẩu Studio để xuất bản bản đồ lên máy chủ." password danger={false} confirmLabel="Xuất bản"
-      onCancel={() => setAsking(false)} onConfirm={async (pw) => { await publish(pw); setAsking(false); }} />}
+  const go = (what: 'publish' | 'modes') => { if (hasStudioSession()) void run(what).catch(() => {}); else setAsking(what); };
+  return <Section title="Xuất bản lên game" icon="rocket" collapsible initiallyOpen={false}>
+    <p className="lead" style={{ margin: 0, fontSize: 12, opacity: .75 }}>Chọn chế độ chơi dùng bản đồ này; bản đồ chỉ xuất hiện trong các chế độ được chọn. Mỗi lần xuất bản thay bản cũ; trận đang chạy giữ bản cũ tới khi kết thúc.</p>
+    {WORLD_MAP_MODES.map((m) => <Check key={m.id} label={`${m.name} — ${m.hint}`} value={modes.includes(m.id)} onChange={(on) => toggle(m.id, on)} />)}
+    <Btn icon="rocket" kind="primary" disabled={busy} onClick={() => go('publish')} testId="publish-br">{busy ? 'Đang xuất bản…' : 'Xuất bản lên máy chủ'}</Btn>
+    <Btn icon="list-checks" disabled={busy} onClick={() => go('modes')}>Chỉ đổi chế độ chơi (bản đồ đã xuất bản)</Btn>
+    {asking && <ConfirmDialog title="Đăng nhập Studio" message="Nhập mật khẩu Studio để xuất bản bản đồ lên máy chủ." password danger={false} confirmLabel="Tiếp tục"
+      onCancel={() => setAsking(null)} onConfirm={async (pw) => { await run(asking, pw); setAsking(null); }} />}
   </Section>;
 }

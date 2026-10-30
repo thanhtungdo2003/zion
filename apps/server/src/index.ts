@@ -301,6 +301,7 @@ async function main(): Promise<void> {
       catalog: () => battleMaps.catalog(),
       stored: (id) => battleMaps.stored(id),
       setWarfare: (id, layout) => battleMaps.setWarfare(id, layout),
+      setModes: (id, modes) => battleMaps.setModes(id, modes),
     },
     teams,
     battleTeams,

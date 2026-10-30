@@ -16,6 +16,20 @@ export type WarfareSide = 'blue' | 'red';
 export const WARFARE_SIDES: readonly WarfareSide[] = ['blue', 'red'];
 export const otherSide = (s: WarfareSide): WarfareSide => (s === 'blue' ? 'red' : 'blue');
 
+/* ------------------------------------------------------------------ map modes */
+
+/**
+ * The game modes a World Studio map can be published for. A map is offered only in the modes it
+ * is published for (a battlefield need not be a battle royale map). A new mode joins here.
+ */
+export const WORLD_MAP_MODES = [
+  { id: 'battle-royale', name: 'Battle Royale', hint: 'Bản đồ xuất hiện trong mục Bản đồ của Battle Royale' },
+  { id: 'warfare', name: 'Chiến trường', hint: 'Bản đồ xuất hiện trong chế độ Chiến trường (cần bố cục chiến trường hợp lệ)' },
+] as const;
+export type WorldMapMode = (typeof WORLD_MAP_MODES)[number]['id'];
+export const WORLD_MAP_MODE_IDS = WORLD_MAP_MODES.map((m) => m.id) as [WorldMapMode, ...WorldMapMode[]];
+export const worldMapModesSchema = z.array(z.enum(WORLD_MAP_MODE_IDS)).min(1).max(WORLD_MAP_MODES.length);
+
 /* ------------------------------------------------------------------ config */
 
 /** The game's own jeep and quad bike: the vehicles bots and players drive on the battlefield. */

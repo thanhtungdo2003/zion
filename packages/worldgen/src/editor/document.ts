@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { warfareLayoutSchema, type WarfareLayout } from '@zion/shared';
+import { warfareLayoutSchema, worldMapModesSchema, type WarfareLayout, type WorldMapMode } from '@zion/shared';
+
+/** The modes a map is published for: as chosen, else what its kind suggests. */
+export const publishModesOf = (meta: { kind: string; modes?: WorldMapMode[] }): WorldMapMode[] => meta.modes?.length ? meta.modes : meta.kind === 'warfare' ? ['warfare'] : ['battle-royale'];
 import { isSimplePolygon, pointInPolygon, polygonArea, type Vec2 } from './geometry';
 import { battleConfigSchema, defaultBattleConfig, validateBattleConfig, type BattleConfig, type GameplayIssue } from './gameplay';
 import { Heightfield, base64ToBytes, bytesToBase64, decodeHeights, encodeHeights } from './heightfield';
@@ -27,6 +30,8 @@ export interface WorldMapMeta {
   seed: string;
   /** Small hill-shaded preview (data URL), rendered on save. */
   thumbnail?: string;
+  /** Game modes it is published for (absent: from its kind). */
+  modes?: WorldMapMode[];
 }
 
 export interface Region {
@@ -99,8 +104,9 @@ const regionSchema = z.object({
 export const worldMapSchema = z.object({
   format: z.literal('zion-world-map'), version: z.literal(1),
   meta: z.object({
-    id: z.string().min(1).max(64), name: z.string().min(1).max(80), kind: z.enum(['battle-royale', 'survival', 'sandbox']), description: z.string().max(500),
+    id: z.string().min(1).max(64), name: z.string().min(1).max(80), kind: z.enum(['battle-royale', 'warfare', 'survival', 'sandbox']), description: z.string().max(500),
     template: z.string().max(40), createdAt: n, updatedAt: n, size: n, seed: z.string().max(64), thumbnail: z.string().max(200_000).optional(),
+    modes: worldMapModesSchema.optional(),
   }).strict(),
   terrain: z.object({
     preset: z.enum(TERRAIN_PRESETS.map((p) => p.id) as [string, ...string[]]), seed: z.string(), size: n, cell: n, seaLevel: n, maxHeight: n, roughness: n, detail: n.int(), seaEdge: z.boolean(), climate: z.enum(['temperate', 'arid', 'desert', 'snow', 'tropical']).optional(), erosion: n.min(0).max(1).optional(),

@@ -242,7 +242,9 @@ export class GameGateway {
       await (this.sessionGames.get(session) ?? this.game).join(session);
     } catch (err) {
       this.log.error({ err, sid: session.id }, 'join failed');
-      session.sendError('internal', 'could not join the world', true);
+      // The reason goes to the player too (no stack, no internals beyond the message), so a failed
+      // join can be reported and fixed instead of guessed at.
+      session.sendError('internal', `could not join the world: ${err instanceof Error ? err.message.slice(0, 160) : 'unknown error'}`, true);
       session.close(CloseCode.InternalError, 'join failed');
     }
   }

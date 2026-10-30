@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import type { WarfareLayout, WarfarePointKind, WarfareSide } from '@zion/shared';
 import { hasStudioSession, publishedMapId, studioLogin, studioSetBattleMapWarfare } from '@/lib/api';
+import { publishModesOf } from '@zion/worldgen/editor';
+import { publishWorldMap } from './SettingsPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { WarfareStudioPanel, type WarfareSel } from '../WarfareStudioPanel';
 import type { EditorApi } from './editor-api';
@@ -30,7 +32,14 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
     try {
       if (password) await studioLogin(password);
       const layout = api.doc.warfare;
-      await studioSetBattleMapWarfare(publishedMapId(doc.meta.id), layout ?? null);
+      try {
+        await studioSetBattleMapWarfare(publishedMapId(doc.meta.id), layout ?? null);
+      } catch (err) {
+        // Not on the server yet: publish it now — for Chiến trường only, unless other modes were chosen.
+        if (!layout?.enabled || !(err instanceof Error) || !/chưa được xuất bản/.test(err.message)) throw err;
+        const modes = api.doc.meta.modes?.length ? [...new Set([...publishModesOf(api.doc.meta), 'warfare' as const])] : ['warfare' as const];
+        await publishWorldMap(api, modes);
+      }
       api.flash(layout?.enabled ? 'Đã gán Chiến trường cho bản đồ trên máy chủ — người chơi chọn được trong chế độ Chiến trường.' : 'Đã tắt Chiến trường cho bản đồ này trên máy chủ.');
     } catch (err) { api.flash(`Không gán được: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
     finally { setBusy(false); }
@@ -46,7 +55,7 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
       </WarfareStudioPanel>
     </Section>
     <Section title="Gán cho chế độ Chiến trường" icon="rocket">
-      <p className={s.lead}>Bản đồ phải được xuất bản lên máy chủ trước (Thiết lập › Xuất bản). Nút dưới gửi riêng chiến trường, không dựng lại địa hình; trận mới mở sau đó dùng bố cục mới. Xuất bản lại bản đồ cũng gửi kèm chiến trường.</p>
+      <p className={s.lead}>Chưa có trên máy chủ: nút dưới xuất bản bản đồ <b>chỉ cho Chiến trường</b> (không vào Battle Royale, trừ khi bạn chọn thêm ở Thiết lập, mục Xuất bản lên game). Đã có: chỉ gửi bố cục chiến trường, không dựng lại địa hình.</p>
       <Btn icon="swords" kind="primary" disabled={busy} onClick={() => { if (hasStudioSession()) void send().catch(() => {}); else setAsking(true); }} testId="assign-warfare">
         {busy ? 'Đang gửi…' : doc.warfare?.enabled ? 'Gán / cập nhật Chiến trường trên máy chủ' : 'Tắt Chiến trường trên máy chủ'}
       </Btn>
