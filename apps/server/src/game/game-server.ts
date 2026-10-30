@@ -3367,6 +3367,7 @@ export class GameServer {
     this.broadcastNear(p, { t: 'wfGesture', id: p.id, kind, yaw: +yaw.toFixed(3) });
   }
 
+  private readonly wfSlotRetry = new Map<number, number>();
   /** Vehicle slots: spawn, watch, wreck, clean up, cool down, spawn again. */
   private wfVehicles(now: number): void {
     const cfg = this.wfCfg.vehicles;
@@ -3392,6 +3393,9 @@ export class GameServer {
         v = undefined;
       }
       if (slot.state !== 'available' || alive[slot.spawn.side] >= cfg.maxPerSide) continue;
+      // A blocked spot is looked at again in a few seconds (the open-ground check is costly).
+      if (now < (this.wfSlotRetry.get(slot.index) ?? 0)) continue;
+      this.wfSlotRetry.set(slot.index, now + 3000);
       // A clear, level spot: never on someone, never inside something.
       const s = slot.spawn;
       if (living.some((u) => Math.hypot(u.x - s.x, u.z - s.z) < 4)) continue;

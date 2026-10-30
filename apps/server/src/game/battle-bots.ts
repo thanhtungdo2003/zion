@@ -219,9 +219,11 @@ export class BattleBotDirector {
     this.controller = new CharacterController(collision);
     // Bots route through buildings and up stairs: long searches, spread over many ticks so a
     // tick never stalls (a stalled tick makes every player's movement stutter).
-    this.navigation = new ZombieNavigation(collision, 260, 60, 20_000);
+    // At most 3 ms of route search per tick: a big battle has dozens of bots asking at once.
+    this.navigation = new ZombieNavigation(collision, 260, 60, 20_000, 3);
   }
 
+  private steps = 0;
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
 
   /** Ladders bots may climb (foot → top), for route searches. */
@@ -287,11 +289,12 @@ export class BattleBotDirector {
     this.hooks.died(bot, by, now, killerId);
   }
 
-  step(now: number, tick: number, world: BotWorld, players: readonly Player[]): void {
+  step(now: number, _tick: number, world: BotWorld, players: readonly Player[]): void {
     this.now = now;
     this.phase = world.phase;
     this.navigation.beginTick();
-    const think = tick % 3 === 0;
+    // Each bot thinks every third step, a third of them per step (no spike every third tick).
+    const turn = this.steps++;
     for (const bot of this.bots) {
       const s = bot.state;
       bot.history.push(now, s.x, s.y, s.z, bot.yaw, s.prone);
@@ -305,6 +308,7 @@ export class BattleBotDirector {
       // In a vehicle: the driver is steered by its commander; a passenger looks out and shoots.
       if (bot.vehicleId) {
         // Looking out of the vehicle: its own hull must not block the view.
+        const think = (turn + bot.id) % 3 === 0;
         if (think) { if (this.hooks.fromVehicle) this.hooks.fromVehicle(bot, () => this.decide(bot, now, world, players)); else this.decide(bot, now, world, players); }
         // A weapon seat (or a tank / gunship driver): the mounted weapon.
         if (bot.target && bot.mode === 'fight' && this.hooks.seatFire?.(bot, now)) continue;
@@ -321,7 +325,7 @@ export class BattleBotDirector {
         this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: true }, TICK_DT);
         continue;
       }
-      if (think) this.decide(bot, now, world, players);
+      if ((turn + bot.id) % 3 === 0) this.decide(bot, now, world, players);
       this.move(bot, now, world);
       if (bot.mode === 'fight') this.shoot(bot, now);
       else if (bot.mode === 'brawl') this.strike(bot, now);
@@ -429,11 +433,11 @@ export class BattleBotDirector {
     const alerted = !!bot.alert && now < bot.alert.until;
     if (bot.target && (bot.target.dead || !this.visible(bot, bot.target, true))) bot.target = null;
     if (!bot.target) {
-      let best = Infinity;
-      for (const e of this.enemies(bot, players)) {
-        const d = Math.hypot(e.state.x - s.x, e.state.z - s.z);
-        if (d < best && this.visible(bot, e, alerted)) { best = d; bot.target = e; }
-      }
+      // Nearest first, and only a few sight lines a think (each is a raycast through the world).
+      const near: Array<[number, Combatant & { state: CharacterState; id: number }]> = [];
+      for (const e of this.enemies(bot, players)) { const d = Math.hypot(e.state.x - s.x, e.state.z - s.z); if (d <= SIGHT) near.push([d, e]); }
+      near.sort((a, b) => a[0] - b[0]);
+      for (let i = 0; i < Math.min(3, near.length); i++) if (this.visible(bot, near[i]![1], alerted)) { bot.target = near[i]![1]; break; }
       if (bot.target) {
         bot.seenAt = now; bot.reactAt = now + (bot.campUntil > now ? 120 : 350 + Math.random() * 450);
         // Call it out: squadmates turn towards the contact.

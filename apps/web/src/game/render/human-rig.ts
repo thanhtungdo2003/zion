@@ -626,6 +626,8 @@ export class HumanBody {
   readonly bones: Bone[];
   readonly skeleton: Skeleton;
   private readonly meshes = new Map<string, SkinnedMesh>();
+  /** Bounds of the whole posed body (and what it wears), for culling. */
+  private readonly bound = new Sphere(new Vector3(0, .9, 0), 2.2);
   private readonly worldQ: Quaternion[];
   private readonly side: Record<Side, SideBones>;
   private readonly spine: number[];
@@ -672,7 +674,8 @@ export class HumanBody {
     this.side = { L: sideBones('L'), R: sideBones('R') };
     this.spine = ['spine', 'spine_001', 'spine_002', 'spine_003'].map(at);
     this.neck = ['spine_004', 'spine_005', 'spine_006'].map(at);
-    const bound = new Sphere(new Vector3(0, .9, 0), 2.2);
+    const bound = this.bound;
+    this.castsShadow = options.shadows ?? true;
     const add = (slot: string, geometry: BufferGeometry) => {
       const part = assets.parts.get(slot);
       if (!part) return;
@@ -702,6 +705,23 @@ export class HumanBody {
   get meshList(): SkinnedMesh[] { return [...this.meshes.values()]; }
 
   private hairCovered = false;
+  /**
+   * Level of detail by distance from the camera: 0 near (everything), 1 mid (no facial hair, hair
+   * strands not simulated, hair casts no shadow), 2 far (no shadows at all). A crowd of soldiers
+   * was a crowd of 130k-triangle bodies with fur shells and simulated hair, each drawn twice.
+   */
+  private detail = 0;
+  setDetail(level: 0 | 1 | 2): void {
+    if (level === this.detail) return;
+    this.detail = level;
+    for (const m of this.meshes.values()) m.castShadow = level <= 1 && this.castsShadow;
+    this.applyFaceHairDetail();
+    this.hairStyle?.root.traverse((o) => { if ((o as SkinnedMesh).isMesh) (o as SkinnedMesh).castShadow = level === 0; });
+  }
+  private castsShadow = true;
+  private applyFaceHairDetail(): void {
+    for (const m of Object.values(this.faceHair)) if (m) m.visible = this.detail === 0 && !this.infectedSkin;
+  }
   /** The hair pack style worn, and which one it is (loads once per style). */
   private hairStyle: HairInstance | null = null;
   private hairStyleId: HairStyle | null = null;
@@ -741,9 +761,10 @@ export class HumanBody {
       const mesh = new SkinnedMesh(geometry, material);
       mesh.name = `survivor-${slot}`;
       mesh.bind(this.skeleton, new Matrix4());
-      mesh.frustumCulled = false;
+      // Culled with the body (it used to be drawn for every soldier on the map, seen or not).
+      mesh.boundingSphere = this.bound;
       mesh.castShadow = false;
-      mesh.visible = !this.infectedSkin;
+      mesh.visible = !this.infectedSkin && this.detail === 0;
       this.group.add(mesh);
       this.faceHair[slot] = mesh;
     };
@@ -772,6 +793,7 @@ export class HumanBody {
       if (!template || this.hairStyleId !== want || this.disposed) return;
       const hair = new HairInstance(template);
       hair.setColor(tint); hair.setHelmet(this.hairCovered);
+      if (this.detail > 0) hair.root.traverse((o) => { if ((o as SkinnedMesh).isMesh) (o as SkinnedMesh).castShadow = false; });
       this.group.add(hair.root);
       this.hairStyle = hair;
       this.applyInfectedSkin();
@@ -796,7 +818,7 @@ export class HumanBody {
     const obj = head?.obj ?? this.bones[this.assets.index.get('spine_006')!]!, rest = head?.rest ?? this.hairHeadRest;
     // bip_head in the body's space sits at HAIR_HEAD_AT (unrotated); relative to the head bone at rest:
     const rel = rest.clone().invert().multiply(new Matrix4().makeTranslation(HAIR_HEAD_AT.x, HAIR_HEAD_AT.y, HAIR_HEAD_AT.z));
-    hair.update(this.group, obj.matrixWorld.clone().multiply(rel), dt);
+    hair.update(this.group, obj.matrixWorld.clone().multiply(rel), dt, this.detail <= 1);
   }
 
   private readonly outfitCovered = new Set<string>();
@@ -847,7 +869,7 @@ export class HumanBody {
     zombie.visible = this.infectedSkin;
     if (this.infectedSkin) for (const [slot, mesh] of this.meshes) if (slot !== 'infected') mesh.visible = false;
     if (this.hairStyle) this.hairStyle.root.visible = !this.infectedSkin;
-    for (const m of [this.faceHair.brows, this.faceHair.browSkin, this.faceHair.beard]) if (m) m.visible = !this.infectedSkin;
+    this.applyFaceHairDetail();
   }
 
   /** Face and body proportions: face bones moved and scaled, limbs lengthened, shoulders widened. */

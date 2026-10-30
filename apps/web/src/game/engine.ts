@@ -2148,6 +2148,7 @@ export class GameEngine {
       r.avatar.setAimPitch(pose.pitch);
       r.avatar.setInfected(this.infectedIds.has(r.entity.id));
       r.avatar.healing = (pose.flags & EntityFlags.Healing) !== 0;
+      r.avatar.setDetail(Math.hypot(pose.x - this.camera.position.x, pose.y - this.camera.position.y, pose.z - this.camera.position.z));
       r.avatar.update(pose.x, pose.y, pose.z, pose.yaw, pose.flags, dt, this.elapsed);
       r.avatar.flightPose(pose.flags, (pose.flags & EntityFlags.Sprinting) !== 0, !(pose.flags & EntityFlags.Sprinting), dt);
       { const m = this.mantleGrip(r.entity.id, pose.flags, pose.x, pose.y, pose.z, pose.yaw); r.avatar.poseMantle(m?.grip ?? null, m?.k ?? 0, m?.clip ?? null); }

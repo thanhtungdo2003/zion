@@ -198,11 +198,13 @@ export class HairInstance {
    * Places the hair (its bip_head on `headWorld`, a world matrix) under `parent`, then steps the
    * strands by `dt` seconds.
    */
-  update(parent: Object3D, headWorld: Matrix4, dt: number): void {
+  update(parent: Object3D, headWorld: Matrix4, dt: number, simulate = true): void {
     const t = this.tmp;
     // root (in parent) = parent⁻¹ · headWorld · headRest⁻¹
     this.root.matrix.copy(parent.matrixWorld).invert().multiply(headWorld).multiply(this.headRestInv);
     this.root.updateMatrixWorld(true);
+    // Far away: the hair rides on the head as last shaped (strand physics is not seen there).
+    if (!simulate) { this.fresh = true; return; }
     const h = Math.min(.05, Math.max(0, dt));
     // The skull (and the helmet) in world space, from bip_head.
     const headM = this.head.matrixWorld;

@@ -504,6 +504,9 @@ export class Avatar {
       this.root.updateMatrixWorld = (force?: boolean) => {
         update(force);
         if (this.poseDirty && !this.humanRagdoll) {
+          // Far: posed every third frame (the time in between carried over), still moving with its root.
+          if (this.detail === 2 && ++this.lodFrame % 3 !== 0) { this.lodDt += this.frame.dt; return; }
+          this.frame.dt += this.lodDt; this.lodDt = 0;
           this.poseDirty = false;
           // Hidden actors still advance their inexpensive clip clocks. Returning to third
           // person or revealing a remote player must not resume a stale foot/upper-body pose.
@@ -812,6 +815,17 @@ export class Avatar {
     this.gestureKind = kind; this.gestureYaw = yaw;
     this.gestureStart = performance.now(); this.gestureUntil = this.gestureStart + ms;
     this.poseDirty = true;
+  }
+
+  /** Level of detail by camera distance (see HumanBody.setDetail); far bodies also pose less often. */
+  private detail: 0 | 1 | 2 = 0;
+  private lodFrame = 0;
+  private lodDt = 0;
+  setDetail(distance: number): void {
+    const level = distance < 14 ? 0 : distance < 45 ? 1 : 2;
+    if (level === this.detail) return;
+    this.detail = level;
+    this.human?.setDetail(level);
   }
 
   /** Plays a clip to the end, ignoring locomotion until it finishes (throws, punches). */
