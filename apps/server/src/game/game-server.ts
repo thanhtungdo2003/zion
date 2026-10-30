@@ -1403,9 +1403,6 @@ export class GameServer {
       serverTime: this.serverTime,
       spawn: { x: pos.x, y: pos.y, z: pos.z, yaw: player.yaw },
     });
-    // A fixed map is sent whole, once, as its definition: the client generates its chunks itself
-    // and the server streams nothing more for it.
-    if (this.fixedMap) session.sendJson({ t: 'worldConfig', config: this.deps.world.config, extraAssets: [...this.deps.world.extraAssets] });
     session.sendJson({ t: 'wallet', coins: player.coins });
     session.sendJson({ t: 'rank', rank: player.rank });
     this.zombies.restore(player);
@@ -3820,7 +3817,7 @@ export class GameServer {
     }
     // Snapshots first, then terrain into whatever room the connection has left.
     if (this.tick % SNAPSHOT_INTERVAL_TICKS === 0) this.sendSnapshots(now);
-    if (!this.fixedMap) for (const p of this.players.values()) p.streamer.update();
+    for (const p of this.players.values()) p.streamer.update();
 
     if (Date.now() - this.lastPersist > PERSIST_INTERVAL_MS && !this.persisting) {
       this.lastPersist = Date.now();

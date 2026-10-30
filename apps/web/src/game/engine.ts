@@ -15,8 +15,6 @@ import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
 import { VehiclePredictor } from './vehicle-prediction';
-import { LocalWorld } from './world/local-world';
-import type { WorldConfig } from '@zion/worldgen';
 import { vehicleSeats } from '@/lib/api';
 import { CockpitPanel } from './render/cockpit-panel';
 import { mobileAimScore } from './mobile-aim';
@@ -583,8 +581,6 @@ export class GameEngine {
   private readonly viewPoint = new Vector3();
   private readonly frustumMatrix = new Matrix4();
   private vehiclePrediction: VehiclePredictor | null = null;
-  /** A fixed map generated on this machine (null: the server streams the world). */
-  private localWorld: LocalWorld | null = null;
   /** Piloting a helicopter: the mouse's virtual cyclic (x right, y forward), and where the look was reset to. */
   private heliStick: [number, number] = [0, 0];
   private heliLook: { yaw: number; pitch: number } | null = null;
@@ -922,7 +918,6 @@ export class GameEngine {
     this.slashes?.dispose();
     this.worldMap.dispose();
     this.vegetation?.dispose();
-    this.localWorld?.dispose(); this.localWorld = null;
     this.sky?.dispose();
     for (const m of this.meshes.values()) this.disposeChunkMeshes(m);
     this.meshes.clear();
@@ -1742,17 +1737,6 @@ export class GameEngine {
         if (was !== undefined && was !== m.open) this.sounds?.play(m.open ? 'doorOpen' : 'doorClose', { volume: .8, at: m });
         break;
       }
-      case 'worldConfig': {
-        // A fixed map, whole: from here its chunks are generated on this machine.
-        this.localWorld?.dispose();
-        const store = this.store;
-        if (!store || !this.welcome) break;
-        this.localWorld = new LocalWorld(m.config as WorldConfig, m.extraAssets as AssetDefinitionInput[], this.welcome.world.sizeChunks, {
-          set: (c) => { if (!this.disposed) store.set(this.building ? this.building.filterChunk(c) : c); },
-          remove: (cx, cz) => store.remove(cx, cz),
-        });
-        break;
-      }
       case 'vehicles': {
         this.vehicles?.sync(m);
         const predicted = this.vehiclePrediction?.id;
@@ -2115,7 +2099,6 @@ export class GameEngine {
       const p = this.vehiclePrediction, id = p?.id;
       if (p && id != null) { const pose = this.passenger || !local.riding ? null : p.pose(this.accumulator / TICK_DT, dt); this.vehicles?.override(id, pose); if (!pose) p.stop(); }
       this.crashShake = Math.max(0, this.crashShake - dt * 1.8);
-      this.localWorld?.update(Math.floor(local.state.x / CHUNK_SIZE), Math.floor(local.state.z / CHUNK_SIZE));
       this.viewFrustum.setFromProjectionMatrix(this.frustumMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
     }
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now(),this.input.axes().mz);
