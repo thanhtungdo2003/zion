@@ -443,6 +443,14 @@ export class JoltVehicles {
     this.props.delete(id);
   }
 
+  /** An impulse (N·s) on a vehicle at a world point (a gun's recoil, a blast). */
+  kick(id: number, jx: number, jy: number, jz: number, px: number, py: number, pz: number): void {
+    const car = this.cars.get(id);
+    if (!car || !Number.isFinite(jx + jy + jz + px + py + pz)) return;
+    this.bodies.AddImpulse(car.id, v3(jx, jy, jz), rv3(px, py, pz));
+    this.bodies.ActivateBody(car.id);
+  }
+
   /** An impulse (N·s) at a world point: off-centre pushes also spin the body. */
   applyImpulse(id: number, jx: number, jy: number, jz: number, px: number, py: number, pz: number): void {
     const p = this.props.get(id);

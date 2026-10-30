@@ -153,6 +153,8 @@ export interface ProjectileEvent {
   t: 'proj';
   id: number;
   ownerId: number;
+  /** Fired by a vehicle's weapon (its muzzle blast, recoil and sound are the vehicle's). */
+  vehicleId?: number;
   /** WeaponId that fired it. */
   w: number;
   kind: 'grenade40' | 'rocket' | 'bolt' | 'bullet' | 'shell' | 'missile';

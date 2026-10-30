@@ -83,7 +83,10 @@ export class VehicleGunnery {
     const r: Round = { id, shooter, vehicleId: v.id, w, x: o.x, y: o.y, z: o.z, vx: dx * w.speed - Math.sin(v.yaw) * fwd, vy: dy * w.speed + (v.motion?.vy ?? 0), vz: dz * w.speed - Math.cos(v.yaw) * fwd, traveled: 0, dieAt: now + (w.range / w.speed + 1) * 1000, lock: 0, syncedAt: now };
     if (w.turnRate) r.lock = lockOn ?? this.lockTarget(v, o, dx, dy, dz, shooter.id, now);
     this.rounds.push(r);
-    this.hooks.broadcastAt(o.x, o.z, { t: 'proj', id, ownerId: shooter.id, w: 0, kind: w.projectile === 'bullet' ? 'bullet' : w.projectile, x: o.x, y: o.y, z: o.z, vx: r.vx, vy: r.vy, vz: r.vz, gravity: w.gravity, maxFlightSec: w.range / w.speed + 1 });
+    // A gun's recoil rocks the vehicle: an impulse back along the bore at the muzzle (a 125 mm
+    // round kicks a 46 t tank hard enough to see it rock on its suspension).
+    if (w.kind === 'cannon' || w.kind === 'autocannon') this.vehicles.recoil(v, -dx, -dy, -dz, o.x, o.y, o.z, w.kind === 'cannon' ? VEHICLES[v.kind].mass * .45 : VEHICLES[v.kind].mass * .03);
+    this.hooks.broadcastAt(o.x, o.z, { t: 'proj', id, ownerId: shooter.id, vehicleId: v.id, w: 0, kind: w.projectile === 'bullet' ? 'bullet' : w.projectile, x: o.x, y: o.y, z: o.z, vx: r.vx, vy: r.vy, vz: r.vz, gravity: w.gravity, maxFlightSec: w.range / w.speed + 1 });
     return true;
   }
 

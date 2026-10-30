@@ -340,6 +340,27 @@ export const ParticleFX = {
   },
 
   /** Explosion: flash, fireball, flying sparks and debris, then a rising, spreading smoke column. */
+  /**
+   * A tank gun firing: a fireball and a cone of smoke out of the muzzle along the bore, and the
+   * blast throwing dust off the ground in a ring round the hull (`gx, gz`, out to `radius`).
+   */
+  cannonBlast(ps: ParticleSystem, x: number, y: number, z: number, dx: number, dy: number, dz: number, gx: number, gy: number, gz: number, radius: number): void {
+    ps.glow.emit({ x, y, z, vx: dx * 6, vy: dy * 6, vz: dz * 6, life: .12, size: 2.4, sizeEnd: 3.6, color: [1, .92, .7], colorEnd: [1, .45, .1], alpha: 1 });
+    for (let i = 0; i < 14; i++) {
+      const v = 6 + Math.random() * 14, s = .35;
+      ps.glow.emit({ x, y, z, vx: (dx + (Math.random() - .5) * s) * v, vy: (dy + (Math.random() - .5) * s) * v, vz: (dz + (Math.random() - .5) * s) * v, life: .22, size: .9, sizeEnd: .2, color: [1, .8, .4], colorEnd: [.9, .25, .03], drag: 5 });
+    }
+    for (let i = 0; i < 26; i++) {
+      const v = 2 + Math.random() * 9, s = .6;
+      ps.smoke.emit({ x, y, z, vx: (dx + (Math.random() - .5) * s) * v, vy: (dy + (Math.random() - .5) * s) * v + .4, vz: (dz + (Math.random() - .5) * s) * v, life: 2.4 + Math.random(), size: .8, sizeEnd: 3.4, color: [.62, .6, .57], colorEnd: [.72, .7, .67], alpha: .55, drag: 1.6 });
+    }
+    // Dust kicked off the ground all round the hull.
+    for (let i = 0; i < 46; i++) {
+      const a = Math.random() * Math.PI * 2, r = radius * (.55 + Math.random() * .5), c = Math.cos(a), sn = Math.sin(a), v = 3 + Math.random() * 5;
+      ps.smoke.emit({ x: gx + c * r, y: gy + .2, z: gz + sn * r, vx: c * v, vy: .4 + Math.random() * 1.2, vz: sn * v, life: 1.8 + Math.random() * 1.2, size: .6, sizeEnd: 2.6, color: [.55, .47, .36], colorEnd: [.66, .6, .5], alpha: .6, drag: 2.2 });
+    }
+  },
+
   explosion(ps: ParticleSystem, x: number, y: number, z: number, radius: number): void {
     ps.glow.emit({ x, y: y + 0.5, z, life: 0.12, size: radius * 1.4, sizeEnd: radius * 1.8, color: [1, 0.95, 0.8], alpha: 0.9 });
     for (let i = 0; i < 40; i++) {

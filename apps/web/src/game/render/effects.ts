@@ -356,6 +356,28 @@ export class CombatEffects {
   }
 
   /**
+   * A tank gun firing (`at`: the muzzle, `dir`: the bore; `ground`: under the hull, `radius`: its
+   * size): the blast, the dust thrown up round it, a flash, the boom, and the view shaking nearby.
+   */
+  cannonFire(at: Vector3, dir: Vector3, ground: Vector3, radius: number): void {
+    ParticleFX.cannonBlast(this.particles, at.x, at.y, at.z, dir.x, dir.y, dir.z, ground.x, ground.y, ground.z, radius);
+    const light = this.blastLights[this.blastNext++ % this.blastLights.length]!;
+    light.color.set(0xffc070); light.distance = 30; light.position.copy(at);
+    this.rings.push({ light, t: 0, radius: 6 });
+    // A deep boom: the blast sample, slowed, heard far.
+    this.sounds?.play('explosion', { at: { x: at.x, y: at.y, z: at.z }, volume: 1.8, rate: .62, maxDistance: 600, refDistance: 14 });
+    this.sounds?.play('rocketExplosion', { at: { x: at.x, y: at.y, z: at.z }, volume: .8, rate: .8, maxDistance: 300, refDistance: 10 });
+    const cam = this.listener(), d = Math.hypot(cam.x - at.x, cam.z - at.z);
+    this.shake = Math.max(this.shake, Math.max(0, 1 - d / 60) * .6);
+  }
+
+  /** A vehicle's machine gun (coaxial, roof or door gun): the PKM's report at the muzzle and its flash. */
+  vehicleGun(at: Vector3, dir: Vector3): void {
+    ParticleFX.muzzleFlash(this.particles, at.x, at.y, at.z, dir.x, dir.y, dir.z);
+    this.sounds?.play('pkmShot', { at: { x: at.x, y: at.y, z: at.z }, volume: 1, maxDistance: 160, refDistance: 6 });
+  }
+
+  /**
    * A vehicle's countermeasure: flares fan out and fall burning from a helicopter's sides; armour
    * fires a smoke screen ahead and round itself that hangs for `ms`.
    */

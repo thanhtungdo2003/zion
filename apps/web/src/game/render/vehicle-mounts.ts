@@ -16,6 +16,10 @@ export interface MountRig {
   /** Shown aim, eased towards the network state. */
   shownYaw: number;
   shownPitch: number;
+  /** The barrel's rest place (relative to the turret), its recoil travel (m) and when it last fired (s since an epoch, −∞: never). */
+  base: [number, number, number];
+  recoil: number;
+  firedAt: number;
 }
 
 type Bucket = 'hull' | `${number}:yaw` | `${number}:pitch`;
@@ -121,13 +125,14 @@ export function buildMountRigs(kind: VehicleKind, body: Group, pieces: Map<Bucke
       const muzzle = VEHICLE_ROLES[kind].weapons.find((w) => w.seat === m.seat)?.mounts[0];
       pitch.add(proceduralGun(muzzle ? Math.max(.6, m.pitchAt[2] - muzzle[2]) / scale : 1));
     }
-    rigs.push({ seat: m.seat, parent: m.on, yaw, pitch, shownYaw: 0, shownPitch: 0 });
+    // A tank gun runs back half a metre in its cradle; a machine gun a few centimetres.
+    rigs.push({ seat: m.seat, parent: m.on, yaw, pitch, shownYaw: 0, shownPitch: 0, base: [pitch.position.x, pitch.position.y, pitch.position.z], recoil: (m.barrel ? .5 : .04) / scale, firedAt: -Infinity });
   }
   return rigs;
 }
 
 /** Eases the drawn mounts to the vehicle's aim (sent 15–30 times a second). */
-export function poseMountRigs(rigs: readonly MountRig[], v: VehicleState, dt: number): void {
+export function poseMountRigs(rigs: readonly MountRig[], v: VehicleState, dt: number, now = 0): void {
   const k = 1 - Math.exp(-dt * 14);
   for (const r of rigs) {
     const [yaw, pitch] = seatAim(v, r.seat);
@@ -141,5 +146,9 @@ export function poseMountRigs(rigs: readonly MountRig[], v: VehicleState, dt: nu
     const parent = r.parent !== undefined ? rigs.find((p) => p.seat === r.parent) : undefined;
     r.yaw.rotation.y = r.shownYaw - (parent?.shownYaw ?? 0);
     r.pitch.rotation.x = r.shownPitch;
+    // Recoil: the barrel slams back along its bore within 60 ms, then the recuperator runs it out
+    // again over half a second.
+    const t = now - r.firedAt, k = t < 0 ? 0 : t < .06 ? t / .06 : Math.max(0, 1 - (t - .06) / .55) ** 2, back = r.recoil * k;
+    r.pitch.position.set(r.base[0], r.base[1] - Math.sin(r.shownPitch) * back, r.base[2] + Math.cos(r.shownPitch) * back);
   }
 }

@@ -120,6 +120,10 @@ export class Vehicles {
     this.placed.set(v.id, { at, colliders });
     this.world.setOwnerColliders(vehicleOwner(v.id), colliders);
   }
+  /** A gun's recoil: an impulse (N·s) on the vehicle's body at a world point. */
+  recoil(v: VehicleState, dx: number, dy: number, dz: number, x: number, y: number, z: number, impulse: number): void {
+    if (this.jolt) this.physics.kick(v.id, dx * impulse, dy * impulse, dz * impulse, x, y, z);
+  }
   /** The rider of a seat with a turning mount points it (it follows at its traverse rate). */
   aimAt(v: VehicleState, seat: number, yaw: number, pitch: number): void {
     if (!Number.isFinite(yaw + pitch)) return;

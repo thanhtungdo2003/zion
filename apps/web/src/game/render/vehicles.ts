@@ -16,7 +16,7 @@ const VEHICLE_RENDER_DELAY_MS = 105;
 /** Delay for the vehicle we drive: two 30 Hz snapshot intervals. */
 const OWN_RENDER_DELAY_MS = 70;
 
-interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number; rigs:MountRig[]; fit:SeatFit[]; placed?:[number,number,number,number,number,number]; colliders?:ReturnType<typeof vehicleColliders> }
+interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number; rigs:MountRig[]; fit:SeatFit[]; placed?:[number,number,number,number,number,number]; rockAt?:number; colliders?:ReturnType<typeof vehicleColliders> }
 export class VehicleRenderer {
   private readonly views = new Map<number, View>();
   private readonly audio = new VehicleAudio();
@@ -28,6 +28,8 @@ export class VehicleRenderer {
   /** Poses drawn instead of the snapshot playback: the vehicle we drive, as predicted. */
   private readonly overrides = new Map<number, VehicleState>();
   override(id:number,pose:VehicleState|null):void{if(pose)this.overrides.set(id,pose);else this.overrides.delete(id);}
+  /** A vehicle as drawn now (interpolated, or predicted when we drive it). */
+  pose(id:number):VehicleState|undefined{return this.views.get(id)?.pose;}
   /** The latest snapshot of a player's vehicle (not interpolated). */
   target(id:number):VehicleState|undefined{return this.viewOf(id)?.target;}
   constructor(private readonly scene:Scene,private readonly library:AssetLibrary,private readonly world:CollisionWorld){this.smoke=new VehicleSmoke(scene);}
@@ -70,7 +72,9 @@ export class VehicleRenderer {
       const origin=vehiclePoint(p,0,def.com,0);
       // Flat tyres: the body sits low on that corner (latest state, not the interpolated pose).
       const tyres=tyreHandling(v);
-      view.root.position.set(origin.x,origin.y-tyres.drop,origin.z);view.root.rotation.set((p.motion?.pitch??0)-tyres.pitch,p.yaw,(p.motion?.roll??0)-tyres.lean,'YXZ');
+      // A cannon shot rocks the hull back on its suspension: nose up, then a few damped swings.
+      const rt=view.rockAt===undefined?Infinity:now/1000-view.rockAt,rock=rt<2?.045*Math.exp(-rt*3.2)*Math.sin(rt*16+.4):0;
+      view.root.position.set(origin.x,origin.y-tyres.drop,origin.z);view.root.rotation.set((p.motion?.pitch??0)-tyres.pitch+rock,p.yaw,(p.motion?.roll??0)-tyres.lean,'YXZ');
       const throttle=v.health>0&&!v.exploded&&v.driver!==null
         ? (v.driver===localId&&localThrottle!==undefined?localThrottle:(v.throttle??0)) : 0;
       // Spin under power even while stuck or airborne; rolling without input follows road speed.
@@ -82,7 +86,7 @@ export class VehicleRenderer {
         wheel.mount.rotation.y=wheel.index<2?-(p.motion?.steer??0)*.42:0;
         wheel.spin.rotation.x=-view.travel/def.wheelRadius;
       }
-      poseMountRigs(view.rigs,v,dt);
+      poseMountRigs(view.rigs,v,dt,now/1000);
       // Helicopter rotors: spinning with the rotor speed (main ~5 turns/s, tail faster).
       view.spin+=(v.rotor??0)*dt*32;
       for(const r of view.rotors){if(r.axis==='main')r.group.rotation.y=view.spin;else r.group.rotation.x=view.spin*2.6;}
@@ -143,6 +147,15 @@ export class VehicleRenderer {
     const [x,y,z]=seatPosition(v.kind,seat),standing=seat>0&&armedSeat(v.kind,seat),[ex,ey,ez]=seatEye(v.kind,seat,standing);
     const oy=fit?.y!=null&&!seatTuned(v.kind,seat)?fit.y:y,p=mountedPoint(v,seat,x+ex,oy+ey,z+ez,false);
     return vehiclePoint(v,p.x,p.y,p.z);
+  }
+  /**
+   * A vehicle's gun fired (`seat`: the mount): its barrel recoils and, for a cannon, the hull
+   * rocks back on its suspension.
+   */
+  fired(vehicleId:number,seat:number,cannon:boolean,now:number):void{
+    const view=this.views.get(vehicleId);if(!view)return;
+    const rig=view.rigs.find(r=>r.seat===seat);if(rig)rig.firedAt=now/1000;
+    if(cannon)view.rockAt=now/1000;
   }
   /** Where a rider's hands grip and feet rest (world), as set for the seat in the Studio. */
   contacts(id:number):{hands?:[Vector3,Vector3];feet?:[Vector3,Vector3]}|null{

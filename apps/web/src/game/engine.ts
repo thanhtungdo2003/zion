@@ -2,7 +2,7 @@ import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentMod
 import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, setSeatTuning, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, setSeatTuning, weaponMuzzle, type VehicleWeapon, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -1983,6 +1983,7 @@ export class GameEngine {
         break;
       case 'proj': {
         this.effects?.launch(m);
+        if (m.vehicleId !== undefined) { this.vehicleShot(m); break; }
         if (m.kind === 'bullet' && m.ownerId !== this.welcome?.playerId) this.bulletWhiz(m);
         // Someone else's launcher: their muzzle blast and launch sound (ours played on the trigger).
         if (m.kind !== 'bullet' && m.ownerId !== this.welcome?.playerId) {
@@ -3382,6 +3383,29 @@ export class GameEngine {
       if (trunk) { trunk.run(); return; }
     }
     this.useVehicle();
+  }
+
+  /**
+   * A vehicle's gun fired: which of its weapons (the muzzle nearest the round's start), then its
+   * effects — a cannon's boom, blast, ground dust, barrel recoil and the hull rocking (and our view
+   * shaking when we are aboard); a machine gun's PKM report and flash.
+   */
+  private vehicleShot(m: Extract<ServerJsonMessage, { t: 'proj' }>): void {
+    const v = this.vehicles?.pose(m.vehicleId!);
+    const at = this.tmpA.set(m.x, m.y, m.z), dir = this.tmpB.set(m.vx, m.vy, m.vz).normalize();
+    if (!v) { if (m.kind === 'bullet') this.effects?.vehicleGun(at, dir); return; }
+    let best: VehicleWeapon | undefined, bestD = Infinity;
+    for (const w of VEHICLE_ROLES[v.kind].weapons) {
+      if ((w.projectile === 'bullet') !== (m.kind === 'bullet')) continue;
+      for (let k = 0; k < w.mounts.length; k++) { const o = weaponMuzzle(v, w, k), d = Math.hypot(o.x - m.x, o.y - m.y, o.z - m.z); if (d < bestD) { bestD = d; best = w; } }
+    }
+    const cannon = best?.kind === 'cannon' || m.kind === 'shell';
+    if (cannon) {
+      const def = VEHICLES[v.kind], ground = this.tmpC.set(v.x, v.y, v.z);
+      this.effects?.cannonFire(at, dir, ground, Math.max(def.halfX, def.halfZ) + 1.5);
+      if (vehicleSeatOf(v, this.welcome!.playerId) >= 0) this.crashShake = Math.min(.8, this.crashShake + .45);
+    } else if (m.kind === 'bullet') this.effects?.vehicleGun(at, dir);
+    this.vehicles?.fired(v.id, best?.seat ?? 0, cannon, performance.now());
   }
 
   /** E, Tab or I: open the inventory, in every view. */
