@@ -42,4 +42,12 @@ describe('Warfare zones from the map’s settlements', () => {
     expect(validateWarfareLayout(l)).toEqual([]);
     expect(settlementWarfareLayout(doc([]))).toBeNull();
   });
+
+  it('regions not built yet and the match setup’s named places count too', () => {
+    const d = doc([{ id: 'r', name: 'Phố Cổ', preset: 'small-village', polygon: [[900, 900], [960, 900], [960, 960], [900, 960]], result: null } as unknown as Region]);
+    d.gameplay[0]!.pois.push({ id: 'p1', name: 'Đồn Biên', kind: 'military', x: 1100, z: 940, radius: 40 }, { id: 'p2', name: 'Chợ', kind: 'town', x: 1000, z: 1060, radius: 30 });
+    const l = settlementWarfareLayout(d)!;
+    expect(l.zones.map((z) => z.name.slice(2)).sort()).toEqual(['Chợ', 'Phố Cổ', 'Đồn Biên'].sort());
+    expect(validateWarfareLayout(l)).toEqual([]);
+  });
 });

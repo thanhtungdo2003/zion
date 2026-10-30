@@ -41,7 +41,13 @@ function sites(doc: WorldMapDoc): Site[] {
   const out: Site[] = [];
   for (const r of doc.regions) {
     const res = r.result;
-    if (!res?.buildings.length) continue;
+    if (!res?.buildings.length) {
+      // A drawn region not built yet: its outline still marks the place.
+      if (r.polygon.length < 3) continue;
+      const cx = r.polygon.reduce((a, p) => a + p[0], 0) / r.polygon.length, cz = r.polygon.reduce((a, p) => a + p[1], 0) / r.polygon.length;
+      out.push({ name: r.name, x: cx, z: cz, radius: spread(r.polygon.map(([x, z]) => ({ x, z })), cx, cz) * .7, weight: 10, military: r.preset === 'military-base' });
+      continue;
+    }
     const military = r.preset === 'military-base';
     const b = res.buildings;
     const districts = res.districts?.filter((d) => d.cls !== 'green') ?? [];
@@ -64,6 +70,14 @@ function sites(doc: WorldMapDoc): Site[] {
       const cx = g.reduce((s, h) => s + h.x, 0) / g.length, cz = g.reduce((s, h) => s + h.z, 0) / g.length;
       out.push({ name: r.name, x: cx, z: cz, radius: spread(g, cx, cz), weight: g.length, military });
     }
+  }
+  // Named places of the match setups (towns, bases, landmarks), where no region covers them.
+  const seen = new Set<string>();
+  for (const cfg of doc.gameplay) for (const poi of cfg.pois) {
+    const key = `${Math.round(poi.x / 20)}:${Math.round(poi.z / 20)}`;
+    if (seen.has(key) || out.some((o) => Math.hypot(o.x - poi.x, o.z - poi.z) < 40)) continue;
+    seen.add(key);
+    out.push({ name: poi.name, x: poi.x, z: poi.z, radius: Math.min(poi.radius, 120), weight: 8, military: /quân|military|base|đồn|căn cứ/i.test(`${poi.kind} ${poi.name}`) });
   }
   for (const g of clusters(doc.base.structures, 45)) {
     if (g.length < 3) continue;
