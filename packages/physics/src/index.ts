@@ -16,3 +16,4 @@ export * from './jolt-vehicles';
 export * from './helicopter';
 export * from './structures';
 export * from './rigid-body';
+export * from './surfaces';

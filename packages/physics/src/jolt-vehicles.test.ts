@@ -93,7 +93,8 @@ describe('Jolt vehicles', () => {
       expect(crash).toBeGreaterThan(4);
       expect(v.health).toBeLessThan(VEHICLES.car.health);
       const x = v.x, z = v.z;
-      run(sim, [v], 2, -1);
+      // Off the wall's friction and through the grass's rolling resistance.
+      run(sim, [v], 3, -1);
       expect(Math.hypot(v.x - x, v.z - z)).toBeGreaterThan(2);
     } finally { sim.dispose(); }
   });

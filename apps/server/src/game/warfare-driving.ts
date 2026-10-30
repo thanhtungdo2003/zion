@@ -40,7 +40,8 @@ export function driveTowards(
   const dx = target.x - v.x, dz = target.z - v.z, d = Math.hypot(dx, dz);
   if (d < arriveRadius) return { throttle: v.speed > 1.5 ? -1 : 0, steer: 0, arrived: true, stuck: false };
   // Progress check: hardly moved for 3 s while trying → back out for a moment.
-  if (Math.hypot(v.x - mem.x, v.z - mem.z) > 2.5) { mem.x = v.x; mem.z = v.z; mem.at = now; }
+  // Rolling (a slow heavy vehicle swinging round counts) is progress; only standing still is stuck.
+  if (Math.hypot(v.x - mem.x, v.z - mem.z) > 2.5 || Math.abs(v.speed) > 1.2) { mem.x = v.x; mem.z = v.z; mem.at = now; }
   else if (now - mem.at > 3000 && now > mem.reverseUntil) {
     mem.reverseUntil = now + 1800; mem.reversals++; mem.at = now;
     mem.reverseSteer = probe(-.6, 10) > probe(.6, 10) ? 1 : -1;

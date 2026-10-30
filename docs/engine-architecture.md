@@ -188,8 +188,39 @@ step (WASM warm-up). WASM memory is not part of the JS heap figure.
 3. Check it in game with F4: the orange wireframe must match the model at rest and in motion.
 4. Add a case to `free-bodies.test.ts` if it behaves differently from the existing ones.
 
-New materials go in `SURFACE_MATERIALS` (`packages/physics/src/rigid-body.ts`). Jolt combines
-friction as the geometric mean and restitution as the maximum of the two surfaces.
+Body materials are named in `SURFACE_MATERIALS` (`packages/physics/src/rigid-body.ts`, density for
+the mass). How they grip is set by the surface material system below.
+
+### 10.1 Surface materials and contact friction
+
+`packages/physics/src/surfaces.ts` defines every physical material, ground and things alike:
+concrete, asphalt, dirt, mud, grass, sand, gravel, rock, ice, snow, wet ground (standing water),
+wood, metal, sheet metal, plastic, rubber and glass. Each has a static friction coefficient, a
+kinetic (sliding) coefficient, rolling resistance, restitution and a sound family.
+
+- **Terrain** carries its surface per vertex (`Heightfield.surface`, from the chunk's `surface`
+  layer). `terrainMaterial()` maps the world's surface types to physical materials; standing water
+  turns ground into `wet` (snow into `ice`, soft ground into `mud`). The Jolt height field gets one
+  Jolt material per surface present and a material index per cell.
+- **Bodies** are made of one material each: free props from their `RigidBodyDef`, vehicle hulls
+  `metal`, mirrored static colliders `concrete` (capsules, i.e. trunks and posts, `wood`).
+- **Contacts** (`ContactListenerJS` in `JoltVehicles`): on every contact added or persisted, the two
+  materials and the sliding speed at the contact point give the friction, static while the
+  surfaces stick (under 5 cm/s) and kinetic once they slide (over 10 cm/s), blended in between.
+  Restitution is the geometric mean, so a dead surface deadens any contact. Pairs that do not follow
+  the general rule (tyres above all) are listed in `PAIRS`.
+- **Tyres** (`VehicleConstraintCallbacksJS.GetCombinedFriction`): Jolt's own rule against the ground
+  is scaled by rubber's grip on that material relative to grass, the ground the handling was tuned
+  on (asphalt up to a third more, mud less than half, ice about a tenth). Rolling resistance adds the
+  difference to grass, so sand and mud bog a vehicle down. `wheelSurfaces(id)` tells what each tyre
+  stands on.
+- **Heavy vehicles:** wheel inertia scales with the vehicle's mass and wheel size, and anti-roll
+  bars are capped at 7000. At the old rate a 12–14 t hull was thrown up and over in a slow
+  full-lock turn.
+
+`packages/physics/src/surfaces.test.ts` covers the pair table, a crate sliding on grass against
+ice, static friction holding a crate on a 20° rock slope that it slides down on ice, and a car
+pulling away on asphalt against mud.
 
 ## 11. Known limits and next steps
 
@@ -203,3 +234,5 @@ friction as the geometric mean and restitution as the maximum of the two surface
 - The legacy (arcade) vehicle model does not update vehicle bodies in Jolt, so free bodies collide
   with stale vehicle positions while it is selected.
 - Not run in this pass: a desktop build, a full web production build, and multi-player load.
+- The character controller is still our own capsule solver, not a Jolt body: walkers do not slip
+  on ice or mud yet. The surface table is ready for it (`terrainMaterial`, `contactFriction`).

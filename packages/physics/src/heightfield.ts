@@ -1,5 +1,6 @@
 import { CHUNK_SIZE, dequantizeHeight, heightIndex, lodStep, type ChunkData } from '@zion/shared';
 import type { MutVec3 } from './geometry';
+import { terrainMaterial, type MaterialKind } from './surfaces';
 
 /**
  * Regular-grid terrain patch for one chunk. Each grid cell is split into two triangles along the
@@ -25,6 +26,8 @@ export class Heightfield {
     readonly heights: Float32Array,
     /** Inland water surface per vertex; NaN where none. */
     readonly water: Float32Array,
+    /** Terrain surface type per vertex (Surface enum); absent: grass everywhere. */
+    readonly surface?: Uint8Array,
   ) {
     let lo = Infinity;
     let hi = -Infinity;
@@ -48,7 +51,19 @@ export class Heightfield {
         water[j * n + i] = w === 0 ? Number.NaN : dequantizeHeight(w);
       }
     }
-    return new Heightfield(chunk.cx * CHUNK_SIZE, chunk.cz * CHUNK_SIZE, lodStep(chunk.lod), n, heights, water);
+    return new Heightfield(chunk.cx * CHUNK_SIZE, chunk.cz * CHUNK_SIZE, lodStep(chunk.lod), n, heights, water, chunk.surface.length === n * n ? chunk.surface : undefined);
+  }
+
+  /** Physical material of the grid cell whose lower corner is vertex (i, j). */
+  cellMaterial(i: number, j: number): MaterialKind {
+    const n = this.verts, k = Math.min(n - 1, Math.max(0, j)) * n + Math.min(n - 1, Math.max(0, i));
+    const water = this.water[k]!, wet = water === water && water > this.heights[k]! + .02;
+    return terrainMaterial(this.surface ? this.surface[k]! : 0, wet);
+  }
+
+  /** Physical material under world (x, z) (caller guarantees the point is inside this patch). */
+  materialAt(x: number, z: number): MaterialKind {
+    return this.cellMaterial(Math.round((x - this.originX) / this.cellSize), Math.round((z - this.originZ) / this.cellSize));
   }
 
   get size(): number {

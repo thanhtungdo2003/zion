@@ -6,6 +6,7 @@ import type { Collider } from './shapes';
 import type { CollisionWorld } from './world';
 import type { Heightfield } from './heightfield';
 import { SURFACE_MATERIALS, isDynamicBodyTag, proxyBounds, type BodyPose, type BodyState, type ProxyPart, type RigidBodyDef } from './rigid-body';
+import { MATERIAL_KINDS, contactFriction, contactRestitution, pairFriction, rollingResistance, type MaterialKind } from './surfaces';
 
 /**
  * Vehicle simulation on Jolt Physics (WASM). Each vehicle is a Jolt rigid body with a
@@ -34,6 +35,13 @@ const LAYER_STATIC = 0, LAYER_MOVING = 1;
 /** Jolt's HeightFieldShapeConstantValues::cNoCollisionValue (FLT_MAX). */
 const NO_COLLISION = 3.4028234663852886e38;
 const GRAVITY = 9.81;
+/**
+ * Tyre grip relative to the ground the handling was tuned on (the island's grass and dirt): the
+ * friction curves keep that feel there, roads give up to a third more, mud and ice far less.
+ */
+const TUNED_GRIP = pairFriction('rubber', 'grass')[1];
+const TUNED_ROLLING = rollingResistance('grass');
+const tyreGrip = (ground: MaterialKind) => Math.min(1.35, pairFriction('rubber', ground)[1] / TUNED_GRIP);
 /** Mirrored geometry nobody needed for this long is dropped (ms). */
 const MIRROR_GRACE = 3000;
 
@@ -46,6 +54,9 @@ interface Car {
   /** What we last wrote to the VehicleState, to detect outside edits (reset, shoves). */
   synced: { x: number; y: number; z: number; yaw: number; pitch: number; roll: number; speed: number; lateral: number; vy: number };
   velocity: [number, number, number];
+  /** What each tyre stood on in the last step (null: in the air). */
+  ground: Array<MaterialKind | null>;
+  callbacks: InstanceType<JoltModule['VehicleConstraintCallbacksJS']>;
 }
 export interface VehicleInput { throttle: number; steer: number }
 /** A free rigid body (knocked prop, thrown object): Jolt owns its motion until it sleeps. */
@@ -62,6 +73,15 @@ const rv3 = (x: number, y: number, z: number) => { rvec.Set(x, y, z); return rve
 const q4 = (x: number, y: number, z: number, w: number) => { quat.Set(x, y, z, w); return quat; };
 /** Jolt returns BodyIDs in reused scratch memory; keep our own copy. */
 const keep = (id: BodyID): BodyID => new Jolt.BodyID(id.GetIndexAndSequenceNumber());
+
+/** Velocity of a body's material at world point `p` (v + ω × r from the centre of mass). */
+function pointVelocity(body: Body, p: InstanceType<JoltModule['RVec3']>): [number, number, number] {
+  if (body.IsStatic()) return [0, 0, 0];
+  const v = body.GetLinearVelocity(), vx = v.GetX(), vy = v.GetY(), vz = v.GetZ();
+  const w = body.GetAngularVelocity(), wx = w.GetX(), wy = w.GetY(), wz = w.GetZ();
+  const c = body.GetCenterOfMassPosition(), rx = p.GetX() - c.GetX(), ry = p.GetY() - c.GetY(), rz = p.GetZ() - c.GetZ();
+  return [vx + wy * rz - wz * ry, vy + wz * rx - wx * rz, vz + wx * ry - wy * rx];
+}
 
 /** YXZ yaw/pitch/roll (the shared vehicle convention) → quaternion. */
 function eulerQuat(yaw: number, pitch: number, roll: number): [number, number, number, number] {
@@ -98,6 +118,14 @@ export class JoltVehicles {
   private readonly props = new Map<number, Prop>();
   /** Last step's cost and population (stepMs averages steps that ran). */
   readonly stats: PhysicsStepStats = { stepMs: 0, steps: 0, activeBodies: 0, bodies: 0, vehicles: 0, props: 0, mirrored: 0 };
+  /**
+   * Surface materials. Every body is made of one material (by its BodyID index), except terrain,
+   * whose height field carries a Jolt material per cell; `kinds` maps those materials back.
+   */
+  private readonly bodyMaterial = new Map<number, MaterialKind>();
+  private readonly materials = new Map<MaterialKind, InstanceType<JoltModule['PhysicsMaterial']>>();
+  private readonly kinds = new Map<number, MaterialKind>();
+  private readonly contacts: InstanceType<JoltModule['ContactListenerJS']>;
 
   constructor(private readonly world: CollisionWorld) {
     const settings = new Jolt.JoltSettings();
@@ -114,7 +142,39 @@ export class JoltVehicles {
     this.system = this.jolt.GetPhysicsSystem();
     this.bodies = this.system.GetBodyInterface();
     this.system.SetGravity(v3(0, -GRAVITY, 0));
+    for (const kind of MATERIAL_KINDS) {
+      const m = new Jolt.PhysicsMaterial();
+      m.AddRef();
+      this.materials.set(kind, m); this.kinds.set(Jolt.getPointer(m), kind);
+    }
+    // Contact friction from the two materials and how fast they slide, every contact, every step.
+    const contacts = this.contacts = new Jolt.ContactListenerJS();
+    contacts.OnContactValidate = () => Jolt.ValidateResult_AcceptAllContactsForThisBodyPair;
+    contacts.OnContactAdded = contacts.OnContactPersisted = (b1: number, b2: number, manifoldPtr: number, settingsPtr: number) => {
+      const body1 = Jolt.wrapPointer(b1, Jolt.Body), body2 = Jolt.wrapPointer(b2, Jolt.Body);
+      const manifold = Jolt.wrapPointer(manifoldPtr, Jolt.ContactManifold), settings = Jolt.wrapPointer(settingsPtr, Jolt.ContactSettings);
+      const a = this.materialOf(body1, manifold.mSubShapeID1), b = this.materialOf(body2, manifold.mSubShapeID2);
+      const p = manifold.GetWorldSpaceContactPointOn1(0), n = manifold.mWorldSpaceNormal;
+      // Read straight off the bodies: the body interface would lock them, and they are locked in a step.
+      const [x1, y1, z1] = pointVelocity(body1, p), [x2, y2, z2] = pointVelocity(body2, p);
+      const rx = x1 - x2, ry = y1 - y2, rz = z1 - z2, rn = rx * n.GetX() + ry * n.GetY() + rz * n.GetZ();
+      const slip = Math.hypot(rx - rn * n.GetX(), ry - rn * n.GetY(), rz - rn * n.GetZ());
+      settings.mCombinedFriction = contactFriction(a, b, slip);
+      settings.mCombinedRestitution = contactRestitution(a, b);
+    };
+    contacts.OnContactRemoved = () => {};
+    this.system.SetContactListener(contacts);
   }
+
+  /** Material of a body at one of its sub-shapes (terrain: the cell's surface). */
+  private materialOf(body: Body, sub: InstanceType<JoltModule['SubShapeID']>): MaterialKind {
+    const own = this.bodyMaterial.get(body.GetID().GetIndex());
+    if (own) return own;
+    return this.kinds.get(Jolt.getPointer(body.GetShape().GetMaterial(sub))) ?? 'concrete';
+  }
+
+  /** What each tyre of a vehicle stands on (null in the air), for sounds, dust and the HUD. */
+  wheelSurfaces(id: number): ReadonlyArray<MaterialKind | null> { return this.cars.get(id)?.ground ?? []; }
 
   has(id: number): boolean { return this.cars.has(id); }
 
@@ -139,6 +199,7 @@ export class JoltVehicles {
     settings.mUserData = v.id;
     const body = this.bodies.CreateBody(settings);
     Jolt.destroy(settings);
+    this.bodyMaterial.set(body.GetID().GetIndex(), 'metal');
     // Start awake so the springs settle to their real rest length before anyone gets in;
     // otherwise the first throttle input lifts the parked body a few centimetres (a visible hop).
     this.bodies.AddBody(keep(body.GetID()), Jolt.EActivation_Activate);
@@ -156,6 +217,9 @@ export class JoltVehicles {
       w.mSuspensionMinLength = .04; w.mSuspensionMaxLength = def.spring + sag;
       w.mSuspensionSpring.mFrequency = 1.5; w.mSuspensionSpring.mDamping = .5;
       w.mRadius = def.wheelRadius; w.mWidth = def.quad ? .22 : .2;
+      // Wheels as heavy as the vehicle they carry (Jolt's default suits a car's): a light wheel
+      // under a 14 t hull spun up at once and the tyre impulses fought it until the hull leapt.
+      w.mInertia = Math.max(.9, .9 * (def.mass / 1500) * (def.wheelRadius / .4) ** 2);
       w.mMaxSteerAngle = wheel < 2 ? def.turn * .75 : 0;
       w.mMaxHandBrakeTorque = wheel < 2 ? 0 : 4000;
       vehicle.mWheels.push_back(w);
@@ -175,8 +239,10 @@ export class JoltVehicles {
     vehicle.mController = controller;
     vehicle.mAntiRollBars.clear();
     for (const [left, right] of [[0, 1], [2, 3]] as const) {
+      // Stiff enough to keep a car flat in corners; on a 12–14 t hull the same rate overpowered
+      // the springs (the solver flung it up and over in a slow full-lock turn), so it is capped.
       const bar = new Jolt.VehicleAntiRollBar();
-      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = def.mass * 3;
+      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = Math.min(def.mass * 3, 7000);
       vehicle.mAntiRollBars.push_back(bar);
     }
     const constraint = new Jolt.VehicleConstraint(body, vehicle);
@@ -185,7 +251,22 @@ export class JoltVehicles {
     const listener = new Jolt.VehicleConstraintStepListener(constraint);
     this.system.AddStepListener(listener);
     const wheeled = Jolt.castObject(constraint.GetController(), Jolt.WheeledVehicleController);
-    const car: Car = { body, id: keep(body.GetID()), constraint, controller: wheeled, listener, synced: { x: NaN, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, lateral: 0, vy: 0 }, velocity: [0, 0, 0] };
+    // Tyre grip is a property of rubber and what it rolls on: the friction curves are scaled by
+    // the pair's coefficient (see tyreGrip).
+    const ground: Array<MaterialKind | null> = [null, null, null, null];
+    const callbacks = new Jolt.VehicleConstraintCallbacksJS();
+    callbacks.GetCombinedFriction = (wheel: number, _direction: number, tireFriction: number, b2: number, sub2: number) => {
+      const kind = this.materialOf(Jolt.wrapPointer(b2, Jolt.Body), Jolt.wrapPointer(sub2, Jolt.SubShapeID));
+      ground[wheel] = kind;
+      // Jolt's own rule against the ground (sqrt of tyre · ground friction, ground .9 as tuned),
+      // scaled by how this ground grips rubber.
+      return Math.sqrt(tireFriction * .9) * tyreGrip(kind);
+    };
+    callbacks.OnPreStepCallback = () => { ground.fill(null); };
+    callbacks.OnPostCollideCallback = () => {};
+    callbacks.OnPostStepCallback = () => {};
+    callbacks.SetVehicleConstraint(constraint);
+    const car: Car = { body, id: keep(body.GetID()), constraint, controller: wheeled, listener, synced: { x: NaN, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, lateral: 0, vy: 0 }, velocity: [0, 0, 0], ground, callbacks };
     this.cars.set(v.id, car);
     this.pushState(v, car);
   }
@@ -234,6 +315,7 @@ export class JoltVehicles {
     settings.mMaxLinearVelocity = 60; settings.mMaxAngularVelocity = 40;
     settings.mUserData = id;
     const bodyId = keep(this.bodies.CreateAndAddBody(settings, Jolt.EActivation_Activate));
+    this.bodyMaterial.set(bodyId.GetIndex(), def.material);
     // The body now holds the shape; the settings (and their cached result) can go.
     Jolt.destroy(settings); Jolt.destroy(proxy.settings);
     this.bodies.SetLinearVelocity(bodyId, v3(v[0]!, v[1]!, v[2]!));
@@ -246,6 +328,7 @@ export class JoltVehicles {
   removeBody(id: number): void {
     const p = this.props.get(id);
     if (!p) return;
+    this.bodyMaterial.delete(p.id.GetIndex());
     this.bodies.RemoveBody(p.id); this.bodies.DestroyBody(p.id);
     this.props.delete(id);
   }
@@ -339,6 +422,15 @@ export class JoltVehicles {
     settings.mHeightSamples.reserve(padded * padded);
     for (let j = 0; j < padded; j++) for (let i = 0; i < padded; i++)
       settings.mHeightSamples.push_back(i < n && j < n ? hf.heights[j * n + i]! : NO_COLLISION);
+    // One Jolt material per surface present, one index per cell: tyres and props feel the ground.
+    const used: MaterialKind[] = [], index = new Map<MaterialKind, number>();
+    settings.mMaterialIndices.reserve((padded - 1) * (padded - 1));
+    for (let j = 0; j < padded - 1; j++) for (let i = 0; i < padded - 1; i++) {
+      const kind = hf.cellMaterial(i, j);
+      let k = index.get(kind);
+      if (k === undefined) { k = used.length; used.push(kind); index.set(kind, k); settings.mMaterials.push_back(this.materials.get(kind)!); }
+      settings.mMaterialIndices.push_back(k);
+    }
     const shape = settings.Create().Get();
     const body = new Jolt.BodyCreationSettings(shape, rv3(hf.originX, 0, hf.originZ), q4(0, 0, 0, 1), Jolt.EMotionType_Static, LAYER_STATIC);
     body.mFriction = .9;
@@ -374,6 +466,8 @@ export class JoltVehicles {
     body.mFriction = .6; body.mRestitution = .1;
     const id = keep(this.bodies.CreateAndAddBody(body, Jolt.EActivation_DontActivate));
     Jolt.destroy(body);
+    // Buildings, walls and rocks: hard mineral surfaces; trunks and posts (capsules) wood.
+    this.bodyMaterial.set(id.GetIndex(), s.type === 'capsule' ? 'wood' : 'concrete');
     return id;
   }
 
@@ -387,6 +481,7 @@ export class JoltVehicles {
       if (entry.step === this.stepNo) continue;
       const b = c.aabb;
       if (!this.regions.some(([x0, z0, x1, z1]) => b.maxX >= x0 && b.minX <= x1 && b.maxZ >= z0 && b.minZ <= z1)) continue;
+      this.bodyMaterial.delete(entry.id.GetIndex());
       this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(c);
     }
     this.regions.length = 0;
@@ -395,7 +490,7 @@ export class JoltVehicles {
 
   private expire(now: number): void {
     this.dropRemoved();
-    for (const [key, entry] of this.statics) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(key); }
+    for (const [key, entry] of this.statics) if (now - entry.seen > MIRROR_GRACE) { this.bodyMaterial.delete(entry.id.GetIndex()); this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(key); }
     for (const [key, entry] of this.terrain) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.terrain.delete(key); }
   }
 
@@ -433,6 +528,7 @@ export class JoltVehicles {
       }
       live.push([v, car]);
       if (tyres.count) this.dragFlats(v, car, now);
+      this.rollingDrag(v, car);
     }
     let freeAwake = 0;
     for (const p of this.props.values()) {
@@ -469,6 +565,22 @@ export class JoltVehicles {
     s.activeBodies = this.system.GetNumActiveBodies(Jolt.EBodyType_RigidBody); s.bodies = this.system.GetNumBodies();
     for (const [v, car] of live) impacts.set(v.id, this.pull(v, car, dt, now));
     return impacts;
+  }
+
+  /**
+   * Rolling resistance: each tyre on the ground loses Crr · its share of the weight, against the
+   * direction of travel (a vehicle bogs down in sand and mud).
+   */
+  private rollingDrag(v: VehicleState, car: Car): void {
+    const [vx, , vz] = car.velocity, speed = Math.hypot(vx, vz);
+    if (speed < .2) return;
+    let crr = 0;
+    // The engines and gearing were tuned driving on grass (its rolling loss is in that tuning):
+    // only the difference to grass is added, so sand and mud bog a vehicle down.
+    for (const g of car.ground) if (g) crr += (rollingResistance(g) - TUNED_ROLLING) / 4;
+    if (crr <= 0) return;
+    const f = crr * VEHICLES[v.kind].mass * GRAVITY * Math.min(1, speed / .5);
+    this.bodies.AddForce(car.id, v3(-vx / speed * f, 0, -vz / speed * f), Jolt.EActivation_Activate);
   }
 
   /**
@@ -542,19 +654,22 @@ export class JoltVehicles {
     const car = this.cars.get(id);
     if (!car) return;
     this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint);
+    this.bodyMaterial.delete(car.id.GetIndex()); Jolt.destroy(car.callbacks);
     this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
     this.cars.delete(id);
   }
 
   dispose(): void {
     for (const car of this.cars.values()) {
-      this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint);
+      this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint); Jolt.destroy(car.callbacks);
       this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
     }
     this.cars.clear();
     for (const id of [...this.props.keys()]) this.removeBody(id);
     for (const e of [...this.statics.values(), ...this.terrain.values()]) { this.bodies.RemoveBody(e.id); this.bodies.DestroyBody(e.id); }
-    this.statics.clear(); this.terrain.clear();
+    this.statics.clear(); this.terrain.clear(); this.bodyMaterial.clear();
     Jolt.destroy(this.jolt);
+    for (const m of this.materials.values()) m.Release();
+    Jolt.destroy(this.contacts);
   }
 }
