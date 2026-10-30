@@ -158,7 +158,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
         </>}
         {state.vehicle.aircraft && state.vehicle.driving && <span>{state.vehicle.altitude} m</span>}
         {state.vehicle.weapons?.map((w) => <div key={w.name} className="hud-vehicle-weapon">
-          <kbd>{w.trigger === 'primary' ? 'LMB' : 'RMB'}</kbd><b>{w.name}</b>
+          <kbd>{w.key ?? (w.trigger === 'primary' ? 'LMB' : 'RMB')}</kbd><b>{w.name}</b>
           <span>{w.reloadMs > 0 ? `${(w.reloadMs / 1000).toFixed(1)} s` : `${w.mag}/${w.magazine}`} · {w.reserve}</span>
         </div>)}
         {state.vehicle.cm && <div className={`hud-vehicle-cm${state.vehicle.cm.active ? ' on' : ''}`}><kbd>V</kbd><b>{state.vehicle.cm.name}</b>

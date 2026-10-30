@@ -1,5 +1,5 @@
-import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, freshArms, isAircraft, vehicleInReach, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
-import { JoltVehicles, loadJolt, damageVehicle, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
+import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { JoltVehicles, loadJolt, damageVehicle, vehicleHitBounds, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 
@@ -15,6 +15,8 @@ export class Vehicles {
   /** Bots aboard, by id. */
   private readonly botRiders = new Map<number, BotRider>();
   private readonly controls = new Map<number, { throttle: number; steer: number; lift?: number; at: number }>();
+  /** Where each manned weapon mount is being pointed (world yaw, pitch), by vehicle and seat. */
+  private readonly aims = new Map<number, Map<number, [number, number]>>();
   private readonly usedAt = new Map<number, number>();
   private readonly spawnAt = new Map<number, number>();
   private readonly spawns = new Map<number, { x: number; y: number; z: number; yaw: number }>();
@@ -109,6 +111,25 @@ export class Vehicles {
     return id;
   }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
+  /** The rider of a seat with a turning mount points it (it follows at its traverse rate). */
+  aimAt(v: VehicleState, seat: number, yaw: number, pitch: number): void {
+    if (!Number.isFinite(yaw + pitch)) return;
+    let m = this.aims.get(v.id);
+    if (!m) this.aims.set(v.id, m = new Map());
+    m.set(seat, [yaw, pitch]);
+  }
+  /** Turns every manned mount towards its rider's aim; an empty seat's gun stays where it was left. */
+  private slewMounts(dt: number): void {
+    for (const [id, seats] of this.aims) {
+      const v = this.states.get(id);
+      if (!v) { this.aims.delete(id); continue; }
+      const crew = [v.driver, ...(v.passengers ?? [])];
+      for (const [seat, [yaw, pitch]] of seats) {
+        if (!crew[seat] || v.health <= 0) { seats.delete(seat); continue; }
+        slewMount(v, seat, yaw, pitch, dt);
+      }
+    }
+  }
   control(p: Player, throttle: number, steer: number, now: number, lift = 0): void {
     // Only the driver steers; passengers just ride (and shoot). `lift`: a helicopter's collective.
     if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, lift, at: now });
@@ -156,7 +177,7 @@ export class Vehicles {
   }
   private seatBot(b: BotRider, v: VehicleState): void {
     const seat = Math.max(0, vehicleSeatOf(v, b.id));
-    Object.assign(b.state, vehicleSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false, prone: false });
+    Object.assign(b.state, mountedSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false, prone: false });
     if (seat === 0) b.yaw = v.yaw;
   }
   /** A clear spot beside the vehicle to step out to (null when boxed in). */
@@ -262,7 +283,7 @@ export class Vehicles {
   release(p: Player): void { this.exit(p, true); this.usedAt.delete(p.id); }
   private seat(p: Player, v: VehicleState): void {
     const seat = Math.max(0, vehicleSeatOf(v, p.id));
-    Object.assign(p.state, vehicleSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false });
+    Object.assign(p.state, mountedSeat(v, seat), { vx: -Math.sin(v.yaw) * v.speed, vy: 0, vz: -Math.cos(v.yaw) * v.speed, grounded: true, swimming: false, climbing: false });
     // The driver faces the road; passengers keep looking where they aim.
     if (seat === 0) p.yaw = v.yaw;
     p.dirty = true;
@@ -272,6 +293,7 @@ export class Vehicles {
     return vehicleOccupants(v).map((id) => players.get(id)).filter((p): p is Player => !!p && p.vehicleId === v.id);
   }
   step(now: number, dt: number, players: ReadonlyMap<number, Player>, explode: (v: VehicleState, occupants: Player[]) => void, impact: (p: Player, speed: number) => void): void {
+    this.slewMounts(dt);
     for (const v of this.states.values()) {
       for (const id of vehicleOccupants(v)) {
         const bot = this.botRiders.get(id);
@@ -387,10 +409,10 @@ export class Vehicles {
     let best: { t: number; id: number } | null = null;
     for (const v of this.states.values()) {
       if (v.exploded || v.id === skip || !this.available) continue;
-      const def = VEHICLES[v.kind];
-      if (Math.hypot(v.x - ox, v.z - oz) > len + def.halfZ + 3) continue;
+      const { lo, hi } = vehicleHitBounds(v.kind);
+      if (Math.hypot(v.x - ox, v.z - oz) > len + Math.max(-lo[2], hi[2]) + 3) continue;
       const a = vehicleLocalPoint(v, ox, oy, oz), b = vehicleLocalPoint(v, ox + dx, oy + dy, oz + dz);
-      const d = [b.x - a.x, b.y - a.y, b.z - a.z], o = [a.x, a.y, a.z], lo = [-def.halfX, .2, -def.halfZ], hi = [def.halfX, def.height, def.halfZ];
+      const d = [b.x - a.x, b.y - a.y, b.z - a.z], o = [a.x, a.y, a.z];
       let t0 = 0, t1 = len;
       for (let i = 0; i < 3 && t0 <= t1; i++) {
         if (Math.abs(d[i]!) < 1e-9) { if (o[i]! < lo[i]! || o[i]! > hi[i]!) t0 = Infinity; continue; }
@@ -430,8 +452,8 @@ export class Vehicles {
       if (wheel >= 0) { v.flats = (v.flats ?? 0) | (1 << wheel); break; }
       // Armour shrugs off rounds lighter than its rating (tanks ignore rifles, APCs most of them).
       if (amount < Math.max(25, VEHICLE_ROLES[v.kind].armor)) break;
-      const p=vehicleLocalPoint(v,x,y,z),def=VEHICLES[v.kind];
-      if(Math.abs(p.x)<=def.halfX+.12&&Math.abs(p.z)<=def.halfZ+.12&&p.y>=0&&p.y<=def.height+.12) {damageVehicle(v,amount*.6,now);break;}
+      const p=vehicleLocalPoint(v,x,y,z),{lo,hi}=vehicleHitBounds(v.kind);
+      if(p.x>=lo[0]-.12&&p.x<=hi[0]+.12&&p.z>=lo[2]-.12&&p.z<=hi[2]+.12&&p.y>=0&&p.y<=hi[1]+.12) {damageVehicle(v,amount*.6,now);break;}
     }
   }
   blast(x: number, y: number, z: number, radius: number, damage: number, now: number): void {

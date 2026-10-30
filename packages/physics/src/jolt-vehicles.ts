@@ -1,11 +1,12 @@
 import type initJolt from 'jolt-physics';
-import { VEHICLES, CHUNK_SIZE, createVehicleMotion, tyreHandling, wheelCentre, type VehicleState } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, CHUNK_SIZE, createVehicleMotion, tyreHandling, wheelCentre, type VehicleState } from '@zion/shared';
 import { Layer } from './layers';
 import { damageVehicle } from './vehicles';
 import type { Collider } from './shapes';
 import type { CollisionWorld } from './world';
 import type { Heightfield } from './heightfield';
 import { SURFACE_MATERIALS, isDynamicBodyTag, proxyBounds, type BodyPose, type BodyState, type ProxyPart, type RigidBodyDef } from './rigid-body';
+import { VEHICLE_HULLS } from './vehicle-hulls.gen';
 import { MATERIAL_KINDS, contactFriction, contactRestitution, pairFriction, rollingResistance, type MaterialKind } from './surfaces';
 
 /**
@@ -44,12 +45,16 @@ const TUNED_ROLLING = rollingResistance('grass');
 const tyreGrip = (ground: MaterialKind) => Math.min(1.35, pairFriction('rubber', ground)[1] / TUNED_GRIP);
 /** Mirrored geometry nobody needed for this long is dropped (ms). */
 const MIRROR_GRACE = 3000;
+/** Road-wheel pairs between a tracked hull's corner wheels. */
+const MID_ROAD_WHEELS = 2;
 
 interface Car {
   body: Body;
   id: BodyID;
   constraint: InstanceType<JoltModule['VehicleConstraint']>;
-  controller: InstanceType<JoltModule['WheeledVehicleController']>;
+  /** Wheeled: engine through differentials to steered wheels. Tracked: two tracks, skid-steered. */
+  controller: InstanceType<JoltModule['WheeledVehicleController']> | null;
+  tracks: InstanceType<JoltModule['TrackedVehicleController']> | null;
   listener: InstanceType<JoltModule['VehicleConstraintStepListener']>;
   /** What we last wrote to the VehicleState, to detect outside edits (reset, shoves). */
   synced: { x: number; y: number; z: number; yaw: number; pitch: number; roll: number; speed: number; lateral: number; vy: number };
@@ -181,14 +186,24 @@ export class JoltVehicles {
   add(v: VehicleState): void {
     if (this.cars.has(v.id)) return;
     const def = VEHICLES[v.kind], m = v.motion ??= createVehicleMotion(v.kind);
-    // Chassis: a box from just above the axles to the roofline, centre of mass at `com`.
-    const bottom = Math.max(.2, def.wheelRadius * .85), top = def.height * (def.quad ? .72 : .9), cy = (bottom + top) / 2;
-    const box = new Jolt.BoxShapeSettings(v3(def.halfX, (top - bottom) / 2, def.halfZ), .05);
-    const placed = new Jolt.RotatedTranslatedShapeSettings(v3(0, cy, 0), q4(0, 0, 0, 1), box);
-    // Mass sits low in the chassis (engine, frame, axles), around wheel-hub height: a low
-    // centre of mass keeps hard cornering and bumps from tipping the vehicle over.
-    const comY = Math.max(.15, def.wheelRadius * .55);
-    const shape = new Jolt.OffsetCenterOfMassShapeSettings(v3(0, comY - cy, 0), placed).Create().Get();
+    // Chassis: the body as modelled (boxes fitted to the model, see vehicle-hulls), from the
+    // underside's clearance up: an overturned jeep rests on its windscreen frame, not on an
+    // invisible box roof, and a tank's turret and hull meet the world where they are drawn.
+    const clearance = Math.max(.2, def.wheelRadius * .85);
+    const compound = new Jolt.StaticCompoundShapeSettings();
+    for (const [x, y, z, hx, hy, hz] of VEHICLE_HULLS[v.kind]) {
+      const lo = Math.max(clearance, y - hy), hi = y + hy;
+      if (hi - lo < .05) continue;
+      const half = (hi - lo) / 2;
+      // (v3 is one shared scratch vector: the box is made before its position is written.)
+      const box = new Jolt.BoxShapeSettings(v3(hx, half, hz), Math.min(.05, hx, half, hz) * .9);
+      compound.AddShape(v3(x, (hi + lo) / 2, z), q4(0, 0, 0, 1), box, 0);
+    }
+    // Mass sits low in the chassis (engine, frame, axles), around wheel-hub height, on the centre
+    // line, under the origin (as the handling was tuned): a low centre of mass keeps hard
+    // cornering and bumps from tipping the vehicle over, whatever shape its body is.
+    const comY = Math.max(.15, def.wheelRadius * .55), c = compound.Create().Get().GetCenterOfMass();
+    const shape = new Jolt.OffsetCenterOfMassShapeSettings(v3(-c.GetX(), comY - c.GetY(), -c.GetZ()), compound).Create().Get();
     const [qx, qy, qz, qw] = eulerQuat(v.yaw, m.pitch, m.roll);
     const settings = new Jolt.BodyCreationSettings(shape, rv3(v.x, v.y, v.z), q4(qx, qy, qz, qw), Jolt.EMotionType_Dynamic, LAYER_MOVING);
     settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
@@ -206,43 +221,71 @@ export class JoltVehicles {
 
     const vehicle = new Jolt.VehicleConstraintSettings();
     vehicle.mUp = v3(0, 1, 0); vehicle.mForward = new Jolt.Vec3(0, 0, -1);
-    const sag = GRAVITY / (2 * Math.PI * 1.5) ** 2;
+    const tracked = VEHICLE_ROLES[v.kind].cls === 'tank';
+    const sag = GRAVITY / (2 * Math.PI * (tracked ? 2.4 : 1.8)) ** 2;
     vehicle.mWheels.clear();
-    for (let wheel = 0; wheel < 4; wheel++) {
-      const w = new Jolt.WheelSettingsWV();
-      const x = wheel % 2 === 0 ? -def.wheelX : def.wheelX, z = wheel < 2 ? def.frontZ : def.rearZ;
+    // Tracks: road wheels all along the hull (corners 0–3 as for any vehicle, then pairs between),
+    // so the belly rides the ground's crests on its wheels instead of grounding on them.
+    const wheels = tracked ? 4 + 2 * MID_ROAD_WHEELS : 4;
+    for (let wheel = 0; wheel < wheels; wheel++) {
+      const w = tracked ? new Jolt.WheelSettingsTV() : new Jolt.WheelSettingsWV();
+      const mid = wheel >= 4 ? (wheel - 4 >> 1) + 1 : 0;
+      const x = wheel % 2 === 0 ? -def.wheelX : def.wheelX, z = mid ? def.frontZ + (def.rearZ - def.frontZ) * mid / (MID_ROAD_WHEELS + 1) : wheel < 2 ? def.frontZ : def.rearZ;
       // Mounted so the loaded spring sits at `spring`, the tyre touching the body origin's plane.
       w.mPosition = new Jolt.Vec3(x, def.wheelRadius + def.spring, z);
       w.mWheelForward = new Jolt.Vec3(0, 0, -1);
       w.mSuspensionMinLength = .04; w.mSuspensionMaxLength = def.spring + sag;
-      w.mSuspensionSpring.mFrequency = 1.5; w.mSuspensionSpring.mDamping = .5;
+      // Tracked hulls ride stiff, heavily damped torsion bars (they barely bob); wheeled vehicles a
+      // softer spring, damped enough that one bump does not set the body bouncing.
+      w.mSuspensionSpring.mFrequency = tracked ? 2.4 : 1.8; w.mSuspensionSpring.mDamping = tracked ? 1 : .8;
       w.mRadius = def.wheelRadius; w.mWidth = def.quad ? .22 : .2;
-      // Wheels as heavy as the vehicle they carry (Jolt's default suits a car's): a light wheel
-      // under a 14 t hull spun up at once and the tyre impulses fought it until the hull leapt.
-      w.mInertia = Math.max(.9, .9 * (def.mass / 1500) * (def.wheelRadius / .4) ** 2);
-      w.mMaxSteerAngle = wheel < 2 ? def.turn * .75 : 0;
-      w.mMaxHandBrakeTorque = wheel < 2 ? 0 : 4000;
+      if (w instanceof Jolt.WheelSettingsTV) {
+        // A track's grip: strong along it, weaker across so the hull can skid round.
+        w.mLongitudinalFriction = 1.5; w.mLateralFriction = .9;
+      } else {
+        // Wheels as heavy as the vehicle they carry (Jolt's default suits a car's): a light wheel
+        // under a heavy hull spun up at once and the tyre impulses fought it until the hull leapt.
+        w.mInertia = Math.max(.9, .9 * (def.mass / 1500) * (def.wheelRadius / .4) ** 2);
+        w.mMaxSteerAngle = wheel < 2 ? def.turn * .75 : 0;
+        w.mMaxHandBrakeTorque = wheel < 2 ? 0 : 4000;
+      }
       vehicle.mWheels.push_back(w);
     }
-    const controller = new Jolt.WheeledVehicleControllerSettings();
     // Ordinary road gearing; torque so first gear gives about the vehicle's nominal acceleration.
     // Top speed is governed in step(), not by the rev limiter.
-    const diff = 3.42;
-    controller.mEngine.mMaxTorque = def.mass * def.acceleration * def.wheelRadius / (2.66 * diff) * 1.6;
-    controller.mEngine.mMaxRPM = 6000;
-    controller.mDifferentials.clear();
-    for (const [left, right] of [[0, 1], [2, 3]] as const) {
-      const d = new Jolt.VehicleDifferentialSettings();
-      d.mLeftWheel = left; d.mRightWheel = right; d.mDifferentialRatio = diff; d.mEngineTorqueRatio = .5;
-      controller.mDifferentials.push_back(d);
+    // Tanks are far more powerful for their weight: enough to skid both tracks round on the spot.
+    const diff = tracked ? 6 : 3.42, torque = def.mass * def.acceleration * def.wheelRadius / (2.66 * diff) * (tracked ? 3 : 1.6);
+    if (tracked) {
+      const controller = new Jolt.TrackedVehicleControllerSettings();
+      controller.mEngine.mMaxTorque = torque; controller.mEngine.mMaxRPM = 6000;
+      // Track 0 left (even wheels), 1 right; each driven by its rear sprocket.
+      for (let t = 0; t < 2; t++) {
+        const track = controller.get_mTracks(t);
+        track.mWheels.clear();
+        for (let wheel = t; wheel < wheels; wheel += 2) track.mWheels.push_back(wheel);
+        track.mDrivenWheel = 2 + t; track.mDifferentialRatio = diff;
+        track.mInertia = def.mass / 1200; track.mAngularDamping = .5; track.mMaxBrakeTorque = def.mass * 1.25;
+      }
+      vehicle.mController = controller;
+    } else {
+      const controller = new Jolt.WheeledVehicleControllerSettings();
+      controller.mEngine.mMaxTorque = torque; controller.mEngine.mMaxRPM = 6000;
+      controller.mDifferentials.clear();
+      for (const [left, right] of [[0, 1], [2, 3]] as const) {
+        const d = new Jolt.VehicleDifferentialSettings();
+        d.mLeftWheel = left; d.mRightWheel = right; d.mDifferentialRatio = diff; d.mEngineTorqueRatio = .5;
+        controller.mDifferentials.push_back(d);
+      }
+      vehicle.mController = controller;
     }
-    vehicle.mController = controller;
     vehicle.mAntiRollBars.clear();
     for (const [left, right] of [[0, 1], [2, 3]] as const) {
-      // Stiff enough to keep a car flat in corners; on a 12–14 t hull the same rate overpowered
-      // the springs (the solver flung it up and over in a slow full-lock turn), so it is capped.
+      // A light bar: stiff ones (mass · 3) were what threw vehicles over on uneven ground — with
+      // one wheel unloaded over a bump the bar levered the other side up until the body rolled
+      // off (a jeep rolled 90° driving straight across gentle 8° undulations). Tracks have none.
+      if (tracked) continue;
       const bar = new Jolt.VehicleAntiRollBar();
-      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = Math.min(def.mass * 3, 7000);
+      bar.mLeftWheel = left; bar.mRightWheel = right; bar.mStiffness = Math.min(def.mass * .5, 900);
       vehicle.mAntiRollBars.push_back(bar);
     }
     const constraint = new Jolt.VehicleConstraint(body, vehicle);
@@ -250,10 +293,11 @@ export class JoltVehicles {
     this.system.AddConstraint(constraint);
     const listener = new Jolt.VehicleConstraintStepListener(constraint);
     this.system.AddStepListener(listener);
-    const wheeled = Jolt.castObject(constraint.GetController(), Jolt.WheeledVehicleController);
+    const wheeled = tracked ? null : Jolt.castObject(constraint.GetController(), Jolt.WheeledVehicleController);
+    const tracks = tracked ? Jolt.castObject(constraint.GetController(), Jolt.TrackedVehicleController) : null;
     // Tyre grip is a property of rubber and what it rolls on: the friction curves are scaled by
     // the pair's coefficient (see tyreGrip).
-    const ground: Array<MaterialKind | null> = [null, null, null, null];
+    const ground: Array<MaterialKind | null> = new Array(wheels).fill(null);
     const callbacks = new Jolt.VehicleConstraintCallbacksJS();
     callbacks.GetCombinedFriction = (wheel: number, _direction: number, tireFriction: number, b2: number, sub2: number) => {
       const kind = this.materialOf(Jolt.wrapPointer(b2, Jolt.Body), Jolt.wrapPointer(sub2, Jolt.SubShapeID));
@@ -266,7 +310,7 @@ export class JoltVehicles {
     callbacks.OnPostCollideCallback = () => {};
     callbacks.OnPostStepCallback = () => {};
     callbacks.SetVehicleConstraint(constraint);
-    const car: Car = { body, id: keep(body.GetID()), constraint, controller: wheeled, listener, synced: { x: NaN, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, lateral: 0, vy: 0 }, velocity: [0, 0, 0], ground, callbacks };
+    const car: Car = { body, id: keep(body.GetID()), constraint, controller: wheeled, tracks, listener, synced: { x: NaN, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, lateral: 0, vy: 0 }, velocity: [0, 0, 0], ground, callbacks };
     this.cars.set(v.id, car);
     this.pushState(v, car);
   }
@@ -515,7 +559,18 @@ export class JoltVehicles {
       const top = (throttle > 0 ? VEHICLES[v.kind].maxSpeed : VEHICLES[v.kind].maxSpeed * .32) * tyres.top;
       const governed = throttle * tyres.power * Math.max(0, Math.min(1, (top - Math.abs(forward)) / 3));
       // Steering eases off with speed, gently: a fast vehicle can still be turned round.
-      car.controller.SetDriverInput(braking ? 0 : governed, m.steer * tyres.steer / (1 + Math.abs(forward) / 45), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
+      if (car.controller) car.controller.SetDriverInput(braking ? 0 : governed, m.steer * tyres.steer / (1 + Math.abs(forward) / 45), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
+      else if (car.tracks) {
+        // Skid steering: the inside track slows (turning on the move) or runs backwards (turning
+        // on the spot with no throttle); parked, both tracks are braked.
+        const turn = m.steer * tyres.steer;
+        let drive = braking ? 0 : governed, left = 1, right = 1;
+        if (Math.abs(turn) > .05) {
+          if (Math.abs(drive) < .1 && !braking) { drive = Math.abs(turn); left = turn > 0 ? 1 : -1; right = -left; }
+          else if (turn > 0) right = 1 - Math.abs(turn) * .9; else left = 1 - Math.abs(turn) * .9;
+        }
+        car.tracks.SetDriverInput(drive, left, right, braking ? Math.abs(throttle) : control ? 0 : 1);
+      }
       if (control && (throttle || steer)) this.bodies.ActivateBody(car.id);
       const awake = this.bodies.IsActive(car.id);
       if (!awake) continue;
@@ -577,7 +632,7 @@ export class JoltVehicles {
     let crr = 0;
     // The engines and gearing were tuned driving on grass (its rolling loss is in that tuning):
     // only the difference to grass is added, so sand and mud bog a vehicle down.
-    for (const g of car.ground) if (g) crr += (rollingResistance(g) - TUNED_ROLLING) / 4;
+    for (const g of car.ground) if (g) crr += (rollingResistance(g) - TUNED_ROLLING) / car.ground.length;
     if (crr <= 0) return;
     const f = crr * VEHICLES[v.kind].mass * GRAVITY * Math.min(1, speed / .5);
     this.bodies.AddForce(car.id, v3(-vx / speed * f, 0, -vz / speed * f), Jolt.EActivation_Activate);

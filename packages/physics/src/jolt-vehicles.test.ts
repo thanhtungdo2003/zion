@@ -88,7 +88,7 @@ describe('Jolt vehicles', () => {
     const w = world(), v = car(w), sim = new JoltVehicles(w);
     w.setOwnerColliders(77, [{ shape: makeBox(99, 32, 130, .15, 4, 60), layer: Layer.Static }]);
     try {
-      sim.add(v); v.yaw = -.5; v.speed = 25;
+      sim.add(v); v.yaw = -.7; v.speed = 25;
       const crash = run(sim, [v], 4, 1, 0, () => expect(v.x).toBeLessThan(99));
       expect(crash).toBeGreaterThan(4);
       expect(v.health).toBeLessThan(VEHICLES.car.health);

@@ -296,6 +296,8 @@ const INFECTED_MATERIALS = new WeakMap<Material, Material>();
 
 export class Avatar {
   private drivingActive = false;
+  /** World height of the vehicle floor under a seated rider's feet (null: none to keep them off). */
+  seatFloor: number | null = null;
   drivingPose(quad: boolean | null, yaw: number, pitch=0, roll=0, passenger = false): void {
     if (quad === null) {
       if (this.drivingActive) { this.model.position.set(0,0,0); this.model.rotation.set(0,0,0); this.root.rotation.set(0,yaw,0,'YXZ'); }
@@ -1385,7 +1387,7 @@ export class Avatar {
       grasp.L = grasp.R = null;
       this.poseBranch = recorded.weight > .98 ? 'gun' : 'gun-driver';
       if (recorded.weight > .98) human.poseMocap(recorded, dt);
-      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
+      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
       this.attachRecordedGun(held, bracing, recorded.action?.weight ?? 0);
       this.heldMagazine.update(held.obj, recorded.action && this.reloadAnim ? this.reloadAnim.t / this.reloadAnim.dur : -1, human.palmMatrix('L'));
       return;
@@ -1423,7 +1425,7 @@ export class Avatar {
     }
     else {
       this.poseBranch = 'driver';
-      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
+      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
     }
     human.group.updateMatrixWorld(true);
   }
@@ -1858,7 +1860,7 @@ export class Avatar {
     } else if (recordedArms) grasp[trig] = null;
     grasp[sup] = null;
     if (recordedArms) { hands[trig] = 'fist'; reach[trig] = null; }
-    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: f.speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, mocap: recorded });
+    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: f.speed > .025, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, mocap: recorded });
     human.group.updateMatrixWorld(true);
     // The weapon in the hand.
     const world = trigLocal ? human.objectInHand(trig, trigLocal, scl) : null;

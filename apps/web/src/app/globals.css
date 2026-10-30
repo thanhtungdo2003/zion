@@ -3891,3 +3891,12 @@ kbd {
 .wfl-att-slot img { width: 48px; height: 32px; object-fit: contain; }
 .wfl-att-slot svg { width: 22px; height: 22px; }
 @media (max-width: 760px) { .wfl { padding: 12px 16px; } .wfl-classes span { display: none; } .wfl-att-body { grid-template-columns: 1fr; } .wfl-go { min-width: 0; } }
+
+/* Tank gunner's sight (see game/tank-sight.ts). */
+.tank-sight { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+.tank-sight-reticle { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; transform: translate(-50%, -50%); fill: none; stroke: #f4f1de; stroke-width: 1.6; filter: drop-shadow(0 0 1px #000); }
+.tank-sight-gun { position: absolute; left: 0; top: 0; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid #f6c445; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); transition: border-color .15s; }
+.tank-sight.laid .tank-sight-gun { border-color: #7be08a; }
+.tank-sight-zoom { position: absolute; inset: 0; opacity: 0; transition: opacity .2s; background: radial-gradient(circle at center, transparent 34vmin, rgba(0, 0, 0, .85) 35vmin, #000 60vmin); }
+.tank-sight.zoomed .tank-sight-zoom { opacity: 1; }
+.tank-sight.zoomed .tank-sight-reticle { width: 200px; height: 200px; }

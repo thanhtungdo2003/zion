@@ -1,10 +1,12 @@
 import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, mountedPoint, mountedSeat, seatAim, seatMount, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
 import { VehicleTimeline } from '../vehicle-timeline';
 import { VehicleSmoke } from './vehicle-smoke';
+import { buildMountRigs, poseMountRigs, splitMounts, type MountRig } from './vehicle-mounts';
+import { fitSeats, type SeatFit } from './seat-fit';
 
 // Vehicles are sent at 15 Hz. Rendering more than one packet interval in the past keeps
 // playback interpolating between real states; extrapolating and then correcting backwards
@@ -13,7 +15,7 @@ const VEHICLE_RENDER_DELAY_MS = 105;
 /** Delay for the vehicle we drive: two 30 Hz snapshot intervals. */
 const OWN_RENDER_DELAY_MS = 70;
 
-interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number }
+interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number; rigs:MountRig[]; fit:SeatFit[] }
 export class VehicleRenderer {
   private readonly views = new Map<number, View>();
   private readonly audio = new VehicleAudio();
@@ -29,7 +31,7 @@ export class VehicleRenderer {
     for(const v of message.vehicles){
       const existing=this.views.get(v.id);
       if(existing){existing.target={...v};existing.timeline.push(message.time,v);}
-      else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0,rotors:[],spin:0});}
+      else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0,rotors:[],spin:0,rigs:[],fit:[]});}
     }
   }
   /** The vehicle a player is aboard (any seat), interpolated. */
@@ -69,6 +71,7 @@ export class VehicleRenderer {
         wheel.mount.rotation.y=wheel.index<2?-(p.motion?.steer??0)*.42:0;
         wheel.spin.rotation.x=-view.travel/def.wheelRadius;
       }
+      poseMountRigs(view.rigs,v,dt);
       // Helicopter rotors: spinning with the rotor speed (main ~5 turns/s, tail faster).
       view.spin+=(v.rotor??0)*dt*32;
       for(const r of view.rotors){if(r.axis==='main')r.group.rotation.y=view.spin;else r.group.rotation.x=view.spin*2.6;}
@@ -77,8 +80,13 @@ export class VehicleRenderer {
         view.loaded=true;
         void this.library.load(VEHICLES[v.kind].asset)?.then(visual=>{
           if(this.disposed||!this.views.has(v.id))return;
-          for(const part of visual.parts){
-            const mesh=new Mesh(part.geometry,part.material);mesh.castShadow=true;mesh.receiveShadow=true;
+          // Turrets and roof guns are cut out of the hull and turn on their own groups.
+          const {hull,pieces}=splitMounts(v.kind,visual.parts);
+          const meshOf=(part:{geometry:Mesh['geometry'];material:Mesh['material']})=>{const m=new Mesh(part.geometry,part.material);m.castShadow=true;m.receiveShadow=true;return m;};
+          view.rigs=buildMountRigs(v.kind,view.body,pieces,meshOf);
+          view.fit=fitSeats(v.kind,hull);
+          for(const part of hull){
+            const mesh=meshOf(part);
             if(part.rotor&&part.rotorCenter){const group=new Group();group.position.set(...part.rotorCenter);group.add(mesh);view.body.add(group);view.rotors.push({group,axis:part.rotor});}
             else if(part.wheel!==undefined&&part.wheelCenter){
               let wheel=view.wheels.find(w=>w.index===part.wheel);
@@ -103,6 +111,35 @@ export class VehicleRenderer {
     this.world.removeOwnerColliders(vehicleOwner(v.id));
     try{return fn();}finally{this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(v));}
   }
-  seat(id:number):{x:number;y:number;z:number}|undefined{const v=this.rider(id);return v?vehicleSeat(v,Math.max(0,this.seatIndex(id))):undefined;}
+  /** Where a rider is drawn: on the seat's cushion as measured on the model, carried by any mount. */
+  seat(id:number):{x:number;y:number;z:number}|undefined{
+    const view=this.viewOf(id);if(!view)return undefined;
+    const seat=Math.max(0,vehicleSeatOf(view.target,id)),v={...view.pose,aim:this.shownAim(id)},fit=view.fit[seat];
+    if(fit?.y==null)return mountedSeat(v,seat);
+    const [x,,z]=VEHICLES[v.kind].seats[seat]??VEHICLES[v.kind].seat;
+    return vehiclePoint(v,x,fit.y,z);
+  }
+  /** World height of the floor under a seated rider's feet (null: nothing to keep them off). */
+  seatFloor(id:number):number|null{
+    const view=this.viewOf(id);if(!view)return null;
+    const seat=Math.max(0,vehicleSeatOf(view.target,id)),fit=view.fit[seat];
+    if(fit?.floor==null)return null;
+    const [x,,z]=VEHICLES[view.pose.kind].seats[seat]??VEHICLES[view.pose.kind].seat;
+    return vehiclePoint(view.pose,x,fit.floor,z-.5).y;
+  }
+  /**
+   * The gunner's sight of a turret seat: beside the gun on the turret (where it is drawn now), and
+   * the world direction the barrel points. Undefined for a seat without a turning mount.
+   */
+  sight(id:number):{x:number;y:number;z:number;yaw:number;pitch:number}|undefined{
+    const view=this.viewOf(id);if(!view)return undefined;
+    const seat=Math.max(0,vehicleSeatOf(view.target,id)),m=seatMount(view.pose.kind,seat);if(!m)return undefined;
+    const v={...view.pose,aim:this.shownAim(id)},[px,py,pz]=m.pitchAt;
+    const at=mountedPoint(v,seat,px-.55,py+.65,pz+.3,false),p=vehiclePoint(v,at.x,at.y,at.z),[yaw,pitch]=seatAim(v,seat);
+    return {...p,yaw:v.yaw+yaw,pitch};
+  }
+  private viewOf(id:number):View|undefined{return [...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0);}
+  /** The mounts' aim as drawn (eased), so a gunner stands exactly at the gun on screen. */
+  private shownAim(id:number):number[]|undefined{const view=this.viewOf(id);if(!view?.rigs.length)return view?.target.aim;const out:number[]=[];for(const r of view.rigs){out[r.seat*2]=r.shownYaw;out[r.seat*2+1]=r.shownPitch;}for(let i=0;i<out.length;i++)out[i]??=0;return out;}
   dispose():void{this.disposed=true;for(const[id,v]of this.views){this.scene.remove(v.root);this.world.removeOwnerColliders(vehicleOwner(id));}this.views.clear();this.audio.dispose();this.smoke.dispose();}
 }

@@ -613,6 +613,8 @@ export interface PoseRequest {
   ground?: ((x: number, z: number) => number) | null;
   /** The hips drop this far (m), e.g. a seated pose. */
   hipDrop?: number;
+  /** A floor the feet never go through (world height): a vehicle's floor under a seated rider. */
+  floor?: number;
   /**
    * A recorded clip mixed over the pose: the trunk and legs (and the arms when `arms`, else they
    * keep holding what they hold), at `time` seconds, by `weight`; `hips` keeps its hip bob.
@@ -1173,6 +1175,8 @@ export class HumanBody {
     // where the rig's planted foot stands; then the ankle is levelled when it is flat on the floor.
     if (recorded && req.mocap?.aim) this.aimTorso(req.mocap.aim);
     if (recorded && req.plant > .5 && !req.mocap?.ground) for (const s of ['L', 'R'] as const) this.groundFoot(s, req.plant);
+    // Seated: a foot that would sink into the vehicle's floor draws the knee up instead.
+    if (req.floor !== undefined) for (const s of ['L', 'R'] as const) this.groundFoot(s, 1, req.floor);
     // Rolling on the ground: the whole body rests on the floor (never floats, never sinks).
     if (recorded && req.mocap!.ground) this.groundBody(Math.min(1, req.mocap!.weight), req.mocap!.clip.startsWith('prone_') ? req.dt : 0);
     else this.bodyFloorOffset = null;
@@ -1224,9 +1228,9 @@ export class HumanBody {
   }
 
   /** Keeps a foot from going through the floor (the hips' rest height above the ground). */
-  private groundFoot(s: Side, plant: number): void {
+  private groundFoot(s: Side, plant: number, ground = this.groundY): void {
     const S = this.side[s];
-    const A = this.assets, ground = this.groundY;
+    const A = this.assets;
     // Model units to world: the thigh's length now against its rest length.
     const k = this.pos(S.thigh, tmpV[9]!.clone()).distanceTo(this.pos(S.shin, tmpV[10]!.clone())) / Math.max(1e-6, A.restP[S.thigh]!.distanceTo(A.restP[S.shin]!));
     const sole = Math.min(A.restP[S.foot]!.y, A.restP[S.toe]!.y);

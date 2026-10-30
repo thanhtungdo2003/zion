@@ -1,9 +1,10 @@
-import { VEHICLE_ROLES, VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleState, type VehicleMotion } from '@zion/shared';
+import { VEHICLE_ROLES, VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleKind, type VehicleState, type VehicleMotion } from '@zion/shared';
 import { makeBox, shapeAABB, makeContact, type BoxShape, type Collider } from './shapes';
 import { capsuleVsBox } from './geometry';
 import { Layer, Mask } from './layers';
 import { makeRayHit } from './shapes';
 import type { CollisionWorld, ColliderInit } from './world';
+import { VEHICLE_HULLS } from './vehicle-hulls.gen';
 
 /** Solid chassis and pillars; windows stay open to combat rays and exposed riders. */
 export function vehicleColliders(v: VehicleState): ColliderInit[] {
@@ -14,8 +15,8 @@ export function vehicleColliders(v: VehicleState): ColliderInit[] {
     return {shape,layer:Layer.Static,tag:50000+v.id};
   };
   const cls = VEHICLE_ROLES[v.kind].cls;
-  // Armour: one solid hull up to the turret roof. Helicopters: the fuselage (the boom is thin).
-  if (cls === 'tank' || cls === 'apc') return [box(0, def.height * .5, 0, def.halfX, def.height * .5, def.halfZ)];
+  // Armour: the hull and turret as modelled (boxes fitted to the model). Helicopters: the fuselage (the boom is thin).
+  if (cls === 'tank' || cls === 'apc') return VEHICLE_HULLS[v.kind].map(([x, y, z, hx, hy, hz]) => box(x, y, z, hx, hy, hz));
   if (cls === 'heli') return [box(0, def.height * .55, -def.halfZ * .3, def.halfX, def.height * .3, def.halfZ * .55), box(0, def.height * .65, def.halfZ * .6, .3, .3, def.halfZ * .4)];
   const k = def.scale, parts = [box(0, .48 * k, 0, def.halfX, .25 * k, def.halfZ)];
   if (!def.quad) {
@@ -27,6 +28,23 @@ export function vehicleColliders(v: VehicleState): ColliderInit[] {
   }
   return parts;
 }
+/**
+ * The box round everything a vehicle is hit on, vehicle metres: its frame (VEHICLES) and the body
+ * as modelled (an armoured hull's stowage and fuel drums reach past the frame).
+ */
+export function vehicleHitBounds(kind: VehicleKind): { lo: readonly [number, number, number]; hi: readonly [number, number, number] } {
+  const known = hitBounds.get(kind);
+  if (known) return known;
+  const d = VEHICLES[kind], lo: number[] = [-d.halfX, .2, -d.halfZ], hi: number[] = [d.halfX, d.height, d.halfZ];
+  if (VEHICLE_ROLES[kind].cls === 'tank' || VEHICLE_ROLES[kind].cls === 'apc') for (const [x, y, z, hx, hy, hz] of VEHICLE_HULLS[kind]) {
+    lo[0] = Math.min(lo[0]!, x - hx); lo[1] = Math.min(lo[1]!, y - hy); lo[2] = Math.min(lo[2]!, z - hz);
+    hi[0] = Math.max(hi[0]!, x + hx); hi[1] = Math.max(hi[1]!, y + hy); hi[2] = Math.max(hi[2]!, z + hz);
+  }
+  const out = { lo: lo as [number, number, number], hi: hi as [number, number, number] };
+  hitBounds.set(kind, out);
+  return out;
+}
+const hitBounds = new Map<VehicleKind, ReturnType<typeof vehicleHitBounds>>();
 export function damageVehicle(v: VehicleState, damage: number, now: number): void {
   if (v.exploded || v.health <= 0 || damage <= 0 || !Number.isFinite(damage)) return;
   v.health = Math.max(0, v.health - damage);

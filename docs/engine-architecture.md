@@ -214,13 +214,62 @@ kinetic (sliding) coefficient, rolling resistance, restitution and a sound famil
   on (asphalt up to a third more, mud less than half, ice about a tenth). Rolling resistance adds the
   difference to grass, so sand and mud bog a vehicle down. `wheelSurfaces(id)` tells what each tyre
   stands on.
-- **Heavy vehicles:** wheel inertia scales with the vehicle's mass and wheel size, and anti-roll
-  bars are capped at 7000. At the old rate a 12–14 t hull was thrown up and over in a slow
-  full-lock turn.
+- **Heavy vehicles:** wheel inertia scales with the vehicle's mass and wheel size.
 
 `packages/physics/src/surfaces.test.ts` covers the pair table, a crate sliding on grass against
 ice, static friction holding a crate on a 20° rock slope that it slides down on ice, and a car
 pulling away on asphalt against mud.
+
+### 10.2 Vehicle ride, hulls and weapon mounts
+
+- **Suspension.** Stiff anti-roll bars were what threw vehicles over. With one wheel unloaded over
+  a bump, the bar levered the other side up until the body rolled off: a jeep rolled 90° driving
+  straight across gentle 8° undulations, and a tank bucked off its corner wheels.
+  - Wheeled vehicles now have a light bar (mass · 0.5, at most 900) and a 1.8 Hz spring damped at 0.8.
+  - Tracked hulls have no bar, and a stiff, critically damped 2.4 Hz spring (torsion bars).
+- **Tracks.** Tanks use Jolt's `TrackedVehicleController`.
+  - Road wheels run along the hull: the four corners (indices 0–3, as for any vehicle), then
+    pairs between them.
+  - The tracks skid-steer: the inside track slows when turning on the move, and runs backwards
+    when turning on the spot with no throttle.
+  - Engine torque is about twice a wheeled vehicle's for its weight, enough to skid both tracks
+    round.
+- **Hulls fitted to the model.** `apps/web/scripts/vehicle-hulls.mjs` builds each vehicle's
+  hull from its prepared model and writes `packages/physics/src/vehicle-hulls.gen.ts`:
+  - It voxelises the model (wheels, rotors and gun barrels left out) and fills the inside of
+    closed shells.
+  - It merges the solid cells into at most 64 boxes, at the finest cell size that fits.
+
+  The Jolt chassis is that compound, cut at the underside's clearance. The centre of mass stays low
+  on the centre line, under the origin, as the handling was tuned. Armour also uses the boxes as
+  its combat and line-of-sight colliders, and `vehicleHitBounds` bounds them for shells. Cars keep
+  their hand-made colliders with open windows. Rerun the script whenever a vehicle model changes.
+- **Weapon mounts** (`packages/shared/src/vehicle-mounts.ts`). Each tank turret and roof gun is
+  declared in `VEHICLE_MOUNTS`:
+  - its traverse axis;
+  - its trunnion;
+  - its traverse and elevation rates;
+  - which of the model's triangles turn with it.
+
+  How the aim flows:
+  - The server keeps each seat's actual aim in `VehicleState.aim`, relative to the hull.
+  - It slews the mount towards its rider's aim, or a bot's target, at the mount's rate.
+  - It fires from `weaponMuzzle`: the muzzle where the barrel really points, and along it.
+  - Bots fire once the gun is laid on the target.
+  - The browser cuts the turret, barrel and roof gun out of the hull mesh (`render/vehicle-mounts.ts`)
+    and turns them by the same aim. A model with no gun at a mount gets a generic machine gun.
+- **Crew.**
+  - A tank's commander sits inside the hull, out of sight. The view is the gunner's sight on the
+    turret: the mouse aims, a ring marks where the gun points while the turret catches up, the
+    right button magnifies, the left fires the gun, and Space fires the coaxial.
+  - The roof gunner stands in the hatch, half out, and turns with the gun.
+  - Seated riders sit on the cushion measured on the model (`render/seat-fit.ts`, a vertical ray
+    through each seat). Their feet are kept off the floor under them: the human rig's `floor`
+    draws the knee up instead of letting a foot sink into the vehicle.
+
+`packages/physics/src/vehicle-ride.test.ts` drives a jeep and a tank across undulations and turns
+a tank on the spot. `packages/shared/src/vehicle-mounts.test.ts` covers traverse rates, the muzzle
+following the turret, and a roof gun and its gunner riding round with it.
 
 ## 11. Known limits and next steps
 

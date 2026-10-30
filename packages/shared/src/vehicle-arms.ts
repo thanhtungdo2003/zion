@@ -59,6 +59,8 @@ export interface VehicleRole {
   countermeasure?: Countermeasure;
   /** Troops ride in the back (the seats after the gunners). */
   transport: boolean;
+  /** Seats inside the hull: their riders are out of sight (and out of reach of small arms). */
+  inside?: readonly number[];
   /** Small-arms rounds below this do nothing to the hull (armour). */
   armor: number;
   /** Share of blast damage that gets through. */
@@ -98,18 +100,18 @@ const missile = (seat: number, trigger: 'primary' | 'secondary', name: string, r
 });
 const SMOKE: Countermeasure = { kind: 'smoke', name: 'Lựu đạn khói 902B', charges: 2, cooldownMs: 45_000, durationMs: 18_000 };
 const FLARES: Countermeasure = { kind: 'flares', name: 'Mồi bẫy nhiệt', charges: 3, cooldownMs: 35_000, durationMs: 5000 };
-const TANK_SEATS = ['Trưởng xe · lái & pháo chính', 'Súng máy trên tháp pháo'] as const;
+const TANK_SEATS = ['Trưởng xe · lái & pháo chính (trong xe)', 'Súng máy trên tháp pháo'] as const;
 
 export const VEHICLE_ROLES: Record<VehicleKind, VehicleRole> = {
   car: { cls: 'car', seats: ['Lái', 'Ghế phụ', 'Sau trái', 'Sau phải'], weapons: [], transport: true, armor: 0, blastFactor: 1 },
   jeep: { cls: 'car', seats: ['Lái', 'Ghế phụ', 'Sau trái', 'Sau phải'], weapons: [], transport: true, armor: 0, blastFactor: 1 },
   quad: { cls: 'car', seats: ['Lái', 'Sau'], weapons: [], transport: true, armor: 0, blastFactor: 1 },
   grizzly: { cls: 'car', seats: ['Lái', 'Sau'], weapons: [], transport: true, armor: 0, blastFactor: 1 },
-  t80u: { cls: 'tank', seats: TANK_SEATS, weapons: [cannon('cannon', 'Pháo 125 mm 2A46M-1', [0, 1.6, -6.2], 7000, 36, 125), coax([.35, 1.62, -1.9]), hmg(1, 'Súng máy NSVT 12,7', [1.04, 2.5, -1.6])], countermeasure: SMOKE, transport: false, armor: 140, blastFactor: .35 },
-  t90a: { cls: 'tank', seats: TANK_SEATS, weapons: [cannon('cannon', 'Pháo 125 mm 2A46M-5', [0, 1.75, -5.9], 7000, 40, 125), coax([.35, 1.75, -1.8]), hmg(1, 'Súng máy Kord 12,7', [.6, 2.6, -.6])], countermeasure: SMOKE, transport: false, armor: 140, blastFactor: .35 },
-  t62a: { cls: 'tank', seats: TANK_SEATS, weapons: [cannon('cannon', 'Pháo 115 mm U-5TS', [0, 2.0, -6.2], 9000, 40, 115), coax([.35, 2.0, -1.9]), hmg(1, 'Súng máy DShK 12,7', [.8, 2.75, .1])], countermeasure: SMOKE, transport: false, armor: 120, blastFactor: .4 },
-  tank: { cls: 'tank', seats: TANK_SEATS, weapons: [cannon('cannon', 'Pháo 105 mm', [0, 1.9, -5.3], 8000, 44, 105), coax([.35, 1.9, -2.0]), hmg(1, 'Súng máy M2 12,7', [.5, 2.9, .3])], countermeasure: SMOKE, transport: false, armor: 130, blastFactor: .38 },
-  marauder: { cls: 'apc', seats: ['Lái', 'Súng máy trạm điều khiển', 'Lính 1', 'Lính 2', 'Lính 3', 'Lính 4', 'Lính 5', 'Lính 6', 'Lính 7', 'Lính 8'], weapons: [hmg(1, 'Súng máy 12,7 trên nóc', [0, 3.35, -.9])], countermeasure: SMOKE, transport: true, armor: 60, blastFactor: .55 },
+  t80u: { cls: 'tank', seats: TANK_SEATS, inside: [0], weapons: [cannon('cannon', 'Pháo 125 mm 2A46M-1', [0, 1.6, -6.2], 7000, 36, 125), coax([.35, 1.62, -1.9]), hmg(1, 'Súng máy NSVT 12,7', [1.0, 2.5, -2.0])], countermeasure: SMOKE, transport: false, armor: 140, blastFactor: .35 },
+  t90a: { cls: 'tank', seats: TANK_SEATS, inside: [0], weapons: [cannon('cannon', 'Pháo 125 mm 2A46M-5', [0, 1.75, -5.9], 7000, 40, 125), coax([.35, 1.75, -1.8]), hmg(1, 'Súng máy Kord 12,7', [.6, 2.5, -1.0])], countermeasure: SMOKE, transport: false, armor: 140, blastFactor: .35 },
+  t62a: { cls: 'tank', seats: TANK_SEATS, inside: [0], weapons: [cannon('cannon', 'Pháo 115 mm U-5TS', [0, 1.8, -6.2], 9000, 40, 115), coax([.35, 1.8, -1.9]), hmg(1, 'Súng máy DShK 12,7', [.6, 2.75, -1.9])], countermeasure: SMOKE, transport: false, armor: 120, blastFactor: .4 },
+  tank: { cls: 'tank', seats: TANK_SEATS, inside: [0], weapons: [cannon('cannon', 'Pháo 105 mm', [0, 1.9, -5.3], 8000, 44, 105), coax([.35, 1.9, -2.0]), hmg(1, 'Súng máy M2 12,7', [.55, 2.8, -.8])], countermeasure: SMOKE, transport: false, armor: 130, blastFactor: .38 },
+  marauder: { cls: 'apc', seats: ['Lái', 'Súng máy trạm điều khiển', 'Lính 1', 'Lính 2', 'Lính 3', 'Lính 4', 'Lính 5', 'Lính 6', 'Lính 7', 'Lính 8'], weapons: [hmg(1, 'Súng máy 12,7 trên nóc', [0, 3.45, -.3])], countermeasure: SMOKE, transport: true, armor: 60, blastFactor: .55 },
   mi17: { cls: 'heli', seats: ['Phi công', 'Súng máy cửa trái', 'Súng máy cửa phải', 'Lính 1', 'Lính 2', 'Lính 3', 'Lính 4', 'Lính 5', 'Lính 6', 'Lính 7', 'Lính 8', 'Lính 9', 'Lính 10', 'Lính 11', 'Lính 12'],
     weapons: [rockets(0, 'primary', 'Rocket S-8 (B8V20)', [[-2.3, 1.25, -2.4], [2.3, 1.25, -2.4]], 20, 20), pkm(1, [-1.5, 2.0, -4.6]), pkm(2, [1.5, 2.0, -4.6])], countermeasure: FLARES, transport: true, armor: 0, blastFactor: 1 },
   z10: { cls: 'heli', seats: ['Phi công', 'Xạ thủ'],

@@ -1,4 +1,4 @@
-import { TICK_DT, VEHICLES, VEHICLE_ROLES, advanceBallistic, triggerCountermeasure, useVehicleRound, vehiclePoint, type ServerJsonMessage, type VehicleState, type VehicleWeapon } from '@zion/shared';
+import { TICK_DT, VEHICLES, VEHICLE_ROLES, advanceBallistic, seatAim, seatMount, triggerCountermeasure, useVehicleRound, vehiclePoint, weaponMuzzle, type ServerJsonMessage, type VehicleState, type VehicleWeapon } from '@zion/shared';
 import { ZONE_DAMAGE_MULTIPLIER, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { castCombatRay, spreadDirection, type Combatant } from './combat';
 import type { Vehicles } from './vehicles';
@@ -63,14 +63,15 @@ export class VehicleGunnery {
     const key = `${v.id}:${w.id}`;
     if (!useVehicleRound(w, ammo, this.lastShot.get(key) ?? -Infinity, now)) return false;
     this.lastShot.set(key, now);
-    // Clamp the aim to what the mount can reach (relative to the hull's heading).
-    const rel = Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw));
+    // A turning mount fires where its barrel points now (it follows the aim at its own rate);
+    // a fixed one along the aim, clamped to what it can reach from the hull's heading.
+    const turned = seatMount(v.kind, w.seat) ? seatAim(v, w.seat) : null;
+    const rel = turned ? turned[0] : Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw));
     const ay = v.yaw + Math.max(-w.arc.yaw, Math.min(w.arc.yaw, rel));
-    const ap = Math.max(-w.arc.pitchDown, Math.min(w.arc.pitchUp, pitch));
+    const ap = Math.max(-w.arc.pitchDown, Math.min(w.arc.pitchUp, turned ? turned[1] : pitch));
     const k = (this.nextMount.get(key) ?? 0) % w.mounts.length;
     this.nextMount.set(key, k + 1);
-    const [mx, my, mz] = w.mounts[k]!;
-    const o = vehiclePoint(v, mx, my, mz);
+    const o = weaponMuzzle(v, w, k);
     const [dx, dy, dz] = spreadDirection(-Math.sin(ay) * Math.cos(ap), Math.sin(ap), -Math.cos(ay) * Math.cos(ap), w.spread, Math.random);
     // The vehicle's own motion carries the round (a helicopter's rockets keep its speed).
     const fwd = v.speed;

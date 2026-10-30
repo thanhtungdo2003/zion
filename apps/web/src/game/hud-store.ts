@@ -23,7 +23,7 @@ export interface HudState {
     name: string; driving: boolean; speed: number; health: number; exploding: boolean;
     /** The seat's name and the weapons it works (ammo, reload), the countermeasure, flight height. */
     seat?: string;
-    weapons?: Array<{ name: string; trigger: 'primary' | 'secondary'; mag: number; reserve: number; magazine: number; reloadMs: number }>;
+    weapons?: Array<{ name: string; trigger: 'primary' | 'secondary'; key?: string; mag: number; reserve: number; magazine: number; reloadMs: number }>;
     cm?: { name: string; charges: number; readyMs: number; active: boolean };
     altitude?: number;
     aircraft?: boolean;

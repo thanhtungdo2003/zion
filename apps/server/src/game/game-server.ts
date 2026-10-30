@@ -9,7 +9,7 @@ import { InfectionMatch } from './infection';
 import { WaveMatch } from './waves';
 import { WarfareMatch } from './warfare';
 import type { WarfareRoomConfig } from './warfare-rooms';
-import { ARMOR_BY_ITEM, NO_ARMOR, VEHICLE_ROLES, isAircraft, vehicleInReach, vehiclePoint, armedSeat, seatWeapon, type VehicleState, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
+import { ARMOR_BY_ITEM, NO_ARMOR, VEHICLE_ROLES, isAircraft, seatMount, slewMount, weaponMuzzle, vehicleInReach, armedSeat, seatWeapon, type VehicleState, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
 import { WarfareDirector, ledObjective, type DirectorUnit, type DirectorZone } from './warfare-director';
 import { driveTowards, newDriveMemory, type DriveMemory } from './warfare-driving';
 import { VehicleGunnery } from './vehicle-gunnery';
@@ -2552,8 +2552,7 @@ export class GameServer {
     if (secondary && heavy(primary) && !inVehicle && d < 60) w = secondary;
     if (secondary && !heavy(primary) && heavy(secondary) && inVehicle) w = secondary;
     if (!w) return true;
-    const [mx, my, mz] = w.mounts[0]!;
-    const o = vehiclePoint(v, mx, my, mz);
+    const o = weaponMuzzle(v, w);
     // Lead a moving target by the flight time, then a gunner's error.
     const flight = d / w.speed, tx = t.state.x + t.state.vx * flight, tz = t.state.z + t.state.vz * flight, ty = t.state.y + 1 + .5 * w.gravity * flight * flight;
     const err = (w.kind === 'mg' ? .025 : .012) * (1 + d / 120);
@@ -2562,6 +2561,9 @@ export class GameServer {
     // Unguided rockets and the tank gun wait until the hull points close enough.
     const rel = Math.abs(Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)));
     if (rel > w.arc.yaw + .05) return true;
+    // A turret swings round onto the target first; it fires once laid on (the cannon closely).
+    this.vehicles.aimAt(v, bot.vehicleSeat, yaw, pitch);
+    if (seatMount(v.kind, w.seat) && slewMount(v, w.seat, yaw, pitch, 0) > (w.kind === 'cannon' ? .015 : .05)) return true;
     if (now < bot.reactAt) return true;
     this.vehicles.withoutColliders(v, () => this.gunnery.fire(bot, v, w!, yaw, pitch, now));
     return true;
@@ -3723,6 +3725,9 @@ export class GameServer {
       for (const p of this.players.values()) centers.push([p.chunkX, p.chunkZ]);
       for (const c of this.joining.values()) centers.push(c);
       if (this.bots) centers.push(...this.bots.centers());
+      // The battlefield's fixed places stay loaded with nobody near: a side whose base is far from
+      // every player (bots queued to deploy are dead, they hold no ground) still needs it to deploy.
+      if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) centers.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
       this.physics.update(centers);
     }
 
@@ -3816,7 +3821,7 @@ export class GameServer {
       p.pitch = input.pitch; p.aiming = false; p.lastButtons = 0; p.lastProcessedSeq = input.s;
       const v = this.vehicles.driving(p);
       // The driver works the vehicle's own weapons (a tank's gun, a helicopter's rockets).
-      if (v && !p.downed) this.seatTriggers(p, v, 0, input.b, input.aimYaw ?? input.yaw, input.pitch, now);
+      if (v && !p.downed) { this.vehicles.aimAt(v, 0, input.aimYaw ?? input.yaw, input.pitch); this.seatTriggers(p, v, 0, input.b, input.aimYaw ?? input.yaw, input.pitch, now); }
       return;
     }
     if (p.state.flight) {
@@ -3953,7 +3958,7 @@ export class GameServer {
     p.lastButtons = buttons;
     const v = this.vehicles.driving(p);
     // A gunner's seat: the mounted weapon, not the rider's own gun.
-    if (v && armedSeat(v.kind, p.vehicleSeat)) { if (!p.downed) this.seatTriggers(p, v, p.vehicleSeat, input.b, p.yaw, p.pitch, now); p.lastProcessedSeq = input.s; return; }
+    if (v && armedSeat(v.kind, p.vehicleSeat)) { if (!p.downed) { this.vehicles.aimAt(v, p.vehicleSeat, p.yaw, p.pitch); this.seatTriggers(p, v, p.vehicleSeat, input.b, p.yaw, p.pitch, now); } p.lastProcessedSeq = input.s; return; }
     if (v && spec?.kind === 'gun' && (buttons & Buttons.Attack)) {
       this.vehicles.withoutColliders(v, () => {
         if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.bore);
