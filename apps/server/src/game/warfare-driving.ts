@@ -34,6 +34,8 @@ export function driveTowards(
   mem: DriveMemory,
   probe: (angle: number, length: number) => number,
   arriveRadius = 8,
+  /** Cruising speed on a clear straight (m/s). */
+  maxSpeed = 20,
 ): { throttle: number; steer: number; arrived: boolean; stuck: boolean } {
   const dx = target.x - v.x, dz = target.z - v.z, d = Math.hypot(dx, dz);
   if (d < arriveRadius) return { throttle: v.speed > 1.5 ? -1 : 0, steer: 0, arrived: true, stuck: false };
@@ -57,10 +59,14 @@ export function driveTowards(
   // Heading error: the vehicle faces (−sin yaw, −cos yaw); a negative error is a right turn.
   const want = Math.atan2(-(goal.x - v.x), -(goal.z - v.z)), err = wrap(want - v.yaw);
   const steer = Math.max(-1, Math.min(1, -err * 1.6));
-  const sharp = Math.abs(err) > 1.1;
-  let throttle = sharp ? .45 : 1;
-  if (ahead < 5) throttle = .3;
-  // Ease off near the end so it stops where it was sent.
-  if (d < arriveRadius + 25 && v.speed > 8) throttle = -.3;
+  // Speed it wants: slow for a turn, for something close ahead and for the stop at the end (each
+  // a speed it can still brake from in time); the pedal then closes the gap to that speed.
+  const e = Math.abs(err);
+  const turn = e > 1.4 ? 4 : e > .8 ? 7 : e > .35 ? 12 : e > .15 ? 18 : maxSpeed;
+  const room = Math.sqrt(2 * 6 * Math.max(0, ahead - 4)) + 2;
+  const stop = Math.sqrt(2 * 4 * Math.max(0, d - arriveRadius)) + 2;
+  const wantSpeed = Math.min(maxSpeed, turn, room, stop);
+  const gap = wantSpeed - v.speed;
+  const throttle = gap > 0 ? Math.max(.3, Math.min(1, gap / 4)) : Math.max(-1, gap / 3);
   return { throttle, steer, arrived: false, stuck: mem.reversals > 4 };
 }

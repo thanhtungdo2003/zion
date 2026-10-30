@@ -240,6 +240,8 @@ export class BattleBotDirector {
   private steps = 0;
   /** Cover searches left this step (each casts a few dozen rays). */
   private coverBudget = 0;
+  /** Bots dodge-roll when shot (off in Warfare). */
+  rolls = true;
   clear(): void { this.bots.length = 0; this.rounds.length = 0; }
 
   /** Ladders bots may climb (foot → top), for route searches. */
@@ -292,7 +294,7 @@ export class BattleBotDirector {
     bot.healUntil = 0; bot.campUntil = 0; bot.hurtAt = now;
     if (from) bot.alert = { x: from.x, z: from.z, until: now + 6000 };
     // Shot at: roll out of the line of fire.
-    if (bot.health > 0 && zone !== 'red_zone' && !bot.downed && now >= bot.rollReadyAt) { bot.rollRequest = true; bot.rollReadyAt = now + 2600 + Math.random() * 1500; }
+    if (this.rolls && bot.health > 0 && zone !== 'red_zone' && !bot.downed && now >= bot.rollReadyAt) { bot.rollRequest = true; bot.rollReadyAt = now + 2600 + Math.random() * 1500; }
     if (from) for (const mate of this.squad(bot)) if (Math.hypot(mate.state.x - bot.state.x, mate.state.z - bot.state.z) < 90) mate.alert = { x: from.x, z: from.z, until: now + 6000 };
     if (bot.health > 0) return;
     // Squad matches: knocked down first while a squadmate can still come and help.

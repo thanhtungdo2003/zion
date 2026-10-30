@@ -507,6 +507,7 @@ export class GameServer {
         }
       },
     }) : null;
+    if (this.bots && deps.mode === 'warfare') this.bots.rolls = false;
     if (this.battle) this.scatterGroundLoot();
     this.gunnery = new VehicleGunnery(this.vehicles, this.collision, {
       bodies: (x, z, radius) => [
@@ -3166,7 +3167,7 @@ export class GameServer {
       if (cls === 'heli') { this.wfFly(b, v, m, now); continue; }
       let mem = this.wfDriveMem.get(v.id);
       if (!mem) this.wfDriveMem.set(v.id, mem = newDriveMemory(v.x, v.z, now));
-      const c = driveTowards(v, m.target, now, mem, (angle, length) => this.wfProbe(v, angle, length), cls === 'tank' ? 12 : 8);
+      const c = driveTowards(v, m.target, now, mem, (angle, length) => this.wfProbe(v, angle, length), cls === 'tank' ? 12 : 8, cls === 'tank' ? 11 : cls === 'apc' ? 15 : 19);
       if (c.stuck) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue; }
       if (c.arrived) {
         if (cls === 'tank') { this.vehicles.driveBot(b, 0, 0, now); continue; }
@@ -3876,6 +3877,7 @@ export class GameServer {
       if (!ok) buttons &= ~(Buttons.Lunge | Buttons.LungeLong);
     } else buttons &= ~Buttons.LungeLong;
     if ((buttons & Buttons.Sprint) && (input.mx || input.mz) && !this.life.spend(p.life, this.life.config.stamina.sprintPerSecond * TICK_DT * this.effort(p))) buttons &= ~Buttons.Sprint;
+    if (this.warfare) buttons &= ~Buttons.Roll;
     if ((buttons & Buttons.Roll) && p.state.rollTicks === 0 && p.state.rollCooldown === 0 && p.state.grounded && !this.life.spend(p.life, this.life.config.stamina.roll * this.effort(p))) buttons &= ~Buttons.Roll;
     input = { ...input, b: buttons };
     p.lastButtons = buttons;

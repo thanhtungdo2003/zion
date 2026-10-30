@@ -2155,7 +2155,10 @@ export class GameEngine {
       r.avatar.posePlan((pose.flags & EntityFlags.Planning) !== 0);
       const ride = this.vehicles?.rider(r.entity.id);
       if (ride) { const p = this.vehicles!.seat(r.entity.id)!; r.avatar.root.position.set(p.x, p.y, p.z); }
-      r.avatar.drivingPose(ride ? VEHICLES[ride.kind].quad : null, ride && this.vehicles!.seatIndex(r.entity.id) === 0 ? ride.yaw : pose.yaw,ride?.motion?.pitch,ride?.motion?.roll);
+      // Seats: the driver steers; a weapon seat stands at its gun, turning with the aim; anyone
+      // else sits facing forward with the hands in the lap.
+      const seatNo = ride ? this.vehicles!.seatIndex(r.entity.id) : -1, gunner = !!ride && seatNo > 0 && armedSeat(ride.kind, seatNo);
+      r.avatar.drivingPose(ride && !gunner ? VEHICLES[ride.kind].quad : null, ride && !gunner ? ride.yaw : pose.yaw, ride?.motion?.pitch, ride?.motion?.roll, seatNo > 0);
       const target = r.entity.kind === EntityKind.Player || r.entity.kind === EntityKind.Animal || r.entity.kind === EntityKind.Guard;
       // Visibility is recomputed every frame: once hidden by the vision cone, a body must come back
       // as soon as it is seen again (it used to stay hidden while its shots were still visible).
@@ -2627,6 +2630,8 @@ export class GameEngine {
     this.wasPrimed = this.weaponCtl.primed;
     if (this.viewModel) this.viewModel.primed = this.weaponCtl.primed;
     if (this.weaponCtl.blocksSprint(actionTime, weapon, trigger)) buttons &= ~Buttons.Sprint;
+    // Warfare: no dodge roll.
+    if (this.welcome?.mode === 'warfare') buttons &= ~Buttons.Roll;
     if (action === 'throw' && weapon === WeaponId.C4) buttons |= Buttons.ThrowC4;
     else if (action !== 'none') buttons |= Buttons.Attack;
     // The blade combo's finisher lunges forward on the tick it starts (validated by the server).

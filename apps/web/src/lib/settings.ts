@@ -148,10 +148,11 @@ export class SettingsStore {
     this.cameras.survival = state.cameraMode;
     try {
       const saved = JSON.parse(localStorage.getItem('zion.camera.v1') ?? '{}') as Record<string, unknown>;
-      const battle = saved['battle-royale'];
-      if (battle === 'first-person' || battle === 'third-person' || battle === 'top-down') this.cameras['battle-royale'] = battle;
-      const infection = saved.infection;
-      if (infection === 'first-person' || infection === 'third-person' || infection === 'top-down') this.cameras.infection = infection;
+      // Every mode remembers its own view (Waves and Warfare were never read back).
+      for (const mode of Object.keys(this.cameras) as GameMode[]) {
+        const v = saved[mode];
+        if (mode !== 'survival' && (v === 'first-person' || v === 'third-person' || v === 'top-down')) this.cameras[mode] = v;
+      }
     } catch { /* keep the first-person BR default */ }
     this.state = { ...state, cameraMode: this.cameras[this.mode] };
     if (typeof document !== 'undefined') document.documentElement.lang = state.lang;

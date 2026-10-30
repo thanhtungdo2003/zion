@@ -296,7 +296,7 @@ const INFECTED_MATERIALS = new WeakMap<Material, Material>();
 
 export class Avatar {
   private drivingActive = false;
-  drivingPose(quad: boolean | null, yaw: number, pitch=0, roll=0): void {
+  drivingPose(quad: boolean | null, yaw: number, pitch=0, roll=0, passenger = false): void {
     if (quad === null) {
       if (this.drivingActive) { this.model.position.set(0,0,0); this.model.rotation.set(0,0,0); this.root.rotation.set(0,yaw,0,'YXZ'); }
       this.drivingActive = false; return;
@@ -314,8 +314,9 @@ export class Avatar {
     for (const side of ['left', 'right']) {
       const leg = this.bones.get(`leg_${side}`), arm = this.bones.get(`arm_${side}`), hand = this.bones.get(`hand_${side}`);
       if (leg) { leg.node.rotation.copy(leg.restRot); leg.node.rotation.x += quad ? .85 : 1.3; leg.node.rotation.z += (side === 'left' ? -1 : 1) * (quad ? .28 : .06); }
-      if (arm) { arm.node.rotation.copy(arm.restRot); arm.node.rotation.x += quad ? 1.05 : 1.2; arm.node.rotation.z += (side === 'left' ? -1 : 1) * .12; }
-      if (hand) { hand.node.rotation.copy(hand.restRot); hand.node.rotation.x += .2; }
+      // The driver reaches for the wheel or bars; a passenger rests the hands on the thighs.
+      if (arm) { arm.node.rotation.copy(arm.restRot); arm.node.rotation.x += passenger ? .45 : quad ? 1.05 : 1.2; arm.node.rotation.z += (side === 'left' ? -1 : 1) * (passenger ? .05 : .12); }
+      if (hand) { hand.node.rotation.copy(hand.restRot); hand.node.rotation.x += passenger ? .5 : .2; }
     }
   }
   private offhandId: string | null = null;
