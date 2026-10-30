@@ -34,9 +34,13 @@ export type RotateResult =
   | { status: 'expired' }
   | { status: 'reused'; accountId: string; familyId: string };
 
+/** How long after rotation the previous token is still accepted (a crashed or lagging client retrying). */
+const ROTATION_GRACE_MS = 5 * 60_000;
+
 /**
  * Refresh tokens are stored only as SHA-256 hashes. Rotation is atomic (row lock); presenting an
- * already-rotated token revokes the whole family, which defeats stolen-token replay.
+ * already-rotated token revokes the whole family, which defeats stolen-token replay — except
+ * within a short grace after its rotation (see ROTATION_GRACE_MS).
  */
 export class RefreshTokenRepository {
   constructor(private readonly db: Db) {}
@@ -73,6 +77,20 @@ export class RefreshTokenRepository {
       const row = rows[0];
       if (!row) return { status: 'invalid' } as const;
       const rec = map(row);
+      // Rotated moments ago but the new cookie never reached the browser (it crashed or lost the
+      // response mid-load, or two tabs refreshed together): a benign retry while the family is still
+      // live, not a replay. It gets a fresh token in the same family instead of revoking the session.
+      if (rec.replacedBy && rec.revokedAt && Date.now() - rec.revokedAt.getTime() < ROTATION_GRACE_MS) {
+        const live = await c.query('SELECT 1 FROM refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL AND expires_at > now() LIMIT 1', [rec.familyId]);
+        if (live.rows.length) {
+          const ins = await c.query<{ id: string }>(
+            `INSERT INTO refresh_tokens (account_id, family_id, token_hash, expires_at, user_agent, ip)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [rec.accountId, rec.familyId, params.newTokenHash, params.expiresAt, params.userAgent, params.ip],
+          );
+          return { status: 'ok', accountId: rec.accountId, familyId: rec.familyId, newId: ins.rows[0]!.id } as const;
+        }
+      }
       if (rec.revokedAt || rec.replacedBy) {
         await c.query('UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL', [
           rec.familyId,
