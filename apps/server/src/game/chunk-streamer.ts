@@ -51,6 +51,11 @@ export class ChunkStreamer {
     private readonly world: WorldService,
     private readonly sizeChunks: number,
     private readonly metrics: Metrics,
+    /**
+     * A fixed map: a chunk keeps the detail it was sent with until it is far out of range (no
+     * resending it coarser at every step away, and rebuilding it on the client each time).
+     */
+    private readonly bounded = false,
   ) {}
 
   get loadedCount(): number {
@@ -90,10 +95,10 @@ export class ChunkStreamer {
       const cx = chunkKeyX(key);
       const cz = chunkKeyZ(key);
       const d = Math.max(Math.abs(cx - this.centerX), Math.abs(cz - this.centerZ));
-      if (d > MAX_RING + UNLOAD_MARGIN) {
+      if (d > MAX_RING + (this.bounded ? UNLOAD_MARGIN * 3 : UNLOAD_MARGIN)) {
         unload.push([cx, cz]);
         this.sent.delete(key);
-      } else if (lod < LOD_COUNT - 1 && d > LOD_RINGS[lod]! + UNLOAD_MARGIN) {
+      } else if (!this.bounded && lod < LOD_COUNT - 1 && d > LOD_RINGS[lod]! + UNLOAD_MARGIN) {
         // Too detailed for its distance: forget it so the next pass sends the coarser version.
         this.sent.delete(key);
       }

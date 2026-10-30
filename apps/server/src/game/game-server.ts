@@ -445,6 +445,8 @@ export class GameServer {
     });
     this.controller = new CharacterController(this.collision);
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
+    // Fixed maps are loaded whole (in the background) and never evicted; only survival streams.
+    this.physics.keepAll = this.fixedMap;
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => {
@@ -1162,6 +1164,9 @@ export class GameServer {
   }
 
   /** Physics cost and population for /metrics: Jolt step time, bodies, and free-body interactions. */
+  /** Battle royale, infection, waves and warfare are bounded maps, loaded whole; survival is the open world. */
+  private get fixedMap(): boolean { return this.deps.mode === 'battle-royale' || this.deps.mode === 'infection' || this.deps.mode === 'waves' || this.deps.mode === 'warfare'; }
+
   physicsProfile(): Record<string, number> {
     const j = this.vehicles.rigid.stats, f = this.freeBodies.profile(), c = this.freeBodies.counters;
     return {
@@ -1364,7 +1369,7 @@ export class GameServer {
     }
     this.syncLoadout(player);
     if (!rejoin?.state.flight) player.state.grounded = true;
-    player.streamer = new ChunkStreamer(session, this.deps.world, this.deps.world.generator.config.sizeChunks, this.deps.metrics);
+    player.streamer = new ChunkStreamer(session, this.deps.world, this.deps.world.generator.config.sizeChunks, this.deps.metrics, this.fixedMap);
     player.streamer.setCenter(player.chunkX, player.chunkZ);
     player.history.push(this.serverTime, pos.x, pos.y, pos.z, player.yaw);
     player.active = true;
@@ -1383,6 +1388,8 @@ export class GameServer {
     if (this.infection) { if (!rejoin) player.pendingMatch = { since: this.serverTime }; this.syncLoadout(player); this.infectionOccupied = true; }
     if (this.waves) { this.syncLoadout(player); if (!this.waveCash.has(player.id)) this.waveCash.set(player.id, WAVE_START_CASH); }
     if (this.warfare) this.wfJoin(player, !!rejoin);
+    // A fixed map: the player acts only once their client has the map loaded.
+    if (this.fixedMap && !rejoin) player.awaitingReady = true;
     if (rejoin) this.broadcast({ t: 'chat', from: this.battle ? 'BATTLE ROYALE' : this.waves ? 'SINH TỒN' : this.warfare ? 'CHIẾN TRƯỜNG' : 'LÂY NHIỄM', fromId: 0, system: true, text: `${player.username} đã vào lại trận.` });
     this.deps.metrics.players = this.players.size;
 
@@ -1511,6 +1518,7 @@ export class GameServer {
         this.vehicles.send(p, this.serverTime);
         return;
       case 'ready':
+        p.awaitingReady = false;
         this.enterMatch(p);
         return;
       case 'pvp':
@@ -3616,6 +3624,8 @@ export class GameServer {
       const retry = this.requisitionRetries.get(p.accountId);
       if (retry !== undefined && Date.now() >= retry) { void this.receiveStudioCurrency(p.accountId); continue; }
       if (p.questEvents.length) { void this.flushQuestEvents(p); if (p.questBusy) continue; }
+      // Fixed maps: nobody acts before their client has loaded the map ('ready').
+      if (p.awaitingReady) { const last = p.inputs[p.inputs.length - 1]; if (last) p.lastProcessedSeq = last.s; p.inputs.length = 0; continue; }
       if (p.dead) {
         if (this.squadOf(p)) this.deps.teams?.position(p.accountId, { entityId: p.id, x: p.state.x, y: p.state.y, z: p.state.z, health: 0, downed: false });
         if (this.battle && this.tick % 6 === 0) {
@@ -3735,6 +3745,7 @@ export class GameServer {
       // every player (bots queued to deploy are dead, they hold no ground) still needs it to deploy.
       if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) centers.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
       this.physics.update(centers);
+      this.physics.pumpPreload(this.deps.world.generator.config.sizeChunks);
     }
 
     this.stepGrenades(now);

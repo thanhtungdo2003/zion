@@ -2590,6 +2590,8 @@ export class GameEngine {
 
   private fixedStep(local: LocalPlayer): void {
     if (!this.conn.open) return;
+    // Still loading the map: no moving, no shooting (the server ignores it until 'ready' too).
+    if (this.hud.get().status === 'loading') return;
     // Driving (and a gunner's seat): the controls and the triggers go to the vehicle, not the rider's own gun.
     const ride = local.riding ? this.vehicles?.rider(this.welcome!.playerId) : undefined;
     const seatNo = this.vehicles?.seatIndex(this.welcome!.playerId) ?? -1;
@@ -4111,7 +4113,7 @@ export class GameEngine {
         }
         this.loadingSince ||= now;
         const complete = have >= expected * .98 && !!this.props?.settled && !!this.vegetation?.settled;
-        if (complete || now - this.loadingSince > 90_000) { status = 'playing'; this.loadingSince = 0; if (!this.sentReady) { this.sentReady = true; this.conn.sendReady(); } }
+        if (complete || now - this.loadingSince > 300_000) { status = 'playing'; this.loadingSince = 0; if (!this.sentReady) { this.sentReady = true; this.conn.sendReady(); } }
         else this.hud.set({ statusDetail: { key: 'raw', vars: { text: `Đang tải bản đồ ${Math.round(have / Math.max(1, expected) * 100)}% · mô hình và cây cối…` } }, loadProgress: have / Math.max(1, expected) });
       }
       else if (status === 'dead') status = 'playing';

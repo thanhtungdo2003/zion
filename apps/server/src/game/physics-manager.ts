@@ -24,6 +24,39 @@ export class PhysicsChunkManager {
     private readonly logger: Logger,
   ) {}
 
+  /**
+   * Fixed maps (battle royale, infection, waves, warfare): the whole map is loaded once and stays
+   * loaded. Nothing is evicted as players and bots move, so nothing is ever built twice (a fast
+   * aircraft no longer drags chunk loading and collider building through every tick).
+   */
+  keepAll = false;
+  private preload: Generator<readonly [number, number]> | null = null;
+  private preloading = 0;
+  /** Whole-map preload finished. */
+  get complete(): boolean { return this.keepAll && this.preload === null && this.preloading === 0 && this.started; }
+  private started = false;
+
+  /**
+   * Fixed maps: loads the whole map in the background, at most `inflight` chunks at a time, so the
+   * tick keeps its pace while it fills (call every tick).
+   */
+  pumpPreload(sizeChunks: number, inflight = 4): void {
+    if (!this.keepAll) return;
+    if (!this.started) {
+      this.started = true;
+      const self = this;
+      this.preload = (function* () { for (let cz = 0; cz < sizeChunks; cz++) for (let cx = 0; cx < sizeChunks; cx++) if (self.inWorld(cx, cz)) yield [cx, cz] as const; })();
+    }
+    while (this.preload && this.preloading < inflight) {
+      const next = this.preload.next();
+      if (next.done) { this.preload = null; break; }
+      const [cx, cz] = next.value;
+      if (this.loaded.has(chunkKey(cx, cz))) continue;
+      this.preloading++;
+      this.load(cx, cz).catch((err: unknown) => this.logger.error({ err, cx, cz }, 'physics preload failed')).finally(() => { this.preloading--; });
+    }
+  }
+
   /** Props left out of the collision world (felled trees); reload a chunk after it changes. */
   propFilter: ((cx: number, cz: number, prop: PropInstance) => boolean) | null = null;
 
@@ -97,6 +130,7 @@ export class PhysicsChunkManager {
         }
       }
     }
+    if (this.keepAll) return;
     for (const key of [...this.loaded]) {
       const x = chunkKeyX(key);
       const z = chunkKeyZ(key);

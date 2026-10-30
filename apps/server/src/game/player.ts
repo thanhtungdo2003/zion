@@ -174,6 +174,8 @@ export class Player {
   /** Who killed this player last (battle royale: a solo player watches them after dying). */
   killedBy: number | null = null;
   /** Battle royale / infection: joined the server but still loading; enters the match on 'ready'. */
+  /** Fixed maps: joined but the client is still loading the map; inputs are ignored until 'ready'. */
+  awaitingReady = false;
   pendingMatch: { squad?: { id: string; name: string; size: number }; since: number } | null = null;
   slowFactor = 1;
   /** The player's inventory: owned and validated by the server. */
