@@ -167,7 +167,7 @@ export class GameGateway {
     ws.on('close', (code: number, reason: Buffer) => {
       clearTimeout(authTimer);
       if (session.player) this.log.info({ sid: session.id, code, reason: reason.toString().slice(0, 120), buffered: ws.bufferedAmount, loading: session.loading }, 'player connection closed');
-      this.sessionGames.get(session)?.leave(session, 'disconnect');
+      try { this.sessionGames.get(session)?.leave(session, 'disconnect'); } catch (err) { this.log.error({ err, sid: session.id }, 'leave failed'); }
       session.state = 'closed';
       if (this.sessions.delete(session)) {
         this.perIp.dec(ip);
@@ -215,7 +215,14 @@ export class GameGateway {
       void this.authenticate(session, msg.v, msg.ticket);
       return;
     }
-    if (session.state === 'playing') (this.sessionGames.get(session) ?? this.game).handleMessage(session, msg);
+    if (session.state !== 'playing') return;
+    // A bug handling one message must not take the process down (every match and player with it:
+    // the players saw 1006): logged, and the message is dropped.
+    try {
+      (this.sessionGames.get(session) ?? this.game).handleMessage(session, msg);
+    } catch (err) {
+      this.log.error({ err, sid: session.id, type: msg.t }, 'message handling failed');
+    }
     // Messages while joining are dropped (client waits for welcome).
   }
 
@@ -254,9 +261,10 @@ export class GameGateway {
   private beat(): void {
     for (const s of this.sessions) {
       if (!s.alive) {
-        // A client loading the map may not answer for a while (its socket backs up while it
-        // builds the terrain): up to a minute before it counts as gone.
-        if (s.loading && ++s.missedPongs < 6) continue;
+        // A client may not answer for a while: loading the map (its socket backs up while it
+        // builds the terrain) up to a minute, playing (a stall, a hitch on a slow machine) 30 s.
+        if (++s.missedPongs < (s.loading ? 6 : 3)) continue;
+        this.log.warn({ sid: s.id, loading: s.loading, buffered: s.buffered }, 'no heartbeat answer: connection dropped');
         s.ws.terminate();
         continue;
       }
