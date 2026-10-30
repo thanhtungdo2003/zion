@@ -318,7 +318,14 @@ export interface StructureGoneMessage { t: 'structureGone'; id: number }
 export interface BlueprintsMessage { t: 'blueprints'; progress: BlueprintProgress[]; ready?: string }
 /** An axe bit into a tree / a pickaxe into a rock (chips and sound). */
 export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | OreKind }
+/**
+ * A fixed map's whole definition (its world generator's configuration and the Studio assets it
+ * uses), sent once on joining: the client generates the map's chunks itself from then on.
+ */
+export interface WorldConfigMessage { t: 'worldConfig'; config: unknown; extraAssets: unknown[] }
+
 export type ServerJsonMessage =
+  | WorldConfigMessage
   | ChopEvent
   | KnockEvent
   | StaggerEvent
