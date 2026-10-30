@@ -320,7 +320,18 @@ export interface StructureGoneMessage { t: 'structureGone'; id: number }
 export interface BlueprintsMessage { t: 'blueprints'; progress: BlueprintProgress[]; ready?: string }
 /** An axe bit into a tree / a pickaxe into a rock (chips and sound). */
 export interface ChopEvent { t: 'chop'; x: number; y: number; z: number; kind: 'wood' | OreKind }
+/** /aidebug: the bots near a player, their routes, goals, targets, cover and tactical minds. */
+export interface BotDebugMessage {
+  t: 'botDebug';
+  bots: Array<{
+    id: number; name: string; x: number; y: number; z: number; mode: string; tactic: string | null; personality: string; squad: string; role: string; health: number;
+    route: Array<[number, number]>; planning: boolean; blocked: boolean;
+    goal: [number, number, number] | null; target: [number, number, number] | null; cover: [number, number, number] | null; spot: [number, number, number] | null;
+  }>;
+}
+
 export type ServerJsonMessage =
+  | BotDebugMessage
   | ChopEvent
   | KnockEvent
   | StaggerEvent

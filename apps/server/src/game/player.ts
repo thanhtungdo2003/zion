@@ -176,6 +176,8 @@ export class Player {
   /** Battle royale / infection: joined the server but still loading; enters the match on 'ready'. */
   /** Fixed maps: joined but the client is still loading the map; inputs are ignored until 'ready'. */
   awaitingReady = false;
+  /** /aidebug: receives what the bots round it are doing. */
+  aiDebug = false;
   awaitingSince = 0;
   pendingMatch: { squad?: { id: string; name: string; size: number }; since: number } | null = null;
   slowFactor = 1;

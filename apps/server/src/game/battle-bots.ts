@@ -11,6 +11,7 @@ import {
 import { MELEE, castCombatRay, spreadDirection, type Combatant } from './combat';
 import { PoseHistory, type Player, type PoseSample } from './player';
 import { NavigationState, ZombieNavigation } from './navigation';
+import { CoarseNav, RouteState, chooseTactic, personalityOf, routeStep, separation, tacticalPosition, type Personality, type Tactic } from './bot-brain';
 
 /** Bot ids sit in the NPC range, clear of the camp NPCs. */
 export const BOT_ID_BASE = NPC_ID_BASE + 0x1000;
@@ -137,6 +138,17 @@ export class BattleBot implements Combatant {
   fleeUntil = 0;
   fleeYaw = 0;
   hurtAt = 0;
+  /** The long way to its goal (coarse planner, bot-brain), the fine search taking each stretch. */
+  readonly route = new RouteState();
+  /** How it fights (aggressive, defensive, tactical, cautious): weighs every tactical choice. */
+  personality: Personality = personalityOf(0);
+  /** The tactic it chose for this fight (utility AI), until when, and the spot it is making for. */
+  tactic: Tactic | null = null;
+  tacticUntil = 0;
+  tacticSpot: { x: number; y: number; z: number } | null = null;
+  fightSince = 0;
+  /** Where it last saw the enemy it lost (memory): it searches there before forgetting. */
+  lastSeen: { x: number; y: number; z: number; until: number } | null = null;
   constructor(readonly id: number, readonly name: string, x: number, y: number, z: number) {
     this.state = createCharacterState(x, y, z);
   }
@@ -235,7 +247,12 @@ export class BattleBotDirector {
     // tick never stalls (a stalled tick makes every player's movement stutter).
     // At most 3 ms of route search per tick: a big battle has dozens of bots asking at once.
     this.navigation = new ZombieNavigation(collision, 260, 60, 20_000, 3);
+    // Long ways round (fences, houses, rivers), planned on a coarse grid shared by every bot.
+    this.coarse = new CoarseNav(collision);
   }
+  readonly coarse: CoarseNav;
+  /** Tactical position searches left this step (each casts a few dozen rays). */
+  private tacticBudget = 0;
 
   private steps = 0;
   /** Cover searches left this step (each casts a few dozen rays). */
@@ -252,6 +269,7 @@ export class BattleBotDirector {
     const name = playerLikeName(new Set(this.bots.map(b => b.name)));
     const angle = Math.random() * Math.PI * 2;
     const bot = new BattleBot(BOT_ID_BASE + (this.serial++ % 0x1000), name, x + Math.cos(angle) * 3, y + .1, z + Math.sin(angle) * 3);
+    bot.personality = personalityOf(bot.id);
     this.bots.push(bot);
     return bot;
   }
@@ -311,6 +329,8 @@ export class BattleBotDirector {
     this.now = now;
     this.phase = world.phase;
     this.navigation.beginTick();
+    this.coarse.beginTick();
+    this.tacticBudget = 2;
     // Each bot thinks every third step, a third of them per step (no spike every third tick).
     const turn = this.steps++;
     this.coverBudget = 3;
@@ -450,7 +470,11 @@ export class BattleBotDirector {
     if (bot.zombie) { this.hunt(bot, players, world); return; }
     // Target: keep the current one while visible, otherwise the nearest visible enemy.
     const alerted = !!bot.alert && now < bot.alert.until;
-    if (bot.target && (bot.target.dead || !this.visible(bot, bot.target, true))) bot.target = null;
+    if (bot.target && (bot.target.dead || !this.visible(bot, bot.target, true))) {
+      // Lost sight: remember where (it will go and look there a while; never knows where it went).
+      if (!bot.target.dead) bot.lastSeen = { x: bot.target.state.x, y: bot.target.state.y, z: bot.target.state.z, until: now + 9000 };
+      bot.target = null; bot.tactic = null; bot.tacticSpot = null;
+    }
     if (!bot.target) {
       // Nearest first, and only a few sight lines a think (each is a raycast through the world).
       const near: Array<[number, Combatant & { state: CharacterState; id: number }]> = [];
@@ -459,10 +483,11 @@ export class BattleBotDirector {
       for (let i = 0; i < Math.min(3, near.length); i++) if (this.visible(bot, near[i]![1], alerted)) { bot.target = near[i]![1]; break; }
       if (bot.target) {
         bot.seenAt = now; bot.reactAt = now + (bot.campUntil > now ? 120 : 350 + Math.random() * 450);
-        // Call it out: squadmates turn towards the contact.
-        for (const mate of this.squad(bot)) if (!mate.target) mate.alert = { x: bot.target.state.x, z: bot.target.state.z, until: now + 8000 };
+        bot.fightSince = now; bot.lastSeen = null;
       }
     }
+    // Squad blackboard: while it sees an enemy it keeps its squadmates posted on where.
+    if (bot.target) for (const mate of this.squad(bot)) if (!mate.target) mate.alert = { x: bot.target.state.x, z: bot.target.state.z, until: now + 8000 };
     if (alerted && !bot.target) bot.yaw = Math.atan2(-(bot.alert!.x - s.x), -(bot.alert!.z - s.z));
     const outsideNow = Math.hypot(s.x - world.circle.x, s.z - world.circle.z) > world.circle.radius - 4;
     const next = world.nextCircle, outsideNext = Math.hypot(s.x - next.x, s.z - next.z) > next.radius * .85;
@@ -471,8 +496,13 @@ export class BattleBotDirector {
 
     if (bot.target && armed && !(outsideNow && Math.hypot(bot.target.state.x - s.x, bot.target.state.z - s.z) > 30)) {
       bot.mode = 'fight'; bot.campUntil = 0;
-      if (!zoneUrgent) this.takeCover(bot, now, bot.target.state.x, bot.target.state.y, bot.target.state.z);
+      if (!zoneUrgent) this.tactics(bot, now, players);
       return;
+    }
+    // Lost an enemy it was fighting: go and look where it was last seen (then forget it).
+    if (!bot.target && bot.lastSeen && armed && !zoneUrgent && !bot.holdAt && bot.follow === null) {
+      if (now > bot.lastSeen.until || Math.hypot(bot.lastSeen.x - s.x, bot.lastSeen.z - s.z) < 3) bot.lastSeen = null;
+      else { bot.mode = 'roam'; bot.goal = { x: bot.lastSeen.x, y: bot.lastSeen.y, z: bot.lastSeen.z }; bot.roamUntil = now + 2000; return; }
     }
     // Shot at by someone it cannot see: get behind something facing that way.
     if (!bot.target && alerted && now - bot.hurtAt < 4000 && !zoneUrgent) this.takeCover(bot, now, bot.alert!.x, s.y, bot.alert!.z);
@@ -602,6 +632,37 @@ export class BattleBotDirector {
    * tall enough to hide behind when reloading, hurt or shot at blind); none near: go prone and
    * shoot at range, or run when hurt and close.
    */
+  /**
+   * Utility AI in a fight: every couple of seconds the bot weighs holding, cover, flanking,
+   * pushing and falling back for its personality and situation (health, range, reload,
+   * teammates and enemies about), and acts on its choice: a cover spot, or a scored firing
+   * position (off to the side for a flank, at its preferred range for a push), or running back.
+   */
+  private tactics(bot: BattleBot, now: number, players: readonly Player[]): void {
+    const t = bot.target!, s = bot.state, d = Math.hypot(t.state.x - s.x, t.state.z - s.z);
+    if (now >= bot.tacticUntil) {
+      const mates = this.bots.filter((b) => b !== bot && !b.dead && Math.hypot(b.state.x - s.x, b.state.z - s.z) < 25 && !this.hooks.enemy?.(bot, b.id) && (!bot.squad || b.squad === bot.squad || !!this.hooks.enemy));
+      const foes = this.enemies(bot, players).filter((e) => Math.hypot(e.state.x - s.x, e.state.z - s.z) < 40).length;
+      const situation = { health: bot.health, distance: d, reloading: !!bot.reloadUntil || (bot.gunItem?.mag ?? 0) === 0, allies: mates.length, enemies: Math.max(1, foes), fightSec: (now - bot.fightSince) / 1000, hurtSec: (now - bot.hurtAt) / 1000, coverNear: !!bot.cover || now >= bot.coverAt };
+      const next = chooseTactic(bot.personality, situation, bot.tactic);
+      if (next !== bot.tactic) bot.tacticSpot = null;
+      bot.tactic = next;
+      bot.tacticUntil = now + 1800 + Math.random() * 800;
+      if ((next === 'flank' || next === 'push') && !bot.tacticSpot && this.tacticBudget > 0) {
+        this.tacticBudget--;
+        bot.tacticSpot = tacticalPosition(this.collision, s, t.state, next === 'push' ? { ...bot.personality, range: Math.min(bot.personality.range, d * .6) } : bot.personality, mates.map((m) => m.state), next === 'flank' ? 1.2 : 0);
+      }
+    }
+    switch (bot.tactic) {
+      case 'cover': this.takeCover(bot, now, t.state.x, t.state.y, t.state.z); break;
+      case 'fallback':
+        if (now >= bot.fleeUntil) { bot.fleeUntil = now + 2500; bot.fleeYaw = Math.atan2(t.state.x - s.x, t.state.z - s.z) + (Math.random() - .5) * .8; }
+        bot.cover = null; break;
+      case 'flank': case 'push': bot.cover = null; break;
+      default: if (bot.health < 45 || bot.reloadUntil) this.takeCover(bot, now, t.state.x, t.state.y, t.state.z);
+    }
+  }
+
   private takeCover(bot: BattleBot, now: number, tx: number, ty: number, tz: number): void {
     if (bot.zombie || bot.holdAt || bot.follow !== null || bot.vehicleId || bot.downed) return;
     const s = bot.state, hurt = bot.health < 45, full = hurt || !!bot.reloadUntil || !bot.target;
@@ -688,6 +749,16 @@ export class BattleBotDirector {
       if (bot.reloadUntil && d < 15) { mz = -1; mx = bot.strafe; }
       // Holding high ground (infection): stand fast and shoot down, never step off the edge.
       if (bot.holdAt && Math.hypot(bot.holdAt.x - s.x, bot.holdAt.z - s.z) < 3) { mx = 0; mz = 0; prone = false; }
+      // Flanking or pushing: make for the chosen firing position, still facing (and shooting at) the target.
+      else if (bot.tacticSpot && (bot.tactic === 'flank' || bot.tactic === 'push')) {
+        const spot = bot.tacticSpot, sd = Math.hypot(spot.x - s.x, spot.z - s.z);
+        if (sd < 1.2) bot.tacticSpot = null;
+        else {
+          const way = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, spot, now) ?? spot;
+          const go = Math.atan2(-(way.x - s.x), -(way.z - s.z)), rel = go - yaw;
+          mx = -Math.sin(rel); mz = Math.cos(rel); prone = false; sprint = sd > 6 && !bot.reloadUntil;
+        }
+      }
     } else if (bot.mode === 'camp') {
       // Ambush: prone and still, slowly scanning the approach (standing guard on held ground).
       prone = bot.objective ? !!bot.objective.prone : !bot.holdAt && bot.follow === null;
@@ -698,8 +769,15 @@ export class BattleBotDirector {
       const goal = bot.goal, d = Math.hypot(goal.x - s.x, goal.z - s.z);
       if (goal.chest && d < 1.8) { this.lootChest(bot, goal.chest); bot.goal = null; }
       else {
-        const ground = this.collision.terrainHeight(goal.x, goal.z);
-        const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: goal.x, y: Number.isFinite(ground) ? Math.max(ground, goal.y) : goal.y, z: goal.z }, now), way = steer ?? goal;
+        // Far: the coarse route picks the way round (fences, houses, rivers); the fine search
+        // takes the stretch to its next waypoint (doors, stairs, ladders).
+        let near: { x: number; y: number; z: number } = goal;
+        if (d > 14) {
+          const via = routeStep(this.coarse, bot.route, s, goal, now);
+          if (via) near = { x: via.x, y: this.collision.terrainHeight(via.x, via.z), z: via.z };
+        }
+        const ground = this.collision.terrainHeight(near.x, near.z);
+        const steer = this.navigation.steer(bot.nav, { x: s.x, y: s.y, z: s.z }, { x: near.x, y: Number.isFinite(ground) ? Math.max(ground, near.y) : near.y, z: near.z }, now), way = steer ?? near;
         yaw = Math.atan2(-(way.x - s.x), -(way.z - s.z));
         // Up on another floor and no route yet: wait for one rather than walk into the wall below.
         mz = steer || Math.abs(goal.y - s.y) < 1.2 || d > 12 ? 1 : 0; sprint = bot.mode === 'zone' || bot.mode === 'revive' || d > 25 || !!bot.holdAt || (bot.follow !== null && d > 6) || (!!bot.objective?.sprint && d > 4);
@@ -717,12 +795,24 @@ export class BattleBotDirector {
     if (s.climbing) bot.progress = { x: s.x, z: s.z, at: now };
     if (now > bot.progress.at + 1500) {
       const moved = Math.hypot(s.x - bot.progress.x, s.z - bot.progress.z);
-      if ((mz || mx) && moved < .6 && !prone) { bot.detourUntil = now + 1200; bot.detourYaw = yaw + (Math.random() < .5 ? 1.3 : -1.3); }
+      // (On a planned route the planner handles it: it blames the edge and goes round.)
+      if ((mz || mx) && moved < .6 && !prone && !bot.route.points.length) { bot.detourUntil = now + 1200; bot.detourYaw = yaw + (Math.random() < .5 ? 1.3 : -1.3); }
       bot.progress = { x: s.x, z: s.z, at: now };
     }
     const detour = now < bot.detourUntil && bot.mode !== 'fight' && !covering;
     if (detour) { yaw = bot.detourYaw; mz = 1; mx = 0; }
     if (bot.healUntil) { mx = mz = 0; sprint = false; }
+    // Keep apart from teammates (Reynolds separation): never bunched up in a doorway or a file.
+    if (!prone && !bot.zombie) {
+      const mates: Array<{ x: number; z: number }> = [];
+      for (const o of this.bots) if (o !== bot && !o.dead && !o.vehicleId && Math.abs(o.state.x - s.x) < 2 && Math.abs(o.state.z - s.z) < 2 && !this.hooks.enemy?.(bot, o.id)) mates.push(o.state);
+      if (mates.length) {
+        const push = separation(s, mates), c = Math.cos(yaw), sn = Math.sin(yaw);
+        // World push into the yaw-local axes (+mz forward along −Z rotated by yaw, +mx to the right).
+        mx += push.x * c - push.z * sn; mz += -push.x * sn - push.z * c;
+        const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
+      }
+    }
     // Turn smoothly rather than snapping.
     const turn = Math.atan2(Math.sin(yaw - bot.yaw), Math.cos(yaw - bot.yaw));
     bot.yaw += Math.max(-.2, Math.min(.2, turn));

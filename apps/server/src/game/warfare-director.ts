@@ -296,6 +296,18 @@ export class WarfareDirector {
         }
       }
     }
+    // Attacking, each role its own place: support lies at the near edge covering the assault in,
+    // recon watches from a flank, the assault (and the rest) push into the ring below.
+    if (kind === 'attack' && u.id !== lead.id && (u.cls === 'support' || u.cls === 'recon')) {
+      const own = this.bases[sq.side], ax = zone.x - own.x, az = zone.z - own.z, l = Math.hypot(ax, az) || 1;
+      if (u.cls === 'support') {
+        const x = zone.x - ax / l * zone.radius * 1.05 + (index - size / 2) * 2.5 * (-az / l), z = zone.z - az / l * zone.radius * 1.05 + (index - size / 2) * 2.5 * (ax / l);
+        return { x, y: zone.y, z, radius: 2, prone: true, faceYaw: yawTo(x, z, zone.x, zone.z) };
+      }
+      const side = (sq.id + index) % 2 ? 1 : -1, off = zone.radius + 9;
+      const x = zone.x - az / l * off * side, z = zone.z + ax / l * off * side;
+      return { x, y: zone.y, z, radius: 2.5, prone: true, faceYaw: yawTo(x, z, zone.x, zone.z) };
+    }
     // A ring inside the capture area, the open side towards the enemy.
     const a = face + Math.PI + ((index + .5) / Math.max(1, size) - .5) * Math.PI * 1.4;
     const r = zone.radius * (kind === 'attack' ? .45 : .7);

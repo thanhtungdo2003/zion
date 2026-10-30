@@ -15,6 +15,7 @@ import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
 import { VehiclePredictor } from './vehicle-prediction';
+import { BotDebugOverlay } from './render/bot-debug';
 import { vehicleSeats } from '@/lib/api';
 import { CockpitPanel } from './render/cockpit-panel';
 import { mobileAimScore } from './mobile-aim';
@@ -596,6 +597,7 @@ export class GameEngine {
   private readonly viewPoint = new Vector3();
   private readonly frustumMatrix = new Matrix4();
   private vehiclePrediction: VehiclePredictor | null = null;
+  private botDebug: BotDebugOverlay | null = null;
   /** Piloting a helicopter: the mouse's virtual cyclic (x right, y forward), and where the look was reset to. */
   private heliStick: [number, number] = [0, 0];
   private heliLook: { yaw: number; pitch: number } | null = null;
@@ -885,6 +887,7 @@ export class GameEngine {
     this.vehicles?.dispose();
     this.tankSight.dispose();
     this.vehiclePrediction?.stop();
+    this.botDebug?.dispose();
     this.cockpitPanel?.dispose();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
@@ -1750,6 +1753,11 @@ export class GameEngine {
         this.store?.collision.setOwnerColliders(0xb0000000 + m.id, doorColliders(m));
         this.battleFlight?.door(m);
         if (was !== undefined && was !== m.open) this.sounds?.play(m.open ? 'doorOpen' : 'doorClose', { volume: .8, at: m });
+        break;
+      }
+      case 'botDebug': {
+        // /aidebug: the bots round us, their routes, goals, targets, cover and minds.
+        (this.botDebug ??= new BotDebugOverlay(this.scene)).update(m);
         break;
       }
       case 'vehicles': {

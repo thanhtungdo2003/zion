@@ -3,11 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDefaultRegistry } from '@zion/assets';
+import { GENERATOR_VERSION } from '@zion/worldgen';
 import { ChunkPriority, WorldService } from './world-service';
 import type { Logger } from '../logger';
 
 const log = { info() {}, warn() {}, error() {}, debug() {}, child() { return log; } } as unknown as Logger;
-const config = { seed: 77, sizeChunks: 16, seaLevel: 20, mode: 'battle-royale' as const };
+const config = { seed: 77, sizeChunks: 16, seaLevel: 20, mode: 'battle-royale' as const, generatorVersion: GENERATOR_VERSION };
 
 describe('baked fixed-map chunks', () => {
   it('generates a chunk once: kept on disk, read back by a later server instead of generated', async () => {

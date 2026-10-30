@@ -1164,6 +1164,20 @@ export class GameServer {
   }
 
   /** Physics cost and population for /metrics: Jolt step time, bodies, and free-body interactions. */
+  /** /aidebug: what the bots near a player are doing and thinking (own side only unless testing). */
+  private sendBotDebug(p: Player): void {
+    const side = this.wfSide.get(p.id), mine = (id: number) => this.devTools || !this.warfare || this.wfSide.get(id) === side;
+    const r2 = (v: number) => Math.round(v * 10) / 10;
+    const v3 = (q: { x: number; y: number; z: number } | null): [number, number, number] | null => q ? [r2(q.x), r2(q.y), r2(q.z)] : null;
+    const bots = this.bots!.bots.filter((b) => !b.dead && mine(b.id) && Math.hypot(b.state.x - p.state.x, b.state.z - p.state.z) < 140).slice(0, 40).map((b) => ({
+      id: b.id, name: b.name, x: r2(b.state.x), y: r2(b.state.y), z: r2(b.state.z), mode: b.mode, tactic: b.tactic, personality: b.personality.name,
+      squad: b.squad ?? '', role: this.wfClass.get(b.id) ?? b.role, health: Math.round(b.health),
+      route: b.route.points.slice(0, 12).map((q) => [r2(q.x), r2(q.z)] as [number, number]), planning: !!b.route.search, blocked: b.route.blockedUntil > this.serverTime,
+      goal: v3(b.goal), target: v3(b.target?.state ?? null), cover: v3(b.cover), spot: v3(b.tacticSpot),
+    }));
+    p.session.sendJson({ t: 'botDebug', bots });
+  }
+
   /** Battle royale, infection, waves and warfare are bounded maps, loaded whole; survival is the open world. */
   private get fixedMap(): boolean { return this.deps.mode === 'battle-royale' || this.deps.mode === 'infection' || this.deps.mode === 'waves' || this.deps.mode === 'warfare'; }
 
@@ -1685,6 +1699,9 @@ export class GameServer {
       this.reply(p, this.vehicles.spawn(p, vehicleCommand[1], this.serverTime));
       this.vehicles.send(p, this.serverTime); return;
     }
+    // /aidebug: the bots round you drawn with their routes, goals, targets, cover and minds
+    // (your own side's only, outside test servers: never a way to see the enemy).
+    if (vehicleCommand[0]?.toLowerCase() === 'aidebug') { p.aiDebug = !p.aiDebug; this.reply(p, p.aiDebug ? 'Debug AI: BẬT (đường đi, mục tiêu, chỗ nấp, chiến thuật của bot quanh bạn)' : 'Debug AI: TẮT'); if (!p.aiDebug) p.session.sendJson({ t: 'botDebug', bots: [] }); return; }
     if (this.arena) { this.reply(p, 'Lệnh sinh tồn không dùng trong chế độ này.'); return; }
     const [cmd = '', ...args] = line.split(/\s+/);
     switch (cmd.toLowerCase()) {
@@ -3818,6 +3835,7 @@ export class GameServer {
     // Snapshots first, then terrain into whatever room the connection has left.
     if (this.tick % SNAPSHOT_INTERVAL_TICKS === 0) this.sendSnapshots(now);
     for (const p of this.players.values()) p.streamer.update();
+    if (this.bots && this.tick % 10 === 0) for (const p of this.players.values()) if (p.aiDebug) this.sendBotDebug(p);
 
     if (Date.now() - this.lastPersist > PERSIST_INTERVAL_MS && !this.persisting) {
       this.lastPersist = Date.now();
