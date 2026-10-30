@@ -758,7 +758,7 @@ export class GameEngine {
         if (arena && !info.message && !over) {
           const attempt = rejoinAttempt();
           if (attempt <= 8) {
-            this.hud.set({ status: 'connecting', statusDetail: { key: 'raw', vars: { text: `Mất kết nối · đang vào lại trận (lần ${attempt})…` } } });
+            this.hud.set({ status: 'connecting', statusDetail: { key: 'raw', vars: { text: `Mất kết nối (mã ${info.code}${info.reason ? ' · ' + info.reason : ''}) · đang vào lại trận (lần ${attempt})…` } } });
             // Never reload in the middle of a session refresh: the server would have rotated the
             // cookie the reloaded page then lacks, and the player would have to sign in again.
             window.setTimeout(() => { void authSettled().then(() => { if (!this.disposed) window.location.reload(); }); }, Math.min(8000, 1200 * attempt));

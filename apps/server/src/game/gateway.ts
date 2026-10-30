@@ -164,8 +164,9 @@ export class GameGateway {
     });
     ws.on('message', (data: RawData, isBinary: boolean) => this.onMessage(session, data, isBinary));
     ws.on('error', (err) => this.log.debug({ err: err.message, sid: session.id }, 'socket error'));
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
       clearTimeout(authTimer);
+      if (session.player) this.log.info({ sid: session.id, code, reason: reason.toString().slice(0, 120), buffered: ws.bufferedAmount, loading: session.loading }, 'player connection closed');
       this.sessionGames.get(session)?.leave(session, 'disconnect');
       session.state = 'closed';
       if (this.sessions.delete(session)) {

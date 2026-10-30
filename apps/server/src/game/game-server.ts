@@ -1248,7 +1248,11 @@ export class GameServer {
       this.lastLoop = now;
       let steps = 0;
       while (this.accumulator >= TICK_MS && steps < 4) {
-        this.step();
+        // A bug in one tick must never take the process down: every match and every player of
+        // the server would be dropped with it (a battlefield deploy did). Logged, the tick goes on.
+        try { this.step(); } catch (err) {
+          if (this.stepErrors++ < 20 || this.stepErrors % 300 === 0) this.log.error({ err, tick: this.tick, mode: this.deps.mode, errors: this.stepErrors }, 'tick failed');
+        }
         this.accumulator -= TICK_MS;
         steps++;
       }
@@ -3612,6 +3616,8 @@ export class GameServer {
     this.battleChests.set(id, { ...data, items: data.items.filter(i => !take.has(i.uid)), revision: data.revision + 1 });
     return taken;
   }
+
+  private stepErrors = 0;
 
   private step(): void {
     const t0 = performance.now();
