@@ -1,5 +1,6 @@
 import { VEHICLES, vehiclePoint, type VehicleKind, type VehicleState } from './vehicles';
 import { VEHICLE_ROLES, type VehicleWeapon } from './vehicle-arms';
+import { mountRate } from './vehicle-parts';
 
 /**
  * Turning weapon mounts: a tank's turret (its main gun pitching in it) and the machine guns on
@@ -71,8 +72,10 @@ export function slewMount(v: VehicleState, seat: number, yaw: number, pitch: num
   const wantYaw = Math.max(-arc.yaw, Math.min(arc.yaw, wrap(yaw - v.yaw))), wantPitch = Math.max(-arc.pitchDown, Math.min(arc.pitchUp, pitch));
   // Full-circle turrets take the short way round.
   const dy = arc.yaw >= Math.PI ? wrap(wantYaw - aim[seat * 2]!) : wantYaw - aim[seat * 2]!, dp = wantPitch - aim[seat * 2 + 1]!;
-  aim[seat * 2] = wrap(aim[seat * 2]! + Math.max(-m.traverse * dt, Math.min(m.traverse * dt, dy)));
-  aim[seat * 2 + 1] = aim[seat * 2 + 1]! + Math.max(-m.elevate * dt, Math.min(m.elevate * dt, dp));
+  // A damaged turret or weapon station traverses slower; jammed, not at all.
+  const rate = mountRate(v, seat), tr = m.traverse * rate * dt, el = m.elevate * rate * dt;
+  aim[seat * 2] = wrap(aim[seat * 2]! + Math.max(-tr, Math.min(tr, dy)));
+  aim[seat * 2 + 1] = aim[seat * 2 + 1]! + Math.max(-el, Math.min(el, dp));
   return Math.max(Math.abs(wrap(wantYaw - aim[seat * 2]!)), Math.abs(wantPitch - aim[seat * 2 + 1]!));
 }
 

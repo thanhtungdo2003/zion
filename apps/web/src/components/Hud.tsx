@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { SettingsModal } from '@/components/SettingsModal';
 import { TUTORIAL_RESTART_EVENT } from '@/components/Onboarding';
 import type { HudState } from '@/game/hud-store';
+import { VehicleHud } from './VehicleHud';
 import { rollKeyLabel, useSettings } from '@/lib/settings';
 import { Coins } from './Inventory';
 import type { TKey } from '@/lib/i18n';
@@ -150,22 +151,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
     {mouseLook && state.status === 'playing' && state.pointerLocked && !inventoryOpen && !state.scoped && !state.lensScope && (state.reticle === 'dot' || state.reticle === 'holo') && <RedDotReticle holo={state.reticle === 'holo'} />}
     <RankPromotion promotion={state.promotion} />
     <div className="hud">
-      {state.vehicle && <div className={`hud-vehicle${state.vehicle.driving ? ' driving' : ''}`} role="status">
-        <strong>{state.vehicle.name}</strong>
-        {state.vehicle.driving && <>
-          <span>{state.vehicle.speed} km/h</span>
-          <div className="hud-vehicle-durability"><progress aria-label="Độ bền xe" max={100} value={state.vehicle.health} /><small>{state.vehicle.health}%</small></div>
-        </>}
-        {state.vehicle.aircraft && state.vehicle.driving && <span>{state.vehicle.altitude} m</span>}
-        {state.vehicle.weapons?.map((w) => <div key={w.name} className="hud-vehicle-weapon">
-          <kbd>{w.key ?? (w.trigger === 'primary' ? 'LMB' : 'RMB')}</kbd><b>{w.name}</b>
-          <span>{w.reloadMs > 0 ? `${(w.reloadMs / 1000).toFixed(1)} s` : `${w.mag}/${w.magazine}`} · {w.reserve}</span>
-        </div>)}
-        {state.vehicle.cm && <div className={`hud-vehicle-cm${state.vehicle.cm.active ? ' on' : ''}`}><kbd>V</kbd><b>{state.vehicle.cm.name}</b>
-          <span>{state.vehicle.cm.active ? '●' : state.vehicle.cm.readyMs > 0 ? `${Math.ceil(state.vehicle.cm.readyMs / 1000)} s` : `×${state.vehicle.cm.charges}`}</span></div>}
-        {state.vehicle.exploding && <b>SẮP NỔ · F</b>}
-        <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF' }))}>F · {state.vehicle.driving ? 'Xuống xe' : 'Lên xe'}</button>
-      </div>}
+      {state.vehicle && <VehicleHud vehicle={state.vehicle} />}
       {state.visorVision > 0 && <div className="hud-visor" style={{ '--visor': state.visorVision } as React.CSSProperties} />}
       {state.hurtAt > 0 && <div key={state.hurtAt} className="hud-hurt" style={{ opacity: state.hurtAmount }} />}
       {state.damageDirAt > 0 && <div key={`dmg-${state.damageDirAt}`} className="hud-damage-dir" style={{ transform: `rotate(${-state.damageDir}rad)` }} aria-hidden><i /></div>}
@@ -387,7 +373,8 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           <i /><i /><i /><i />
         </div>
       )}
-      {state.status === 'playing' && state.ammo && !inventoryOpen && (
+      {/* Aboard a vehicle the vehicle's HUD takes the place of the personal kit. */}
+      {state.status === 'playing' && state.ammo && !inventoryOpen && !state.vehicle?.cls && (
         <div className={`hud-ammo${state.ammo.mag === 0 ? ' empty' : state.ammo.mag <= Math.ceil(state.ammo.max * .25) ? ' low' : ''}`} role="status" aria-label={`Đạn ${state.ammo.mag} trên ${state.ammo.reserve}`}>
           <div className="hud-ammo-count"><b>{state.ammo.mag}</b><span>/ {state.ammo.reserve}</span></div>
           <div className="hud-ammo-pips" aria-hidden>{Array.from({ length: Math.min(state.ammo.max, 40) }, (_, i) => <i key={i} className={i < state.ammo!.mag ? 'on' : undefined} />)}</div>

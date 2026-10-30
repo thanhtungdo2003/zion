@@ -66,6 +66,8 @@ export const inputMessageSchema = z
       dx: finite.min(-1).max(1), dy: finite.min(-1).max(1), dz: finite.min(-1).max(1),
     }).strict().refine((v) => Math.hypot(v.x, v.z) <= 2.4 && Math.abs(Math.hypot(v.dx, v.dy, v.dz) - 1) < .01, 'invalid weapon bore').optional(),
     pitch: finite.min(-MAX_PITCH).max(MAX_PITCH),
+    /** Piloting a helicopter: the mouse as the cyclic and pedals, x (right +) and y (forward +). */
+    stick: z.tuple([finite.min(-1).max(1), finite.min(-1).max(1)]).optional(),
     b: z
       .number()
       .int()

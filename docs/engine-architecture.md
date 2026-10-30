@@ -325,6 +325,65 @@ What runs where now:
 Not done yet: aircraft are not predicted (they keep their own flight model until it moves onto
 Jolt), the snapshots stay JSON (no binary packing), and there is no packet-loss soak test.
 
+### 10.4 Helicopters, vehicle parts, cockpit and vehicle HUD
+
+- **Helicopters are Jolt rigid bodies** (`packages/physics/src/heli-flight.ts`, configuration per
+  type in `packages/shared/src/helicopter-flight.ts`). The old kinematic model, which set climb rates
+  and moved coordinates, now only serves the legacy non-Jolt path.
+  - **Body:** the hull is fitted to the model (gear included) and is subject to gravity and to the
+    body's own contacts.
+  - **Main rotor:** its thrust (collective × rpm² × rotor and engine health, plus ground effect)
+    acts along the airframe's up axis. Tilting the airframe is what moves it; speed builds and
+    bleeds off through inertia and quadratic drag along each axis.
+  - **Stability system:** turns the stick into a commanded attitude and yaw rate, and applies the
+    critically damped torque that reaches them, limited by rotor authority.
+  - **Pilot controls:**
+    - W/S move the collective lever. With neither held, an altitude hold eases the lever towards
+      zero climb.
+    - A/D bank.
+    - The mouse is a virtual cyclic and pedal stick (protocol `stick`) that drifts back to centre;
+      the view stays on the nose.
+  - **Bots** fly by intent (climb, forward, turn) through the same system.
+  - **Damage in flight:**
+    - blade strikes are rays round the rotor disc;
+    - a failing tail rotor lets the main rotor's torque spin the airframe;
+    - impacts damage the aircraft;
+    - nothing snaps it to a position.
+- **Vehicle parts** (`packages/shared/src/vehicle-parts.ts`). A hit damages the part it lands on,
+  following a turned turret; a blast damages every part, the nearest most. Each part's damage has
+  an effect:
+
+  | Part | Effect when damaged |
+  |---|---|
+  | Engine | Less power, none when destroyed |
+  | Tracks | Less drive, immobilised when destroyed |
+  | Turret / weapon station | Slower traverse, jammed at zero |
+  | Gun | Slower reload, cannot fire when destroyed |
+  | Main rotor | Less lift and less control authority |
+  | Tail rotor | Less yaw authority, spins when failing |
+  | Cockpit | Slower response |
+
+- **Cockpit.** The pilot looks through the windscreen from the measured seat, with the view fixed
+  to the airframe. An instrument panel below it (`render/cockpit-panel.ts`) shows airspeed,
+  altitude, vertical speed, attitude, heading, collective, rotor rpm and damage lights.
+- **Tank sight.** The screen is dark but for the round field. The reticle has a chevron, a mils
+  scale and a range scale. A ring shows where the gun points. A hull outline shows which way the
+  hull faces against the turret's line.
+- **Vehicle HUD** (`components/VehicleHud.tsx`). It replaces the old panel and the personal ammo
+  counter while aboard, and adapts to the vehicle:
+  - the seat's weapons: type, loaded / spare, reload, button, wrecked or not;
+  - parts and their condition;
+  - speed, or for a helicopter speed, height, climb, collective and rotor.
+
+`heli-flight.test.ts` covers:
+- lift-off on the collective and holding height;
+- flying forward by the nose, carrying speed and braking over seconds;
+- banking;
+- a tail-rotor failure spin;
+- a wall strike.
+
+`vehicle-parts.test.ts` covers where hits land and what damage does.
+
 ## 11. Known limits and next steps
 
 - Bodies are not in the client's `CollisionWorld`, so client-side tracers and bullet holes can pass

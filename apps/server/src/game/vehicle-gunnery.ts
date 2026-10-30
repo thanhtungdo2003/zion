@@ -1,4 +1,4 @@
-import { TICK_DT, VEHICLES, VEHICLE_ROLES, advanceBallistic, seatAim, seatMount, triggerCountermeasure, useVehicleRound, vehiclePoint, weaponMuzzle, type ServerJsonMessage, type VehicleState, type VehicleWeapon } from '@zion/shared';
+import { TICK_DT, VEHICLES, VEHICLE_ROLES, advanceBallistic, weaponState, seatAim, seatMount, triggerCountermeasure, useVehicleRound, vehiclePoint, weaponMuzzle, type ServerJsonMessage, type VehicleState, type VehicleWeapon } from '@zion/shared';
 import { ZONE_DAMAGE_MULTIPLIER, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { castCombatRay, spreadDirection, type Combatant } from './combat';
 import type { Vehicles } from './vehicles';
@@ -60,8 +60,12 @@ export class VehicleGunnery {
     if (v.health <= 0 || v.exploded || !v.arms) return false;
     const ammo = v.arms.ammo[w.id];
     if (!ammo) return false;
-    const key = `${v.id}:${w.id}`;
+    const key = `${v.id}:${w.id}`, state = weaponState(v, w.seat);
+    // A wrecked gun does not fire; a damaged one loads slower.
+    if (!state.fires) return false;
+    const loading = ammo.reloadUntil;
     if (!useVehicleRound(w, ammo, this.lastShot.get(key) ?? -Infinity, now)) return false;
+    if (ammo.reloadUntil > now && ammo.reloadUntil !== loading) ammo.reloadUntil = now + (ammo.reloadUntil - now) * state.reload;
     this.lastShot.set(key, now);
     // A turning mount fires where its barrel points now (it follows the aim at its own rate);
     // a fixed one along the aim, clamped to what it can reach from the hull's heading.

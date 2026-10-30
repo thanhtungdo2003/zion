@@ -3823,7 +3823,7 @@ export class GameServer {
     if (p.vehicleId) {
       // Helicopters: Space climbs, Shift descends.
       const lift = ((input.b & Buttons.Jump) ? 1 : 0) - ((input.b & Buttons.Sprint) ? 1 : 0);
-      this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now, p.downed ? 0 : lift);
+      this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now, p.downed ? 0 : lift, p.downed ? undefined : input.stick);
       p.pitch = input.pitch; p.aiming = false; p.lastButtons = 0; p.lastProcessedSeq = input.s;
       const v = this.vehicles.driving(p);
       // The driver works the vehicle's own weapons (a tank's gun, a helicopter's rockets).

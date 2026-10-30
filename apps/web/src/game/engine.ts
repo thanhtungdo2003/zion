@@ -2,7 +2,7 @@ import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentMod
 import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, seatMount, vehicleSeatOf } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -15,6 +15,7 @@ import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
 import { VehiclePredictor } from './vehicle-prediction';
+import { CockpitPanel } from './render/cockpit-panel';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
@@ -572,6 +573,10 @@ export class GameEngine {
   private readonly vehicleCamera = new ThirdPersonCamera();
   private readonly tankSight = new TankSight();
   private vehiclePrediction: VehiclePredictor | null = null;
+  /** Piloting a helicopter: the mouse's virtual cyclic (x right, y forward), and where the look was reset to. */
+  private heliStick: [number, number] = [0, 0];
+  private heliLook: { yaw: number; pitch: number } | null = null;
+  private cockpitPanel: CockpitPanel | null = null;
   /** A crash we predicted: the vehicle camera shakes at once. */
   private crashShake = 0;
   private shoulderAim = { yaw: 0, pitch: 0 };
@@ -857,6 +862,7 @@ export class GameEngine {
     this.vehicles?.dispose();
     this.tankSight.dispose();
     this.vehiclePrediction?.stop();
+    this.cockpitPanel?.dispose();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
     this.powerCables?.dispose(); this.powerCables = null;
@@ -2096,6 +2102,20 @@ export class GameEngine {
       this.input.yaw = Math.atan2(Math.sin(heading), Math.cos(heading));
     }
     this.drivingYaw = aboard?.yaw ?? null;
+    // Flying a helicopter, the mouse is the cyclic and pedals, not a free look: its movement
+    // deflects a virtual stick (which drifts back to centre on its own), and the view stays on
+    // the nose.
+    if (driving && isAircraft(driving.kind)) {
+      if (this.heliLook) {
+        const dx = Math.atan2(Math.sin(this.input.yaw - this.heliLook.yaw), Math.cos(this.input.yaw - this.heliLook.yaw)), dy = this.input.pitch - this.heliLook.pitch;
+        this.heliStick[0] = Math.max(-1, Math.min(1, this.heliStick[0] - dx * 2.4));
+        this.heliStick[1] = Math.max(-1, Math.min(1, this.heliStick[1] + dy * 2.4));
+      }
+      const k = Math.exp(-dt * .7);
+      this.heliStick[0] *= k; this.heliStick[1] *= k;
+      this.input.yaw = driving.yaw; this.input.pitch = 0;
+      this.heliLook = { yaw: this.input.yaw, pitch: 0 };
+    } else if (this.heliLook) { this.heliLook = null; this.heliStick = [0, 0]; }
     local.riding = !!aboard;
     this.applyViewMode();
     if (this.mouseLook && !this.camFocusInit) this.updateCamera(local.state.x, local.state.y, local.state.z, 0);
@@ -2327,8 +2347,8 @@ export class GameEngine {
     this.updateRockMoss(store.chunks, px, pz, now);
     if (!this.spectate(dt)) this.updateCamera(px, py, pz, dt);
     if (this.localAvatar && this.cameraMode === 'third-person' && !local.state.flight) this.localAvatar.root.visible = !this.eyeView && (driving ? this.vehicleCamera.distance : this.thirdPersonCamera.distance) > (this.shoulderSights ? .45 : .75);
-    // The commander inside a hull is out of sight.
-    if (this.localAvatar && aboard && VEHICLE_ROLES[aboard.kind].inside?.includes(mySeat)) this.localAvatar.root.visible = false;
+    // The commander inside a hull is out of sight; a pilot looks out from their own eyes.
+    if (this.localAvatar && aboard && (VEHICLE_ROLES[aboard.kind].inside?.includes(mySeat) || (mySeat === 0 && isAircraft(aboard.kind)))) this.localAvatar.root.visible = false;
     this.updateShoulderAim(px, py, pz);
     if (this.eyeView && this.viewModel) {
       this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
@@ -2580,6 +2600,7 @@ export class GameEngine {
       // A turret's commander: the right button magnifies the sight, Space fires the coaxial gun.
       if (ride && seatNo === 0 && seatMount(ride.kind, 0)) { const coax = (buttons & Buttons.Jump) !== 0; buttons &= ~(Buttons.Aim | Buttons.Jump); if (coax) buttons |= Buttons.Aim; }
       const msg = local.step(this.passenger ? 0 : axes.mx, this.passenger ? 0 : axes.mz, this.input.yaw, this.input.pitch, buttons, undefined);
+      if (this.heliLook) msg.stick = [+this.heliStick[0].toFixed(3), +this.heliStick[1].toFixed(3)];
       this.conn.sendInput(msg);
       // The vehicle we drive answers our input here and now (client prediction); the server's
       // snapshots reconcile it.
@@ -3827,6 +3848,27 @@ export class GameEngine {
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
     const vehicle = this.local?.riding && !this.passenger && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
+    if (vehicle && isAircraft(vehicle.kind)) {
+      // The pilot's seat: first person through the windscreen, the view fixed to the airframe
+      // (it pitches, banks and shakes with it), the instrument panel below.
+      const [sx, sy, sz] = VEHICLES[vehicle.kind].seats[0]!, eye = vehiclePoint(vehicle, sx, sy + 1.28, sz);
+      cam.position.set(eye.x, eye.y, eye.z);
+      cam.rotation.set(vehicle.motion?.pitch ?? 0, vehicle.yaw, vehicle.motion?.roll ?? 0, 'YXZ');
+      if (this.crashShake) cam.position.add(this.focus.set((Math.random() - .5) * this.crashShake * .3, (Math.random() - .5) * this.crashShake * .3, 0));
+      if (cam.fov !== 72 || cam.near !== .05) { cam.fov = 72; cam.near = .05; cam.updateProjectionMatrix(); }
+      this.input.lookScale = 1;
+      cam.updateMatrixWorld();
+      this.cockpitPanel ??= new CockpitPanel(this.scene);
+      const ground = this.store?.collision.terrainHeight(vehicle.x, vehicle.z);
+      this.cockpitPanel.update(cam, vehicle, Math.max(0, vehicle.y - (Number.isFinite(ground) ? ground! : vehicle.y)), performance.now());
+      this.tankSight.hide();
+      occlusionUniforms.uFadeCam.value.copy(cam.position);
+      occlusionUniforms.uFadeTarget.value.set(0, -1e5, 0);
+      this.props?.updateOcclusion(1e9, -1e5, 1e9, cam.position.x, cam.position.y, cam.position.z, dt);
+      return;
+    }
+    this.cockpitPanel?.update(cam, null, 0, 0);
+    if (cam.near !== .5 && vehicle) { cam.near = .5; cam.updateProjectionMatrix(); }
     const sight = vehicle && this.welcome ? this.vehicles!.sight(this.welcome.playerId) : undefined;
     if (vehicle && sight) {
       // A tank's commander looks through the gunner's sight on the turret: the mouse aims, the
@@ -3843,7 +3885,8 @@ export class GameEngine {
       const dir = this.focus.set(-Math.sin(sight.yaw) * Math.cos(sight.pitch), Math.sin(sight.pitch), -Math.cos(sight.yaw) * Math.cos(sight.pitch));
       const ahead = dir.multiplyScalar(600).add(cam.position).project(cam);
       const off = Math.abs(Math.atan2(Math.sin(sight.yaw - this.input.yaw), Math.cos(sight.yaw - this.input.yaw))) + Math.abs(sight.pitch - this.input.pitch);
-      this.tankSight.update(zoomed, ahead.z < 1 && Math.abs(ahead.x) < 1.2 && Math.abs(ahead.y) < 1.2 ? { x: ahead.x, y: ahead.y } : null, off < .02);
+      this.tankSight.update(zoomed, ahead.z < 1 && Math.abs(ahead.x) < 1.2 && Math.abs(ahead.y) < 1.2 ? { x: ahead.x, y: ahead.y } : null, off < .02,
+        Math.atan2(Math.sin(vehicle.yaw - this.input.yaw), Math.cos(vehicle.yaw - this.input.yaw)), TANK_SIGHT_FOV / cam.fov * 2.5);
       occlusionUniforms.uFadeCam.value.copy(cam.position);
       occlusionUniforms.uFadeTarget.value.set(0, -1e5, 0);
       this.props?.updateOcclusion(1e9, -1e5, 1e9, cam.position.x, cam.position.y, cam.position.z, dt);
@@ -4082,7 +4125,9 @@ export class GameEngine {
         return {
           name: VEHICLES[v.kind].name, driving: v.driver === this.welcome!.playerId, speed: Math.round(Math.abs(v.speed) * 3.6), health: Math.ceil(v.health / VEHICLES[v.kind].health * 100), exploding: v.health <= 0 && !v.exploded,
           ...(aboard ? { seat: role.seats[seat] ?? `Ghế ${seat + 1}` } : {}),
-          ...(aboard && v.arms ? { weapons: role.weapons.filter((w) => w.seat === seat).map((w) => { const a = v.arms!.ammo[w.id]; return { name: w.name, trigger: w.trigger, ...(seat === 0 && w.trigger === 'secondary' && seatMount(v.kind, 0) ? { key: 'Space' } : {}), mag: a?.mag ?? 0, reserve: a?.reserve ?? 0, magazine: w.magazine, reloadMs: a?.reloadUntil ? Math.max(0, a.reloadUntil - t) : 0 }; }) } : {}),
+          ...(aboard && v.arms ? { weapons: role.weapons.filter((w) => w.seat === seat).map((w) => { const a = v.arms!.ammo[w.id]; return { name: w.name, trigger: w.trigger, ...(seat === 0 && w.trigger === 'secondary' && seatMount(v.kind, 0) ? { key: 'Space' } : {}), type: w.kind, mag: a?.mag ?? 0, reserve: a?.reserve ?? 0, magazine: w.magazine, reloadMs: a?.reloadUntil ? Math.max(0, a.reloadUntil - t) : 0, reloadTotalMs: w.reloadMs * weaponState(v, w.seat).reload, jammed: !weaponState(v, w.seat).fires }; }) } : {}),
+          ...(aboard ? { cls: role.cls, parts: vehicleParts(v.kind).map((id) => ({ id, name: partName(v.kind, id), health: partHealth(v, id) })) } : {}),
+          ...(aboard && isAircraft(v.kind) ? { collective: v.motion?.collective ?? 0, rotor: v.rotor ?? 0, climb: v.motion?.vy ?? 0 } : {}),
           ...(aboard && v.arms && role.countermeasure ? { cm: { name: role.countermeasure.name, charges: v.arms.cm.charges, readyMs: v.arms.cm.charges <= 0 ? Math.max(0, v.arms.cm.readyAt - t) : 0, active: t < v.arms.cm.activeUntil } } : {}),
           ...(isAircraft(v.kind) ? { aircraft: true, altitude: Math.round(v.y - (store.collision.terrainHeight(v.x, v.z) || 0)) } : {}),
         };

@@ -42,10 +42,12 @@ describe('combat vehicles', () => {
       expect(heli.rotor).toBeGreaterThan(.95);
       expect(heli.y).toBeGreaterThan(45);
       expect(s.inFlight(heli)).toBe(true);
-      // Nose down: forward (−Z) along its heading.
+      // Nose down: the tilted rotor accelerates it forward (−Z) along its heading, building speed
+      // through its inertia (an 11 t transport gathers ~3 m/s² at this tilt).
       const z0 = heli.z;
       now = step(s, now, 5, (t) => s.driveBot(pilot, 1, 0, t, 0));
-      expect(heli.z).toBeLessThan(z0 - 60);
+      expect(heli.z).toBeLessThan(z0 - 12);
+      expect(heli.speed).toBeGreaterThan(6);
       expect(heli.motion!.pitch).toBeLessThan(0);
       // Pedal right: the heading turns (yaw decreases).
       const yaw0 = heli.yaw;

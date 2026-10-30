@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, damagePart, partAt, vehicleParts, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { JoltVehicles, loadJolt, damageVehicle, vehicleHitBounds, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
@@ -14,7 +14,8 @@ export class Vehicles {
   readonly states = new Map<number, VehicleState>();
   /** Bots aboard, by id. */
   private readonly botRiders = new Map<number, BotRider>();
-  private readonly controls = new Map<number, { throttle: number; steer: number; lift?: number; at: number }>();
+  /** Driver controls; `stick` (helicopters): the pilot's mouse cyclic; `bot`: a bot flies by intent. */
+  private readonly controls = new Map<number, { throttle: number; steer: number; lift?: number; stick?: readonly [number, number]; bot?: boolean; at: number }>();
   /** Where each manned weapon mount is being pointed (world yaw, pitch), by vehicle and seat. */
   private readonly aims = new Map<number, Map<number, [number, number]>>();
   private readonly usedAt = new Map<number, number>();
@@ -68,7 +69,7 @@ export class Vehicles {
   get rigid(): JoltVehicles { return this.physics; }
   private install(v: VehicleState): void {
     // Helicopters fly their own model; everything on wheels or tracks drives on Jolt.
-    if (!isAircraft(v.kind)) this.physics.add(v);
+    this.physics.add(v);
     if (!v.arms && (VEHICLE_ROLES[v.kind].weapons.length || VEHICLE_ROLES[v.kind].countermeasure)) v.arms = freshArms(v.kind);
     this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
   }
@@ -130,9 +131,10 @@ export class Vehicles {
       }
     }
   }
-  control(p: Player, throttle: number, steer: number, now: number, lift = 0): void {
-    // Only the driver steers; passengers just ride (and shoot). `lift`: a helicopter's collective.
-    if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, lift, at: now });
+  control(p: Player, throttle: number, steer: number, now: number, lift = 0, stick?: readonly [number, number]): void {
+    // Only the driver steers; passengers just ride (and shoot). Helicopters: W/S the collective,
+    // A/D the cyclic's bank, the mouse (`stick`) the cyclic and pedals.
+    if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, lift, ...(stick ? { stick } : {}), at: now });
   }
   /**
    * A bot gets in: the driver's seat when asked and free, otherwise a free passenger seat. Only an
@@ -154,7 +156,7 @@ export class Vehicles {
   }
   /** The driving bot's controls (forward / back, left / right), like a player's keys. */
   driveBot(bot: BotRider, throttle: number, steer: number, now: number, lift = 0): void {
-    if (bot.vehicleId && bot.vehicleSeat === 0 && this.botRiders.get(bot.id) === bot) this.controls.set(bot.vehicleId, { throttle: Math.max(-1, Math.min(1, throttle)), steer: Math.max(-1, Math.min(1, steer)), lift: Math.max(-1, Math.min(1, lift)), at: now });
+    if (bot.vehicleId && bot.vehicleSeat === 0 && this.botRiders.get(bot.id) === bot) this.controls.set(bot.vehicleId, { throttle: Math.max(-1, Math.min(1, throttle)), steer: Math.max(-1, Math.min(1, steer)), lift: Math.max(-1, Math.min(1, lift)), bot: true, at: now });
   }
   /** A bot gets out beside the vehicle (anywhere it stands clear; on the spot when `force`). */
   exitBot(bot: BotRider, force = false): boolean {
@@ -314,16 +316,27 @@ export class Vehicles {
       }
     }
     if (!this.jolt) {
+      this.stepAircraft(now, dt, players, impact);
       this.stepLegacy(now, dt, players, impact);
       // Free bodies stay on Jolt whichever vehicle model drives.
       this.physics.step([], () => undefined, dt, now);
       return;
     }
     // One Jolt step for every vehicle together, so they also collide with each other.
-    this.stepAircraft(now, dt, players, impact);
-    const impacts = this.physics.step([...this.states.values()].filter((v) => !isAircraft(v.kind)), (v) => {
+    // Helicopters are rigid bodies flown by rotor forces in the same step (heli-flight).
+    const impacts = this.physics.step(this.states.values(), (v) => {
       const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
-      const control = p && input && now - input.at < 250 && v.health > 0 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
+      const fresh = p && input && now - input.at < 250 && v.health > 0 ? input : undefined;
+      if (isAircraft(v.kind)) {
+        v.throttle = fresh?.throttle ?? 0;
+        // A pilot's controls; a bot's intent; a crew aboard with nobody at the controls holds a
+        // hover; an empty one in the air settles slowly down.
+        if (fresh && !fresh.bot) return { throttle: 0, steer: 0, heli: { collective: fresh.throttle, bank: fresh.steer, stickX: fresh.stick?.[0] ?? 0, stickY: fresh.stick?.[1] ?? 0 } };
+        if (fresh) return { throttle: 0, steer: 0, intent: { climb: (fresh.lift ?? 0) * 7, forward: fresh.throttle, turn: fresh.steer } };
+        if (v.motion?.grounded) return v.driver ? { throttle: 0, steer: 0, heli: { collective: -1, bank: 0, stickX: 0, stickY: 0 } } : undefined;
+        return { throttle: 0, steer: 0, intent: { climb: v.driver ? 0 : -2.2, forward: 0, turn: 0 } };
+      }
+      const control = fresh ?? (v.driver ? { throttle: 0, steer: 0 } : undefined);
       v.throttle = control?.throttle ?? 0;
       return control;
     }, dt, now);
@@ -453,13 +466,19 @@ export class Vehicles {
       // Armour shrugs off rounds lighter than its rating (tanks ignore rifles, APCs most of them).
       if (amount < Math.max(25, VEHICLE_ROLES[v.kind].armor)) break;
       const p=vehicleLocalPoint(v,x,y,z),{lo,hi}=vehicleHitBounds(v.kind);
-      if(p.x>=lo[0]-.12&&p.x<=hi[0]+.12&&p.z>=lo[2]-.12&&p.z<=hi[2]+.12&&p.y>=0&&p.y<=hi[1]+.12) {damageVehicle(v,amount*.6,now);break;}
+      // The hull takes it, and so does the part it lands on (engine, tracks, turret, gun, rotors…).
+      if(p.x>=lo[0]-.12&&p.x<=hi[0]+.12&&p.z>=lo[2]-.12&&p.z<=hi[2]+.12&&p.y>=0&&p.y<=hi[1]+.12) {damageVehicle(v,amount*.6,now);damagePart(v,partAt(v,x,y,z),amount*.6);break;}
     }
   }
   blast(x: number, y: number, z: number, radius: number, damage: number, now: number): void {
     for (const v of this.states.values()) {
       const d = Math.hypot(v.x - x, v.y + .6 - y, v.z - z);
-      if (d < radius) damageVehicle(v, damage * (1 - d / radius) * VEHICLE_ROLES[v.kind].blastFactor, now);
+      if (d < radius) {
+        const dmg = damage * (1 - d / radius) * VEHICLE_ROLES[v.kind].blastFactor;
+        damageVehicle(v, dmg, now);
+        // A blast shakes every part, the nearest most.
+        for (const part of vehicleParts(v.kind)) damagePart(v, part, dmg * (part === partAt(v, x, y, z) ? .8 : .25));
+      }
       // Tyres close to a blast burst.
       if (!v.exploded) for (let i = 0; i < 4; i++) {
         const c = wheelCentre(v.kind, i), fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), rx = Math.cos(v.yaw), rz = -Math.sin(v.yaw);

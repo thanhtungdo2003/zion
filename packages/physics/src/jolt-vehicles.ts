@@ -1,6 +1,8 @@
 import type initJolt from 'jolt-physics';
-import { VEHICLES, VEHICLE_ROLES, CHUNK_SIZE, createVehicleMotion, tyreHandling, wheelCentre, type VehicleState } from '@zion/shared';
-import { Layer } from './layers';
+import { VEHICLES, VEHICLE_ROLES, CHUNK_SIZE, HELI_FLIGHT, createVehicleMotion, damagePart, enginePower, isAircraft, trackDrive, tyreHandling, wheelCentre, type HeliControls, type HeliIntent, type VehicleState } from '@zion/shared';
+import { makeRayHit } from './shapes';
+import { heliForces } from './heli-flight';
+import { Layer, Mask } from './layers';
 import { damageVehicle } from './vehicles';
 import type { Collider } from './shapes';
 import type { CollisionWorld } from './world';
@@ -51,19 +53,24 @@ const MID_ROAD_WHEELS = 2;
 interface Car {
   body: Body;
   id: BodyID;
-  constraint: InstanceType<JoltModule['VehicleConstraint']>;
+  /** Wheels (null for an aircraft, which flies by rotor forces: heli-flight). */
+  constraint: InstanceType<JoltModule['VehicleConstraint']> | null;
   /** Wheeled: engine through differentials to steered wheels. Tracked: two tracks, skid-steered. */
   controller: InstanceType<JoltModule['WheeledVehicleController']> | null;
   tracks: InstanceType<JoltModule['TrackedVehicleController']> | null;
-  listener: InstanceType<JoltModule['VehicleConstraintStepListener']>;
+  listener: InstanceType<JoltModule['VehicleConstraintStepListener']> | null;
   /** What we last wrote to the VehicleState, to detect outside edits (reset, shoves). */
   synced: { x: number; y: number; z: number; yaw: number; pitch: number; roll: number; speed: number; lateral: number; vy: number };
   velocity: [number, number, number];
   /** What each tyre stood on in the last step (null: in the air). */
   ground: Array<MaterialKind | null>;
-  callbacks: InstanceType<JoltModule['VehicleConstraintCallbacksJS']>;
+  callbacks: InstanceType<JoltModule['VehicleConstraintCallbacksJS']> | null;
 }
-export interface VehicleInput { throttle: number; steer: number }
+/**
+ * A vehicle's controls this step. Ground vehicles: throttle and steering. Aircraft: a pilot's
+ * `heli` controls, or a bot's `intent` (climb, forward, turn).
+ */
+export interface VehicleInput { throttle: number; steer: number; heli?: HeliControls; intent?: HeliIntent }
 /** Wheel spin, rotation and steer (three per wheel), engine rpm, gear and clutch. */
 export interface VehicleDrivetrain { wheels: number[]; rpm: number; gear: number; clutch: number }
 /** A vehicle body's exact state (world position, rotation quaternion, linear and angular velocity). */
@@ -198,7 +205,8 @@ export class JoltVehicles {
     // Chassis: the body as modelled (boxes fitted to the model, see vehicle-hulls), from the
     // underside's clearance up: an overturned jeep rests on its windscreen frame, not on an
     // invisible box roof, and a tank's turret and hull meet the world where they are drawn.
-    const clearance = Math.max(.2, def.wheelRadius * .85);
+    // (An aircraft rests on its own gear, which is part of the body.)
+    const aircraft = isAircraft(v.kind), clearance = aircraft ? -1 : Math.max(.2, def.wheelRadius * .85);
     const compound = new Jolt.StaticCompoundShapeSettings();
     for (const [x, y, z, hx, hy, hz] of VEHICLE_HULLS[v.kind]) {
       const lo = Math.max(clearance, y - hy), hi = y + hy;
@@ -212,14 +220,16 @@ export class JoltVehicles {
     // line, under the origin (as the handling was tuned): a low centre of mass keeps hard
     // cornering and bumps from tipping the vehicle over, whatever shape its body is.
     const comY = Math.max(.15, def.wheelRadius * .55), c = compound.Create().Get().GetCenterOfMass();
-    const shape = new Jolt.OffsetCenterOfMassShapeSettings(v3(-c.GetX(), comY - c.GetY(), -c.GetZ()), compound).Create().Get();
+    // An aircraft's mass is where its body is (engines and gearbox high, under the rotor).
+    const shape = aircraft ? compound.Create().Get() : new Jolt.OffsetCenterOfMassShapeSettings(v3(-c.GetX(), comY - c.GetY(), -c.GetZ()), compound).Create().Get();
     const [qx, qy, qz, qw] = eulerQuat(v.yaw, m.pitch, m.roll);
     const settings = new Jolt.BodyCreationSettings(shape, rv3(v.x, v.y, v.z), q4(qx, qy, qz, qw), Jolt.EMotionType_Dynamic, LAYER_MOVING);
     settings.mOverrideMassProperties = Jolt.EOverrideMassProperties_CalculateInertia;
     settings.mMassPropertiesOverride.mMass = def.mass;
     settings.mMotionQuality = Jolt.EMotionQuality_LinearCast;
     settings.mFriction = .4; settings.mRestitution = .15;
-    settings.mMaxLinearVelocity = 80;
+    settings.mMaxLinearVelocity = 120;
+    if (aircraft) settings.mAngularDamping = .3;
     settings.mUserData = v.id;
     const body = this.bodies.CreateBody(settings);
     Jolt.destroy(settings);
@@ -227,6 +237,12 @@ export class JoltVehicles {
     // Start awake so the springs settle to their real rest length before anyone gets in;
     // otherwise the first throttle input lifts the parked body a few centimetres (a visible hop).
     this.bodies.AddBody(keep(body.GetID()), Jolt.EActivation_Activate);
+    if (aircraft) {
+      const car: Car = { body, id: keep(body.GetID()), constraint: null, controller: null, tracks: null, listener: null, synced: { x: NaN, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 0, lateral: 0, vy: 0 }, velocity: [0, 0, 0], ground: [], callbacks: null };
+      this.cars.set(v.id, car);
+      this.pushState(v, car);
+      return;
+    }
 
     const vehicle = new Jolt.VehicleConstraintSettings();
     vehicle.mUp = v3(0, 1, 0); vehicle.mForward = new Jolt.Vec3(0, 0, -1);
@@ -356,7 +372,7 @@ export class JoltVehicles {
   /** The drivetrain's own state (wheel spin and steer, engine rpm, gear): kept with predicted steps. */
   saveDrivetrain(id: number): VehicleDrivetrain | null {
     const car = this.cars.get(id);
-    if (!car) return null;
+    if (!car?.constraint) return null;
     const n = car.ground.length, wheels: number[] = [];
     for (let i = 0; i < n; i++) { const w = car.constraint.GetWheel(i); wheels.push(w.GetAngularVelocity(), w.GetRotationAngle(), w.GetSteerAngle()); }
     const c = car.controller ?? car.tracks!, t = c.GetTransmission();
@@ -364,7 +380,7 @@ export class JoltVehicles {
   }
   restoreDrivetrain(id: number, d: VehicleDrivetrain): void {
     const car = this.cars.get(id);
-    if (!car) return;
+    if (!car?.constraint) return;
     for (let i = 0; i * 3 < d.wheels.length; i++) { const w = car.constraint.GetWheel(i); w.SetAngularVelocity(d.wheels[i * 3]!); w.SetRotationAngle(d.wheels[i * 3 + 1]!); w.SetSteerAngle(d.wheels[i * 3 + 2]!); }
     const c = car.controller ?? car.tracks!;
     c.GetEngine().SetCurrentRPM(d.rpm); c.GetTransmission().Set(d.gear, d.clutch);
@@ -605,6 +621,23 @@ export class JoltVehicles {
       if (!car) continue;
       this.pushState(v, car);
       const m = v.motion!, control = v.health > 0 && !v.exploded ? input(v) : undefined;
+      if (!car.constraint) {
+        // An aircraft: rotor forces on its body.
+        const airborne = !m.grounded;
+        const b = this.flightBasis(car), lv = this.bodies.GetLinearVelocity(car.id), av = this.bodies.GetAngularVelocity(car.id);
+        const hub = HELI_FLIGHT[v.kind]!.hub, under = this.world.terrainHeight(v.x, v.z);
+        const f = heliForces(v, { basis: b, v: [lv.GetX(), lv.GetY(), lv.GetZ()], w: [av.GetX(), av.GetY(), av.GetZ()], clearance: Number.isFinite(under) ? v.y + hub[1] - under : 99, airborne },
+          control?.heli ?? null, control?.intent ?? null, dt);
+        if ((v.rotor ?? 0) > 0 || airborne) {
+          this.bodies.AddForce(car.id, v3(f.force[0], f.force[1], f.force[2]), Jolt.EActivation_Activate);
+          this.bodies.AddTorque(car.id, v3(f.torque[0], f.torque[1], f.torque[2]), Jolt.EActivation_Activate);
+        }
+        if (!this.bodies.IsActive(car.id)) continue;
+        if (!this.mirror(v.x, v.z, 24 + Math.hypot(...car.velocity) * .8, now)) { this.bodies.SetLinearVelocity(car.id, v3(0, 0, 0)); this.bodies.DeactivateBody(car.id); continue; }
+        live.push([v, car]);
+        if ((v.rotor ?? 0) > .3) this.bladeStrikes(v, car, b, dt, now);
+        continue;
+      }
       const throttle = control?.throttle ?? 0, steer = control?.steer ?? 0;
       const forward = car.velocity[0] * -Math.sin(v.yaw) + car.velocity[2] * -Math.cos(v.yaw);
       m.steer += (steer - m.steer) * (1 - Math.exp(-dt * 8));
@@ -615,7 +648,7 @@ export class JoltVehicles {
       const top = (throttle > 0 ? VEHICLES[v.kind].maxSpeed : VEHICLES[v.kind].maxSpeed * .32) * tyres.top;
       const governed = throttle * tyres.power * Math.max(0, Math.min(1, (top - Math.abs(forward)) / 3));
       // Steering eases off with speed, gently: a fast vehicle can still be turned round.
-      if (car.controller) car.controller.SetDriverInput(braking ? 0 : governed, m.steer * tyres.steer / (1 + Math.abs(forward) / 45), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
+      if (car.controller) car.controller.SetDriverInput(braking ? 0 : governed * enginePower(v), m.steer * tyres.steer / (1 + Math.abs(forward) / 45), braking ? Math.abs(throttle) : 0, control ? 0 : 1);
       else if (car.tracks) {
         // Skid steering: the inside track slows (turning on the move) or runs backwards (turning
         // on the spot with no throttle); parked, both tracks are braked.
@@ -625,7 +658,8 @@ export class JoltVehicles {
           if (Math.abs(drive) < .1 && !braking) { drive = Math.abs(turn); left = turn > 0 ? 1 : -1; right = -left; }
           else if (turn > 0) right = 1 - Math.abs(turn) * .9; else left = 1 - Math.abs(turn) * .9;
         }
-        car.tracks.SetDriverInput(drive, left, right, braking ? Math.abs(throttle) : control ? 0 : 1);
+        // A damaged engine or tracks give less drive; broken tracks none.
+        car.tracks.SetDriverInput(drive * enginePower(v) * trackDrive(v), left, right, braking ? Math.abs(throttle) : control ? 0 : 1);
       }
       if (control && (throttle || steer)) this.bodies.ActivateBody(car.id);
       const awake = this.bodies.IsActive(car.id);
@@ -676,6 +710,33 @@ export class JoltVehicles {
     s.activeBodies = this.system.GetNumActiveBodies(Jolt.EBodyType_RigidBody); s.bodies = this.system.GetNumBodies();
     for (const [v, car] of live) impacts.set(v.id, this.pull(v, car, dt, now));
     return impacts;
+  }
+
+  private readonly rayHit = makeRayHit();
+  /** Rotation basis of a body (column-major: right, up, back). */
+  private flightBasis(car: Car): number[] {
+    const r = this.bodies.GetRotation(car.id);
+    return quatBasis(r.GetX(), r.GetY(), r.GetZ(), r.GetW());
+  }
+  /**
+   * Blade strikes: rays round the main rotor's disc; anything inside it (a wall, a tree, the
+   * ground on a hard bank) wrecks the rotor in proportion to its speed and knocks the body.
+   */
+  private bladeStrikes(v: VehicleState, car: Car, b: readonly number[], dt: number, now: number): void {
+    const cfg = HELI_FLIGHT[v.kind]!, [hx, hy, hz] = cfg.hub;
+    const ox = v.x + b[0]! * hx + b[3]! * hy + b[6]! * hz, oy = v.y + b[1]! * hx + b[4]! * hy + b[7]! * hz, oz = v.z + b[2]! * hx + b[5]! * hy + b[8]! * hz;
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4, lx = Math.cos(a), lz = Math.sin(a);
+      const dx = b[0]! * lx + b[6]! * lz, dy = b[1]! * lx + b[7]! * lz, dz = b[2]! * lx + b[8]! * lz;
+      if (!this.world.raycast(ox, oy, oz, dx, dy, dz, cfg.radius, Mask.LineOfSight, this.rayHit)) continue;
+      if (this.rayHit.tag === 50000 + v.id) continue;
+      const hit = (v.rotor ?? 0) * (1 - this.rayHit.t / cfg.radius);
+      damagePart(v, 'mainRotor', hit * VEHICLES[v.kind].health * 2.5 * dt);
+      damageVehicle(v, hit * 60 * dt, now);
+      this.bodies.AddImpulse(car.id, v3(-dx * hit * VEHICLES[v.kind].mass * .4, 0, -dz * hit * VEHICLES[v.kind].mass * .4), rv3(ox, oy, oz));
+      v.impact = { time: now, speed: 6 + hit * 10 };
+      return;
+    }
   }
 
   /**
@@ -729,7 +790,9 @@ export class JoltVehicles {
     m.yawVelocity = w[0] * b[3]! + w[1] * b[4]! + w[2] * b[5]!;
     m.rollVelocity = w[0] * b[6]! + w[1] * b[7]! + w[2] * b[8]!;
     let contacts = 0;
-    for (let i = 0; i < 4; i++) {
+    // An aircraft is on the ground when its gear is (the body's underside within a hand's breadth).
+    if (!car.constraint) contacts = this.world.raycast(x, y + .5, z, 0, -1, 0, .75, Mask.LineOfSight, this.rayHit) || y - this.world.terrainHeight(x, z) < .25 ? 1 : 0;
+    else for (let i = 0; i < 4; i++) {
       const wheel = car.constraint.GetWheel(i);
       if (wheel.HasContact()) contacts++;
       m.suspension[i] = Math.max(0, Math.min(def.spring + .2, wheel.GetSuspensionLength()));
@@ -764,15 +827,18 @@ export class JoltVehicles {
   remove(id: number): void {
     const car = this.cars.get(id);
     if (!car) return;
-    this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint);
-    this.bodyMaterial.delete(car.id.GetIndex()); Jolt.destroy(car.callbacks);
+    if (car.listener) this.system.RemoveStepListener(car.listener);
+    if (car.constraint) this.system.RemoveConstraint(car.constraint);
+    this.bodyMaterial.delete(car.id.GetIndex()); if (car.callbacks) Jolt.destroy(car.callbacks);
     this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
     this.cars.delete(id);
   }
 
   dispose(): void {
     for (const car of this.cars.values()) {
-      this.system.RemoveStepListener(car.listener); this.system.RemoveConstraint(car.constraint); Jolt.destroy(car.callbacks);
+      if (car.listener) this.system.RemoveStepListener(car.listener);
+      if (car.constraint) this.system.RemoveConstraint(car.constraint);
+      if (car.callbacks) Jolt.destroy(car.callbacks);
       this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
     }
     this.cars.clear();
