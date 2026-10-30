@@ -6,7 +6,7 @@ import { AmbientLight, DirectionalLight, GridHelper, Group, Mesh, MeshBasicMater
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
 import {
-  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, armedSeat, seatEye, seatPosition, setSeatTuning,
+  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, armedSeat, seatEye, seatPosition, seatTuned, setSeatTuning,
   type SeatTune, type SeatTuning, type VehicleKind,
 } from '@zion/shared';
 import { studioLogin, studioSaveVehicleSeats, studioVehicleSeats, vehicleSeats } from '@/lib/api';
@@ -14,6 +14,8 @@ import { AssetLibrary } from '@/game/render/asset-library';
 import { Avatar } from '@/game/render/avatars';
 import { loadPlayerCharacter } from '@/game/render/character-model';
 import { cutWheels } from '@/game/render/vehicle-wheels';
+import { splitMounts } from '@/game/render/vehicle-mounts';
+import { fitSeats, type SeatFit } from '@/game/render/seat-fit';
 import { Icon } from './Icon';
 
 /**
@@ -26,6 +28,12 @@ type View = 'outside' | 'first';
 const KINDS = Object.keys(VEHICLES) as VehicleKind[];
 const AXES = ['X (phải +)', 'Y (lên +)', 'Z (sau +)'] as const;
 
+/** A seat where the game puts the rider: as tuned, else fitted to the model's cushion and floor. */
+function shownSeat(kind: VehicleKind, seat: number, fit: readonly SeatFit[]): readonly [number, number, number] {
+  const p = seatPosition(kind, seat), y = fit[seat]?.y;
+  return seatTuned(kind, seat) || y == null ? p : [p[0], y, p[2]];
+}
+
 export function VehicleStudioPage() {
   const host = useRef<HTMLDivElement>(null);
   const [kind, setKind] = useState<VehicleKind>('z10');
@@ -36,9 +44,11 @@ export function VehicleStudioPage() {
   const [locked, setLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [ready, setReady] = useState(false);
+  /** The seats as the game fits them to this model (cushion, floor), where not tuned. */
+  const [fit, setFit] = useState<SeatFit[]>([]);
   const world = useRef<{ scene: Scene; avatar: Avatar; vehicle: Group; eye: Mesh; library: AssetLibrary; outside: PerspectiveCamera; first: PerspectiveCamera; controls: OrbitControls } | null>(null);
-  const live = useRef({ kind, seat, view });
-  live.current = { kind, seat, view };
+  const live = useRef({ kind, seat, view, fit });
+  live.current = { kind, seat, view, fit };
 
   // Tuning as saved (the Studio's copy if signed in, else the public one).
   useEffect(() => {
@@ -77,8 +87,9 @@ export function VehicleStudioPage() {
       const frame = (now: number) => {
         raf = requestAnimationFrame(frame);
         const dt = Math.min(.1, (now - last) / 1000); last = now;
-        const { kind: k, seat: s, view: v } = live.current, def = VEHICLES[k];
-        const gunner = s > 0 && armedSeat(k, s), [x, y, z] = seatPosition(k, s), [ex, ey, ez] = seatEye(k, s, gunner);
+        const { kind: k, seat: s, view: v, fit: f } = live.current, def = VEHICLES[k];
+        const gunner = s > 0 && armedSeat(k, s), [x, y, z] = shownSeat(k, s, f), [ex, ey, ez] = seatEye(k, s, gunner);
+        avatar.seatFloor = seatTuned(k, s) ? null : f[s]?.floor ?? null;
         avatar.update(x, y, z, 0, EntityFlags.Grounded, dt, now / 1000);
         avatar.root.position.set(x, y, z);
         avatar.drivingPose(gunner ? null : def.quad, 0, 0, 0, s > 0);
@@ -100,12 +111,15 @@ export function VehicleStudioPage() {
     const w = world.current;
     if (!w) return;
     w.vehicle.clear();
+    setFit([]);
     const def = VEHICLES[kind], body = new Group();
     body.scale.setScalar(def.scale);
     w.vehicle.add(body);
     void w.library.load(def.asset)?.then((visual) => {
       if (world.current !== w || live.current.kind !== kind) return;
-      for (const part of cutWheels(kind, visual.parts)) {
+      const parts = cutWheels(kind, visual.parts);
+      setFit(fitSeats(kind, splitMounts(kind, parts).hull));
+      for (const part of parts) {
         const m = new Mesh(part.geometry, part.material);
         if (part.wheelCenter) m.position.set(...part.wheelCenter);
         if (part.rotorCenter) m.position.set(...part.rotorCenter);
@@ -118,7 +132,7 @@ export function VehicleStudioPage() {
 
   const tune: SeatTune = tuning[kind]?.[seat] ?? {};
   const gunner = seat > 0 && armedSeat(kind, seat);
-  const pos = seatPosition(kind, seat), eye = seatEye(kind, seat, gunner);
+  const pos = shownSeat(kind, seat, fit), eye = seatEye(kind, seat, gunner);
   const change = (next: SeatTune | null) => {
     const forKind = { ...(tuning[kind] ?? {}) };
     if (next && (next.pos || next.eye)) forKind[seat] = next; else delete forKind[seat];

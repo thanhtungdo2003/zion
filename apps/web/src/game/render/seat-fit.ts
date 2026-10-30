@@ -20,6 +20,8 @@ const ASTRIDE_HEIGHT = .6;
 /** How far a measured seat may move from the one in the vehicle data (a stray hit is ignored). */
 const MAX_SHIFT = .6;
 const FEET_AHEAD = .5;
+/** Seated, the soles hang this far below the rider's origin. */
+export const FEET_DROP = .12;
 
 const fits = new WeakMap<readonly ModelPart[], SeatFit[]>();
 
@@ -54,11 +56,17 @@ export function fitSeats(kind: VehicleKind, parts: readonly ModelPart[]): SeatFi
   const out = def.seats.map(([x, y, z], seat): SeatFit => {
     if (!ground || armedSeat(kind, seat) || role.inside?.includes(seat)) return { y: null, floor: null };
     // The cushion: the highest surface a sitting body's head clears (roofs, wheels and bars above it are not seats).
-    const cushion = crossings(x, z).find((h) => h < y + 1.2), sit = def.quad ? ASTRIDE_HEIGHT : SIT_HEIGHT;
-    if (cushion === undefined || Math.abs(cushion - sit - y) > MAX_SHIFT) return { y: null, floor: null };
+    const surface = crossings(x, z).find((h) => h < y + 1.2), sit = def.quad ? ASTRIDE_HEIGHT : SIT_HEIGHT;
+    if (surface === undefined) return { y: null, floor: null };
     // Straddling a quad the feet hang either side on the footrests: no floor ahead to keep them off.
-    const floor = def.quad ? undefined : crossings(x, z - FEET_AHEAD).find((h) => h < cushion - .25);
-    return { y: cushion - sit, floor: floor ?? null };
+    const floor = def.quad ? undefined : crossings(x, z - FEET_AHEAD).find((h) => h < surface - .25);
+    // Nothing lower ahead: the model has no seat (a car shell), and that surface is its floor. The
+    // rider sits as on a seat above it, the feet resting on it (seated, they hang FEET_DROP below
+    // the rider's origin), never sunk through it.
+    const shell = !def.quad && floor === undefined;
+    const fitted = shell ? surface + FEET_DROP : surface - sit;
+    if (Math.abs(fitted - y) > MAX_SHIFT) return { y: null, floor: null };
+    return { y: fitted, floor: shell ? surface : floor ?? null };
   });
   fits.set(parts, out);
   return out;

@@ -4,7 +4,7 @@ import { createVehicleMotion, VEHICLES, vehiclePoint, type VehicleState } from '
 import { CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleRenderer } from './vehicles';
-import { SIT_HEIGHT } from './seat-fit';
+import { FEET_DROP } from './seat-fit';
 
 vi.mock('../vehicle-audio',()=>({VehicleAudio:class {update=vi.fn();dispose=vi.fn();}}));
 afterEach(()=>vi.restoreAllMocks());
@@ -48,9 +48,9 @@ describe('vehicle graphics and camera collision',()=>{
       const pose=renderer.rider(1)!;
       // Our own car (driver 1 = local player) plays 70 ms behind; the second frame adds dt.
       expect(pose.z).toBeCloseTo(80-2*(1170-70+1000/60-1000)/100);
-      // The driver sits on the model's cushion: here the top of the unit box body (0.5 × scale 1.2).
+      // A solid box has no seat inside: its top is the floor the driver's feet rest on.
       const [sx,,sz]=VEHICLES.car.seats[0]!;
-      expect(renderer.seat(1)).toEqual(vehiclePoint(pose,sx,.5*VEHICLES.car.scale-SIT_HEIGHT,sz));
+      expect(renderer.seat(1)).toEqual(vehiclePoint(pose,sx,.5*VEHICLES.car.scale+FEET_DROP,sz));
       const root=scene.children.find(o=>o instanceof Group)!;
       root.updateMatrixWorld(true);
       const body=root.children[0]!;
