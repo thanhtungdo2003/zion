@@ -192,6 +192,11 @@ async function refreshWithRetry(): Promise<SessionResponse> {
   }
 }
 
+/** Resolves once no session refresh is in flight (safe to reload or leave the page). */
+export async function authSettled(): Promise<void> {
+  while (refreshing) await refreshing;
+}
+
 /** Restores a session from the refresh cookie. Resolves false when there is none. */
 export function refreshSession(force = false): Promise<boolean> {
   if (!force && !hasHint()) return Promise.resolve(false);

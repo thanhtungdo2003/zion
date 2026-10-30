@@ -16,7 +16,7 @@ import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
 import { VehiclePredictor } from './vehicle-prediction';
 import { BotDebugOverlay } from './render/bot-debug';
-import { vehicleSeats } from '@/lib/api';
+import { authSettled, vehicleSeats } from '@/lib/api';
 import { CockpitPanel } from './render/cockpit-panel';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
@@ -757,7 +757,9 @@ export class GameEngine {
           const attempt = rejoinAttempt();
           if (attempt <= 8) {
             this.hud.set({ status: 'connecting', statusDetail: { key: 'raw', vars: { text: `Mất kết nối · đang vào lại trận (lần ${attempt})…` } } });
-            window.setTimeout(() => { if (!this.disposed) window.location.reload(); }, Math.min(8000, 1200 * attempt));
+            // Never reload in the middle of a session refresh: the server would have rotated the
+            // cookie the reloaded page then lacks, and the player would have to sign in again.
+            window.setTimeout(() => { void authSettled().then(() => { if (!this.disposed) window.location.reload(); }); }, Math.min(8000, 1200 * attempt));
             return;
           }
         }
