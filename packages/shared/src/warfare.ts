@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ITEMS, ammoItemFor, maxCount } from './items';
 import { CONTAINERS, canPlace, magazineOf, type ContainerId, type InventoryData, type PlacedItem } from './inventory';
 import { type VehicleKind } from './vehicles';
+import { sanitizeAttachments, type Attachments } from './attachments';
 
 /**
  * Warfare: a large-scale two-sided ticket battle (Ravenfield / Delta Force style). Two sides
@@ -582,9 +583,11 @@ export const warfareLoadoutSchema = z.object({
   secondary: itemIdSchema.nullable().optional(),
   heavy: itemIdSchema.nullable().optional(),
   gadgets: z.array(itemIdSchema).max(4).optional(),
+  /** Sights and muzzle devices per gun (checked against what each gun accepts). */
+  attachments: z.record(itemIdSchema, z.object({ optic: itemIdSchema.optional(), muzzle: itemIdSchema.optional() }).strict()).optional(),
 }).strict();
 export type WarfareLoadout = z.infer<typeof warfareLoadoutSchema>;
-export interface WarfareLoadoutChoice { primary: string; secondary: string | null; heavy: string | null; gadgets: string[] }
+export interface WarfareLoadoutChoice { primary: string; secondary: string | null; heavy: string | null; gadgets: string[]; attachments: Record<string, Attachments> }
 
 /** A valid choice for `cls`: anything not on the class's lists falls back to the class default. */
 export function sanitizeWarfareLoadout(cls: WarfareClass, pick: WarfareLoadout | undefined): WarfareLoadoutChoice {
@@ -595,7 +598,13 @@ export function sanitizeWarfareLoadout(cls: WarfareClass, pick: WarfareLoadout |
   const secondary = usesSecondary || pick?.secondary === null ? null : pick?.secondary && k.secondary.includes(pick.secondary) ? pick.secondary : k.secondary[0] ?? null;
   const heavy = !k.heavy.length || pick?.heavy === null ? null : pick?.heavy && k.heavy.includes(pick.heavy) ? pick.heavy : k.heavy[0]!;
   const gadgets = (pick?.gadgets ?? k.gadgets.slice(0, k.maxGadgets)).filter((g) => k.gadgets.includes(g)).slice(0, k.maxGadgets);
-  return { primary, secondary, heavy, gadgets };
+  // Attachments only for the guns carried, and only what each one takes.
+  const attachments: Record<string, Attachments> = {};
+  for (const gun of [primary, secondary, heavy]) {
+    const a = gun ? sanitizeAttachments(gun, pick?.attachments?.[gun]) : undefined;
+    if (gun && a && (a.optic || a.muzzle)) attachments[gun] = a;
+  }
+  return { primary, secondary, heavy, gadgets, attachments };
 }
 
 /** Where a gun goes on the body. */
@@ -635,8 +644,9 @@ export function warfareInventory(cls: WarfareClass, pick?: WarfareLoadout): Inve
   const guns: { id: string; mags: number }[] = [];
   for (const [id, mags] of [[choice.primary, k.mags.primary], [choice.heavy, k.mags.heavy], [choice.secondary, k.mags.secondary]] as const) {
     if (!id) continue;
-    const slot = gunSlot(id, taken);
-    if (!slot || !put(id, slot)) continue;
+    const slot = gunSlot(id, taken), gun = slot ? put(id, slot) : null;
+    if (!slot || !gun) continue;
+    if (choice.attachments[id]) gun.attachments = { ...choice.attachments[id] };
     taken.add(slot);
     guns.push({ id, mags });
   }
