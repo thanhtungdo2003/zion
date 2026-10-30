@@ -51,7 +51,6 @@ export class VehiclePredictor {
     if (this.v?.id !== v.id) {
       this.stop();
       this.sim = new JoltVehicles(this.world);
-      this.sim.predicting = v.id;
       this.v = clone(v); this.server = clone(v);
       this.sim.add(this.v); this.sim.restore(this.v);
     }

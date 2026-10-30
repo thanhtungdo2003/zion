@@ -142,11 +142,6 @@ export class JoltVehicles {
   private readonly materials = new Map<MaterialKind, InstanceType<JoltModule['PhysicsMaterial']>>();
   private readonly kinds = new Map<number, MaterialKind>();
   private readonly contacts: InstanceType<JoltModule['ContactListenerJS']>;
-  /**
-   * Client prediction of one vehicle (its id): every other vehicle's collision boxes in the
-   * CollisionWorld are mirrored as obstacles, so running into one answers at once.
-   */
-  predicting: number | null = null;
 
   constructor(private readonly world: CollisionWorld) {
     const settings = new Jolt.JoltSettings();
@@ -520,8 +515,10 @@ export class JoltVehicles {
     for (let i = 0; i < n; i++) {
       const c = this.buffer[i]!;
       // Vehicles are Jolt bodies themselves; their CollisionWorld boxes are only for LOS/players.
-      // Predicting one vehicle on a client, the others are obstacles where they are shown.
-      if (((c.tag > 50000 && c.tag < 60000) && (this.predicting === null || c.tag === 50000 + this.predicting)) || isDynamicBodyTag(c.tag)) continue;
+      // (Not even when predicting on a client: their boxes are rebuilt every frame, and mirroring
+      // them made and destroyed hundreds of Jolt bodies a tick. Vehicle-vehicle contact comes
+      // from the server's snapshots.)
+      if ((c.tag > 50000 && c.tag < 60000) || isDynamicBodyTag(c.tag)) continue;
       const known = this.statics.get(c);
       if (known) { known.seen = now; known.step = this.stepNo; continue; }
       const id = this.addStatic(c);

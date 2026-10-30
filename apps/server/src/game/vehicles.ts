@@ -68,10 +68,9 @@ export class Vehicles {
   /** The Jolt system vehicles and free rigid bodies share. */
   get rigid(): JoltVehicles { return this.physics; }
   private install(v: VehicleState): void {
-    // Helicopters fly their own model; everything on wheels or tracks drives on Jolt.
-    this.physics.add(v);
+      this.physics.add(v);
     if (!v.arms && (VEHICLE_ROLES[v.kind].weapons.length || VEHICLE_ROLES[v.kind].countermeasure)) v.arms = freshArms(v.kind);
-    this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
+    this.placed.delete(v.id); this.placeColliders(v);
   }
   spawn(p: Player, type: string | undefined, now: number): string {
     const aliases: Record<string, VehicleKind> = { car: 'car', lada: 'car', jeep: 'jeep', quad: 'quad', quadbike: 'quad', grizzly: 'grizzly' };
@@ -112,6 +111,15 @@ export class Vehicles {
     return id;
   }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
+  /** Each vehicle's collision boxes as last installed, and where (reinstalled only once it moved). */
+  private readonly placed = new Map<number, { at: [number, number, number, number, number, number]; colliders: ReturnType<typeof vehicleColliders> }>();
+  private placeColliders(v: VehicleState): void {
+    const m = v.motion, at: [number, number, number, number, number, number] = [v.x, v.y, v.z, v.yaw, m?.pitch ?? 0, m?.roll ?? 0], last = this.placed.get(v.id);
+    if (last && Math.abs(last.at[0] - at[0]) + Math.abs(last.at[1] - at[1]) + Math.abs(last.at[2] - at[2]) < .01 && Math.abs(last.at[3] - at[3]) + Math.abs(last.at[4] - at[4]) + Math.abs(last.at[5] - at[5]) < .002) return;
+    const colliders = vehicleColliders(v);
+    this.placed.set(v.id, { at, colliders });
+    this.world.setOwnerColliders(vehicleOwner(v.id), colliders);
+  }
   /** The rider of a seat with a turning mount points it (it follows at its traverse rate). */
   aimAt(v: VehicleState, seat: number, yaw: number, pitch: number): void {
     if (!Number.isFinite(yaw + pitch)) return;
@@ -202,7 +210,8 @@ export class Vehicles {
   /** Runs fn with this vehicle's own collision removed (a passenger's shots leave the cabin). */
   withoutColliders<T>(v: VehicleState, fn: () => T): T {
     this.world.removeOwnerColliders(vehicleOwner(v.id));
-    try { return fn(); } finally { this.install(v); }
+    // Put back as installed (a machine gun firing ten times a second must not rebuild the hull's boxes).
+    try { return fn(); } finally { const c = this.placed.get(v.id); if (c) this.world.setOwnerColliders(vehicleOwner(v.id), c.colliders); else this.install(v); }
   }
   /**
    * F: get out, or get in. An empty vehicle seats you as its driver; an occupied one takes you
@@ -342,7 +351,7 @@ export class Vehicles {
     }, dt, now);
     for (const [id, speed] of impacts) {
       const v = this.states.get(id)!;
-      this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
+      this.placeColliders(v);
       for (const p of this.aboard(v, players)) { this.seat(p, v); if (speed > 10) impact(p, speed); }
     }
     this.seatBots();
@@ -530,7 +539,7 @@ export class Vehicles {
     for (const b of this.botsIn(v)) this.exitBot(b, true);
     this.world.removeOwnerColliders(vehicleOwner(id));
     this.physics.remove(id);
-    this.states.delete(id); this.controls.delete(id); this.spawns.delete(id);
+    this.states.delete(id); this.controls.delete(id); this.spawns.delete(id); this.placed.delete(id);
   }
   reset(): void {
     this.controls.clear(); this.usedAt.clear(); this.spawnAt.clear();

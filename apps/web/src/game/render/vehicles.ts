@@ -7,6 +7,7 @@ import { VehicleTimeline } from '../vehicle-timeline';
 import { VehicleSmoke } from './vehicle-smoke';
 import { buildMountRigs, poseMountRigs, splitMounts, type MountRig } from './vehicle-mounts';
 import { fitSeats, type SeatFit } from './seat-fit';
+import { cutWheels } from './vehicle-wheels';
 
 // Vehicles are sent at 15 Hz. Rendering more than one packet interval in the past keeps
 // playback interpolating between real states; extrapolating and then correcting backwards
@@ -15,7 +16,7 @@ const VEHICLE_RENDER_DELAY_MS = 105;
 /** Delay for the vehicle we drive: two 30 Hz snapshot intervals. */
 const OWN_RENDER_DELAY_MS = 70;
 
-interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number; rigs:MountRig[]; fit:SeatFit[] }
+interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number; rigs:MountRig[]; fit:SeatFit[]; placed?:[number,number,number,number,number,number]; colliders?:ReturnType<typeof vehicleColliders> }
 export class VehicleRenderer {
   private readonly views = new Map<number, View>();
   private readonly audio = new VehicleAudio();
@@ -61,7 +62,11 @@ export class VehicleRenderer {
       const v=view.target,p=view.pose=this.overrides.get(v.id)??view.timeline.play(vehicleSeatOf(v,localId)>=0?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
       // Camera/LOS colliders follow the same interpolated pose as the mesh. Installing the
       // newest packet here caused the chase camera to alternate between two positions.
-      this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));
+      // (Only when it moved or turned: an armoured hull is up to 64 boxes, and a parked vehicle's never change.)
+      const placed=view.placed,m=p.motion;
+      if(!placed||Math.abs(placed[0]-p.x)+Math.abs(placed[1]-p.y)+Math.abs(placed[2]-p.z)>.01||Math.abs(placed[3]-p.yaw)+Math.abs(placed[4]-(m?.pitch??0))+Math.abs(placed[5]-(m?.roll??0))>.002){
+        view.colliders=vehicleColliders(p);this.world.setOwnerColliders(vehicleOwner(v.id),view.colliders);view.placed=[p.x,p.y,p.z,p.yaw,m?.pitch??0,m?.roll??0];
+      }
       const origin=vehiclePoint(p,0,def.com,0);
       // Flat tyres: the body sits low on that corner (latest state, not the interpolated pose).
       const tyres=tyreHandling(v);
@@ -87,7 +92,8 @@ export class VehicleRenderer {
         void this.library.load(VEHICLES[v.kind].asset)?.then(visual=>{
           if(this.disposed||!this.views.has(v.id))return;
           // Turrets and roof guns are cut out of the hull and turn on their own groups.
-          const {hull,pieces}=splitMounts(v.kind,visual.parts);
+          // One-mesh models (the APC) get their wheels cut out to spin.
+          const {hull,pieces}=splitMounts(v.kind,cutWheels(v.kind,visual.parts));
           const meshOf=(part:{geometry:Mesh['geometry'];material:Mesh['material']})=>{const m=new Mesh(part.geometry,part.material);m.castShadow=true;m.receiveShadow=true;return m;};
           view.rigs=buildMountRigs(v.kind,view.body,pieces,meshOf);
           view.fit=fitSeats(v.kind,hull);
@@ -115,7 +121,8 @@ export class VehicleRenderer {
   /** Runs fn with this vehicle's own collision removed, e.g. so the chase camera ignores its roof. */
   withoutOwnColliders<T>(v:VehicleState,fn:()=>T):T{
     this.world.removeOwnerColliders(vehicleOwner(v.id));
-    try{return fn();}finally{this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(v));}
+    // Put back as they were placed (not rebuilt: an armoured hull is up to 64 boxes).
+    try{return fn();}finally{this.world.setOwnerColliders(vehicleOwner(v.id),this.views.get(v.id)?.colliders??vehicleColliders(v));}
   }
   /** Where a rider is drawn: on the seat's cushion as measured on the model, carried by any mount. */
   seat(id:number):{x:number;y:number;z:number}|undefined{
