@@ -14,6 +14,7 @@ import type { ClientMessage } from '@zion/shared';
 import { settingsStore, type CameraMode } from '@/lib/settings';
 import { ThirdPersonCamera, reticleAim } from './third-person-camera';
 import { TankSight } from './tank-sight';
+import { VehiclePredictor } from './vehicle-prediction';
 import { mobileAimScore } from './mobile-aim';
 import { zombieAimPoint } from './zombie-aim';
 import { scopeFov } from './scope';
@@ -570,6 +571,9 @@ export class GameEngine {
   private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private readonly tankSight = new TankSight();
+  private vehiclePrediction: VehiclePredictor | null = null;
+  /** A crash we predicted: the vehicle camera shakes at once. */
+  private crashShake = 0;
   private shoulderAim = { yaw: 0, pitch: 0 };
   private get shotYaw(): number { return this.mouseLook ? this.shoulderAim.yaw : this.input.yaw; }
   private get shotPitch(): number { return this.mouseLook ? this.shoulderAim.pitch : this.input.pitch; }
@@ -852,6 +856,7 @@ export class GameEngine {
     this.colliderDebug?.dispose(); this.colliderDebug = null;
     this.vehicles?.dispose();
     this.tankSight.dispose();
+    this.vehiclePrediction?.stop();
     this.battleZone?.dispose();
     this.battleFlight?.dispose();
     this.powerCables?.dispose(); this.powerCables = null;
@@ -1714,6 +1719,12 @@ export class GameEngine {
       }
       case 'vehicles': {
         this.vehicles?.sync(m);
+        const predicted = this.vehiclePrediction?.id;
+        if (predicted != null) {
+          const mine = m.vehicles.find((v) => v.id === predicted);
+          if (mine && mine.driver === this.welcome!.playerId) this.vehiclePrediction!.reconcile(mine, m.ack, this.clock.now());
+          else { this.vehiclePrediction!.stop(); this.vehicles?.override(predicted, null); }
+        }
 
         if (this.local) this.local.riding = m.vehicles.some(v => vehicleSeatOf(v, this.welcome!.playerId) >= 0);
         break;
@@ -2062,6 +2073,12 @@ export class GameEngine {
     const local = this.local;
     const store = this.store;
     if (!local || !store || !this.sky) return;
+    {
+      // Our own vehicle is drawn from the prediction, between the last two fixed ticks.
+      const p = this.vehiclePrediction, id = p?.id;
+      if (p && id != null) { const pose = this.passenger || !local.riding ? null : p.pose(this.accumulator / TICK_DT, dt); this.vehicles?.override(id, pose); if (!pose) p.stop(); }
+      this.crashShake = Math.max(0, this.crashShake - dt * 1.8);
+    }
     this.vehicles?.update(dt, now, this.welcome!.playerId, local.state.x, local.state.y, local.state.z, this.input.locked && !this.input.suspended,this.clock.now(),this.input.axes().mz);
     // Aboard a vehicle: the driver steers it; a passenger rides along and can shoot.
     const aboard = this.vehicles?.rider(this.welcome!.playerId);
@@ -2562,7 +2579,16 @@ export class GameEngine {
       let buttons = this.input.buttons() & (Buttons.Attack | Buttons.Aim | Buttons.Jump | Buttons.Sprint);
       // A turret's commander: the right button magnifies the sight, Space fires the coaxial gun.
       if (ride && seatNo === 0 && seatMount(ride.kind, 0)) { const coax = (buttons & Buttons.Jump) !== 0; buttons &= ~(Buttons.Aim | Buttons.Jump); if (coax) buttons |= Buttons.Aim; }
-      this.conn.sendInput(local.step(this.passenger ? 0 : axes.mx, this.passenger ? 0 : axes.mz, this.input.yaw, this.input.pitch, buttons, undefined));
+      const msg = local.step(this.passenger ? 0 : axes.mx, this.passenger ? 0 : axes.mz, this.input.yaw, this.input.pitch, buttons, undefined);
+      this.conn.sendInput(msg);
+      // The vehicle we drive answers our input here and now (client prediction); the server's
+      // snapshots reconcile it.
+      const own = !this.passenger && this.store ? this.vehicles?.target(this.welcome!.playerId) : undefined;
+      const predictor = this.store ? this.vehiclePrediction ??= new VehiclePredictor(this.store.collision) : null;
+      if (predictor?.follow(own)) {
+        const impact = predictor.step(msg.s, this.hud.get().downed !== null ? 0 : msg.mz, this.hud.get().downed !== null ? 0 : msg.mx, this.clock.now());
+        if (impact > 3) this.crashShake = Math.min(.6, this.crashShake + impact * .025);
+      }
       this.input.acknowledgeTouchPresses(); return;
     }
     if (local.state.flight) {
@@ -3808,6 +3834,7 @@ export class GameEngine {
       const zoomed = this.input.aiming, fov = zoomed ? TANK_SIGHT_ZOOM_FOV : TANK_SIGHT_FOV;
       this.input.pitch = Math.max(-.3, Math.min(.45, this.input.pitch));
       cam.position.set(sight.x, sight.y, sight.z);
+      if (this.crashShake) cam.position.add(this.focus.set((Math.random() - .5) * this.crashShake * .2, (Math.random() - .5) * this.crashShake * .2, 0));
       cam.rotation.set(this.input.pitch, this.input.yaw, 0, 'YXZ');
       const eased = Math.abs(cam.fov - fov) < .05 ? fov : cam.fov + (fov - cam.fov) * Math.min(1, dt * 14);
       if (cam.fov !== eased) { cam.fov = eased; cam.updateProjectionMatrix(); }
@@ -3831,6 +3858,7 @@ export class GameEngine {
       this.camFocusInit = true;
       this.vehicles!.withoutOwnColliders(vehicle, () => this.vehicleCamera.update(cam, f, this.input.yaw, Math.max(-.6, Math.min(.2, this.input.pitch)), dt, this.store?.collision, false,
         { distance: Math.max(6, VEHICLES[vehicle.kind].halfZ * 2 + 2) + Math.min(2, Math.abs(vehicle.speed) / 17), height: 1 }));
+      if (this.crashShake) cam.position.add(this.focus.set((Math.random() - .5) * this.crashShake, (Math.random() - .5) * this.crashShake, (Math.random() - .5) * this.crashShake));
       const fov = 70 + Math.min(8, Math.abs(vehicle.speed) / 4);
       if (Math.abs(cam.fov-fov) > .01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       this.input.lookScale = 1;
@@ -4084,6 +4112,7 @@ export class GameEngine {
         heapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
         snapshotKB: Math.round(this.conn.bytesIn / 1024),
         frame: this.profiler?.take() ?? null,
+        prediction: this.vehiclePrediction?.id != null ? (({ steps, reconciles, replayed, error, ms }) => ({ steps, reconciles, replayed, error: +(error * 100).toFixed(1), ms: +ms.toFixed(2) }))(this.vehiclePrediction.stats) : null,
       },
       playersNearby: [...this.remotes.values()].filter(r => r.entity.kind === EntityKind.Player).length,
       health: local.health,

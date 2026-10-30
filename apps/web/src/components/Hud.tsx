@@ -266,6 +266,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
               <span>Người chơi</span><em>{state.playersNearby} ở gần · {state.playersOnline} trực tuyến</em>
               <span>Thực thể</span><em>{state.debug?.entities ?? 0} ({state.debug?.zombies ?? 0} thây ma)</em>
               {state.debug?.frame && <><span>Thời gian khung</span><em>CPU {state.debug.frame.update} + vẽ {state.debug.frame.render} ms · GPU {state.debug.frame.gpu ?? '—'} ms</em></>}
+              {state.debug?.prediction && <><span>Dự đoán xe</span><em>{state.debug.prediction.steps} tick · lệch {state.debug.prediction.error} cm · sửa {state.debug.prediction.reconciles} lần ({state.debug.prediction.replayed} input) · {state.debug.prediction.ms} ms</em></>}
               <span>Lượt vẽ</span><em>{state.debug?.drawCalls ?? 0}</em>
               <span>Tam giác</span><em>{state.trianglesK}k</em>
               <span>Bộ nhớ GPU</span><em>{state.debug?.geometries ?? 0} khối · {state.debug?.textures ?? 0} ảnh</em>

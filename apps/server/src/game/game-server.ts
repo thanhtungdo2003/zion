@@ -1168,6 +1168,9 @@ export class GameServer {
       physics_step_ms: Number(j.stepMs.toFixed(3)), physics_substeps: j.steps, physics_active_bodies: j.activeBodies, physics_bodies: j.bodies,
       physics_live_vehicles: j.vehicles, physics_mirrored_colliders: j.mirrored, physics_free_bodies: f.bodies, physics_free_bodies_awake: f.awake,
       physics_shot_impulses_total: c.shots, physics_push_impulses_total: c.pushes, physics_blast_impulses_total: c.blasts,
+      // Vehicle snapshots: sent, vehicles in them, unchanged vehicles left out (delta), build time.
+      vehicle_snapshots_total: this.vehicles.netStats.messages, vehicle_snapshot_entries_total: this.vehicles.netStats.vehicles,
+      vehicle_snapshot_skipped_total: this.vehicles.netStats.skipped, vehicle_snapshot_ms_total: Number(this.vehicles.netStats.ms.toFixed(2)),
     };
   }
 
@@ -3646,7 +3649,10 @@ export class GameServer {
       }
       p.budget.earn();
       let processed = 0;
-      while (p.inputs.length > 0 && processed < MAX_INPUTS_PER_TICK && p.budget.tryConsume()) {
+      // A driver's inputs drive the vehicle one per tick, as the client predicts them (a backlog
+      // from a stalled connection is worked off two at a time).
+      const cap = p.vehicleId && p.vehicleSeat === 0 ? p.inputs.length > 4 ? 2 : 1 : MAX_INPUTS_PER_TICK;
+      while (p.inputs.length > 0 && processed < cap && p.budget.tryConsume()) {
         this.applyInput(p, p.inputs.shift()!, now);
         processed++;
       }

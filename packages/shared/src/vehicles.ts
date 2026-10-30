@@ -1,4 +1,5 @@
 import type { VehicleArmsState } from './vehicle-arms';
+import type { VehiclePart } from './vehicle-parts';
 export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly' | 't80u' | 't90a' | 't62a' | 'tank' | 'marauder' | 'mi17' | 'z10' | 'tiger';
 export interface VehicleState {
   id: number; kind: VehicleKind; x: number; y: number; z: number; yaw: number;
@@ -19,6 +20,8 @@ export interface VehicleState {
   arms?: VehicleArmsState;
   /** Turned weapon mounts (see vehicle-mounts): [yaw, pitch] per seat, yaw relative to the hull. */
   aim?: number[];
+  /** Damaged components, health 0…1 (see vehicle-parts; missing = intact). */
+  parts?: Partial<Record<VehiclePart, number>>;
 }
 export interface VehicleMotion {
   pitch: number; roll: number; vy: number; pitchVelocity: number; rollVelocity: number;
@@ -27,6 +30,8 @@ export interface VehicleMotion {
   lateral?: number; yawVelocity?: number;
   /** Actual spring lengths, front left/right then rear left/right. */
   suspension: [number, number, number, number];
+  /** Helicopters: the collective lever, 0 (down) … 1 (full). */
+  collective?: number;
 }
 export const VEHICLES = {
   // `scale` enlarges the prepared model; every physical dimension below is already scaled.
@@ -96,7 +101,16 @@ export function createVehicleMotion(kind: VehicleKind): VehicleMotion {
   const length=VEHICLES[kind].spring;
   return {pitch:0,roll:0,vy:0,pitchVelocity:0,rollVelocity:0,grounded:false,steer:0,suspension:[length,length,length,length],lateral:0,yawVelocity:0};
 }
-export interface VehiclesMessage { t: 'vehicles'; time: number; vehicles: VehicleState[] }
+/**
+ * Vehicle snapshot. `ack`: to a driver, the last of their inputs the server has applied to the
+ * vehicle (one per tick), so their client can replay the inputs after it (reconciliation).
+ */
+export interface VehiclesMessage {
+  t: 'vehicles'; time: number; ack?: number;
+  /** Every vehicle in the recipient's interest; `vehicles` holds only those whose state changed. */
+  ids?: number[];
+  vehicles: VehicleState[];
+}
 
 /** Wheel centre in vehicle-local metres (+X right, −Z forward). */
 export function wheelCentre(kind: VehicleKind, i: number): { x: number; y: number; z: number } {

@@ -24,9 +24,15 @@ export class VehicleRenderer {
   private playback: number | undefined;
   private ownPlayback: number | undefined;
   private disposed = false;
+  /** Poses drawn instead of the snapshot playback: the vehicle we drive, as predicted. */
+  private readonly overrides = new Map<number, VehicleState>();
+  override(id:number,pose:VehicleState|null):void{if(pose)this.overrides.set(id,pose);else this.overrides.delete(id);}
+  /** The latest snapshot of a player's vehicle (not interpolated). */
+  target(id:number):VehicleState|undefined{return this.viewOf(id)?.target;}
   constructor(private readonly scene:Scene,private readonly library:AssetLibrary,private readonly world:CollisionWorld){this.smoke=new VehicleSmoke(scene);}
   sync(message:VehiclesMessage):void{
-    const keep=new Set(message.vehicles.map(v=>v.id));
+    // Delta snapshots: `ids` lists everything still in view, `vehicles` only what changed.
+    const keep=new Set(message.ids??message.vehicles.map(v=>v.id));
     for(const [id,view]of this.views)if(!keep.has(id)){this.scene.remove(view.root);this.world.removeOwnerColliders(vehicleOwner(id));this.views.delete(id);this.smoke.forget(id);}
     for(const v of message.vehicles){
       const existing=this.views.get(v.id);
@@ -52,7 +58,7 @@ export class VehicleRenderer {
     if(this.ownPlayback===undefined||Math.abs(ownTarget-this.ownPlayback)>400)this.ownPlayback=ownTarget;
     else this.ownPlayback+=dt*1000+(ownTarget-this.ownPlayback)*Math.min(1,dt*1.5);
     for(const view of this.views.values()){
-      const v=view.target,p=view.pose=view.timeline.play(vehicleSeatOf(v,localId)>=0?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
+      const v=view.target,p=view.pose=this.overrides.get(v.id)??view.timeline.play(vehicleSeatOf(v,localId)>=0?this.ownPlayback:this.playback),def=VEHICLES[v.kind];
       // Camera/LOS colliders follow the same interpolated pose as the mesh. Installing the
       // newest packet here caused the chase camera to alternate between two positions.
       this.world.setOwnerColliders(vehicleOwner(v.id),vehicleColliders(p));

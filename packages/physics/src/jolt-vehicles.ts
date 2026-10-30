@@ -64,6 +64,10 @@ interface Car {
   callbacks: InstanceType<JoltModule['VehicleConstraintCallbacksJS']>;
 }
 export interface VehicleInput { throttle: number; steer: number }
+/** Wheel spin, rotation and steer (three per wheel), engine rpm, gear and clutch. */
+export interface VehicleDrivetrain { wheels: number[]; rpm: number; gear: number; clutch: number }
+/** A vehicle body's exact state (world position, rotation quaternion, linear and angular velocity). */
+export interface VehicleBodyState { p: [number, number, number]; q: [number, number, number, number]; v: [number, number, number]; w: [number, number, number] }
 /** A free rigid body (knocked prop, thrown object): Jolt owns its motion until it sleeps. */
 interface Prop { id: BodyID; radius: number; mass: number }
 /** Jolt step cost and population, for the server's physics profile. */
@@ -131,6 +135,11 @@ export class JoltVehicles {
   private readonly materials = new Map<MaterialKind, InstanceType<JoltModule['PhysicsMaterial']>>();
   private readonly kinds = new Map<number, MaterialKind>();
   private readonly contacts: InstanceType<JoltModule['ContactListenerJS']>;
+  /**
+   * Client prediction of one vehicle (its id): every other vehicle's collision boxes in the
+   * CollisionWorld are mirrored as obstacles, so running into one answers at once.
+   */
+  predicting: number | null = null;
 
   constructor(private readonly world: CollisionWorld) {
     const settings = new Jolt.JoltSettings();
@@ -334,6 +343,52 @@ export class JoltVehicles {
     }
   }
 
+  /**
+   * The exact rigid-body state of a vehicle (position, rotation, linear and angular velocity),
+   * for client prediction: saved after each predicted step, restored before replaying inputs.
+   */
+  saveState(id: number): VehicleBodyState | null {
+    const car = this.cars.get(id);
+    if (!car) return null;
+    const p = this.bodies.GetPosition(car.id), r = this.bodies.GetRotation(car.id), lv = this.bodies.GetLinearVelocity(car.id), av = this.bodies.GetAngularVelocity(car.id);
+    return { p: [p.GetX(), p.GetY(), p.GetZ()], q: [r.GetX(), r.GetY(), r.GetZ(), r.GetW()], v: [lv.GetX(), lv.GetY(), lv.GetZ()], w: [av.GetX(), av.GetY(), av.GetZ()] };
+  }
+  /** The drivetrain's own state (wheel spin and steer, engine rpm, gear): kept with predicted steps. */
+  saveDrivetrain(id: number): VehicleDrivetrain | null {
+    const car = this.cars.get(id);
+    if (!car) return null;
+    const n = car.ground.length, wheels: number[] = [];
+    for (let i = 0; i < n; i++) { const w = car.constraint.GetWheel(i); wheels.push(w.GetAngularVelocity(), w.GetRotationAngle(), w.GetSteerAngle()); }
+    const c = car.controller ?? car.tracks!, t = c.GetTransmission();
+    return { wheels, rpm: c.GetEngine().GetCurrentRPM(), gear: t.GetCurrentGear(), clutch: t.GetClutchFriction() };
+  }
+  restoreDrivetrain(id: number, d: VehicleDrivetrain): void {
+    const car = this.cars.get(id);
+    if (!car) return;
+    for (let i = 0; i * 3 < d.wheels.length; i++) { const w = car.constraint.GetWheel(i); w.SetAngularVelocity(d.wheels[i * 3]!); w.SetRotationAngle(d.wheels[i * 3 + 1]!); w.SetSteerAngle(d.wheels[i * 3 + 2]!); }
+    const c = car.controller ?? car.tracks!;
+    c.GetEngine().SetCurrentRPM(d.rpm); c.GetTransmission().Set(d.gear, d.clutch);
+  }
+
+  /**
+   * Puts a vehicle exactly into the state of a VehicleState (an authoritative snapshot), spin
+   * included, and marks it synced so the next step does not push it again.
+   */
+  restore(v: VehicleState): void {
+    const car = this.cars.get(v.id);
+    if (!car) return;
+    const m = v.motion ??= createVehicleMotion(v.kind), [qx, qy, qz, qw] = eulerQuat(v.yaw, m.pitch, m.roll), b = quatBasis(qx, qy, qz, qw);
+    const lateral = m.lateral ?? 0, vx = -Math.sin(v.yaw) * v.speed + Math.cos(v.yaw) * lateral, vz = -Math.cos(v.yaw) * v.speed - Math.sin(v.yaw) * lateral;
+    this.bodies.SetPositionAndRotation(car.id, rv3(v.x, v.y, v.z), q4(qx, qy, qz, qw), Jolt.EActivation_Activate);
+    this.bodies.SetLinearVelocity(car.id, v3(vx, m.vy, vz));
+    // Body rates (as pull() reads them: about right, up and back) back to a world vector.
+    const pv = m.pitchVelocity, yv = m.yawVelocity ?? 0, rv = m.rollVelocity;
+    this.bodies.SetAngularVelocity(car.id, v3(b[0]! * pv + b[3]! * yv + b[6]! * rv, b[1]! * pv + b[4]! * yv + b[7]! * rv, b[2]! * pv + b[5]! * yv + b[8]! * rv));
+    car.velocity = [vx, m.vy, vz];
+    const s = car.synced;
+    s.x = v.x; s.y = v.y; s.z = v.z; s.yaw = v.yaw; s.pitch = m.pitch; s.roll = m.roll; s.speed = v.speed; s.lateral = lateral; s.vy = m.vy;
+  }
+
   /* ------------------------------------ free rigid bodies ------------------------------------ */
 
   hasBody(id: number): boolean { return this.props.has(id); }
@@ -449,7 +504,8 @@ export class JoltVehicles {
     for (let i = 0; i < n; i++) {
       const c = this.buffer[i]!;
       // Vehicles are Jolt bodies themselves; their CollisionWorld boxes are only for LOS/players.
-      if ((c.tag > 50000 && c.tag < 60000) || isDynamicBodyTag(c.tag)) continue;
+      // Predicting one vehicle on a client, the others are obstacles where they are shown.
+      if (((c.tag > 50000 && c.tag < 60000) && (this.predicting === null || c.tag === 50000 + this.predicting)) || isDynamicBodyTag(c.tag)) continue;
       const known = this.statics.get(c);
       if (known) { known.seen = now; known.step = this.stepNo; continue; }
       const id = this.addStatic(c);

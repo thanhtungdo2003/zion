@@ -271,6 +271,60 @@ pulling away on asphalt against mud.
 a tank on the spot. `packages/shared/src/vehicle-mounts.test.ts` covers traverse rates, the muzzle
 following the turret, and a roof gun and its gunner riding round with it.
 
+### 10.3 Vehicles over the network (hybrid physics)
+
+The audit found the following:
+- **Server:** Jolt at a fixed 30 Hz tick with 2 substeps; catch-up is limited to 4 ticks, then
+  dropped (no spiral of death).
+- **Client:** no vehicle physics at all. Every vehicle, ours included, was drawn from
+  interpolated snapshots 70–105 ms in the past, so a driver saw a wall hit a round trip late.
+- **Snapshots:** every vehicle in a 420 m radius was sent in full at 15/30 Hz, parked ones
+  included.
+- **Driver input:** inputs were applied up to three per tick, with no acknowledgement.
+
+What runs where now:
+- **Server: authority.** Inputs are validated (clamped axes, no positions accepted). The server
+  steps the vehicles on Jolt, applying one driver input per tick (a backlog two at a time), and
+  decides impacts, damage and destruction. Jolt sleeps idle bodies, and only the ground round awake
+  bodies is mirrored. Snapshots carry, for each vehicle:
+  - position, heading, pitch and roll;
+  - speed, slip, climb and the three body rates;
+  - suspension, health, rotor, weapons and aim.
+
+  To the driver they also carry `ack`, the last input applied.
+- **Delta snapshots.** A vehicle is sent in full only when its state changed since that player
+  last got it (one serialisation per vehicle per tick; parked vehicles every 2 s; anything we
+  ride, always). `ids` lists everything in interest, and a snapshot with nothing new is not sent.
+  Stale snapshots (older `time`) are ignored. `/metrics` reports snapshots, entries sent, entries
+  skipped and build time.
+- **Client: prediction of the vehicle we drive** (`apps/web/src/game/vehicle-prediction.ts`).
+  - **Each fixed tick:** our input steps a local `JoltVehicles` over the client's own collision
+    world. Terrain, statics and the other vehicles where they are shown count as obstacles. The
+    vehicle accelerates, hits, bounces and slows at once; the camera shakes on a crash.
+  - **Reconciliation:** each snapshot is compared with what we predicted after the acknowledged
+    input. A small difference is left alone. Otherwise the server's state is taken, with our wheel
+    spin and engine rpm at that input standing in for the server's, the inputs it has not applied
+    are replayed, and the visual jump is eased out. Beyond 6 m it is a teleport and is taken as it is.
+  - The predicted pose is drawn between the last two ticks at any frame rate. Health, crew and
+    weapons stay the server's.
+- **Other vehicles:** snapshot interpolation with cubic Hermite through each snapshot's
+  velocity. A vehicle silent while parked holds still until its next snapshot. Extrapolation is
+  limited to 180 ms.
+- **Collisions between players' vehicles.** Each driver's client predicts its own vehicle against
+  the other as an obstacle. The server's single simulation decides the outcome, and both clients
+  converge on it through reconciliation and interpolation. Damage is applied once, by the server.
+- **Profiling.** The F3 panel shows the prediction: ticks, last error, corrections, inputs
+  replayed and step time. The server's `/metrics` reports the physics step and snapshot counters.
+
+`apps/web/src/game/vehicle-prediction.test.ts` runs a server and a client over a lagged link:
+- the client drives at once while the server has not yet seen an input;
+- it agrees with the server within centimetres;
+- it meets a wall before the server does, and never goes through;
+- it converges smoothly when the server alone knew of a shove.
+
+Not done yet: aircraft are not predicted (they keep their own flight model until it moves onto
+Jolt), the snapshots stay JSON (no binary packing), and there is no packet-loss soak test.
+
 ## 11. Known limits and next steps
 
 - Bodies are not in the client's `CollisionWorld`, so client-side tracers and bullet holes can pass

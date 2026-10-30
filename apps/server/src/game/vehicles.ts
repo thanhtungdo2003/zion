@@ -469,9 +469,41 @@ export class Vehicles {
   }
   /** False hides every vehicle (battle royale before the drop): none are sent or usable. */
   available = true;
+  /**
+   * A player's vehicle snapshot (interest: within 420 m, or aboard). Only vehicles whose state
+   * changed since they last got it are sent in full (a parked one is refreshed every 2 s); `ids`
+   * lists every vehicle in their interest so the client drops the rest. A snapshot with nothing
+   * new is not sent at all.
+   */
   send(p: Player, now: number): void {
-    p.session.sendJson({ t: 'vehicles', time: now, vehicles: !this.available ? [] : [...this.states.values()].filter(v => vehicleSeatOf(v, p.id) >= 0 || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420) });
+    const near = !this.available ? [] : [...this.states.values()].filter(v => vehicleSeatOf(v, p.id) >= 0 || Math.hypot(v.x - p.state.x, v.z - p.state.z) < 420);
+    let memo = this.sent.get(p);
+    if (!memo) this.sent.set(p, memo = { ids: '', at: new Map() });
+    const changed: VehicleState[] = [];
+    for (const v of near) {
+      const json = this.snapshotJson(v, now), last = memo.at.get(v.id);
+      if (!last || last.json !== json || now - last.at > 2000 || vehicleSeatOf(v, p.id) >= 0) { changed.push(v); memo.at.set(v.id, { json, at: now }); }
+    }
+    const ids = near.map((v) => v.id), key = ids.join(',');
+    for (const id of memo.at.keys()) if (!ids.includes(id)) memo.at.delete(id);
+    if (!changed.length && key === memo.ids) return;
+    memo.ids = key;
+    const t0 = performance.now(), message = { t: 'vehicles' as const, time: now, ...(p.vehicleId && p.vehicleSeat === 0 ? { ack: p.lastProcessedSeq } : {}), ids, vehicles: changed };
+    p.session.sendJson(message);
+    this.netStats.messages++; this.netStats.vehicles += changed.length; this.netStats.skipped += near.length - changed.length; this.netStats.ms += performance.now() - t0;
   }
+  /** Each vehicle's snapshot serialised once per tick, shared by every recipient's comparison. */
+  private snapshotJson(v: VehicleState, now: number): string {
+    const known = this.snapshots.get(v.id);
+    if (known?.at === now) return known.json;
+    const json = JSON.stringify(v);
+    this.snapshots.set(v.id, { at: now, json });
+    return json;
+  }
+  private readonly snapshots = new Map<number, { at: number; json: string }>();
+  private readonly sent = new WeakMap<Player, { ids: string; at: Map<number, { json: string; at: number }> }>();
+  /** Vehicle snapshots: messages, vehicles sent in full, unchanged ones left out, time spent (ms), since start. */
+  readonly netStats = { messages: 0, vehicles: 0, skipped: 0, ms: 0 };
   /** Takes a vehicle off the map for good (eject its occupants first). */
   remove(id: number): void {
     const v = this.states.get(id);

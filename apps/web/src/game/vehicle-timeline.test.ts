@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { VehicleState } from '@zion/shared';
+import { createVehicleMotion, type VehicleState } from '@zion/shared';
 import { VehicleTimeline } from './vehicle-timeline';
 
 const state=(time:number):VehicleState=>({id:1,kind:'car',x:10,y:30,z:100-time*.02,yaw:0,speed:20,health:600,driver:1,explodeAt:0,exploded:false});
@@ -49,5 +49,20 @@ describe('vehicle rendering timeline',()=>{
     for(let time=220+1000/60;time<350;time+=1000/60){
       const p=timeline.play(time);expect(last.z-p.z).toBeGreaterThan(0);expect(last.z-p.z).toBeLessThan(.6);last=p;
     }
+  });
+});
+
+describe('velocity-aware interpolation', () => {
+  it('follows a turning vehicle along its arc between snapshots, closer than a straight line', () => {
+    // A circle of radius 20 m driven at 10 m/s, snapshots every 200 ms.
+    const r = 20, w = 10 / r, at = (t: number): VehicleState => {
+      const a = w * t, m = createVehicleMotion('car');
+      return { id: 1, kind: 'car', x: r * Math.cos(a), y: 0, z: -r * Math.sin(a), yaw: a, speed: 10, health: 600, driver: null, explodeAt: 0, exploded: false, motion: m };
+    };
+    const line = new VehicleTimeline();
+    for (let i = 0; i < 4; i++) line.push(i * 200, at(i * .2));
+    const mid = line.sample(300), truth = at(.3);
+    const straight = { x: (at(.2).x + at(.4).x) / 2, z: (at(.2).z + at(.4).z) / 2 };
+    expect(Math.hypot(mid.x - truth.x, mid.z - truth.z)).toBeLessThan(Math.hypot(straight.x - truth.x, straight.z - truth.z) / 3);
   });
 });

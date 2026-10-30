@@ -34,6 +34,8 @@ export * from './battle-royale';
 export * from './vehicles';
 export * from './vehicle-arms';
 export * from './vehicle-mounts';
+export * from './vehicle-parts';
+export * from './helicopter-flight';
 export * from './infection';
 export * from './waves';
 export * from './warfare';

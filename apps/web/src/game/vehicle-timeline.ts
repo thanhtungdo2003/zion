@@ -2,6 +2,8 @@ import { createVehicleMotion, type VehicleState } from '@zion/shared';
 
 const copy=(v:VehicleState):VehicleState=>({...v,motion:{...(v.motion??createVehicleMotion(v.kind)),suspension:[...(v.motion??createVehicleMotion(v.kind)).suspension]}});
 const mix=(a:number,b:number,t:number)=>a+(b-a)*t;
+/** World velocity of a snapshot (speed along the heading, sideways slip, climb). */
+const velocity=(v:VehicleState):[number,number,number]=>{const l=v.motion?.lateral??0;return [-Math.sin(v.yaw)*v.speed+Math.cos(v.yaw)*l,v.motion?.vy??0,-Math.cos(v.yaw)*v.speed-Math.sin(v.yaw)*l];};
 /** Timestamped playback, independent of packet arrival cadence and render frame rate. */
 export class VehicleTimeline {
   private frames:Array<{time:number;state:VehicleState}>=[];
@@ -14,6 +16,9 @@ export class VehicleTimeline {
     if(last&&Math.hypot(last.state.x-state.x,last.state.y-state.y,last.state.z-state.z)>12){
       this.frames=[];this.playbackTime=undefined;this.offset={x:0,y:0,z:0,yaw:0,pitch:0,roll:0};before=undefined;
     }
+    // A vehicle left out of snapshots while it stood still: it stood there until just before
+    // this one, rather than gliding across the whole silence.
+    if(last&&time-last.time>250)this.frames.push({time:time-1000/30,state:copy(last.state)});
     this.frames.push({time,state:copy(state)});
     if(this.frames.length>12)this.frames.shift();
     if(before&&this.playbackTime!==undefined){
@@ -40,7 +45,15 @@ export class VehicleTimeline {
     const p=copy(a.state),m=p.motion!;
     if(b.time>a.time){
       const t=Math.max(0,Math.min(1,(time-a.time)/(b.time-a.time)));
-      p.x=mix(a.state.x,b.state.x,t);p.y=mix(a.state.y,b.state.y,t);p.z=mix(a.state.z,b.state.z,t);
+      // Velocity-aware (cubic Hermite): the path bends through each snapshot as the vehicle was
+      // actually moving, instead of kinking at every packet.
+      const h=(b.time-a.time)/1000,va=velocity(a.state),vb=velocity(b.state),t2=t*t,t3=t2*t;
+      const h00=2*t3-3*t2+1,h10=t3-2*t2+t,h01=-2*t3+3*t2,h11=t3-t2;
+      if(h<.5){
+        p.x=h00*a.state.x+h10*h*va[0]+h01*b.state.x+h11*h*vb[0];
+        p.y=h00*a.state.y+h10*h*va[1]+h01*b.state.y+h11*h*vb[1];
+        p.z=h00*a.state.z+h10*h*va[2]+h01*b.state.z+h11*h*vb[2];
+      }else{p.x=mix(a.state.x,b.state.x,t);p.y=mix(a.state.y,b.state.y,t);p.z=mix(a.state.z,b.state.z,t);}
       p.yaw=a.state.yaw+Math.atan2(Math.sin(b.state.yaw-a.state.yaw),Math.cos(b.state.yaw-a.state.yaw))*t;
       p.speed=mix(a.state.speed,b.state.speed,t);
       const am=a.state.motion!,bm=b.state.motion!;
