@@ -30,12 +30,6 @@ export class PhysicsChunkManager {
    * aircraft no longer drags chunk loading and collider building through every tick).
    */
   keepAll = false;
-  /**
-   * Chunks further than this from every player and bot are evicted. Fixed maps keep a wide margin:
-   * dozens of bots roam them, and a tight one had their chunks dropped and rebuilt over and over,
-   * crowding the world generator the loading players were waiting on.
-   */
-  unloadRadius = UNLOAD_RADIUS;
   private preload: Generator<readonly [number, number]> | null = null;
   private preloading = 0;
   /** Whole-map preload finished. */
@@ -142,7 +136,7 @@ export class PhysicsChunkManager {
       const z = chunkKeyZ(key);
       let needed = false;
       for (const [cx, cz] of centers) {
-        if (Math.abs(cx - x) <= this.unloadRadius && Math.abs(cz - z) <= this.unloadRadius) {
+        if (Math.abs(cx - x) <= UNLOAD_RADIUS && Math.abs(cz - z) <= UNLOAD_RADIUS) {
           needed = true;
           break;
         }

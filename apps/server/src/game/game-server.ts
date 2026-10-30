@@ -445,10 +445,10 @@ export class GameServer {
     });
     this.controller = new CharacterController(this.collision);
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
-    // Collision streams round players and bots on every map and is evicted behind them: kept for
-    // the whole match (keepAll) it grew with every chunk anyone crossed until the server ran out
-    // of memory mid-match, dropping every player. Fixed maps evict with a wide margin (bots roam).
-    if (this.fixedMap) this.physics.unloadRadius = 8;
+    // Fixed maps keep what was loaded for the whole match (the chunk data is in the world cache
+    // anyway): evicting it had the main thread rebuild colliders over and over as bots roamed,
+    // and the whole battlefield lagged.
+    this.physics.keepAll = this.fixedMap;
     this.spawns = new SpawnService(gen, this.collision, this.controller, this.physics);
     this.zombies = new ZombieDirector(this.collision, this.spawns, {
       attackPlayer: (z, p, dmg, now) => {
