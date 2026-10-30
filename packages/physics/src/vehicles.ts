@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleState, type VehicleMotion } from '@zion/shared';
+import { VEHICLE_ROLES, VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleState, type VehicleMotion } from '@zion/shared';
 import { makeBox, shapeAABB, makeContact, type BoxShape, type Collider } from './shapes';
 import { capsuleVsBox } from './geometry';
 import { Layer, Mask } from './layers';
@@ -13,6 +13,10 @@ export function vehicleColliders(v: VehicleState): ColliderInit[] {
     if(v.motion?.pitch || v.motion?.roll) shape.basis=basis;
     return {shape,layer:Layer.Static,tag:50000+v.id};
   };
+  const cls = VEHICLE_ROLES[v.kind].cls;
+  // Armour: one solid hull up to the turret roof. Helicopters: the fuselage (the boom is thin).
+  if (cls === 'tank' || cls === 'apc') return [box(0, def.height * .5, 0, def.halfX, def.height * .5, def.halfZ)];
+  if (cls === 'heli') return [box(0, def.height * .55, -def.halfZ * .3, def.halfX, def.height * .3, def.halfZ * .55), box(0, def.height * .65, def.halfZ * .6, .3, .3, def.halfZ * .4)];
   const k = def.scale, parts = [box(0, .48 * k, 0, def.halfX, .25 * k, def.halfZ)];
   if (!def.quad) {
     const roof = (v.kind === 'jeep' ? 2.25 : 1.48) * k, sill = (v.kind === 'jeep' ? 1.05 : .82) * k;

@@ -198,6 +198,11 @@ export class GameConnection {
     this.send(msg);
   }
 
+  /** V aboard a vehicle: flares or the smoke screen. */
+  sendVehicleCountermeasure(): void {
+    this.send({ t: 'vcm' });
+  }
+
   /** Warfare: deploy choices, squads, orders to bots, G and hand signals (all checked by the server). */
   sendWarfare(msg: ClientMessage & { t: 'wfDeploy' | 'wfSquad' | 'wfOrder' | 'wfRecruit' | 'wfEmote' }): void {
     this.send(msg);

@@ -1,5 +1,5 @@
 import { Group, Mesh, type Scene } from 'three';
-import { VEHICLES, tyreHandling, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -13,7 +13,7 @@ const VEHICLE_RENDER_DELAY_MS = 105;
 /** Delay for the vehicle we drive: two 30 Hz snapshot intervals. */
 const OWN_RENDER_DELAY_MS = 70;
 
-interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number }
+interface View { target: VehicleState; pose: VehicleState; root: Group; body:Group; timeline:VehicleTimeline; loaded: boolean; wheels:Array<{index:number;mount:Group;spin:Group;center:readonly [number,number,number]}>; travel:number; rotors:Array<{group:Group;axis:'main'|'tail'}>; spin:number }
 export class VehicleRenderer {
   private readonly views = new Map<number, View>();
   private readonly audio = new VehicleAudio();
@@ -29,7 +29,7 @@ export class VehicleRenderer {
     for(const v of message.vehicles){
       const existing=this.views.get(v.id);
       if(existing){existing.target={...v};existing.timeline.push(message.time,v);}
-      else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0});}
+      else{const root=new Group(),body=new Group(),timeline=new VehicleTimeline();body.position.y=-VEHICLES[v.kind].com;body.scale.setScalar(VEHICLES[v.kind].scale);root.add(body);timeline.push(message.time,v);this.scene.add(root);this.views.set(v.id,{target:{...v},pose:{...v},root,body,timeline,loaded:false,wheels:[],travel:0,rotors:[],spin:0});}
     }
   }
   /** The vehicle a player is aboard (any seat), interpolated. */
@@ -39,7 +39,7 @@ export class VehicleRenderer {
   /** Seat of a player aboard: 0 driving, 1… passenger, −1 on foot. */
   seatIndex(id:number):number{const v=[...this.views.values()].find(v=>vehicleSeatOf(v.target,id)>=0);return v?vehicleSeatOf(v.target,id):-1;}
   nearest(x:number,y:number,z:number):VehicleState|undefined{
-    return [...this.views.values()].map(v=>v.target).filter(v=>vehicleFreeSeat(v)>=0&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&Math.hypot(v.x-x,v.z-z)<3.6).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
+    return [...this.views.values()].map(v=>v.target).filter(v=>vehicleFreeSeat(v)>=0&&v.health>0&&!v.exploded&&Math.abs(v.y-y)<2.5&&vehicleInReach(v,x,z)).sort((a,b)=>Math.hypot(a.x-x,a.z-z)-Math.hypot(b.x-x,b.z-z))[0];
   }
   update(dt:number,now:number,localId:number,x:number,y:number,z:number,enabled:boolean,serverTime=now,localThrottle?:number):void{
     const target=serverTime-VEHICLE_RENDER_DELAY_MS;
@@ -69,14 +69,18 @@ export class VehicleRenderer {
         wheel.mount.rotation.y=wheel.index<2?-(p.motion?.steer??0)*.42:0;
         wheel.spin.rotation.x=-view.travel/def.wheelRadius;
       }
-      view.root.visible=Math.hypot(p.x-x,p.z-z)<350;
+      // Helicopter rotors: spinning with the rotor speed (main ~5 turns/s, tail faster).
+      view.spin+=(v.rotor??0)*dt*32;
+      for(const r of view.rotors){if(r.axis==='main')r.group.rotation.y=view.spin;else r.group.rotation.x=view.spin*2.6;}
+      view.root.visible=Math.hypot(p.x-x,p.z-z)<(VEHICLE_ROLES[v.kind].cls==='heli'?900:350);
       if(!view.loaded&&view.root.visible){
         view.loaded=true;
         void this.library.load(VEHICLES[v.kind].asset)?.then(visual=>{
           if(this.disposed||!this.views.has(v.id))return;
           for(const part of visual.parts){
             const mesh=new Mesh(part.geometry,part.material);mesh.castShadow=true;mesh.receiveShadow=true;
-            if(part.wheel!==undefined&&part.wheelCenter){
+            if(part.rotor&&part.rotorCenter){const group=new Group();group.position.set(...part.rotorCenter);group.add(mesh);view.body.add(group);view.rotors.push({group,axis:part.rotor});}
+            else if(part.wheel!==undefined&&part.wheelCenter){
               let wheel=view.wheels.find(w=>w.index===part.wheel);
               if(!wheel){const mount=new Group(),spin=new Group();mount.add(spin);view.body.add(mount);wheel={index:part.wheel,mount,spin,center:part.wheelCenter};view.wheels.push(wheel);}
               wheel.spin.add(mesh);

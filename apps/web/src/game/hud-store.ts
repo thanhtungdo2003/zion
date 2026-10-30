@@ -19,7 +19,15 @@ export interface ChatLine {
 export type LifeState = BaseLifeMessage & Required<Pick<BaseLifeMessage, 'objects' | 'config' | 'plots' | 'animalLoot'>>;
 
 export interface HudState {
-  vehicle: { name: string; driving: boolean; speed: number; health: number; exploding: boolean } | null;
+  vehicle: {
+    name: string; driving: boolean; speed: number; health: number; exploding: boolean;
+    /** The seat's name and the weapons it works (ammo, reload), the countermeasure, flight height. */
+    seat?: string;
+    weapons?: Array<{ name: string; trigger: 'primary' | 'secondary'; mag: number; reserve: number; magazine: number; reloadMs: number }>;
+    cm?: { name: string; charges: number; readyMs: number; active: boolean };
+    altitude?: number;
+    aircraft?: boolean;
+  } | null;
   mode: GameMode;
   battle: BattleState | null;
   /** Infection round state (null in the other modes). */

@@ -155,7 +155,7 @@ export interface ProjectileEvent {
   ownerId: number;
   /** WeaponId that fired it. */
   w: number;
-  kind: 'grenade40' | 'rocket' | 'bolt' | 'bullet';
+  kind: 'grenade40' | 'rocket' | 'bolt' | 'bullet' | 'shell' | 'missile';
   x: number;
   y: number;
   z: number;
@@ -168,6 +168,9 @@ export interface ProjectileEvent {
 }
 
 /** A round stopped: it hit something (`hit` = a body) at (x,y,z). Explosives also send 'explosion'. */
+/** A vehicle's countermeasure went off (V): flares round a helicopter, a smoke screen round armour. */
+export interface VehicleCountermeasureEvent { t: 'vcm'; id: number; kind: 'flares' | 'smoke'; x: number; y: number; z: number; yaw: number; until: number }
+
 export interface ProjectileEndEvent {
   t: 'projEnd';
   id: number;
@@ -324,6 +327,7 @@ export type ServerJsonMessage =
   | WaveStateMessage
   | WarfareStateMessage
   | WarfareGestureMessage
+  | VehicleCountermeasureEvent
   | TreesMessage
   | StructuresMessage
   | StructureMessage

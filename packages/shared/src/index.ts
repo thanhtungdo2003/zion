@@ -32,6 +32,7 @@ export * from './handbook';
 export * from './leaderboard';
 export * from './battle-royale';
 export * from './vehicles';
+export * from './vehicle-arms';
 export * from './infection';
 export * from './waves';
 export * from './warfare';

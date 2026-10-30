@@ -1,5 +1,10 @@
 import {
   AdditiveBlending,
+  ConeGeometry,
+  CylinderGeometry,
+  Group,
+  BoxGeometry,
+  MeshStandardMaterial,
   IcosahedronGeometry,
   Mesh,
   MeshBasicMaterial,
@@ -91,6 +96,10 @@ export class CombatEffects {
   private readonly bulletModel = new Mesh(new IcosahedronGeometry(.025, 1), new MeshBasicMaterial({ color: 0xffe6ac, toneMapped: false }));
   private readonly bulletGlow = new Mesh(new IcosahedronGeometry(.055, 1), new MeshBasicMaterial({ color: 0xffd183, transparent: true, opacity: .18, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
   private readonly fallbackGrenade = new Mesh(new IcosahedronGeometry(0.07), new MeshBasicMaterial({ color: 0x445533 }));
+  /** Vehicle rounds drawn here (nose → +X): a tank shell with its tracer, a guided missile, a rocket. */
+  private readonly vehicleRounds = new Map<string, Object3D>([['shell', shellModel()], ['missile', missileModel()], ['vrocket', rocketModel()]]);
+  /** Flares falling away from a helicopter (bright, burning out). */
+  private readonly flares: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }> = [];
 
   /** Thrown grenade models by weapon id (frag uses `grenadeModel`). */
   grenadeModels = new Map<number, Object3D>();
@@ -246,8 +255,13 @@ export class CombatEffects {
   /* ------------------------------------- launcher rounds ------------------------------------ */
 
   launch(e: ProjectileEvent): void {
-    if (this.rounds.has(e.id)) return;
-    const model = e.kind === 'bullet' ? this.bulletModel : this.projectileModels.get(e.kind);
+    const flying = this.rounds.get(e.id);
+    if (flying) {
+      // A guided missile's new course.
+      if (e.kind === 'missile') Object.assign(flying, { x: e.x, y: e.y, z: e.z, vx: e.vx, vy: e.vy, vz: e.vz, maxAge: flying.age + (e.maxFlightSec ?? 4) });
+      return;
+    }
+    const model = e.kind === 'bullet' ? this.bulletModel : e.kind === 'shell' || e.kind === 'missile' ? this.vehicleRounds.get(e.kind) : this.projectileModels.get(e.kind) ?? this.vehicleRounds.get('vrocket');
     const mesh = (model ?? this.fallbackRound).clone(true);
     mesh.position.set(e.x, e.y, e.z);
     this.scene.add(mesh);
@@ -260,6 +274,7 @@ export class CombatEffects {
     this.scene.remove(r.mesh);
     this.rounds.delete(id);
     if (!impact) return;
+    if (r.kind === 'shell' || r.kind === 'missile') ParticleFX.impact(this.particles, x, y, z);
     if (r.kind === 'bullet') {
       ParticleFX.impact(this.particles, x, y, z);
       if (!hitBody && normal) this.bulletHoles.add(x, y, z, normal);
@@ -340,6 +355,28 @@ export class CombatEffects {
     } else this.sounds?.play('explosion', { at: { x, y, z }, volume: 1.2, maxDistance: 120, refDistance: 8 });
   }
 
+  /**
+   * A vehicle's countermeasure: flares fan out and fall burning from a helicopter's sides; armour
+   * fires a smoke screen ahead and round itself that hangs for `ms`.
+   */
+  countermeasure(kind: 'flares' | 'smoke', x: number, y: number, z: number, yaw: number, ms: number): void {
+    if (kind === 'flares') {
+      for (let i = 0; i < 16; i++) {
+        const side = i % 2 ? 1 : -1, a = yaw + side * (Math.PI / 2 + (Math.random() - .5) * .9), sp = 9 + Math.random() * 7;
+        this.flares.push({ x, y: y + 1.5, z, vx: -Math.sin(a) * sp, vy: 2 + Math.random() * 4, vz: -Math.cos(a) * sp, life: 2.4 + Math.random() * 1.2 });
+      }
+      this.sounds?.play('explosion', { at: { x, y, z }, volume: .35, maxDistance: 120, refDistance: 8 });
+      return;
+    }
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), seconds = Math.max(2, ms / 1000);
+    for (let i = -2; i <= 2; i++) {
+      const a = yaw + i * .35, d = 8 + Math.abs(i) * 1.5;
+      this.smoke.add(0x7e000000 + Math.floor(Math.random() * 1e6), x - Math.sin(a) * d, y + .5, z - Math.cos(a) * d, 5.5, seconds * 1000);
+    }
+    this.smoke.add(0x7e000000 + Math.floor(Math.random() * 1e6), x + fx, y + .5, z + fz, 6, seconds * 1000);
+    this.sounds?.play('explosion', { at: { x, y, z }, volume: .4, maxDistance: 80, refDistance: 6 });
+  }
+
   /* ----------------------------------------- frame ----------------------------------------- */
 
   update(dt: number, world: CollisionWorld | null | undefined): void {
@@ -354,6 +391,15 @@ export class CombatEffects {
     }
 
     this.smoke.update(dt);
+    for (let i = this.flares.length - 1; i >= 0; i--) {
+      const f = this.flares[i]!;
+      f.life -= dt;
+      if (f.life <= 0) { this.flares.splice(i, 1); continue; }
+      f.vy -= 6 * dt; f.vx *= 1 - dt * .8; f.vz *= 1 - dt * .8;
+      f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+      this.particles.glow.emit({ x: f.x, y: f.y, z: f.z, life: .1, size: .9, sizeEnd: .3, color: [1, .95, .8], colorEnd: [1, .55, .15] });
+      this.particles.smoke.emit({ x: f.x, y: f.y, z: f.z, vy: .4, spread: .1, life: 1.8, size: .25, sizeEnd: 1.1, color: [.9, .9, .9], alpha: .45, drag: 1.2 });
+    }
     for (const [id, g] of this.grenades) {
       g.age += dt;
       if (g.age > 12) { this.scene.remove(g.mesh); this.grenades.delete(id); }
@@ -389,6 +435,8 @@ export class CombatEffects {
       this.tmpDir.set(r.vx / sp, r.vy / sp, r.vz / sp);
       r.mesh.quaternion.setFromUnitVectors(this.xAxis, this.tmpDir);
       if (r.kind === 'rocket') ParticleFX.rocketTrail(this.particles, r.x - this.tmpDir.x * 0.5, r.y - this.tmpDir.y * 0.5, r.z - this.tmpDir.z * 0.5, this.tmpDir.x, this.tmpDir.y, this.tmpDir.z);
+      else if (r.kind === 'missile') ParticleFX.rocketTrail(this.particles, r.x - this.tmpDir.x * 0.8, r.y - this.tmpDir.y * 0.8, r.z - this.tmpDir.z * 0.8, this.tmpDir.x, this.tmpDir.y, this.tmpDir.z);
+      else if (r.kind === 'shell') this.particles.glow.emit({ x: r.x, y: r.y, z: r.z, life: .08, size: .18, sizeEnd: .05, color: [1, .75, .35] });
       else if (r.kind === 'grenade40') ParticleFX.smokeTrail(this.particles, r.x, r.y, r.z);
       else if (r.kind === 'bolt') ParticleFX.boltTrail(this.particles, r.x, r.y, r.z);
       // Safety net if the end event was lost.
@@ -441,4 +489,35 @@ export class CombatEffects {
     this.rings.length = 0;
     this.particles.dispose();
   }
+}
+
+/** A tank shell (nose → +X): a short dark body and a bright tracer at its base. */
+function shellModel(): Object3D {
+  const g = new Group();
+  const body = new Mesh(new CylinderGeometry(.06, .06, .5, 10).rotateZ(-Math.PI / 2), new MeshStandardMaterial({ color: 0x3a3c36, metalness: .6, roughness: .4 }));
+  const nose = new Mesh(new ConeGeometry(.06, .22, 10).rotateZ(-Math.PI / 2).translate(.36, 0, 0), new MeshStandardMaterial({ color: 0x8a6a32, metalness: .7, roughness: .35 }));
+  const tracer = new Mesh(new IcosahedronGeometry(.16, 1).scale(2.2, 1, 1).translate(-.4, 0, 0), new MeshBasicMaterial({ color: 0xffb35a, transparent: true, opacity: .85, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
+  g.add(body, nose, tracer);
+  return g;
+}
+/** An anti-tank missile (nose → +X): body, warhead, mid and tail fins, the motor's glow. */
+function missileModel(): Object3D {
+  const g = new Group(), olive = new MeshStandardMaterial({ color: 0x4f5638, metalness: .3, roughness: .6 });
+  g.add(new Mesh(new CylinderGeometry(.08, .08, 1.1, 12).rotateZ(-Math.PI / 2), olive));
+  g.add(new Mesh(new ConeGeometry(.08, .28, 12).rotateZ(-Math.PI / 2).translate(.69, 0, 0), new MeshStandardMaterial({ color: 0x2b2d2a, roughness: .5 })));
+  for (const [x, s] of [[.1, .5], [-.48, .8]] as const) for (let i = 0; i < 4; i++) {
+    const fin = new Mesh(new BoxGeometry(.18 * s + .05, .01, .22 * s), olive);
+    fin.position.set(x, 0, 0); fin.rotation.x = i * Math.PI / 2; fin.translateZ(.12 * s);
+    g.add(fin);
+  }
+  g.add(new Mesh(new IcosahedronGeometry(.12, 1).translate(-.62, 0, 0), new MeshBasicMaterial({ color: 0xffd28a, blending: AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false })));
+  return g;
+}
+/** An unguided rocket (nose → +X), for vehicles whose rocket model is not loaded. */
+function rocketModel(): Object3D {
+  const g = new Group(), grey = new MeshStandardMaterial({ color: 0x6b6e66, metalness: .4, roughness: .5 });
+  g.add(new Mesh(new CylinderGeometry(.04, .04, .9, 10).rotateZ(-Math.PI / 2), grey));
+  g.add(new Mesh(new ConeGeometry(.04, .18, 10).rotateZ(-Math.PI / 2).translate(.54, 0, 0), new MeshStandardMaterial({ color: 0x9a4a2a, roughness: .5 })));
+  for (let i = 0; i < 4; i++) { const fin = new Mesh(new BoxGeometry(.14, .01, .12), grey); fin.position.set(-.4, 0, 0); fin.rotation.x = i * Math.PI / 2; fin.translateZ(.06); g.add(fin); }
+  return g;
 }

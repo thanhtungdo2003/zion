@@ -169,6 +169,8 @@ export interface BotHooks {
   enemy?(bot: BattleBot, id: number): boolean;
   /** Infection: a bot's blow or bullet on another bot, settled by the game (true = handled). */
   botHitsBot?(attacker: BattleBot, target: BattleBot, damage: number, zone: string, now: number): boolean;
+  /** A riding bot fires the weapon its seat works at its target (true: handled, own gun stays). */
+  seatFire?(bot: BattleBot, now: number): boolean;
   /** Runs a riding bot's shot with its own vehicle's collision out of the way. */
   fromVehicle?(bot: BattleBot, fn: () => void): void;
   /** A bot took damage (`by`: who dealt it, when known) — for kill assists. */
@@ -302,7 +304,10 @@ export class BattleBotDirector {
       if (now < bot.knockedUntil) { this.controller.step(s, { mx: 0, mz: 0, yaw: bot.yaw, jump: false, sprint: false, prone: false }, TICK_DT); continue; }
       // In a vehicle: the driver is steered by its commander; a passenger looks out and shoots.
       if (bot.vehicleId) {
-        if (think) this.decide(bot, now, world, players);
+        // Looking out of the vehicle: its own hull must not block the view.
+        if (think) { if (this.hooks.fromVehicle) this.hooks.fromVehicle(bot, () => this.decide(bot, now, world, players)); else this.decide(bot, now, world, players); }
+        // A weapon seat (or a tank / gunship driver): the mounted weapon.
+        if (bot.target && bot.mode === 'fight' && this.hooks.seatFire?.(bot, now)) continue;
         if (bot.vehicleSeat > 0 && bot.mode === 'fight' && bot.target) {
           const t = bot.target.state;
           bot.yaw = Math.atan2(-(t.x - s.x), -(t.z - s.z));

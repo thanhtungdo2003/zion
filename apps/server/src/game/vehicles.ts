@@ -1,5 +1,5 @@
-import { VEHICLES, VEHICLE_REACH, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
-import { JoltVehicles, loadJolt, damageVehicle, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
+import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, freshArms, isAircraft, vehicleInReach, vehicleOwner, vehicleSeat, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { JoltVehicles, loadJolt, damageVehicle, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
 import { allStructures, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 
@@ -14,7 +14,7 @@ export class Vehicles {
   readonly states = new Map<number, VehicleState>();
   /** Bots aboard, by id. */
   private readonly botRiders = new Map<number, BotRider>();
-  private readonly controls = new Map<number, { throttle: number; steer: number; at: number }>();
+  private readonly controls = new Map<number, { throttle: number; steer: number; lift?: number; at: number }>();
   private readonly usedAt = new Map<number, number>();
   private readonly spawnAt = new Map<number, number>();
   private readonly spawns = new Map<number, { x: number; y: number; z: number; yaw: number }>();
@@ -64,7 +64,12 @@ export class Vehicles {
   }
   /** The Jolt system vehicles and free rigid bodies share. */
   get rigid(): JoltVehicles { return this.physics; }
-  private install(v: VehicleState): void { this.physics.add(v); this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v)); }
+  private install(v: VehicleState): void {
+    // Helicopters fly their own model; everything on wheels or tracks drives on Jolt.
+    if (!isAircraft(v.kind)) this.physics.add(v);
+    if (!v.arms && (VEHICLE_ROLES[v.kind].weapons.length || VEHICLE_ROLES[v.kind].countermeasure)) v.arms = freshArms(v.kind);
+    this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
+  }
   spawn(p: Player, type: string | undefined, now: number): string {
     const aliases: Record<string, VehicleKind> = { car: 'car', lada: 'car', jeep: 'jeep', quad: 'quad', quadbike: 'quad', grizzly: 'grizzly' };
     const key = type?.toLowerCase();
@@ -104,9 +109,9 @@ export class Vehicles {
     return id;
   }
   driving(p: Player): VehicleState | undefined { return p.vehicleId ? this.states.get(p.vehicleId) : undefined; }
-  control(p: Player, throttle: number, steer: number, now: number): void {
-    // Only the driver steers; passengers just ride (and shoot).
-    if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, at: now });
+  control(p: Player, throttle: number, steer: number, now: number, lift = 0): void {
+    // Only the driver steers; passengers just ride (and shoot). `lift`: a helicopter's collective.
+    if (p.vehicleId && p.vehicleSeat === 0) this.controls.set(p.vehicleId, { throttle, steer, lift, at: now });
   }
   /**
    * A bot gets in: the driver's seat when asked and free, otherwise a free passenger seat. Only an
@@ -114,7 +119,7 @@ export class Vehicles {
    */
   boardBot(bot: BotRider, v: VehicleState, wantDriver: boolean): boolean {
     if (!this.available || bot.dead || bot.vehicleId || v.health <= 0 || v.exploded || v.explodeAt) return false;
-    if (Math.hypot(v.x - bot.state.x, v.z - bot.state.z) > VEHICLE_REACH + 1.5 || Math.abs(v.y - bot.state.y) > 3) return false;
+    if (!vehicleInReach(v, bot.state.x, bot.state.z, VEHICLE_REACH - .5) || Math.abs(v.y - bot.state.y) > 3) return false;
     let seat = -1;
     if (wantDriver && !v.driver) seat = 0;
     else for (let i = 1; i < VEHICLES[v.kind].seats.length; i++) if (!v.passengers?.[i - 1]) { seat = i; break; }
@@ -127,21 +132,22 @@ export class Vehicles {
     return true;
   }
   /** The driving bot's controls (forward / back, left / right), like a player's keys. */
-  driveBot(bot: BotRider, throttle: number, steer: number, now: number): void {
-    if (bot.vehicleId && bot.vehicleSeat === 0 && this.botRiders.get(bot.id) === bot) this.controls.set(bot.vehicleId, { throttle: Math.max(-1, Math.min(1, throttle)), steer: Math.max(-1, Math.min(1, steer)), at: now });
+  driveBot(bot: BotRider, throttle: number, steer: number, now: number, lift = 0): void {
+    if (bot.vehicleId && bot.vehicleSeat === 0 && this.botRiders.get(bot.id) === bot) this.controls.set(bot.vehicleId, { throttle: Math.max(-1, Math.min(1, throttle)), steer: Math.max(-1, Math.min(1, steer)), lift: Math.max(-1, Math.min(1, lift)), at: now });
   }
   /** A bot gets out beside the vehicle (anywhere it stands clear; on the spot when `force`). */
   exitBot(bot: BotRider, force = false): boolean {
     const v = this.states.get(bot.vehicleId);
     if (!v) { this.botRiders.delete(bot.id); bot.vehicleId = 0; bot.vehicleSeat = 0; return true; }
-    const point = this.exitPoint(v);
+    const flying = this.inFlight(v);
+    const point = flying ? this.jumpPoint(v, bot.vehicleSeat) : this.exitPoint(v);
     if (!point && !force) return false;
     if (v.driver === bot.id) { v.driver = null; this.controls.delete(v.id); }
     if (v.passengers) v.passengers = v.passengers.map((id) => (id === bot.id ? 0 : id));
     this.botRiders.delete(bot.id);
     bot.vehicleId = 0; bot.vehicleSeat = 0;
     if (point) Object.assign(bot.state, point);
-    Object.assign(bot.state, { vx: 0, vy: 0, vz: 0, grounded: true });
+    Object.assign(bot.state, { vx: 0, vy: 0, vz: 0, grounded: !flying }, flying ? { flight: 2 } : {});
     return true;
   }
   /** Bots aboard a vehicle. */
@@ -185,8 +191,8 @@ export class Vehicles {
     this.usedAt.set(p.id, now);
     if (this.driving(p)) { this.exit(p); return; }
     const boardable = (v: VehicleState) => v.health > 0 && !v.exploded && vehicleFreeSeat(v) >= 0 && vehicleOccupants(v).every(allied);
-    const v = id ? this.states.get(id) : [...this.states.values()].filter(boardable).sort((a, b) => Math.hypot(a.x - p.state.x, a.z - p.state.z) - Math.hypot(b.x - p.state.x, b.z - p.state.z))[0];
-    if (!v || !boardable(v) || Math.hypot(v.x - p.state.x, v.z - p.state.z) > VEHICLE_REACH || Math.abs(v.y - p.state.y) > 2.5) return;
+    const v = id ? this.states.get(id) : [...this.states.values()].filter((q) => boardable(q) && vehicleInReach(q, p.state.x, p.state.z)).sort((a, b) => Math.hypot(a.x - p.state.x, a.z - p.state.z) - Math.hypot(b.x - p.state.x, b.z - p.state.z))[0];
+    if (!v || !boardable(v) || !vehicleInReach(v, p.state.x, p.state.z) || Math.abs(v.y - p.state.y) > 2.5) return;
     // Reach is not enough: do not let F pull players through a wall.
     const dx = v.x - p.state.x, dz = v.z - p.state.z, d = Math.hypot(dx, dz), hit = makeRayHit();
     this.world.removeOwnerColliders(vehicleOwner(v.id));
@@ -199,9 +205,29 @@ export class Vehicles {
     p.vehicleId = v.id; p.vehicleSeat = seat; p.state.prone = false; p.state.crouched = false; p.state.rollTicks = 0; p.strike = null;
     p.history.clear(); this.seat(p, v);
   }
+  /** A helicopter high enough that getting out means jumping with a parachute. */
+  inFlight(v: VehicleState): boolean {
+    const g = this.world.terrainHeight(v.x, v.z);
+    return isAircraft(v.kind) && Number.isFinite(g) && v.y - g > 8;
+  }
+  /** Out of the side door of a flying helicopter: falling, the parachute opens on its own. */
+  private jumpPoint(v: VehicleState, seat: number): { x: number; y: number; z: number } {
+    const def = VEHICLES[v.kind], side = seat % 2 ? 1 : -1, c = Math.cos(v.yaw), s = Math.sin(v.yaw), dx = side * (def.halfX + 1.4), dz = -def.halfZ * .2;
+    return { x: v.x + dx * c + dz * s, y: v.y + .5, z: v.z - dx * s + dz * c };
+  }
   exit(p: Player, force = false): boolean {
     const v = this.driving(p);
     if (!v) return true;
+    if (this.inFlight(v)) {
+      const at = this.jumpPoint(v, p.vehicleSeat);
+      if (v.driver === p.id) { v.driver = null; this.controls.delete(v.id); }
+      if (v.passengers) v.passengers = v.passengers.map((id) => (id === p.id ? 0 : id));
+      p.vehicleId = 0; p.vehicleSeat = 0;
+      Object.assign(p.state, at, { vx: -Math.sin(v.yaw) * v.speed * .5, vy: 0, vz: -Math.cos(v.yaw) * v.speed * .5, grounded: false, swimming: false, flight: 2 });
+      p.inputs.length = 0; p.history.clear(); p.dirty = true;
+      p.session.sendJson({ t: 'respawn', playerId: p.id, x: p.state.x, y: p.state.y, z: p.state.z });
+      return true;
+    }
     this.world.removeOwnerColliders(vehicleOwner(v.id));
     const def = VEHICLES[v.kind], c = Math.cos(v.yaw), s = Math.sin(v.yaw), hit = makeRayHit();
     let point: { x: number; y: number; z: number } | undefined;
@@ -272,7 +298,8 @@ export class Vehicles {
       return;
     }
     // One Jolt step for every vehicle together, so they also collide with each other.
-    const impacts = this.physics.step(this.states.values(), (v) => {
+    this.stepAircraft(now, dt, players, impact);
+    const impacts = this.physics.step([...this.states.values()].filter((v) => !isAircraft(v.kind)), (v) => {
       const input = this.controls.get(v.id), p = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
       const control = p && input && now - input.at < 250 && v.health > 0 ? input : v.driver ? { throttle: 0, steer: 0 } : undefined;
       v.throttle = control?.throttle ?? 0;
@@ -285,12 +312,28 @@ export class Vehicles {
     }
     this.seatBots();
   }
+  /** Helicopters: the pilot's (or bot's) controls through the flight model; crashes hurt. */
+  private stepAircraft(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
+    for (const v of this.states.values()) {
+      if (!isAircraft(v.kind) || v.exploded) continue;
+      const input = this.controls.get(v.id), pilot = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
+      const control = pilot && input && now - input.at < 250 ? { throttle: input.throttle, steer: input.steer, lift: input.lift ?? 0 } : pilot ? { throttle: 0, steer: 0, lift: 0 } : undefined;
+      v.throttle = control?.throttle ?? 0;
+      this.world.removeOwnerColliders(vehicleOwner(v.id));
+      const hit = stepHelicopter(v, control, this.world, dt);
+      this.world.setOwnerColliders(vehicleOwner(v.id), vehicleColliders(v));
+      const damage = heliImpactDamage(hit);
+      if (damage) { damageVehicle(v, damage, now); v.impact = { time: now, speed: hit }; for (const p of this.aboard(v, players)) impact(p, hit + 8); }
+      for (const p of this.aboard(v, players)) this.seat(p, v);
+    }
+  }
   /** Bots ride along wherever their vehicle went this step. */
   private seatBots(): void {
     for (const b of this.botRiders.values()) { const v = this.states.get(b.vehicleId); if (v) this.seatBot(b, v); }
   }
   private stepLegacy(now: number, dt: number, players: ReadonlyMap<number, Player>, impact: (p: Player, speed: number) => void): void {
     for (const v of this.states.values()) {
+      if (isAircraft(v.kind)) continue;
       v.throttle = 0;
       if (v.exploded) continue;
       const p = v.driver ? players.get(v.driver) ?? this.botRiders.get(v.driver) : undefined;
@@ -385,7 +428,8 @@ export class Vehicles {
       if (v.exploded || colliderTag !== 50000+v.id) continue;
       const wheel = wheelAt(v, x, y, z);
       if (wheel >= 0) { v.flats = (v.flats ?? 0) | (1 << wheel); break; }
-      if (amount < 25) break;
+      // Armour shrugs off rounds lighter than its rating (tanks ignore rifles, APCs most of them).
+      if (amount < Math.max(25, VEHICLE_ROLES[v.kind].armor)) break;
       const p=vehicleLocalPoint(v,x,y,z),def=VEHICLES[v.kind];
       if(Math.abs(p.x)<=def.halfX+.12&&Math.abs(p.z)<=def.halfZ+.12&&p.y>=0&&p.y<=def.height+.12) {damageVehicle(v,amount*.6,now);break;}
     }
@@ -393,7 +437,7 @@ export class Vehicles {
   blast(x: number, y: number, z: number, radius: number, damage: number, now: number): void {
     for (const v of this.states.values()) {
       const d = Math.hypot(v.x - x, v.y + .6 - y, v.z - z);
-      if (d < radius) damageVehicle(v, damage * (1 - d / radius), now);
+      if (d < radius) damageVehicle(v, damage * (1 - d / radius) * VEHICLE_ROLES[v.kind].blastFactor, now);
       // Tyres close to a blast burst.
       if (!v.exploded) for (let i = 0; i < 4; i++) {
         const c = wheelCentre(v.kind, i), fx = -Math.sin(v.yaw), fz = -Math.cos(v.yaw), rx = Math.cos(v.yaw), rz = -Math.sin(v.yaw);

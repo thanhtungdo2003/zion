@@ -11,6 +11,8 @@ const SIDE: Record<WarfareSide, { name: string; short: string; color: string }> 
 const ORDERS: Record<WarfareOrderKind, string> = { follow: 'Đi theo', hold: 'Giữ vị trí', move: 'Di chuyển', attack: 'Tấn công', defend: 'Phòng thủ', regroup: 'Tập hợp' };
 const TASKS = { attack: 'tấn công', defend: 'phòng thủ', reinforce: 'tiếp viện', scout: 'trinh sát' } as const;
 const LOADOUT_KEY = 'zion.warfare.loadout';
+/** Map colour of a vehicle: our crew blue, the enemy's red, nobody aboard white. */
+const vehicleColor = (crew: WarfareSide | null, mine: WarfareSide) => (crew === null ? '#f4f4f4' : crew === mine ? '#4fa3ff' : '#ff5a4a');
 const clock = (ms: number) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const itemName = (id: string | null) => (id ? ITEMS[id]?.name ?? id : 'Không mang');
 
@@ -128,9 +130,22 @@ function TacticalMap({ state, selfId, small, pick, onPick, onZone }: { state: Wa
         </g>
       ))}
       {state.tasks.map((t) => { const z = state.zones.find((zz) => zz.id === t.zone); return z ? <text key={t.squad} x={z.x} y={z.z + z.radius + 8} textAnchor="middle" fontSize={5} fill="#ccc">{TASKS[t.kind]}</text> : null; })}
-      {state.units.filter((u) => u.alive && u.x !== undefined && u.z !== undefined).map((u) => (
-        <circle key={u.id} cx={u.x} cy={u.z} r={u.id === selfId ? 3 : followers.has(u.id) ? 2.2 : 1.6} fill={u.id === selfId ? '#ffb000' : followers.has(u.id) ? '#9fe870' : SIDE[u.side].color} stroke="#000" strokeWidth={.5} />
+      {/* Vehicles: a small silhouette, blue crewed by us, red by the enemy (only when seen), white empty. */}
+      {state.vehicles.map((v) => (
+        <g key={`v${v.id}`} transform={`translate(${v.x} ${v.z}) rotate(${-v.yaw * 180 / Math.PI})`} opacity={.95}>
+          {v.air
+            ? <><rect x={-.9} y={-6} width={1.8} height={11} fill={vehicleColor(v.crew, you.side)} stroke="#000" strokeWidth={.4} /><rect x={-5} y={-1.6} width={10} height={1.4} fill={vehicleColor(v.crew, you.side)} stroke="#000" strokeWidth={.3} /></>
+            : <><rect x={-2.2} y={-4} width={4.4} height={8} rx={.8} fill={vehicleColor(v.crew, you.side)} stroke="#000" strokeWidth={.4} /><rect x={-.35} y={-6.5} width={.7} height={3.5} fill={vehicleColor(v.crew, you.side)} stroke="#000" strokeWidth={.3} /></>}
+        </g>
       ))}
+      {/* Our side: only the commanders (squad leaders and players), each with the way they face. */}
+      {state.units.filter((u) => u.alive && u.x !== undefined && u.z !== undefined && (u.lead || u.id === selfId || followers.has(u.id))).map((u) => {
+        const c = u.id === selfId ? '#ffb000' : followers.has(u.id) ? '#9fe870' : SIDE[u.side].color, r = u.id === selfId ? 3 : u.lead ? 2.6 : 1.8;
+        return <g key={u.id} transform={`translate(${u.x} ${u.z}) rotate(${-(u.yaw ?? 0) * 180 / Math.PI})`}>
+          <circle r={r} fill={c} stroke="#000" strokeWidth={.5} />
+          {(u.lead || u.id === selfId) && <path d={`M 0 ${-r - 3.2} L ${r * .8} ${-r + .3} L ${-r * .8} ${-r + .3} Z`} fill={c} stroke="#000" strokeWidth={.4} />}
+        </g>;
+      })}
       {onPick && state.deploy.map((d) => (
         <g key={d.id} className={d.safe ? 'click' : 'unsafe'} onClick={d.safe ? () => onPick(d.id) : undefined}>
           <circle cx={d.x} cy={d.z} r={6} fill={pick === d.id ? '#ffb000' : d.safe ? 'rgba(255,255,255,.15)' : 'rgba(255,60,48,.2)'} stroke={pick === d.id ? '#fff' : d.safe ? '#ffb000' : '#ff3b30'} strokeWidth={1.2} />

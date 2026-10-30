@@ -110,7 +110,7 @@ export class InputController {
       }
       if (this.suspended || !this.active) return;
       if (e.code === 'KeyF') { if (!e.repeat) this.handlers.vehicle?.(); return; }
-      if ((e.code === 'KeyG' || e.code === 'KeyZ' || e.code === 'KeyY') && !e.repeat && this.handlers.command?.(e.code, e.shiftKey)) return;
+      if ((e.code === 'KeyG' || e.code === 'KeyZ' || e.code === 'KeyY' || e.code === 'KeyV') && !e.repeat && this.handlers.command?.(e.code, e.shiftKey)) return;
       if (e.code === 'KeyP') {
         if (!e.repeat) cycleCameraMode();
         return;

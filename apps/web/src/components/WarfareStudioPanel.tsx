@@ -10,7 +10,7 @@ export type WarfareSel = { kind: 'wfZone'; index: number } | { kind: 'wfBase'; s
 export const WF_COLORS: Record<WarfareSide | 'neutral', string> = { blue: '#4fa3ff', red: '#ff5a4a', neutral: '#d6d6d6' };
 export const WF_POINT_LABEL: Record<WarfarePointKind, string> = { cover: 'Ẩn nấp', overwatch: 'Quan sát', sniper: 'Bắn tỉa', defend: 'Phòng thủ' };
 const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet', 'Kilo', 'Lima', 'Mike', 'November', 'Oscar', 'Papa'];
-const VEHICLE_NAMES: Record<string, string> = { jeep: 'Jeep Willys', quad: 'Xe địa hình (quad)' };
+const VEHICLE_NAMES: Record<string, string> = { jeep: 'Jeep Willys', quad: 'Xe địa hình (quad)', marauder: 'Xe bọc thép Marauder', t80u: 'Xe tăng T-80U', t90a: 'Xe tăng T-90A', t62a: 'Xe tăng T-62A', tank: 'Xe tăng chủ lực', mi17: 'Trực thăng vận tải Mi-17', z10: 'Trực thăng tấn công Z-10', tiger: 'Trực thăng tấn công Tiger' };
 
 /** The map's Warfare layout, created empty when the map has none yet. */
 export function ensureWarfare(d: { warfare?: WarfareLayout }): WarfareLayout {

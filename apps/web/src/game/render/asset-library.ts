@@ -68,7 +68,7 @@ function swayMaterial(sway: number): MeshLambertMaterial {
 /** Flattens a glTF scene into one merged geometry per material (instancing-friendly). */
 function flattenScene(root: Object3D, scale: number, offset: readonly [number, number, number]): ModelPart[] {
   root.updateMatrixWorld(true);
-  const byMaterial = new Map<string, {material:Material;geos:BufferGeometry[];wheel?:number;wheelCenter?:readonly [number,number,number]}>();
+  const byMaterial = new Map<string, {material:Material;geos:BufferGeometry[];wheel?:number;wheelCenter?:readonly [number,number,number];rotor?:'main'|'tail';rotorCenter?:readonly [number,number,number]}>();
   const base = new Matrix4().makeTranslation(offset[0], offset[1], offset[2]).multiply(new Matrix4().makeScale(scale, scale, scale));
   root.traverse((o) => {
     if (!(o instanceof Mesh)) return;
@@ -77,15 +77,17 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
     const wheel=o.userData.vehicleWheel as number|undefined;
     const wheelCenter=o.userData.wheelCenter as [number,number,number]|undefined;
     if(wheelCenter)g.translate(-wheelCenter[0],-wheelCenter[1],-wheelCenter[2]);
-    const key=mat.uuid+':'+(wheel??'body');
-    const list = byMaterial.get(key) ?? {material:mat,geos:[],wheel,wheelCenter};
+    const rotor=o.userData.vehicleRotor as 'main'|'tail'|undefined, rotorCenter=o.userData.rotorCenter as [number,number,number]|undefined;
+    if(rotor&&rotorCenter)g.translate(-rotorCenter[0]*scale-offset[0],-rotorCenter[1]*scale-offset[1],-rotorCenter[2]*scale-offset[2]);
+    const key=mat.uuid+':'+(wheel??rotor??'body');
+    const list = byMaterial.get(key) ?? {material:mat,geos:[],wheel,wheelCenter,...(rotor&&rotorCenter?{rotor,rotorCenter:[rotorCenter[0]*scale+offset[0],rotorCenter[1]*scale+offset[1],rotorCenter[2]*scale+offset[2]] as const}:{})};
     list.geos.push(g);
     byMaterial.set(key, list);
   });
   const parts: ModelPart[] = [];
-  for (const {material,geos,wheel,wheelCenter} of byMaterial.values()) {
+  for (const {material,geos,wheel,wheelCenter,rotor,rotorCenter} of byMaterial.values()) {
     const merged = geos.length === 1 ? geos[0]! : mergeGeometries(geos, false);
-    if (merged) parts.push({ geometry: merged, material, wheel, wheelCenter });
+    if (merged) parts.push({ geometry: merged, material, wheel, wheelCenter, ...(rotor && rotorCenter ? { rotor, rotorCenter } : {}) });
     if (geos.length > 1) for (const geometry of geos) geometry.dispose();
   }
   return parts;

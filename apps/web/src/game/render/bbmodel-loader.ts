@@ -18,6 +18,9 @@ export interface ModelPart {
   material: Material;
   wheel?: number;
   wheelCenter?: readonly [number,number,number];
+  /** A helicopter rotor ('main' spins about +Y, 'tail' about +X) and its hub, in model metres. */
+  rotor?: 'main' | 'tail';
+  rotorCenter?: readonly [number, number, number];
 }
 
 export type FaceName = 'north' | 'south' | 'east' | 'west' | 'up' | 'down';

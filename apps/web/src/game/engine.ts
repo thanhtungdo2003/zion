@@ -2,7 +2,7 @@ import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentMod
 import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES, vehicleSeatOf } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, vehicleSeatOf } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -994,6 +994,12 @@ export class GameEngine {
    * send them there (pointing); Shift+G lets every follower go. Z waves the team over, Y halts it.
    */
   private warfareKey(code: string, shift: boolean): boolean {
+    // V aboard a vehicle: flares / smoke (on foot V stays the roll).
+    if (code === 'KeyV') {
+      if (!this.local?.riding) return false;
+      this.conn.sendVehicleCountermeasure();
+      return true;
+    }
     const wf = this.hud.get().warfare;
     if (this.welcome?.mode !== 'warfare' || !wf?.you || !this.local || this.local.dead) return false;
     if (code === 'KeyZ') { this.conn.sendWarfare({ t: 'wfEmote', emote: 'wave' }); this.localAvatar?.gesture('wave', this.input.yaw); return true; }
@@ -1658,6 +1664,9 @@ export class GameEngine {
       case 'warfare':
         this.hud.set({ warfare: m });
         if (m.phase === 'over') clearActiveMatch();
+        break;
+      case 'vcm':
+        this.effects?.countermeasure(m.kind, m.x, m.y, m.z, m.yaw, m.until - this.clock.now());
         break;
       case 'wfGesture': {
         const av = m.id === this.welcome?.playerId ? this.localAvatar : this.remotes.get(m.id)?.avatar;
@@ -2525,10 +2534,14 @@ export class GameEngine {
 
   private fixedStep(local: LocalPlayer): void {
     if (!this.conn.open) return;
-    if (local.riding && !this.passenger) {
+    // Driving (and a gunner's seat): the controls and the triggers go to the vehicle, not the rider's own gun.
+    const ride = local.riding ? this.vehicles?.rider(this.welcome!.playerId) : undefined;
+    const seatNo = this.vehicles?.seatIndex(this.welcome!.playerId) ?? -1;
+    if (local.riding && (!this.passenger || (ride && armedSeat(ride.kind, seatNo)))) {
       const axes = this.input.axes();
       this.aiming = false; this.scoped = false;
-      this.conn.sendInput(local.step(axes.mx, axes.mz, this.input.yaw, this.input.pitch, 0, undefined));
+      const buttons = this.input.buttons() & (Buttons.Attack | Buttons.Aim | Buttons.Jump | Buttons.Sprint);
+      this.conn.sendInput(local.step(this.passenger ? 0 : axes.mx, this.passenger ? 0 : axes.mz, this.input.yaw, this.input.pitch, buttons, undefined));
       this.input.acknowledgeTouchPresses(); return;
     }
     if (local.state.flight) {
@@ -3772,7 +3785,7 @@ export class GameEngine {
       f.lerp(this.focus.set(vehicle.x, vehicle.y + height, vehicle.z), k);
       this.camFocusInit = true;
       this.vehicles!.withoutOwnColliders(vehicle, () => this.vehicleCamera.update(cam, f, this.input.yaw, Math.max(-.6, Math.min(.2, this.input.pitch)), dt, this.store?.collision, false,
-        { distance: 6 + Math.min(2, Math.abs(vehicle.speed) / 17), height: 1 }));
+        { distance: Math.max(6, VEHICLES[vehicle.kind].halfZ * 2 + 2) + Math.min(2, Math.abs(vehicle.speed) / 17), height: 1 }));
       const fov = 70 + Math.min(8, Math.abs(vehicle.speed) / 4);
       if (Math.abs(cam.fov-fov) > .01) { cam.fov = fov; cam.updateProjectionMatrix(); }
       this.input.lookScale = 1;
@@ -3990,7 +4003,16 @@ export class GameEngine {
     this.hud.set({
       vehicle: (() => {
         const v = this.vehicles?.rider(this.welcome!.playerId) ?? this.vehicles?.nearest(px, py, pz);
-        return v ? { name: VEHICLES[v.kind].name, driving: v.driver === this.welcome!.playerId, speed: Math.round(Math.abs(v.speed) * 3.6), health: Math.ceil(v.health / VEHICLES[v.kind].health * 100), exploding: v.health <= 0 && !v.exploded } : null;
+        if (!v) return null;
+        const seat = vehicleSeatOf(v, this.welcome!.playerId), role = VEHICLE_ROLES[v.kind], t = this.clock.now();
+        const aboard = seat >= 0;
+        return {
+          name: VEHICLES[v.kind].name, driving: v.driver === this.welcome!.playerId, speed: Math.round(Math.abs(v.speed) * 3.6), health: Math.ceil(v.health / VEHICLES[v.kind].health * 100), exploding: v.health <= 0 && !v.exploded,
+          ...(aboard ? { seat: role.seats[seat] ?? `Ghế ${seat + 1}` } : {}),
+          ...(aboard && v.arms ? { weapons: role.weapons.filter((w) => w.seat === seat).map((w) => { const a = v.arms!.ammo[w.id]; return { name: w.name, trigger: w.trigger, mag: a?.mag ?? 0, reserve: a?.reserve ?? 0, magazine: w.magazine, reloadMs: a?.reloadUntil ? Math.max(0, a.reloadUntil - t) : 0 }; }) } : {}),
+          ...(aboard && v.arms && role.countermeasure ? { cm: { name: role.countermeasure.name, charges: v.arms.cm.charges, readyMs: v.arms.cm.charges <= 0 ? Math.max(0, v.arms.cm.readyAt - t) : 0, active: t < v.arms.cm.activeUntil } } : {}),
+          ...(isAircraft(v.kind) ? { aircraft: true, altitude: Math.round(v.y - (store.collision.terrainHeight(v.x, v.z) || 0)) } : {}),
+        };
       })(),
       status,
       ...(this.hud.get().battle && local.state.flight ? { battle: { ...this.hud.get().battle!, drop: { phase: local.state.flight === 1 ? 'boarding' as const : local.state.flight === 2 ? 'falling' as const : 'parachute' as const, altitude: Math.max(0, py - (store.collision.terrainHeight(px, pz) || 0)), parachuteOpen: local.state.flight === 3, deployIn: Math.max(0, BATTLE_FLIGHT.deployDelayMs / 1000 - (local.state.freefall ?? 0)), speed: Math.hypot(local.state.vx, local.state.vy, local.state.vz) * 3.6, heading: ((this.input.yaw * 180 / Math.PI) % 360 + 360) % 360 } } } : {}),

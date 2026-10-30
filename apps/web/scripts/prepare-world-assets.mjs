@@ -17,6 +17,23 @@ const jobs = [
   ['vehicles/willys_mb_jeep.glb', null, 'drive_jeep', 2301, 3.36, { splitWheels: true }],
   ['vehicles/quad_bike.glb', null, 'drive_quad', 2302, 2.3],
   ['vehicles/grizzly_quad_bike_700.glb', null, 'drive_grizzly', 2303, 2.4],
+  // Warfare's armour and aircraft. scale: absolute (source units → m); yaw: turns the model to face
+  // −Z; center: [x, z] in source units put at the origin (the hull or rotor hub, not the bounding
+  // box with the gun barrel). rotors: triangles that become a spinning rotor (box in output metres).
+  ['vehicles/tank_t80u.glb', null, 'drive_t80u', 2304, 1, { scale: .9, yaw: Math.PI, center: [0, -.12] }],
+  ['vehicles/tank_t90a.glb', null, 'drive_t90a', 2305, 1, { scale: 1.3, yaw: Math.PI, center: [.16, -1.05] }],
+  ['vehicles/tank_t62a.glb', null, 'drive_t62a', 2306, 1, { scale: .92, yaw: Math.PI / 2, center: [-.25, .01] }],
+  ['vehicles/tank_simple.glb', null, 'drive_tank', 2307, 1, { scale: .0095, yaw: Math.PI, center: [0, -49] }],
+  ['vehicles/apc_marauder.glb', null, 'drive_marauder', 2308, 1, { scale: .267, yaw: -Math.PI / 2, center: [0, 0] }],
+  ['vehicles/heli_mi17.glb', null, 'drive_mi17', 2309, 1, { scale: .21, yaw: 0, center: [.15, 0], rotors: [
+    { name: 'main', axis: 'y', center: [0, 4.9, .83], radius: 11.2, yMin: 4.5, droop: 1 },
+    { name: 'tail', axis: 'x', center: [.6, 5.07, 14.2], box: [.25, 3.3, 12.4, 1.6, 6.8, 16.2], absX: true }] }],
+  ['vehicles/heli_z10.glb', null, 'drive_z10', 2310, 1, { scale: .0215, yaw: Math.PI, center: [0, .23], dropNodes: ['Object_9', 'Object_10'], rotors: [
+    { name: 'main', axis: 'y', center: [0, 3.05, 0], radius: 6.2, yMin: 2.82, droop: .2 },
+    { name: 'tail', axis: 'x', center: [.48, 3.3, 6.9], box: [.28, 2.1, 5.7, .8, 4.5, 8.1], absX: true }] }],
+  ['vehicles/heli_tiger.glb', null, 'drive_tiger', 2311, 1, { scale: .0985, yaw: Math.PI / 2, center: [0, 0], rotors: [
+    { name: 'main', axis: 'y', center: [0, 3.43, -.6], radius: 6.6, yMin: 3.3, yMax: 3.65, droop: .1 },
+    { name: 'tail', axis: 'x', center: [.5, 3.0, 7.55], box: [.2, 1.9, 6.5, 1.6, 4.3, 8.7], absX: true }] }],
   // The low-poly pack's houses are closed shells (doors and windows are painted on): they collide
   // as solid blocks shaped like their footprint and roof, so nothing walks, drives or shoots through.
   ...['barn01','barn03','house01','house02','house03','barrack01','barrack02','barrack04','container02','trailer01','generator01','watertank01','bench01','fence01'].map((n,i) => ['buildings/lowpoly_buildings.glb', n, n, 2400+i, n.startsWith('barrack') ? 1.3 : 1, i < 10 ? { collider: 'solid' } : {}]),
@@ -163,7 +180,8 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const selected = (Array.isArray(object) ? object : [object]).map(o => o ? src.nodes.findIndex(n=>n.name===o) : src.scenes[src.scene??0].nodes[0]);
   if(selected.some(i=>i<0)) throw Error('Missing object '+object);
   const nodes=[];
-  function collect(i) { if(src.nodes[i].mesh!==undefined) nodes.push(i); for(const j of src.nodes[i].children??[])collect(j); }
+  // dropNodes: parts left out (painted motion-blur discs: the rotors really spin in the game).
+  function collect(i) { if(src.nodes[i].mesh!==undefined&&!opts.dropNodes?.includes(src.nodes[i].name)) nodes.push(i); for(const j of src.nodes[i].children??[])collect(j); }
   for(const i of selected) collect(i);
   function accessor(index) {
     const a=src.accessors[index],v=src.bufferViews[a.bufferView];
@@ -181,13 +199,14 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const size=box.getSize(new Vector3()), center=box.getCenter(new Vector3());
   const lift=new Matrix4().makeRotationX(opts.rotateX ?? 0);
   if(opts.rotateX){box.applyMatrix4(lift);box.getSize(size);box.getCenter(center);}
-  const scale=opts.height ? opts.height/size.y : numericId<2400 ? factor/size.z : name==='apartment' ? factor/size.y : factor;
+  const scale=opts.scale ?? (opts.height ? opts.height/size.y : numericId<2400 ? factor/size.z : name==='apartment' ? factor/size.y : factor);
+  if(opts.center){center.x=opts.center[0];center.z=opts.center[1];}
   // These two models have deep foundations below their entrance slab.
   // Align the entrance to terrain so the first step is within character step height.
   const foundation = name==='favela' ? 1.574 : name==='apartment' ? .55 : 0;
   // The Lada and Jeep sources face +Z while the authoritative driving frame faces -Z.
   // The quads and Grizzly already use the shared -Z forward axis.
-  const base=new Matrix4().makeRotationY(numericId===2300||numericId===2301?Math.PI:0).multiply(new Matrix4().makeTranslation(0,-foundation,0)).multiply(new Matrix4().makeScale(scale,scale,scale)).multiply(new Matrix4().makeTranslation(-center.x,-box.min.y,-center.z)).multiply(lift);
+  const base=new Matrix4().makeRotationY(opts.yaw ?? (numericId===2300||numericId===2301?Math.PI:0)).multiply(new Matrix4().makeTranslation(0,-foundation,0)).multiply(new Matrix4().makeScale(scale,scale,scale)).multiply(new Matrix4().makeTranslation(-center.x,-box.min.y,-center.z)).multiply(lift);
   const dst={asset:{version:'2.0',generator:'ZION world asset preparation'},scene:0,scenes:[{nodes:[]}],nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[{byteLength:0}],materials:[],textures:[],images:[],samplers:src.samplers??[]};
   const chunks=[];let length=0;
   function addView(data) { const padding=(4-length%4)%4;if(padding){chunks.push(Buffer.alloc(padding));length+=padding;}const id=dst.bufferViews.length;dst.bufferViews.push({buffer:0,byteOffset:length,byteLength:data.length});chunks.push(data);length+=data.length;return id; }
@@ -222,6 +241,8 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   const colliders=new Map(), allPoints=[], allTris=[];
   const WHEELS={2300:[.703,.314,-1.305,1.338],2301:[.61,.35,-1.15,.89],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]};
   const wheelPrims=[[],[],[],[]];
+  // Rotors: triangles inside a rotor's box (output metres) become a mesh spinning about its centre.
+  const rotorPrims=(opts.rotors??[]).map(()=>[]);
   for(const i of nodes) {
     const transform=base.clone().multiply(worlds[i]),normal=new Matrix3().getNormalMatrix(transform);
     const primitives=[],meshBounds=new Box3();
@@ -239,6 +260,19 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
         if(opts.uv&&primitive.attributes.TEXCOORD_0!==undefined){const uv=accessor(primitive.attributes.TEXCOORD_0).values,[u0,v0,u1,v1]=opts.uv,keep=[];
           for(let j=0;j+2<indices.length;j+=3){const t=indices.slice(j,j+3),u=(uv[t[0]*2]+uv[t[1]*2]+uv[t[2]*2])/3,v=(uv[t[0]*2+1]+uv[t[1]*2+1]+uv[t[2]*2+1])/3;if(u>=u0&&u<u1&&v>=v0&&v<v1)keep.push(...t);}
           indices=keep;}
+        if(opts.rotors){
+          const body=[],own=opts.rotors.map(()=>[]);
+          for(let j=0;j+2<indices.length;j+=3){
+            const t=indices.slice(j,j+3),v=t.map(k=>positions.slice(k*3,k*3+3));
+            const k=opts.rotors.findIndex((rot)=>v.every(q=>{
+              // Main rotor: within its radius of the hub, above a plane that droops towards the tips.
+              if(rot.radius){const d=Math.hypot(q[0]-rot.center[0],q[2]-rot.center[2]);return d<=rot.radius&&q[1]>=rot.yMin-(rot.droop??0)*d/rot.radius&&q[1]<=(rot.yMax??Infinity);}
+              const [x0,y0,z0,x1,y1,z1]=rot.box,x=rot.absX?Math.abs(q[0]):q[0];return x>=x0&&x<=x1&&q[1]>=y0&&q[1]<=y1&&q[2]>=z0&&q[2]<=z1;}));
+            (k>=0?own[k]:body).push(...t);
+          }
+          indices=body;
+          own.forEach((w,n)=>{if(w.length)rotorPrims[n].push({attributes:p.attributes,indices:addAccessor(w,a.a,1),material:primitive.material});});
+        }
         if(opts.splitWheels){
           // Triangles inside a wheel's cylinder (tyre and hub) become that wheel's own mesh.
           const [wx,radius,front,rear]=WHEELS[numericId],own=[[],[],[],[]],body=[];
@@ -288,8 +322,8 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
       }
     }
     const bakedNode={name:src.nodes[i].name,mesh:dst.meshes.length};
-    if(numericId<2400&&!opts.splitWheels){
-      const wheelData={2300:[.703,.314,-1.305,1.338],2301:[.61,.35,-1.15,.89],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]}[numericId];
+    const wheelData={2300:[.703,.314,-1.305,1.338],2301:[.61,.35,-1.15,.89],2302:[.577,.357,-.743,.784],2303:[.626,.362,-.852,.748]}[numericId];
+    if(numericId<2400&&!opts.splitWheels&&wheelData){
       const c=meshBounds.getCenter(new Vector3()),d=meshBounds.getSize(new Vector3());
       let named=false;
       for(let ancestor=i;ancestor!==undefined;ancestor=parents[ancestor]){
@@ -310,6 +344,10 @@ for (const [file, object, name, numericId, factor, opts = {}] of jobs) {
   for(const [wheel,prims] of wheelPrims.entries()){if(!prims.length)continue;const [wx,radius,front,rear]=WHEELS[numericId];
     for(const q of prims)if(q.material!==undefined)q.material=await material(q.material);
     dst.scenes[0].nodes.push(dst.nodes.length);dst.nodes.push({name:'wheel'+wheel,mesh:dst.meshes.length,extras:{vehicleWheel:wheel,wheelCenter:[wheel%2?wx:-wx,radius,wheel<2?front:rear]}});
+    dst.meshes.push({primitives:prims.map(({attributes,indices,material})=>({attributes,indices,...(material!==undefined?{material}:{})}))});}
+  for(const [n,prims] of rotorPrims.entries()){if(!prims.length)continue;const rot=opts.rotors[n];
+    for(const q of prims)if(q.material!==undefined)q.material=await material(q.material);
+    dst.scenes[0].nodes.push(dst.nodes.length);dst.nodes.push({name:'rotor_'+rot.name,mesh:dst.meshes.length,extras:{vehicleRotor:rot.name,rotorAxis:rot.axis,rotorCenter:rot.center}});
     dst.meshes.push({primitives:prims.map(({attributes,indices,material})=>({attributes,indices,...(material!==undefined?{material}:{})}))});}
   const pad=(4-length%4)%4;if(pad){chunks.push(Buffer.alloc(pad));length+=pad;}dst.buffers[0].byteLength=length;
   let json=Buffer.from(JSON.stringify(dst));json=Buffer.concat([json,Buffer.alloc((4-json.length%4)%4,32)]);

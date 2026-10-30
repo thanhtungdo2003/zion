@@ -1,4 +1,5 @@
-export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly';
+import type { VehicleArmsState } from './vehicle-arms';
+export type VehicleKind = 'car' | 'jeep' | 'quad' | 'grizzly' | 't80u' | 't90a' | 't62a' | 'tank' | 'marauder' | 'mi17' | 'z10' | 'tiger';
 export interface VehicleState {
   id: number; kind: VehicleKind; x: number; y: number; z: number; yaw: number;
   speed: number; health: number; driver: number | null; explodeAt: number; exploded: boolean;
@@ -12,6 +13,10 @@ export interface VehicleState {
   impact?: { time: number; speed: number };
   /** Flat tyres, bit i = wheel i (0 front-left, 1 front-right, 2 rear-left, 3 rear-right). */
   flats?: number;
+  /** Helicopters: rotor speed, 0 (stopped) … 1 (flight rpm). */
+  rotor?: number;
+  /** Armed vehicles: ammunition per weapon and countermeasures. */
+  arms?: VehicleArmsState;
 }
 export interface VehicleMotion {
   pitch: number; roll: number; vy: number; pitchVelocity: number; rollVelocity: number;
@@ -28,8 +33,25 @@ export const VEHICLES = {
   jeep: { asset: 2301, name: 'Willys MB', maxSpeed: 30, acceleration: 8, turn: .75, health: 850, halfX: 1.2, halfZ: 2.52, seat: [-.45, .33, .33], seats: [[-.45, .33, .33], [.45, .33, .33], [-.45, .3, 1.58], [.45, .3, 1.58]], quad: false, com: .9, height: 2.39, wheelX: .915, frontZ: -1.725, rearZ: 1.335, wheelRadius: .525, spring: .3, scale: 1.5, mass: 1500, grip: 1.1, step: .6 },
   quad: { asset: 2302, name: 'Quad bike', maxSpeed: 27, acceleration: 9, turn: 1, health: 320, halfX: .75, halfZ: 1.15, seat: [0, .14, .16], seats: [[0, .14, .16], [0, .24, .6]], quad: true, com: .55, height: 1.3, wheelX: .577, frontZ: -.743, rearZ: .784, wheelRadius: .357, spring: .26, scale: 1, mass: 330, grip: 1, step: .4 },
   grizzly: { asset: 2303, name: 'Grizzly 700', maxSpeed: 29, acceleration: 9, turn: .95, health: 380, halfX: .8, halfZ: 1.2, seat: [0, .28, .12], seats: [[0, .28, .12], [0, .38, .56]], quad: true, com: .6, height: 1.51, wheelX: .626, frontZ: -.852, rearZ: .748, wheelRadius: .362, spring: .28, scale: 1, mass: 380, grip: 1, step: .42 },
+  // Warfare armour: tracked hulls driven as heavy, wide, grippy chassis (wheels stand in for the
+  // tracks); the main gun and machine guns are in VEHICLE_ROLES. Prepared at true scale (scale 1).
+  t80u: { asset: 2304, name: 'T-80U', maxSpeed: 17, acceleration: 4.5, turn: .55, health: 3400, halfX: 1.84, halfZ: 3.5, seat: [-.4, 1.65, .2], seats: [[-.4, 1.65, .2], [.95, 1.75, -1.2]], quad: false, com: 1.0, height: 2.35, wheelX: 1.4, frontZ: -2.6, rearZ: 2.6, wheelRadius: .42, spring: .3, scale: 1, mass: 30000, grip: 1.45, step: .8 },
+  t90a: { asset: 2305, name: 'T-90A', maxSpeed: 17, acceleration: 4.5, turn: .55, health: 3600, halfX: 1.84, halfZ: 3.3, seat: [-.4, 1.7, .3], seats: [[-.4, 1.7, .3], [.6, 1.85, -.2]], quad: false, com: 1.0, height: 2.3, wheelX: 1.4, frontZ: -2.5, rearZ: 2.5, wheelRadius: .42, spring: .3, scale: 1, mass: 31000, grip: 1.45, step: .8 },
+  t62a: { asset: 2306, name: 'T-62A', maxSpeed: 14, acceleration: 3.8, turn: .5, health: 2900, halfX: 1.66, halfZ: 3.3, seat: [-.4, 2.0, .3], seats: [[-.4, 2.0, .3], [.8, 2.05, .4]], quad: false, com: 1.1, height: 2.4, wheelX: 1.25, frontZ: -2.5, rearZ: 2.5, wheelRadius: .45, spring: .3, scale: 1, mass: 28000, grip: 1.4, step: .8 },
+  tank: { asset: 2307, name: 'Xe tăng chủ lực', maxSpeed: 16, acceleration: 4.2, turn: .52, health: 3200, halfX: 2.0, halfZ: 3.7, seat: [-.45, 1.95, .5], seats: [[-.45, 1.95, .5], [.5, 2.15, .6]], quad: false, com: 1.05, height: 2.5, wheelX: 1.5, frontZ: -2.8, rearZ: 2.8, wheelRadius: .45, spring: .3, scale: 1, mass: 32000, grip: 1.45, step: .8 },
+  marauder: { asset: 2308, name: 'Paramount Marauder', maxSpeed: 26, acceleration: 5, turn: .6, health: 2200, halfX: 1.6, halfZ: 4.0, seat: [-.6, 1.25, -1.6], seats: [[-.6, 1.25, -1.6], [0, 2.55, -.4], [-.6, 1.2, -.4], [.6, 1.2, -.4], [-.6, 1.2, .5], [.6, 1.2, .5], [-.6, 1.2, 1.4], [.6, 1.2, 1.4], [-.6, 1.2, 2.3], [.6, 1.2, 2.3]], quad: false, com: 1.1, height: 3.2, wheelX: 1.25, frontZ: -2.6, rearZ: 2.6, wheelRadius: .62, spring: .35, scale: 1, mass: 14000, grip: 1.2, step: .8 },
+  // Helicopters fly their own model (stepHelicopter); the "wheels" are the landing gear contacts.
+  mi17: { asset: 2309, name: 'Mi-17', maxSpeed: 55, acceleration: 6, turn: .9, health: 2000, halfX: 1.4, halfZ: 7.5, seat: [-.5, 1.5, -6.6], seats: [[-.5, 1.5, -6.6], [-1.15, 1.3, -4.4], [1.15, 1.3, -4.4], [-.7, 1.25, -3.2], [.7, 1.25, -3.2], [-.7, 1.25, -2.2], [.7, 1.25, -2.2], [-.7, 1.25, -1.2], [.7, 1.25, -1.2], [-.7, 1.25, -.2], [.7, 1.25, -.2], [-.7, 1.25, .8], [.7, 1.25, .8], [-.7, 1.25, 1.8], [.7, 1.25, 1.8]], quad: false, com: 2.0, height: 4.4, wheelX: 1.4, frontZ: -4.3, rearZ: .9, wheelRadius: .4, spring: .3, scale: 1, mass: 11000, grip: 1, step: .8 },
+  z10: { asset: 2310, name: 'Z-10', maxSpeed: 62, acceleration: 7, turn: 1.1, health: 1500, halfX: 1.0, halfZ: 5.5, seat: [0, 1.55, -2.1], seats: [[0, 1.55, -2.1], [0, 1.3, -3.5]], quad: false, com: 1.5, height: 3.0, wheelX: 1.2, frontZ: -2.6, rearZ: 4.8, wheelRadius: .3, spring: .25, scale: 1, mass: 6000, grip: 1, step: .6 },
+  tiger: { asset: 2311, name: 'PAH-2 Tiger', maxSpeed: 60, acceleration: 7, turn: 1.1, health: 1500, halfX: 1.0, halfZ: 5.2, seat: [0, 1.6, -2.3], seats: [[0, 1.6, -2.3], [0, 1.4, -3.6]], quad: false, com: 1.5, height: 3.2, wheelX: 1.1, frontZ: -2.5, rearZ: 4.9, wheelRadius: .3, spring: .25, scale: 1, mass: 6000, grip: 1, step: .6 },
 } as const;
 export const VEHICLE_EXPLODE_DELAY = 2000;
+/** Close enough to get in: within `margin` m of the hull's footprint (long vehicles count their length). */
+export function vehicleInReach(v: VehicleState, x: number, z: number, margin = VEHICLE_REACH - 1.2): boolean {
+  const d = VEHICLES[v.kind], dx = x - v.x, dz = z - v.z, c = Math.cos(v.yaw), s = Math.sin(v.yaw);
+  const lx = dx * c - dz * s, lz = dx * s + dz * c;
+  return Math.abs(lx) <= d.halfX + margin && Math.abs(lz) <= d.halfZ + margin;
+}
 export const VEHICLE_REACH = 3.6;
 export const vehicleOwner = (id: number): number => 0xc0000000 + id;
 /** World position of a seat (0 = driver, then the passenger seats). */

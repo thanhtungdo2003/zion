@@ -94,6 +94,8 @@ export const chatMessageSchema = z
 export const respawnMessageSchema = z.object({ t: z.literal('respawn') }).strict();
 export const doorMessageSchema = z.object({ t: z.literal('door'), id: u32 }).strict();
 export const vehicleMessageSchema = z.object({ t: z.literal('vehicle'), id: u32.optional() }).strict();
+/** V aboard a vehicle: its countermeasure (flares / smoke screen). */
+export const vehicleCountermeasureSchema = z.object({ t: z.literal('vcm') }).strict();
 
 /** Testing aid: jump the world clock to a time of day (0…1, 0.5 = noon). */
 export const setTimeMessageSchema = z.object({ t: z.literal('settime'), tod: finite.min(0).max(1) }).strict();
@@ -247,6 +249,7 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   respawnMessageSchema,
   doorMessageSchema,
   vehicleMessageSchema,
+  vehicleCountermeasureSchema,
   setTimeMessageSchema,
 ]);
 

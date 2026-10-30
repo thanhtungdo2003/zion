@@ -3858,3 +3858,10 @@ kbd {
 .wf-studio .wf-errors { margin: 6px 0; padding-left: 18px; color: #ff8a80; font-size: 12px; }
 .wf-studio .wf-ok { color: var(--ok); }
 .ix-check { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 4px 0; cursor: pointer; }
+/* Vehicle weapons and countermeasure, under the vehicle's name. */
+.hud-vehicle-seat { display: block; color: var(--muted); font-size: 11px; }
+.hud-vehicle-weapon, .hud-vehicle-cm { display: flex; gap: 6px; align-items: baseline; font-size: 12px; margin-top: 3px; }
+.hud-vehicle-weapon kbd, .hud-vehicle-cm kbd { font-size: 10px; padding: 0 4px; border: 1px solid var(--line); }
+.hud-vehicle-weapon span, .hud-vehicle-cm span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.hud-vehicle-cm.on b { color: var(--accent); }
+.hud-vehicle-help { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }

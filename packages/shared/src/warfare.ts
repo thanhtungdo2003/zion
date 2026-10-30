@@ -19,7 +19,7 @@ export const otherSide = (s: WarfareSide): WarfareSide => (s === 'blue' ? 'red' 
 /* ------------------------------------------------------------------ config */
 
 /** The game's own jeep and quad bike: the vehicles bots and players drive on the battlefield. */
-export const WARFARE_VEHICLE_KINDS = ['jeep', 'quad'] as const satisfies readonly VehicleKind[];
+export const WARFARE_VEHICLE_KINDS = ['jeep', 'quad', 'marauder', 't80u', 't90a', 't62a', 'tank', 'mi17', 'z10', 'tiger'] as const satisfies readonly VehicleKind[];
 
 export const warfareConfigSchema = z.object({
   /** Tickets each side starts with. */
@@ -746,9 +746,12 @@ export interface WarfareUnitInfo {
   squad?: number;
   /** The player this bot follows (recruited with G). */
   leader?: number;
-  /** World position (allies only; enemies are not sent). */
+  /** World position and heading (allies only; enemies are not sent). */
   x?: number;
   z?: number;
+  yaw?: number;
+  /** Leads others (an AI squad's leader, or a player): drawn on the map with a heading arrow. */
+  lead?: boolean;
 }
 
 /** A deploy point the receiving player may pick (a held zone or the main base). */
@@ -792,7 +795,11 @@ export interface WarfareStateMessage {
   squads: { id: number; side: WarfareSide; members: number[] }[];
   /** What each of your side's AI squads is doing (for the tactical map). */
   tasks: { squad: number; kind: 'attack' | 'defend' | 'scout' | 'reinforce'; zone: string; size: number }[];
-  vehicles: { kind: string; side: WarfareSide; state: string; x: number; z: number }[];
+  /**
+   * Vehicles on the map: crewed by your side, by the enemy (only when one of yours sees it), or
+   * empty (`crew` null). Wrecks are left out.
+   */
+  vehicles: { id: number; kind: string; crew: WarfareSide | null; x: number; z: number; yaw: number; air: boolean }[];
   result?: { winner: WarfareSide; reason: 'tickets' | 'time' | 'forfeit' | 'objectives'; ticketsUsed: Record<WarfareSide, number>; captures: Record<WarfareSide, number> };
 }
 

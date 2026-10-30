@@ -9,9 +9,10 @@ import { InfectionMatch } from './infection';
 import { WaveMatch } from './waves';
 import { WarfareMatch } from './warfare';
 import type { WarfareRoomConfig } from './warfare-rooms';
-import { ARMOR_BY_ITEM, NO_ARMOR, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
+import { ARMOR_BY_ITEM, NO_ARMOR, VEHICLE_ROLES, isAircraft, vehicleInReach, vehiclePoint, armedSeat, seatWeapon, type VehicleState, RespawnQueue, SquadBook, VehicleSlot, WARFARE_SIDES, bleedRate, botWarfareClass, emoteOrder, isWarfareClass, otherSide, parseWarfareConfig, pickRecruits, pickSide, resolveWarfareLayout, respawnAt, sideCaps, warfareInventory, type WarfareClass, type WarfareConfig, type WarfareDeployPoint, type WarfareEmote, type WarfareLayout, type WarfareLoadout, type WarfareOrder, type WarfareSide, type WarfareStateMessage, type WarfareUnitInfo, type ZoneState } from '@zion/shared';
 import { WarfareDirector, ledObjective, type DirectorUnit, type DirectorZone } from './warfare-director';
 import { driveTowards, newDriveMemory, type DriveMemory } from './warfare-driving';
+import { VehicleGunnery } from './vehicle-gunnery';
 import { ARMOR_SPECS, WAVE_KILL_CASH, WAVE_MAX_BOTS, WAVE_START_CASH, WAVE_TEAM_LIMIT, waveBoard, waveClearCash, waveInventory, wavePrice, waveShopStock, type WavePlayMode, type WaveResult, type WaveStateMessage } from '@zion/shared';
 import { WalkingMap, WalkingSearch, type NavPoint } from './navigation';
 import { DEFAULT_INFECTION_LOADOUT, DEFAULT_INFECTION_MAP, infectionChoices, infectionInventory, sanitizeInfectionLoadout, zombieInventory, type InfectionLoadout } from '@zion/shared';
@@ -234,6 +235,8 @@ interface Rejoin { id: number; name: string; until: number; state: CharacterStat
 
 export class GameServer {
   readonly vehicles: Vehicles;
+  /** Vehicle weapons and countermeasures (tank guns, mounted machine guns, rockets, missiles). */
+  private gunnery!: VehicleGunnery;
   private readonly vegetation: VegetationDamage;
   private readonly vegetationView = new WeakMap<Player, { cx: number; cz: number; revisions: Map<number, number> }>();
   lifeWorld: LifeWorld = { plots: {}, nextGrowth: 0 };
@@ -474,6 +477,7 @@ export class GameServer {
         canHurt: () => !!this.warfare?.fighting,
         // Killed outright: a death is a ticket (medics heal, nobody bleeds out on the ground).
         downs: () => false,
+        seatFire: (bot: BattleBot, now: number) => this.botSeatFire(bot, now),
         fromVehicle: (bot: BattleBot, fn: () => void) => { const v = this.vehicles.states.get(bot.vehicleId); if (v) this.vehicles.withoutColliders(v, fn); else fn(); },
         hurt: (bot: BattleBot, amount: number, by: number | null) => this.wfHurt(bot.id, by, amount),
       } : {}),
@@ -504,6 +508,24 @@ export class GameServer {
       },
     }) : null;
     if (this.battle) this.scatterGroundLoot();
+    this.gunnery = new VehicleGunnery(this.vehicles, this.collision, {
+      bodies: (x, z, radius) => [
+        ...this.grid.query(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE), Math.ceil(radius / CHUNK_SIZE) + 1, []).filter((p) => !p.dead && p.active),
+        ...(this.bots?.near(x, z, radius) ?? []),
+      ] as unknown as Array<Combatant & { id: number; state: CharacterState }>,
+      friends: (a, b) => a === b || (!!this.warfare && !!this.wfSide.get(a) && this.wfSide.get(a) === this.wfSide.get(b)),
+      hitBody: (shooterId, target, damage, zone, x, y, z, now, label) => {
+        if (target instanceof BattleBot) {
+          if (this.warfare) this.warfareBotDamage(target, damage, shooterId, this.combatantAt(shooterId), zone, now, label);
+          else this.bots?.hit(target, damage, label, this.combatantAt(shooterId), now, zone, shooterId);
+        } else this.damage(shooterId, target as unknown as Player, damage, zone, x, y, z, now, label);
+      },
+      blast: (shooterId, x, y, z, radius, damage, now, label) => this.vehicleBlast(shooterId, x, y, z, radius, damage, now, label),
+      smoke: (x, z, radius, until) => this.bots?.smoke(x, z, radius, until),
+      broadcastAt: (x, z, msg) => this.broadcastAt(x, z, msg),
+      // Bot crews react to a missile warning most of the time (not always in time).
+      autoDefend: (v) => !!v.driver && !this.players.has(v.driver) && Math.random() < .04,
+    });
     this.guards = new CampGuardDirector(gen.camp, this.collision, {
       shot: (message) => this.broadcastAt(message.ox, message.oz, message),
       projectile: (message) => this.broadcastAt(message.x, message.z, message),
@@ -1448,7 +1470,7 @@ export class GameServer {
     if (this.waves && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'revive', 'pickup', 'drop', 'waveBuy', 'waveReady'].includes(msg.t)) return;
     if (msg.t === 'waveBuy' || msg.t === 'waveReady') { if (p && this.waves) this.onWaveShop(p, msg); return; }
     // Warfare: no loot to drop or pick up (kits come from the deploy screen), no survival respawn.
-    if (this.warfare && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'wfDeploy', 'wfSquad', 'wfOrder', 'wfRecruit', 'wfEmote'].includes(msg.t)) return;
+    if (this.warfare && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'vcm', 'wfDeploy', 'wfSquad', 'wfOrder', 'wfRecruit', 'wfEmote'].includes(msg.t)) return;
     if (this.warfare && msg.t === 'inv' && msg.op !== 'equip' && msg.op !== 'move' && msg.op !== 'sort') return;
     if (msg.t === 'wfDeploy' || msg.t === 'wfSquad' || msg.t === 'wfOrder' || msg.t === 'wfRecruit' || msg.t === 'wfEmote') { if (p && this.warfare) this.onWarfare(p, msg); return; }
     if (this.infection && msg.t === 'inv' && msg.op !== 'equip') return;
@@ -1473,6 +1495,11 @@ export class GameServer {
         door.open = !door.open;
         this.collision.setOwnerColliders(0xb0000000 + msg.id, doorColliders(door));
         this.broadcast({ t: 'door', id: msg.id, ...door });
+        return;
+      }
+      case 'vcm': {
+        const v = this.vehicles.driving(p);
+        if (v) this.gunnery.countermeasure(v, this.serverTime);
         return;
       }
       case 'vehicle':
@@ -1512,9 +1539,19 @@ export class GameServer {
       case 'build':
         this.onBuild(p, msg);
         return;
-      case 'reload':
+      case 'reload': {
+        // In a weapon seat: reload the mounted weapons (a partly used belt or pod).
+        const v = this.vehicles.driving(p);
+        if (v?.arms && armedSeat(v.kind, p.vehicleSeat)) {
+          for (const w of VEHICLE_ROLES[v.kind].weapons) {
+            const a = v.arms.ammo[w.id];
+            if (w.seat === p.vehicleSeat && a && !a.reloadUntil && a.mag < w.magazine && a.reserve > 0) a.reloadUntil = this.serverTime + w.reloadMs;
+          }
+          return;
+        }
         this.onReload(p);
         return;
+      }
       case 'distress': {
         // Call for help: everyone within 300 m sees where the downed player lies.
         const now = Date.now();
@@ -2486,6 +2523,71 @@ export class GameServer {
     this.broadcast(msg);
   }
 
+  /* ------------------------------------ vehicle weapons ---------------------------------- */
+
+  /** The weapons a seat works: left button the primary, right button the secondary. */
+  private seatTriggers(shooter: Player | BattleBot, v: VehicleState, seat: number, buttons: number, yaw: number, pitch: number, now: number): void {
+    for (const [bit, trigger] of [[Buttons.Attack, 'primary'], [Buttons.Aim, 'secondary']] as const) {
+      if (!(buttons & bit)) continue;
+      const w = seatWeapon(v.kind, seat, trigger);
+      if (w) this.vehicles.withoutColliders(v, () => this.gunnery.fire(shooter, v, w, yaw, pitch, now));
+    }
+  }
+
+  /**
+   * A bot in a weapon seat aims at its target with a gunner's error (more at range, settling while
+   * it keeps the same target): the gun for vehicles and anything far, the coaxial up close.
+   */
+  private botSeatFire(bot: BattleBot, now: number): boolean {
+    const v = this.vehicles.states.get(bot.vehicleId), t = bot.target;
+    if (!v || !t) return false;
+    const primary = seatWeapon(v.kind, bot.vehicleSeat, 'primary'), secondary = seatWeapon(v.kind, bot.vehicleSeat, 'secondary');
+    if (!primary && !secondary) return false;
+    const d = Math.hypot(t.state.x - bot.state.x, t.state.z - bot.state.z);
+    const inVehicle = 'vehicleId' in t && !!(t as { vehicleId: number }).vehicleId;
+    // Heavy rounds for armour and far targets; a machine gun for people close by.
+    const heavy = (w: typeof primary) => !!w && (w.kind === 'cannon' || w.kind === 'missile' || w.kind === 'rockets');
+    let w = primary;
+    if (secondary && heavy(primary) && !inVehicle && d < 60) w = secondary;
+    if (secondary && !heavy(primary) && heavy(secondary) && inVehicle) w = secondary;
+    if (!w) return true;
+    const [mx, my, mz] = w.mounts[0]!;
+    const o = vehiclePoint(v, mx, my, mz);
+    // Lead a moving target by the flight time, then a gunner's error.
+    const flight = d / w.speed, tx = t.state.x + t.state.vx * flight, tz = t.state.z + t.state.vz * flight, ty = t.state.y + 1 + .5 * w.gravity * flight * flight;
+    const err = (w.kind === 'mg' ? .025 : .012) * (1 + d / 120);
+    const yaw = Math.atan2(-(tx - o.x), -(tz - o.z)) + (Math.random() - .5) * err * 2;
+    const pitch = Math.atan2(ty - o.y, Math.hypot(tx - o.x, tz - o.z)) + (Math.random() - .5) * err;
+    // Unguided rockets and the tank gun wait until the hull points close enough.
+    const rel = Math.abs(Math.atan2(Math.sin(yaw - v.yaw), Math.cos(yaw - v.yaw)));
+    if (rel > w.arc.yaw + .05) return true;
+    if (now < bot.reactAt) return true;
+    this.vehicles.withoutColliders(v, () => this.gunnery.fire(bot, v, w!, yaw, pitch, now));
+    return true;
+  }
+
+  /** A shell, rocket or missile going off: people round it are hurt (never by their own side). */
+  private vehicleBlast(shooterId: number, x: number, y: number, z: number, radius: number, damage: number, now: number, label: string): void {
+    this.building?.blast(x, y, z, radius, damage);
+    this.knock?.blast(x, y, z, radius, now);
+    this.vegetation.explode(x, y, z, radius, now);
+    for (const o of this.grid.query(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE), ENTITY_INTEREST_RADIUS_CHUNKS, [])) o.session.sendJson({ t: 'explosion', id: 0, x, y, z, radius, kind: 'rocket' });
+    const friend = (id: number) => id === shooterId || (!!this.warfare && this.wfSide.get(id) === this.wfSide.get(shooterId));
+    for (const t of this.grid.query(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE), 1, [])) {
+      if (!t.active || t.dead || (friend(t.id) && t.id !== shooterId)) continue;
+      const tx = t.state.x - x, ty = t.state.y + .9 - (y + .3), tz = t.state.z - z, d = Math.hypot(tx, ty, tz);
+      if (d >= radius || (d > .3 && this.collision.raycast(x, y + .3, z, tx / d, ty / d, tz / d, d, Mask.LineOfSight, this.blastHit))) continue;
+      this.damage(t.id === shooterId ? null : shooterId, t, Math.round(damage * (1 - d / radius)), 'blast', t.state.x, t.state.y + .9, t.state.z, now, label);
+    }
+    for (const bot of this.bots?.near(x, z, radius) ?? []) {
+      if (friend(bot.id)) continue;
+      const d = Math.hypot(bot.state.x - x, bot.state.y + .9 - (y + .3), bot.state.z - z);
+      if (d >= radius) continue;
+      if (this.warfare) this.warfareBotDamage(bot, Math.round(damage * (1 - d / radius)), shooterId, { x, z }, 'blast', now, label);
+      else this.bots!.hit(bot, Math.round(damage * (1 - d / radius)), label, { x, z }, now, 'blast', shooterId);
+    }
+  }
+
   /* ------------------------------------ warfare ------------------------------------------ */
 
   /** Warfare AI above the bots: squads, their tasks and objectives. */
@@ -2932,16 +3034,23 @@ export class GameServer {
 
   /* --- bots and vehicles --- */
 
-  /** Vehicle reserved by an AI squad (no two squads go for one), since when, and where it drives. */
-  private readonly wfMount = new Map<number, { squad: number; since: number; target: { x: number; z: number } | null }>();
+  /**
+   * Vehicle reserved by an AI squad (no two squads go for one): its crew (the members who fit, the
+   * leader driving / flying), since when, where it goes, and a helicopter's leg of the trip.
+   */
+  private readonly wfMount = new Map<number, { squad: number; crew: number[]; since: number; target: { x: number; z: number } | null; zone: string; leg: 'out' | 'back' | 'land' }>();
   private readonly wfDriveMem = new Map<number, DriveMemory>();
   /** Bots that just got out: they do not climb straight back in. */
   private readonly wfMountCooldown = new Map<number, number>();
 
-  /** A squad's way to its zone is long: its leader takes a free friendly jeep or quad, the others ride along. */
+  /**
+   * Squads take vehicles: a long way to go and one of the side's vehicles close by. Jeeps and quads
+   * carry the squad to a drop-off; APCs carry it in, put the troops out and stay to give fire;
+   * tanks go and fight; a transport helicopter flies the squad over the zone where they jump; an
+   * attack helicopter flies to the zone and fights over it.
+   */
   private wfMountPlan(now: number): void {
     const bots = new Map((this.bots?.bots ?? []).map((b) => [b.id, b]));
-    // Reservations whose vehicle or squad is gone.
     for (const [vid, m] of this.wfMount) if (!this.vehicles.states.get(vid) || !this.wfDirector.squads.get(m.squad)) { this.wfDismount(vid, now); this.wfMount.delete(vid); }
     for (const sq of this.wfDirector.squads.values()) {
       const lead = sq.leader !== null ? bots.get(sq.leader) : undefined, task = sq.task;
@@ -2950,90 +3059,159 @@ export class GameServer {
       if (!zone) continue;
       const mine = [...this.wfMount].find(([, m]) => m.squad === sq.id);
       if (mine) {
-        const [vid, m] = mine, v = this.vehicles.states.get(vid)!;
-        // Drop off short of the zone, on the squad's own side of it.
+        const [vid, m] = mine, v = this.vehicles.states.get(vid)!, cls = VEHICLE_ROLES[v.kind].cls;
+        // Ground vehicles stop short of the zone on the squad's side; armour goes into it; aircraft over it.
         const own = this.wfBases[sq.side], ax = own.x - zone.x, az = own.z - zone.z, l = Math.hypot(ax, az) || 1;
-        const target = { x: zone.x + ax / l * (zone.radius + 14), z: zone.z + az / l * (zone.radius + 14) };
-        if (m.target && (m.target.x !== target.x || m.target.z !== target.z)) this.wfDriveMem.delete(vid);
+        const off = cls === 'heli' ? 0 : cls === 'tank' ? zone.radius * .4 : zone.radius + 14;
+        const target = { x: zone.x + ax / l * off, z: zone.z + az / l * off };
+        if (m.zone !== zone.id) { m.zone = zone.id; if (m.leg !== 'out' && cls === 'heli' && VEHICLE_ROLES[v.kind].transport) { /* a transport flying back keeps going back */ } else m.leg = 'out'; this.wfDriveMem.delete(vid); }
         m.target = target;
-        const aboard = sq.members.filter((id) => bots.get(id)?.vehicleId === vid).length;
-        const alive = sq.members.filter((id) => !bots.get(id)?.dead).length;
-        // Everyone in (or waited long enough): go. Until then the others make for the vehicle.
-        if (lead.vehicleId !== vid || (aboard < alive && now - m.since < 9000)) {
-          for (const id of sq.members) { const b = bots.get(id); if (b && !b.dead && !b.vehicleId) b.objective = { x: v.x, y: v.y, z: v.z, radius: 2.5, sprint: true }; }
+        const crew = m.crew.filter((id) => bots.get(id) && !bots.get(id)!.dead);
+        const aboard = crew.filter((id) => bots.get(id)!.vehicleId === vid).length;
+        // Everyone of the crew in (or waited long enough): go. Until then they make for the vehicle.
+        if (lead.vehicleId !== vid || (aboard < crew.length && now - m.since < 9000)) {
+          for (const id of crew) { const b = bots.get(id)!; if (!b.vehicleId) b.objective = { x: v.x, y: v.y, z: v.z, radius: 2.5, sprint: true }; }
           if (now - m.since > 20_000 && lead.vehicleId !== vid) { this.wfDismount(vid, now); this.wfMount.delete(vid); }
         }
         continue;
       }
-      // On foot: worth driving only when the zone is far, and a vehicle of ours stands close.
-      if (lead.vehicleId || now < (this.wfMountCooldown.get(lead.id) ?? 0) || Math.hypot(zone.x - lead.state.x, zone.z - lead.state.z) < 130) continue;
+      // On foot: worth taking a vehicle only for a long way, from one of ours standing close.
+      const far = Math.hypot(zone.x - lead.state.x, zone.z - lead.state.z);
+      if (lead.vehicleId || now < (this.wfMountCooldown.get(lead.id) ?? 0) || far < 130) continue;
       const taken = new Set(this.wfMount.keys());
       const pick = this.wfSlots.map((s) => (s.vehicleId !== null ? this.vehicles.states.get(s.vehicleId) : undefined))
         .filter((v): v is NonNullable<typeof v> => !!v && !taken.has(v.id) && !v.driver && !v.exploded && !v.explodeAt && v.health > VEHICLES[v.kind].health * .4
-          && this.wfSlots.find((s) => s.vehicleId === v.id)!.spawn.side === sq.side && Math.hypot(v.x - lead.state.x, v.z - lead.state.z) < 70)
-        .sort((a, b) => Math.hypot(a.x - lead.state.x, a.z - lead.state.z) - Math.hypot(b.x - lead.state.x, b.z - lead.state.z))[0];
+          && this.wfSlots.find((s) => s.vehicleId === v.id)!.spawn.side === sq.side && Math.hypot(v.x - lead.state.x, v.z - lead.state.z) < 80)
+        // Aircraft for the longest trips, armour next, then whatever is closest.
+        .sort((a, b) => this.wfVehicleScore(b, lead.state, far) - this.wfVehicleScore(a, lead.state, far))[0];
       if (!pick) continue;
-      this.wfMount.set(pick.id, { squad: sq.id, since: now, target: null });
-      for (const id of sq.members) { const b = bots.get(id); if (b && !b.dead) b.objective = { x: pick.x, y: pick.y, z: pick.z, radius: 2.5, sprint: true }; }
+      const seats = VEHICLES[pick.kind].seats.length;
+      const crew = [lead.id, ...sq.members.filter((id) => id !== lead.id && !bots.get(id)?.dead)].slice(0, seats);
+      this.wfMount.set(pick.id, { squad: sq.id, crew, since: now, target: null, zone: zone.id, leg: 'out' });
+      for (const id of crew) { const b = bots.get(id); if (b) b.objective = { x: pick.x, y: pick.y, z: pick.z, radius: 2.5, sprint: true }; }
     }
   }
 
+  /** How much a squad wants this vehicle for this trip (higher: better). */
+  private wfVehicleScore(v: VehicleState, from: { x: number; z: number }, far: number): number {
+    const cls = VEHICLE_ROLES[v.kind].cls, d = Math.hypot(v.x - from.x, v.z - from.z);
+    const kind = cls === 'heli' ? (far > 220 ? 3 : .5) : cls === 'tank' ? 2.2 : cls === 'apc' ? 2 : 1;
+    return kind - d / 80;
+  }
+
   /** Everyone out of a vehicle (bots), with a pause before they get in anything again. */
-  private wfDismount(vid: number, now: number): void {
+  private wfDismount(vid: number, now: number, landing?: { x: number; z: number }): void {
     const v = this.vehicles.states.get(vid);
     if (!v) return;
-    for (const b of this.vehicles.botsIn(v)) { this.vehicles.exitBot(b, true); this.wfMountCooldown.set(b.id, now + 20_000); }
+    for (const b of this.vehicles.botsIn(v)) this.wfBotOut(b as BattleBot, now, landing, 20_000);
     this.wfDriveMem.delete(vid);
   }
 
+  /** A bot gets out (from a flying helicopter: with a parachute, steering for `landing`). */
+  private wfBotOut(b: BattleBot, now: number, landing?: { x: number; z: number }, pause = 5000): void {
+    this.vehicles.exitBot(b, true);
+    this.wfMountCooldown.set(b.id, now + pause);
+    if (b.state.flight) b.landing = landing ? { x: landing.x + (Math.random() - .5) * 18, z: landing.z + (Math.random() - .5) * 18 } : { x: b.state.x, z: b.state.z };
+  }
+
   /**
-   * Getting in and driving (4 times a second): bots next to the vehicle their squad (or leader)
-   * means to take climb in; drivers steer for the drop-off and everyone gets out there, when the
-   * vehicle is badly hurt, or when it is stuck for good.
+   * Getting in, driving and flying (4 times a second): bots next to the vehicle their squad (or
+   * leader) means to take climb in; drivers and pilots take it where the squad is going.
    */
   private wfDriveStep(now: number): void {
     const bots = this.bots?.bots ?? [];
     for (const b of bots) {
-      if (b.dead || b.vehicleId) continue;
-      // An AI squad's reserved vehicle.
+      if (b.dead || b.vehicleId || b.state.flight) continue;
+      // An AI squad's reserved vehicle (the crew only; the leader takes the controls).
       const sq = this.wfDirector.squadIdOf(b.id);
-      const res = sq !== undefined ? [...this.wfMount].find(([, m]) => m.squad === sq) : undefined;
+      const res = sq !== undefined ? [...this.wfMount].find(([, m]) => m.squad === sq && m.crew.includes(b.id)) : undefined;
       if (res) {
         const v = this.vehicles.states.get(res[0]);
         const lead = this.wfDirector.squads.get(sq!)?.leader === b.id;
-        if (v && Math.hypot(v.x - b.state.x, v.z - b.state.z) < 4) this.vehicles.boardBot(b, v, lead);
+        if (v && vehicleInReach(v, b.state.x, b.state.z, 2)) this.vehicles.boardBot(b, v, lead);
         continue;
       }
-      // A player's follower climbs into the player's vehicle.
+      // A player's follower climbs into the player's vehicle (the commander flies, the squad rides).
       const leaderId = this.wfLeader.get(b.id), leader = leaderId !== undefined ? this.players.get(leaderId) : undefined;
       const lv = leader?.vehicleId ? this.vehicles.states.get(leader.vehicleId) : undefined;
-      if (lv && now >= (this.wfMountCooldown.get(b.id) ?? 0)) {
+      if (lv && now >= (this.wfMountCooldown.get(b.id) ?? 0) && !this.vehicles.inFlight(lv)) {
         const d = Math.hypot(lv.x - b.state.x, lv.z - b.state.z);
-        if (d < 4) this.vehicles.boardBot(b, lv, false);
-        else if (d < 35 && Math.abs(lv.speed) < 3) b.objective = { x: lv.x, y: lv.y, z: lv.z, radius: 2.5, sprint: true };
+        if (vehicleInReach(lv, b.state.x, b.state.z, 2)) this.vehicles.boardBot(b, lv, false);
+        else if (d < 45 && Math.abs(lv.speed) < 3) b.objective = { x: lv.x, y: lv.y, z: lv.z, radius: 2.5, sprint: true };
       }
     }
     for (const b of bots) {
       if (b.dead || !b.vehicleId) continue;
       const v = this.vehicles.states.get(b.vehicleId);
       if (!v) continue;
-      // Followers get out when their player does.
+      // Followers get out when their player does (jumping after them from a helicopter).
       const leaderId = this.wfLeader.get(b.id);
       if (leaderId !== undefined) {
         const leader = this.players.get(leaderId);
-        if (!leader || leader.vehicleId !== v.id) { this.vehicles.exitBot(b, true); this.wfMountCooldown.set(b.id, now + 5000); }
+        if (!leader || leader.vehicleId !== v.id) this.wfBotOut(b, now, leader ? { x: leader.state.x, z: leader.state.z } : undefined);
         continue;
       }
-      if (v.health < VEHICLES[v.kind].health * .3 || v.explodeAt) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue; }
+      const cls = VEHICLE_ROLES[v.kind].cls;
+      if (v.health < VEHICLES[v.kind].health * (cls === 'heli' ? .25 : .3) || v.explodeAt) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue; }
       if (b.vehicleSeat !== 0) continue;
       const m = this.wfMount.get(v.id);
-      if (!m?.target) { this.vehicles.driveBot(b, 0, 0, now); continue; }
+      if (!m?.target) { this.vehicles.driveBot(b, 0, 0, now, cls === 'heli' && this.vehicles.inFlight(v) ? -.6 : 0); continue; }
+      const crew = m.crew.filter((id) => { const c = this.bots!.bots.find((q) => q.id === id); return c && !c.dead; });
+      const aboard = this.vehicles.botsIn(v).length;
+      // Waiting for the crew to get in (a short while).
+      if (aboard < crew.length && now - m.since < 9000) { this.vehicles.driveBot(b, 0, 0, now); continue; }
+      if (cls === 'heli') { this.wfFly(b, v, m, now); continue; }
       let mem = this.wfDriveMem.get(v.id);
       if (!mem) this.wfDriveMem.set(v.id, mem = newDriveMemory(v.x, v.z, now));
-      const c = driveTowards(v, m.target, now, mem, (angle, length) => this.wfProbe(v, angle, length));
-      if (c.arrived || c.stuck) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue; }
+      const c = driveTowards(v, m.target, now, mem, (angle, length) => this.wfProbe(v, angle, length), cls === 'tank' ? 12 : 8);
+      if (c.stuck) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue; }
+      if (c.arrived) {
+        if (cls === 'tank') { this.vehicles.driveBot(b, 0, 0, now); continue; }
+        if (cls === 'apc') {
+          // Troops out at the zone; the driver and the gunner stay and give fire.
+          for (const r of this.vehicles.botsIn(v)) if (r.vehicleSeat >= 2) this.wfBotOut(r as BattleBot, now, undefined, 20_000);
+          this.vehicles.driveBot(b, 0, 0, now);
+          continue;
+        }
+        this.wfDismount(v.id, now); this.wfMount.delete(v.id); continue;
+      }
       this.vehicles.driveBot(b, c.throttle, c.steer, now);
     }
+  }
+
+  /**
+   * A bot pilot: climbs to a safe height over the ground ahead, turns for the target and flies
+   * there. A transport drops its troops over the zone and goes home to land; a gunship stays over
+   * the zone, turning to bring its rockets and missiles onto its target.
+   */
+  private wfFly(b: BattleBot, v: VehicleState, m: { squad: number; target: { x: number; z: number } | null; leg: 'out' | 'back' | 'land' }, now: number): void {
+    const role = VEHICLE_ROLES[v.kind], gen = this.deps.world.generator, ground = gen.heightAt(v.x, v.z), alt = v.y - ground;
+    const side = this.wfSide.get(b.id) ?? 'blue', home = this.wfBases[side];
+    const goal = m.leg === 'out' ? m.target! : home;
+    const dx = goal.x - v.x, dz = goal.z - v.z, d = Math.hypot(dx, dz);
+    let want = Math.atan2(-dx, -dz), throttle = d > 60 ? 1 : d / 60;
+    // A gunship over its zone: face the target and hang there.
+    if (!role.transport && m.leg === 'out' && d < 150 && b.target) { const t = b.target.state; want = Math.atan2(-(t.x - v.x), -(t.z - v.z)); throttle = d > 90 ? .4 : 0; }
+    const err = Math.atan2(Math.sin(want - v.yaw), Math.cos(want - v.yaw));
+    const steer = Math.max(-1, Math.min(1, -err * 1.4));
+    if (Math.abs(err) > .9) throttle = Math.min(throttle, .2);
+    // Height: 40 m over the ground here and ahead (hills); down to land at home.
+    const ahead = gen.heightAt(v.x - Math.sin(v.yaw) * 60, v.z - Math.cos(v.yaw) * 60);
+    const cruise = Math.max(ground, ahead) + (m.leg === 'land' ? -5 : 40);
+    let lift = Math.max(-1, Math.min(1, (cruise - v.y) / 8));
+    if (alt < 12 && m.leg !== 'land') throttle = Math.min(throttle, .3);
+    if (m.leg === 'out' && role.transport && d < 35 && alt > 25) {
+      // Over the zone: everyone in the back jumps; the door gunners stay with the helicopter.
+      const zone = this.wfZones.find((z) => Math.hypot(z.x - goal.x, z.z - goal.z) < 1) ?? { x: goal.x, z: goal.z };
+      for (const r of this.vehicles.botsIn(v)) if (r.vehicleSeat > role.weapons.reduce((n, w) => Math.max(n, w.seat), 0)) this.wfBotOut(r as BattleBot, now, zone, 20_000);
+      m.leg = 'back';
+    }
+    if (m.leg === 'back' && Math.hypot(home.x - v.x, home.z - v.z) < 30) m.leg = 'land';
+    if (m.leg === 'land') {
+      throttle = 0; lift = alt > 1 ? -.7 : -.2;
+      if (alt < .6 && Math.abs(v.speed) < 2) { this.wfDismount(v.id, now); this.wfMount.delete(v.id); return; }
+    }
+    this.vehicles.driveBot(b, throttle, steer, now, lift);
   }
 
   private readonly wfProbeHit = makeRayHit();
@@ -3258,18 +3436,25 @@ export class GameServer {
     const held = m.capture.held();
     const living = new Set(this.wfLiving().map((u) => u.id));
     const units: WarfareUnitInfo[] = [];
-    const add = (id: number, name: string, bot: boolean, x: number, z: number) => {
+    const add = (id: number, name: string, bot: boolean, x: number, z: number, yaw: number) => {
       const side = this.wfSide.get(id);
       if (!side) return;
       const s = this.wfStats.get(id) ?? { kills: 0, deaths: 0, assists: 0, captures: 0 };
       const squad = bot ? this.wfDirector.squadIdOf(id) : this.wfSquads.squadOf(id)?.id;
       const leader = this.wfLeader.get(id);
-      units.push({ id, name, side, bot, alive: living.has(id), ...s, cls: this.wfClass.get(id) ?? 'assault', ...(squad !== undefined ? { squad } : {}), ...(leader !== undefined ? { leader } : {}), x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10 });
+      const lead = !bot || [...this.wfDirector.squads.values()].some((sq) => sq.leader === id);
+      units.push({ id, name, side, bot, alive: living.has(id), ...s, cls: this.wfClass.get(id) ?? 'assault', ...(squad !== undefined ? { squad } : {}), ...(leader !== undefined ? { leader } : {}), x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10, yaw: +yaw.toFixed(2), ...(lead ? { lead } : {}) });
     };
-    for (const p of this.players.values()) add(p.id, p.username, false, p.state.x, p.state.z);
-    for (const b of this.bots?.bots ?? []) add(b.id, b.name, true, b.state.x, b.state.z);
+    for (const p of this.players.values()) add(p.id, p.username, false, p.state.x, p.state.z, p.yaw);
+    for (const b of this.bots?.bots ?? []) add(b.id, b.name, true, b.state.x, b.state.z, b.yaw);
     const zones = m.capture.zones.map((z) => ({ id: z.id, name: z.name, x: z.x, z: z.z, radius: z.radius, owner: z.owner, progress: Math.round(z.progress * 100) / 100, contested: z.contested, presence: this.wfPresence.get(z.id) ?? { blue: 0, red: 0 } }));
-    const vehicles = this.wfSlots.filter((s) => s.vehicleId !== null).map((s) => { const v = this.vehicles.states.get(s.vehicleId!); return { kind: s.spawn.kind, side: s.spawn.side, state: s.state, x: v?.x ?? s.spawn.x, z: v?.z ?? s.spawn.z }; });
+    // Vehicles: whose crew is aboard (or empty); an enemy's only when one of ours is within sight range.
+    const livingUnits = this.wfLiving();
+    const vehicles = [...this.vehicles.states.values()].filter((v) => !v.exploded && v.health > 0).map((v) => {
+      const crewId = v.driver ?? v.passengers?.find((id) => id);
+      return { id: v.id, kind: v.kind, crew: (crewId ? this.wfSide.get(crewId) : undefined) ?? null, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: +v.yaw.toFixed(2), air: isAircraft(v.kind) };
+    });
+    const seenBy = (side: WarfareSide, v: { x: number; z: number; air: boolean }) => livingUnits.some((u) => u.side === side && Math.hypot(u.x - v.x, u.z - v.z) < (v.air ? 260 : 150));
     const queued = [...this.wfRespawnIds()].length;
     for (const p of this.players.values()) {
       const side = this.wfSide.get(p.id);
@@ -3290,10 +3475,10 @@ export class GameServer {
         deploy: side ? this.wfDeployPoints(side, p.id).map(({ id, name, kind, x, z, safe }) => ({ id, name, kind, x: Math.round(x), z: Math.round(z), safe })) : [],
         active: living.size, maxActive: this.wfCfg.maxActive, queued,
         // Enemies' whereabouts are not handed out: only allies carry a position.
-        units: units.map((u) => { if (u.side === side) return u; const { x: _x, z: _z, ...rest } = u; return rest; }),
+        units: units.map((u) => { if (u.side === side) return u; const { x: _x, z: _z, yaw: _y, ...rest } = u; return rest; }),
         squads: [...this.wfSquads.squads.values()].filter((s) => s.side === side).map((s) => ({ ...s, members: [...s.members] })),
         tasks: side ? this.wfDirector.tasks(side) : [],
-        vehicles: vehicles.filter((v) => v.side === side),
+        vehicles: side ? vehicles.filter((v) => v.crew !== otherSide(side) || seenBy(side, v)) : [],
         ...(m.result ? { result: { ...m.result, ticketsUsed: { blue: this.wfCfg.tickets - m.ledger.tickets.blue, red: this.wfCfg.tickets - m.ledger.tickets.red }, captures: { ...m.captures } } } : {}),
       };
       p.session.sendJson(msg);
@@ -3489,6 +3674,7 @@ export class GameServer {
       this.collision.removeOwnerColliders(vehicleOwner(v.id));
       this.explode(0x60000000 + v.id, v.x, v.y + .8, v.z, 7, 220, null, 'rocket', now);
     }, (p, speed) => this.damage(null, p, Math.round((speed - 8) * 1.8), 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now));
+    this.gunnery.step(now);
     // Signs, cones, barrels and saplings in the way give.
     for (const v of this.vehicles.states.values()) {
       if (v.exploded) continue;
@@ -3617,8 +3803,13 @@ export class GameServer {
   private applyInput(p: Player, input: InputMessage, now: number): void {
     if (p.vehicleId && p.vehicleSeat > 0) { this.passengerInput(p, input, now); return; }
     if (p.vehicleId) {
-      this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now);
+      // Helicopters: Space climbs, Shift descends.
+      const lift = ((input.b & Buttons.Jump) ? 1 : 0) - ((input.b & Buttons.Sprint) ? 1 : 0);
+      this.vehicles.control(p, p.downed ? 0 : input.mz, p.downed ? 0 : input.mx, now, p.downed ? 0 : lift);
       p.pitch = input.pitch; p.aiming = false; p.lastButtons = 0; p.lastProcessedSeq = input.s;
+      const v = this.vehicles.driving(p);
+      // The driver works the vehicle's own weapons (a tank's gun, a helicopter's rockets).
+      if (v && !p.downed) this.seatTriggers(p, v, 0, input.b, input.aimYaw ?? input.yaw, input.pitch, now);
       return;
     }
     if (p.state.flight) {
@@ -3753,6 +3944,8 @@ export class GameServer {
     if (!aiming) buttons &= ~Buttons.Aim;
     p.lastButtons = buttons;
     const v = this.vehicles.driving(p);
+    // A gunner's seat: the mounted weapon, not the rider's own gun.
+    if (v && armedSeat(v.kind, p.vehicleSeat)) { if (!p.downed) this.seatTriggers(p, v, p.vehicleSeat, input.b, p.yaw, p.pitch, now); p.lastProcessedSeq = input.s; return; }
     if (v && spec?.kind === 'gun' && (buttons & Buttons.Attack)) {
       this.vehicles.withoutColliders(v, () => {
         if (spec.fire === 'projectile') this.tryLaunch(p, spec, now, input.bore);
@@ -4517,6 +4710,8 @@ export class GameServer {
       const expired = now >= r.dieAt || r.traveled >= (r.spec.maxRange ?? Infinity) - 1e-5;
       if (!stopped && !expired) continue;
       this.rounds.splice(i, 1);
+      // A launcher's rocket on a vehicle: a shaped charge (what an engineer's RPG is for against armour).
+      if (stopped && !hit.target && !npcHit && r.spec.kind === 'rocket' && (hit.colliderTag ?? 0) > 50000) this.vehicles.hitAt(r.x, r.y, r.z, 900, now, hit.colliderTag);
       if (stopped && !hit.target && !npcHit) { this.vehicles.hitAt(r.x, r.y, r.z, r.damage, now, hit.colliderTag); this.building?.bulletHit(hit.colliderTag, r.damage, r.x, r.y, r.z); if (hit.colliderTag) this.knock?.bullet(hit.colliderTag, r.x, r.y, r.z, dx, dy, dz, r.damage, now); }
       const owner = this.players.get(r.owner.id) === r.owner ? r.owner : null;
       this.broadcastAt(r.x, r.z, { t: 'projEnd', id: r.id, x: r.x, y: r.y, z: r.z, hit: !npcHit && !!hit.target, impact: stopped, normal: !npcHit && !hit.target && stopped ? hit.normal : undefined });
