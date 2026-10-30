@@ -2,7 +2,7 @@ import { BLADE_COMBO, carriedGear, unpackGear, acceptsAttachments, attachmentMod
 import { voice } from '@/lib/voice';
 import { ZombieOutline } from './render/zombie-outline';
 import { VehicleRenderer } from './render/vehicles';
-import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, setSeatTuning, weaponMuzzle, type VehicleWeapon, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, armedSeat, isAircraft, seatStands, setSeatTuning, weaponMuzzle, type VehicleWeapon, partHealth, partName, seatMount, vehicleParts, vehiclePoint, vehicleSeatOf, weaponState } from '@zion/shared';
 import { TargetVisibility } from './target-visibility';
 import { BattleZone } from './render/battle-zone';
 import type { GameMode } from '@zion/shared';
@@ -2236,7 +2236,7 @@ export class GameEngine {
       r.avatar.seatContacts = ride ? this.vehicles!.contacts(r.entity.id) : null;
       // Seats: the driver steers; a weapon seat stands at its gun, turning with the aim; anyone
       // else sits facing forward with the hands in the lap.
-      const seatNo = ride ? this.vehicles!.seatIndex(r.entity.id) : -1, gunner = !!ride && seatNo > 0 && armedSeat(ride.kind, seatNo);
+      const seatNo = ride ? this.vehicles!.seatIndex(r.entity.id) : -1, gunner = !!ride && seatStands(ride.kind, seatNo);
       r.avatar.drivingPose(ride && !gunner ? VEHICLES[ride.kind].quad : null, ride && !gunner ? ride.yaw : pose.yaw, ride?.motion?.pitch, ride?.motion?.roll, seatNo > 0);
       const target = r.entity.kind === EntityKind.Player || r.entity.kind === EntityKind.Animal || r.entity.kind === EntityKind.Guard;
       // Visibility is recomputed every frame: once hidden by the vision cone, a body must come back
@@ -2340,7 +2340,7 @@ export class GameEngine {
     this.localAvatar?.flightPose(flightFlags, (local.lastButtons & Buttons.Sprint) !== 0, Math.hypot(local.state.vx, local.state.vz) > 2, dt);
     if (this.localAvatar) { this.localAvatar.seatFloor = aboard ? this.vehicles!.seatFloor(this.welcome!.playerId) : null; this.localAvatar.seatContacts = aboard ? this.vehicles!.contacts(this.welcome!.playerId) : null; }
     // As for others: a weapon seat stands at its gun; the commander inside a hull is out of sight.
-    const mySeat = aboard ? this.vehicles!.seatIndex(this.welcome!.playerId) : -1, atGun = !!aboard && mySeat > 0 && armedSeat(aboard.kind, mySeat);
+    const mySeat = aboard ? this.vehicles!.seatIndex(this.welcome!.playerId) : -1, atGun = !!aboard && mySeat >= 0 && seatStands(aboard.kind, mySeat);
     this.localAvatar?.drivingPose(aboard && !atGun ? VEHICLES[aboard.kind].quad : null, atGun ? this.input.yaw : driving?.yaw ?? this.input.yaw, aboard?.motion?.pitch, aboard?.motion?.roll, mySeat > 0);
     this.viewModel?.setVisible(!driving);
     this.battleFlight?.player(this.welcome!.playerId, px, py, pz, this.input.yaw, flightFlags, dt);

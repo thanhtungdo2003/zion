@@ -1,5 +1,5 @@
 import { Group, Mesh, Vector3, type Scene } from 'three';
-import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, armedSeat, mountedPoint, mountedSeat, seatAim, seatContacts, seatEye, seatMount, seatPosition, seatTuned, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, vehicleInReach, tyreHandling, vehicleOwner, mountedPoint, mountedSeat, seatAim, seatContacts, seatEye, seatMount, seatPosition, seatTuned, vehicleSeatOf, vehicleFreeSeat, vehiclePoint, type VehicleState, type VehiclesMessage } from '@zion/shared';
 import { vehicleColliders, type CollisionWorld } from '@zion/physics';
 import type { AssetLibrary } from './asset-library';
 import { VehicleAudio } from '../vehicle-audio';
@@ -144,7 +144,7 @@ export class VehicleRenderer {
   eye(id:number):{x:number;y:number;z:number}|undefined{
     const view=this.viewOf(id);if(!view)return undefined;
     const seat=Math.max(0,vehicleSeatOf(view.target,id)),v={...view.pose,aim:this.shownAim(id)},fit=view.fit[seat];
-    const [x,y,z]=seatPosition(v.kind,seat),standing=seat>0&&armedSeat(v.kind,seat),[ex,ey,ez]=seatEye(v.kind,seat,standing);
+    const [x,y,z]=seatPosition(v.kind,seat),[ex,ey,ez]=seatEye(v.kind,seat);
     const oy=fit?.y!=null&&!seatTuned(v.kind,seat)?fit.y:y,p=mountedPoint(v,seat,x+ex,oy+ey,z+ez,false);
     return vehiclePoint(v,p.x,p.y,p.z);
   }

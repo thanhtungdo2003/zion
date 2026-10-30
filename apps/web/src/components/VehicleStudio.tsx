@@ -6,7 +6,7 @@ import { AmbientLight, DirectionalLight, GridHelper, Group, Mesh, MeshBasicMater
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createDefaultRegistry } from '@zion/assets';
 import {
-  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, armedSeat, minSeats, seatContacts, seatCount, seatEye, seatHip, seatPosition, seatTuned, setSeatTuning,
+  DEFAULT_APPEARANCE, EntityFlags, SEATED_EYE, STANDING_EYE, VEHICLES, VEHICLE_ROLES, minSeats, seatStands, seatContacts, seatCount, seatEye, seatHip, seatPosition, seatTuned, setSeatTuning,
   type SeatTune, type SeatTuning, type SeatVec, type VehicleKind,
 } from '@zion/shared';
 import { studioLogin, studioSaveVehicleSeats, studioVehicleSeats, vehicleSeats } from '@/lib/api';
@@ -109,7 +109,7 @@ export function VehicleStudioPage() {
         raf = requestAnimationFrame(frame);
         const dt = Math.min(.1, (now - last) / 1000); last = now;
         const { kind: k, seat: s, view: v, fit: f, point: picked } = live.current, def = VEHICLES[k];
-        const gunner = s > 0 && armedSeat(k, s), o = shownSeat(k, s, f), e = add(o, seatEye(k, s, gunner)), c = seatContacts(k, s);
+        const gunner = seatStands(k, s), o = shownSeat(k, s, f), e = add(o, seatEye(k, s, gunner)), c = seatContacts(k, s);
         // The vehicle stands at the origin unturned: its own metres are world metres here.
         const v3 = (p: SeatVec) => new Vector3(p[0], p[1], p[2]);
         avatar.seatFloor = seatTuned(k, s) ? null : f[s]?.floor ?? null;
@@ -159,7 +159,7 @@ export function VehicleStudioPage() {
   }, [kind, ready]);
 
   const def = VEHICLES[kind], role = VEHICLE_ROLES[kind], count = seatCount(kind);
-  const gunner = seat > 0 && armedSeat(kind, seat);
+  const gunner = seatStands(kind, seat);
   const forKind = tuning[kind] ?? {}, tune: SeatTune = forKind.seats?.[seat] ?? {};
   const origin = shownSeat(kind, seat, fit);
   /** Writes the table (and applies it to this preview at once). */
@@ -257,6 +257,11 @@ export function VehicleStudioPage() {
         <div className="vs-row">
           <button className="btn" onClick={addSeat} disabled={count >= 24}><Icon name="lucide:plus" /> Thêm ghế</button>
           <button className="btn" onClick={removeSeat} disabled={count <= minSeats(kind)} title="Bỏ ghế cuối (ghế lái không bỏ được; bỏ ghế súng thì khẩu súng đó không ai dùng)"><Icon name="lucide:minus" /> Bỏ ghế cuối</button>
+        </div>
+        <h3>Dáng ở ghế {seat + 1}</h3>
+        <div className="vs-row">
+          <button className={`btn${!gunner ? ' btn-primary' : ''}`} onClick={() => setSeatTune(seat, { ...tune, pose: 'sit' })}>Ngồi</button>
+          <button className={`btn${gunner ? ' btn-primary' : ''}`} onClick={() => setSeatTune(seat, { ...tune, pose: 'stand' })}>Đứng (tại súng / cửa hầm)</button>
         </div>
         <h3>Điểm đặt của ghế {seat + 1}</h3>
         <p className="gs-hint">Mỗi ghế có điểm riêng. Chọn một điểm rồi kéo X/Y/Z (mét, theo khung xe: −Z là mũi xe). {gunner ? 'Ghế súng: nhân vật đứng.' : ''}</p>

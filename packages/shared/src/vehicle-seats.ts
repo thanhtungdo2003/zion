@@ -16,9 +16,11 @@ import { VEHICLE_ROLES } from './vehicle-arms';
  */
 const vec = z.tuple([z.number().finite().min(-20).max(20), z.number().finite().min(-5).max(10), z.number().finite().min(-20).max(20)]);
 const pair = z.tuple([vec, vec]);
-const seatTune = z.object({ pos: vec.optional(), hip: vec.optional(), eye: vec.optional(), hands: pair.optional(), feet: pair.optional() }).strict();
+const seatTune = z.object({ pose: z.enum(['sit', 'stand']).optional(), pos: vec.optional(), hip: vec.optional(), eye: vec.optional(), hands: pair.optional(), feet: pair.optional() }).strict();
 export type SeatVec = readonly [number, number, number];
 export interface SeatTune {
+  /** Seated, or standing (at a gun, in a hatch); default: weapon seats stand, the rest sit. */
+  pose?: 'sit' | 'stand';
   pos?: SeatVec;
   hip?: SeatVec;
   eye?: SeatVec;
@@ -66,8 +68,12 @@ export const seatCount = (kind: VehicleKind): number => tuning[kind]?.count ?? V
 export function minSeats(_kind: VehicleKind): number {
   return 1;
 }
-/** A rider stands at this seat (a weapon seat other than the driver's). */
-const stands = (kind: VehicleKind, seat: number) => seat > 0 && VEHICLE_ROLES[kind].weapons.some((w) => w.seat === seat);
+/** A rider stands at this seat: as set in the Studio, else at a weapon seat other than the driver's. */
+export const seatStands = (kind: VehicleKind, seat: number): boolean => {
+  const pose = tuning[kind]?.seats?.[seat]?.pose;
+  return pose ? pose === 'stand' : seat > 0 && VEHICLE_ROLES[kind].weapons.some((w) => w.seat === seat);
+};
+const stands = seatStands;
 
 /** The rider's origin at a seat: from its hip point, its position, or the vehicle data. */
 export function seatPosition(kind: VehicleKind, seat: number): SeatVec {
@@ -85,7 +91,7 @@ export function seatHip(kind: VehicleKind, seat: number): SeatVec {
 /** Whether a seat's place was set in the Studio (then it is taken as it is, not fitted to the model). */
 export const seatTuned = (kind: VehicleKind, seat: number): boolean => !!(tuneOf(kind, seat)?.pos || tuneOf(kind, seat)?.hip);
 /** The first-person eye of a seat, from its origin (vehicle metres). */
-export function seatEye(kind: VehicleKind, seat: number, standing = false): SeatVec {
+export function seatEye(kind: VehicleKind, seat: number, standing = seatStands(kind, seat)): SeatVec {
   return tuneOf(kind, seat)?.eye ?? (standing ? STANDING_EYE : SEATED_EYE);
 }
 /** Where a seat's hands grip and feet rest (vehicle metres), where set. */

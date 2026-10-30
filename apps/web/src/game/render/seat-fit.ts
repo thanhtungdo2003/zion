@@ -1,4 +1,4 @@
-import { VEHICLES, VEHICLE_ROLES, armedSeat, seatCount, seatPosition, type VehicleKind } from '@zion/shared';
+import { VEHICLES, VEHICLE_ROLES, seatCount, seatPosition, seatStands, type VehicleKind } from '@zion/shared';
 import type { ModelPart } from './bbmodel-loader';
 
 /**
@@ -54,7 +54,7 @@ export function fitSeats(kind: VehicleKind, parts: readonly ModelPart[]): SeatFi
   };
   const ground = role.cls === 'car' || role.cls === 'apc';
   const out = Array.from({ length: seatCount(kind) }, (_, seat) => seatPosition(kind, seat)).map(([x, y, z], seat): SeatFit => {
-    if (!ground || armedSeat(kind, seat) || role.inside?.includes(seat)) return { y: null, floor: null };
+    if (!ground || seatStands(kind, seat) || role.inside?.includes(seat)) return { y: null, floor: null };
     // The cushion: the highest surface a sitting body's head clears (roofs, wheels and bars above it are not seats).
     const surface = crossings(x, z).find((h) => h < y + 1.2), sit = def.quad ? ASTRIDE_HEIGHT : SIT_HEIGHT;
     if (surface === undefined) return { y: null, floor: null };

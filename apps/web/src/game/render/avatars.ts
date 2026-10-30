@@ -1322,8 +1322,8 @@ export class Avatar {
     const right = new Vector3(-fwd.z, 0, fwd.x);
     const grasp: Record<Side, Grasp | null> = { L: null, R: null };
     const reach: Record<Side, Vector3 | null> = { L: null, R: null };
-    // Seated: hands on the seat's own points (wheel, bars, grab handles).
-    if (this.drivingActive && this.seatContacts?.hands) { reach.L = this.seatContacts.hands[0]; reach.R = this.seatContacts.hands[1]; }
+    // Aboard (seated or standing at a gun): hands on the seat's own points (wheel, bars, grips).
+    if (this.seatContacts?.hands) { reach.L = this.seatContacts.hands[0]; reach.R = this.seatContacts.hands[1]; }
     const hands: Record<Side, HandPreset> = { L: 'relaxed', R: 'relaxed' };
     let tuck = 0;
     const recordedRoll = rolling && !!this.template.human?.clips.has('roll');
@@ -1402,7 +1402,7 @@ export class Avatar {
       grasp.L = grasp.R = null;
       this.poseBranch = recorded.weight > .98 ? 'gun' : 'gun-driver';
       if (recorded.weight > .98) human.poseMocap(recorded, dt);
-      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.drivingActive && this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
+      else human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
       this.attachRecordedGun(held, bracing, recorded.action?.weight ?? 0);
       this.heldMagazine.update(held.obj, recorded.action && this.reloadAnim ? this.reloadAnim.t / this.reloadAnim.dur : -1, human.palmMatrix('L'));
       return;
@@ -1440,7 +1440,7 @@ export class Avatar {
     }
     else {
       this.poseBranch = 'driver';
-      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.drivingActive && this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
+      human.poseFromDriver(rig, { dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck, land: recorded?.clip === 'jump' ? 0 : land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
     }
     human.group.updateMatrixWorld(true);
   }
@@ -1875,7 +1875,7 @@ export class Avatar {
     } else if (recordedArms) grasp[trig] = null;
     grasp[sup] = null;
     if (recordedArms) { hands[trig] = 'fist'; reach[trig] = null; }
-    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.drivingActive && this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
+    human.poseFromDriver(rig, { dt: f.dt, grasp, reach, hands, plant: this.plantBlend, crouch: this.crouchBlend, tuck: f.tuck, land: recorded?.clip === 'jump' ? 0 : f.land, moving: this.stepping, grounded: (this.frame.flags & EntityFlags.Grounded) !== 0, ground: this.ground, floor: this.drivingActive ? this.seatFloor ?? undefined : undefined, feet: this.seatContacts?.feet ? { L: this.seatContacts.feet[0], R: this.seatContacts.feet[1] } : undefined, mocap: recorded });
     human.group.updateMatrixWorld(true);
     // The weapon in the hand.
     const world = trigLocal ? human.objectInHand(trig, trigLocal, scl) : null;
