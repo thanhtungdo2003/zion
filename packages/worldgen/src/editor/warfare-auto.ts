@@ -97,20 +97,22 @@ function sites(doc: WorldMapDoc): Site[] {
   return split;
 }
 
-/** The densest square of the map (`half` at most 400 m) holding the most settlement. */
-function chooseArea(all: readonly Site[], size: number): { x: number; z: number; half: number } {
-  let best = all[0]!, score = -1;
-  for (const c of all) {
-    let w = 0;
-    for (const s of all) if (Math.abs(s.x - c.x) < 330 && Math.abs(s.z - c.z) < 330) w += s.weight;
-    if (w > score) { score = w; best = c; }
-  }
-  const inside = all.filter((s) => Math.abs(s.x - best.x) < 330 && Math.abs(s.z - best.z) < 330);
-  const x0 = Math.min(...inside.map((s) => s.x)), x1 = Math.max(...inside.map((s) => s.x));
-  const z0 = Math.min(...inside.map((s) => s.z)), z1 = Math.max(...inside.map((s) => s.z));
-  const half = Math.round(Math.min(400, Math.max(160, Math.max(x1 - x0, z1 - z0) / 2 + 90)));
-  const clamp = (v: number) => Math.round(Math.max(half + 8, Math.min(size - half - 8, v)));
-  return { x: clamp((x0 + x1) / 2), z: clamp((z0 + z1) / 2), half };
+/**
+ * The battlefield of a World Studio map is the whole map: its area is the map, and anything laid
+ * out round an older, smaller area is moved so it stays where it was on the ground.
+ */
+export function fitWarfareToMap(layout: WarfareLayout, size: number): WarfareLayout {
+  const area = { x: size / 2, z: size / 2, half: size / 2 };
+  const old = layout.area;
+  if (old && old.x === area.x && old.z === area.z && old.half === area.half) return layout;
+  const dx = (old?.x ?? area.x) - area.x, dz = (old?.z ?? area.z) - area.z;
+  const move = <T extends { x: number; z: number }>(p: T): T => ({ ...p, x: p.x + dx, z: p.z + dz });
+  return {
+    ...layout, area,
+    zones: layout.zones.map((zn) => ({ ...move(zn), spawns: zn.spawns.map(move), points: zn.points.map(move) })),
+    ...(layout.bases ? { bases: { blue: move(layout.bases.blue), red: move(layout.bases.red) } } : {}),
+    vehicleSpawns: layout.vehicleSpawns.map(move),
+  };
 }
 
 /**
@@ -122,7 +124,7 @@ function chooseArea(all: readonly Site[], size: number): { x: number; z: number;
 export function settlementWarfareLayout(doc: WorldMapDoc): WarfareLayout | null {
   const all = sites(doc);
   if (!all.length) return null;
-  const area = doc.warfare?.area ?? chooseArea(all, doc.terrain.size);
+  const area = { x: doc.terrain.size / 2, z: doc.terrain.size / 2, half: doc.terrain.size / 2 };
   const lim = area.half - 24;
   // Into the area's frame, merging places that would overlap.
   let cand = all.map((s) => ({ ...s, x: s.x - area.x, z: s.z - area.z, radius: Math.max(14, Math.min(40, s.radius * .9 + 6)) }))

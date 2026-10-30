@@ -26,9 +26,9 @@ describe('Warfare zones from the map’s settlements', () => {
     ]))!;
     expect(l).not.toBeNull();
     expect(validateWarfareLayout(l)).toEqual([]);
-    // The far village is outside the battlefield; the four near ones are zones.
-    expect(l.zones.map((z) => z.name.slice(2)).sort()).toEqual(['Bến Cũ', 'Làng Mai', 'Xóm Đông', 'Đồn Bắc'].sort());
-    expect(l.zones.map((z) => z.id)).toEqual(['a', 'b', 'c', 'd']);
+    // The whole map is the battlefield: every village is a zone.
+    expect(l.zones.map((z) => z.name.slice(2)).sort()).toEqual(['Bến Cũ', 'Làng Mai', 'Xa Lắm', 'Xóm Đông', 'Đồn Bắc'].sort());
+    expect(l.zones.map((z) => z.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
     expect(l.zones.find((z) => z.name.endsWith('Đồn Bắc'))!.value).toBe(2);
     // Every zone has neighbours; the bases sit at opposite ends.
     expect(l.zones.every((z) => z.links.length > 0)).toBe(true);

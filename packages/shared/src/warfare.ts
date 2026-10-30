@@ -107,7 +107,8 @@ export function parseWarfareConfig(raw: unknown): WarfareConfig {
 
 /* ------------------------------------------------------------------ layout */
 
-const coord = z.number().finite().min(-400).max(400);
+// Relative to the battlefield's centre; a battlefield can be a whole World Studio map (up to 8 km).
+const coord = z.number().finite().min(-4128).max(4128);
 const wfPoint = z.object({ x: coord, z: coord, y: z.number().finite().min(-50).max(300).optional() }).strict();
 export type WarfarePoint = z.infer<typeof wfPoint>;
 
@@ -153,7 +154,7 @@ export const warfareLayoutSchema = z.object({
    * width. Every other coordinate of the layout is relative to this centre. Absent on the walled
    * Studio maps, whose centre and size are the map's own.
    */
-  area: z.object({ x: z.number().finite().min(0).max(8256), z: z.number().finite().min(0).max(8256), half: z.number().min(30).max(400) }).strict().optional(),
+  area: z.object({ x: z.number().finite().min(0).max(8256), z: z.number().finite().min(0).max(8256), half: z.number().min(30).max(4128) }).strict().optional(),
   zones: z.array(warfareZoneSchema).max(16).default([]),
   /** Main base of each side: always a deploy point, never capturable. */
   bases: z.object({ blue: wfPoint, red: wfPoint }).strict().optional(),

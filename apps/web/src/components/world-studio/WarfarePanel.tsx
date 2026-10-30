@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { WarfareLayout, WarfarePointKind, WarfareSide } from '@zion/shared';
 import { hasStudioSession, publishedMapId, studioLogin, studioSetBattleMapWarfare } from '@/lib/api';
-import { publishModesOf, settlementWarfareLayout } from '@zion/worldgen/editor';
+import { fitWarfareToMap, publishModesOf, settlementWarfareLayout } from '@zion/worldgen/editor';
 import { publishWorldMap } from './SettingsPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { WarfareStudioPanel, type WarfareSel } from '../WarfareStudioPanel';
@@ -23,7 +23,7 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
   const [asking, setAsking] = useState(false), [busy, setBusy] = useState(false);
   const sel = api.selection && (api.selection.kind === 'wfZone' || api.selection.kind === 'wfBase' || api.selection.kind === 'wfVehicle') ? api.selection as WarfareSel : null;
   const patchLayout = (fn: (l: WarfareLayout) => void) => {
-    const next: WarfareLayout = structuredClone(api.doc.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] });
+    const next: WarfareLayout = structuredClone(fitWarfareToMap(api.doc.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] }, size));
     fn(next);
     api.commit('Chiến trường', { ...api.doc, warfare: next }, { key: 'warfare' });
   };
@@ -31,7 +31,7 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
     setBusy(true);
     try {
       if (password) await studioLogin(password);
-      const layout = api.doc.warfare;
+      const layout = api.doc.warfare && fitWarfareToMap(api.doc.warfare, size);
       try {
         await studioSetBattleMapWarfare(publishedMapId(doc.meta.id), layout ?? null);
       } catch (err) {
@@ -47,12 +47,11 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
   const tool = api.tool.startsWith('wf-') && api.tool !== 'wf-area' ? api.tool.slice(3) as 'zone' : null;
   return <>
     <Section title="Chiến trường (Warfare)" icon="swords">
-      <p className={s.lead}>Chọn một vùng của bản đồ làm chiến trường (tối đa 800 × 800 m), đặt cứ điểm, căn cứ hai phe, điểm triển khai và điểm xuất hiện xe (jeep, quad). Công cụ ở thanh bên trái.</p>
+      <p className={s.lead}>Cả bản đồ là chiến trường. Đặt cứ điểm, căn cứ hai phe, điểm triển khai và điểm xuất hiện xe bằng công cụ bên trái, hoặc chia cứ điểm theo làng, thành phố.</p>
       <WarfareStudioPanel layout={doc.warfare} half={400} patchLayout={patchLayout} sel={sel} setSel={api.setSelection} tool={tool}
         pointKind={pointKind} setPointKind={setPointKind} vehicleSide={vehicleSide} setVehicleSide={setVehicleSide}
-        defaultArea={{ x: Math.round(size / 2), z: Math.round(size / 2), half: Math.min(250, Math.round(size / 2) - 10) }}
+        defaultArea={{ x: size / 2, z: size / 2, half: size / 2 }}
         fromSettlements={() => settlementWarfareLayout(api.doc)} onNoSettlements={() => api.flash('Bản đồ chưa có làng, thành phố hay căn cứ nào để chia cứ điểm.', true)}>
-        {doc.warfare?.area && <p className={s.note}>Tâm vùng: X {Math.round(doc.warfare.area.x)} · Z {Math.round(doc.warfare.area.z)} · rộng {doc.warfare.area.half * 2} m <button type="button" className={s.btn} onClick={() => api.centerOn(doc.warfare!.area!.x, doc.warfare!.area!.z, doc.warfare!.area!.half * 2.4)}>Xem</button></p>}
       </WarfareStudioPanel>
     </Section>
     <Section title="Gán cho chế độ Chiến trường" icon="rocket">

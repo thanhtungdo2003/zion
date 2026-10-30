@@ -2658,7 +2658,10 @@ export class GameServer {
   /** Loads the whole play area's physics once (bots and spawns need ground everywhere). */
   private prepareWarfareArea(): Promise<void> {
     this.wfPreparing ??= (async () => {
-      await this.physics.ensureArea(Math.floor(this.wfCentre.x / CHUNK_SIZE), Math.floor(this.wfCentre.z / CHUNK_SIZE), Math.ceil((this.wfHalf + 8) / CHUNK_SIZE));
+      // A battlefield can be a whole map: load the ground round the bases, zones and vehicle slots
+      // (where everyone spawns); the rest streams in round players and bots as they move.
+      const spots = [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones.map((z) => ({ x: z.x, z: z.z, r: z.radius })), ...this.wfLayout.vehicleSpawns];
+      await Promise.all(spots.map((p) => this.physics.ensureArea(Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE), Math.ceil((('r' in p ? p.r : 0) + 40) / CHUNK_SIZE))));
       this.wfReady = true;
       // A battle royale world parks vehicles along its roads: the battlefield has only its own slots.
       for (const id of [...this.vehicles.states.keys()]) if (!this.wfSlots.some((sl) => sl.vehicleId === id)) this.vehicles.remove(id);

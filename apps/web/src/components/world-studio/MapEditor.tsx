@@ -7,6 +7,7 @@ import {
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, Simplex2, StrokeRecorder, applyBrush, carveLake, carveRiver, checkSettlement, lakeSpillLevel, newId, newRegion, obbCorners, seedNumber,
   serializeMap, stream, validateMap, validateRegion, type BrushSettings, type CellRect, type Circle, type LootCategory, type MapIssue, type Region, type SettlementLayer,
   type SettlementResult, type Vec2, type WorldMapDoc,
+  fitWarfareToMap,
 } from '@zion/worldgen/editor';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Icon } from '../Icon';
@@ -52,7 +53,7 @@ const RAIL: Record<EditorTab, Array<Array<{ id: Tool; name: string; icon: string
   ],
   warfare: [
     [{ id: 'select', name: 'Chọn / kéo (V)', icon: 'mouse-pointer-2', key: 'V' }, { id: 'pan', name: 'Kéo bản đồ (H)', icon: 'hand', key: 'H' }],
-    [{ id: 'wf-area', name: 'Tâm vùng chiến trường', icon: 'locate-fixed' }, { id: 'wf-zone', name: 'Cứ điểm (nhấp để thêm / chọn)', icon: 'flag' },
+    [{ id: 'wf-zone', name: 'Cứ điểm (nhấp để thêm / chọn)', icon: 'flag' },
       { id: 'wf-blue', name: 'Căn cứ phe Xanh', icon: 'shield' }, { id: 'wf-red', name: 'Căn cứ phe Đỏ', icon: 'castle' },
       { id: 'wf-spawn', name: 'Điểm triển khai của cứ điểm đang chọn', icon: 'map-pin' }, { id: 'wf-point', name: 'Điểm chiến thuật cho AI', icon: 'crosshair' },
       { id: 'wf-vehicle', name: 'Điểm xuất hiện xe (jeep / quad)', icon: 'car-front' }],
@@ -68,7 +69,7 @@ const HINTS: Partial<Record<Tool, string>> = {
   'draw-nogo': 'Vẽ vùng cấm / không thể chơi · Enter để hoàn tất',
   'draw-spawnzone': 'Vẽ vùng spawn · Enter để hoàn tất',
   'place-spawn': 'Nhấp để đặt điểm spawn', 'place-loot': 'Nhấp để đặt điểm loot (loại chọn ở bảng bên phải)',
-  'wf-area': 'Nhấp để đặt tâm vùng chiến trường (cả bố cục dời theo)', 'wf-zone': 'Nhấp để thêm cứ điểm · nhấp vào cứ điểm để chọn', 'wf-blue': 'Nhấp để đặt căn cứ phe Xanh', 'wf-red': 'Nhấp để đặt căn cứ phe Đỏ',
+  'wf-zone': 'Nhấp để thêm cứ điểm · nhấp vào cứ điểm để chọn', 'wf-blue': 'Nhấp để đặt căn cứ phe Xanh', 'wf-red': 'Nhấp để đặt căn cứ phe Đỏ',
   'wf-spawn': 'Chọn cứ điểm rồi nhấp để thêm điểm triển khai (nhấp lại để xóa)', 'wf-point': 'Chọn cứ điểm rồi nhấp để thêm điểm chiến thuật (loại chọn ở bảng phải)', 'wf-vehicle': 'Nhấp để thêm điểm xe (nhấp lại để xóa)',
   'place-hotspot': 'Nhấp để đặt điểm nóng', 'place-poi': 'Nhấp để đặt POI', 'place-rare': 'Nhấp để đặt vùng vật phẩm hiếm', 'place-playarea': 'Nhấp để đặt tâm vùng chơi',
 };
@@ -411,20 +412,14 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
 
   /** Edits the battlefield as one undo step (created empty the first time). */
   const updateWarfare = useCallback((label: string, fn: (l: WarfareLayout) => void, key?: string) => {
-    const d = docRef.current, next: WarfareLayout = structuredClone(d.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] });
+    const d = docRef.current, next: WarfareLayout = structuredClone(fitWarfareToMap(d.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] }, d.terrain.size));
     fn(next);
     commit(label, { ...d, warfare: next }, key ? { key } : undefined);
   }, [commit]);
   const onPlaceWarfare = useCallback((x: number, z: number) => {
-    const hf = terrainRef.current, d = docRef.current, wf = d.warfare;
+    const hf = terrainRef.current, d = docRef.current, wf = fitWarfareToMap(d.warfare ?? { enabled: false, zones: [], vehicleSpawns: [] }, hf.size);
     const r1 = (v: number) => Math.round(v * 2) / 2;
-    if (tool === 'wf-area') {
-      const half = wf?.area?.half ?? Math.min(250, Math.floor(hf.size / 2) - 10);
-      const cx = Math.max(half, Math.min(hf.size - half, r1(x))), cz = Math.max(half, Math.min(hf.size - half, r1(z)));
-      updateWarfare('Đặt vùng chiến trường', (l) => { l.area = { x: cx, z: cz, half }; });
-      return;
-    }
-    if (!wf?.area) { flash('Đặt tâm vùng chiến trường trước (công cụ ◎).', true); return; }
+    if (!wf.area) return;
     const lx = r1(x - wf.area.x), lz = r1(z - wf.area.z);
     if (Math.abs(lx) > wf.area.half || Math.abs(lz) > wf.area.half) { flash('Điểm nằm ngoài vùng chiến trường.', true); return; }
     const near = (p: { x: number; z: number }) => Math.hypot(p.x - lx, p.z - lz) < 6;

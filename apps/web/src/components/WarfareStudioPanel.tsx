@@ -64,8 +64,6 @@ export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel,
       <label className="ix-check"><input type="checkbox" checked={!!wf?.enabled} onChange={(e) => patch((d) => { ensureWarfare(d).enabled = e.target.checked; })} /> Dùng bản đồ này cho chế độ Chiến trường</label>
       {fromSettlements && <button className="btn btn-primary" title="Mỗi làng, khu phố, căn cứ trên bản đồ thành một cứ điểm; căn cứ hai phe ở hai đầu" onClick={() => { const l = fromSettlements(); if (!l) { onNoSettlements?.(); return; } patch((d) => { d.warfare = l; }); }}><Icon name="lucide:map-pinned" /> Chia cứ điểm theo làng, thành phố</button>}
       {!wf?.zones.length && <button className="btn" onClick={() => patch((d) => { const area = d.warfare?.area ?? defaultArea; const auto = autoWarfareLayout(area?.half ?? half); d.warfare = { ...auto, enabled: d.warfare?.enabled ?? true, ...(area ? { area } : {}), ...(d.warfare?.config ? { config: d.warfare.config } : {}) }; })}><Icon name="lucide:wand-2" /> Tạo bố cục tự động</button>}
-      {defaultArea && wf?.area && field('Nửa cạnh vùng chiến trường', wf.area.half, (v) => patch((d) => { ensureWarfare(d).area!.half = v; }), 30, 400, 5, ' m')}
-      {defaultArea && !wf?.area && <p className="ix-hint">Đặt tâm vùng chiến trường bằng công cụ vùng (◎) trên thanh bên trái, hoặc bấm Tạo bố cục tự động.</p>}
       {children}
       {setTool && <div className="ix-tools wf-tools">
         {toolBtn('zone', 'lucide:flag', 'Cứ điểm: nhấp để thêm / chọn')}
