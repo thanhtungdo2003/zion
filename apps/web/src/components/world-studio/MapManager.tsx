@@ -167,7 +167,14 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
             <button className={`${s.btn} ${s.primary}`} onClick={() => onOpen(m.id)} data-testid="open-map"><Icon name="lucide:pencil" />Mở</button>
             <button className={s.btn} onClick={() => setEditing(m)} title="Đổi tên / thông tin" data-testid="edit-map"><Icon name="lucide:file-pen" /></button>
             <button className={s.btn} onClick={() => void duplicate(m)} title="Nhân bản" data-testid="duplicate-map"><Icon name="lucide:copy" /></button>
-            <button className={`${s.btn} ${s.danger}`} onClick={() => setRemoving(m)} title="Xóa" data-testid="delete-map"><Icon name="lucide:trash-2" /></button>
+            {(() => {
+              // On the game: take it off the game first, then it can be deleted here.
+              const live = published?.find((p) => p.id === publishedMapId(m.id));
+              return live ? <>
+                <button className={`${s.btn} ${s.danger}`} onClick={() => setUnpublishing(live)} title="Gỡ khỏi game (bước 1 trước khi xóa)" data-testid="unpublish-local"><Icon name="lucide:cloud-off" />Gỡ khỏi game</button>
+                <button className={`${s.btn} ${s.danger}`} disabled title="Đang có trên game — gỡ khỏi game trước rồi mới xóa được" data-testid="delete-map"><Icon name="lucide:trash-2" /></button>
+              </> : <button className={`${s.btn} ${s.danger}`} onClick={() => setRemoving(m)} title="Xóa" data-testid="delete-map"><Icon name="lucide:trash-2" /></button>;
+            })()}
           </div>
         </div>
       </article>)}
