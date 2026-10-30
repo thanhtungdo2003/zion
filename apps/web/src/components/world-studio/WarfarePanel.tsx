@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { WarfareLayout, WarfarePointKind, WarfareSide } from '@zion/shared';
 import { hasStudioSession, publishedMapId, studioLogin, studioSetBattleMapWarfare } from '@/lib/api';
-import { publishModesOf } from '@zion/worldgen/editor';
+import { publishModesOf, settlementWarfareLayout } from '@zion/worldgen/editor';
 import { publishWorldMap } from './SettingsPanel';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { WarfareStudioPanel, type WarfareSel } from '../WarfareStudioPanel';
@@ -50,7 +50,8 @@ export function WarfarePanel({ api, pointKind, setPointKind, vehicleSide, setVeh
       <p className={s.lead}>Chọn một vùng của bản đồ làm chiến trường (tối đa 800 × 800 m), đặt cứ điểm, căn cứ hai phe, điểm triển khai và điểm xuất hiện xe (jeep, quad). Công cụ ở thanh bên trái.</p>
       <WarfareStudioPanel layout={doc.warfare} half={400} patchLayout={patchLayout} sel={sel} setSel={api.setSelection} tool={tool}
         pointKind={pointKind} setPointKind={setPointKind} vehicleSide={vehicleSide} setVehicleSide={setVehicleSide}
-        defaultArea={{ x: Math.round(size / 2), z: Math.round(size / 2), half: Math.min(250, Math.round(size / 2) - 10) }}>
+        defaultArea={{ x: Math.round(size / 2), z: Math.round(size / 2), half: Math.min(250, Math.round(size / 2) - 10) }}
+        fromSettlements={() => settlementWarfareLayout(api.doc)} onNoSettlements={() => api.flash('Bản đồ chưa có làng, thành phố hay căn cứ nào để chia cứ điểm.', true)}>
         {doc.warfare?.area && <p className={s.note}>Tâm vùng: X {Math.round(doc.warfare.area.x)} · Z {Math.round(doc.warfare.area.z)} · rộng {doc.warfare.area.half * 2} m <button type="button" className={s.btn} onClick={() => api.centerOn(doc.warfare!.area!.x, doc.warfare!.area!.z, doc.warfare!.area!.half * 2.4)}>Xem</button></p>}
       </WarfareStudioPanel>
     </Section>

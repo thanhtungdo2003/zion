@@ -26,7 +26,7 @@ export function newZone(layout: WarfareLayout, x: number, z: number): WarfareLay
 }
 
 /** The Warfare part of a map in the Studio: on/off, tools, the selected item, rules, checks. */
-export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel, tool, setTool, pointKind, setPointKind, vehicleSide, setVehicleSide, defaultArea, children }: {
+export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel, tool, setTool, pointKind, setPointKind, vehicleSide, setVehicleSide, defaultArea, fromSettlements, onNoSettlements, children }: {
   /** The map's battlefield (absent until first edited). */
   layout: WarfareLayout | undefined;
   /** The map's own half width (walled maps); large maps use the layout's area instead. */
@@ -40,6 +40,9 @@ export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel,
   vehicleSide: WarfareSide; setVehicleSide: (s: WarfareSide) => void;
   /** Large maps: the battlefield area an automatic layout gets when none is set yet. */
   defaultArea?: { x: number; z: number; half: number };
+  /** Zones drawn round the map's own settlements (null: the map has none). */
+  fromSettlements?: () => WarfareLayout | null;
+  onNoSettlements?: () => void;
   children?: React.ReactNode;
 }) {
   type Draft = { warfare?: WarfareLayout };
@@ -59,6 +62,7 @@ export function WarfareStudioPanel({ layout: wf, half, patchLayout, sel, setSel,
     <section className="ix-section wf-studio">
       <h3>Chiến trường (Warfare)</h3>
       <label className="ix-check"><input type="checkbox" checked={!!wf?.enabled} onChange={(e) => patch((d) => { ensureWarfare(d).enabled = e.target.checked; })} /> Dùng bản đồ này cho chế độ Chiến trường</label>
+      {fromSettlements && <button className="btn btn-primary" title="Mỗi làng, khu phố, căn cứ trên bản đồ thành một cứ điểm; căn cứ hai phe ở hai đầu" onClick={() => { const l = fromSettlements(); if (!l) { onNoSettlements?.(); return; } patch((d) => { d.warfare = l; }); }}><Icon name="lucide:map-pinned" /> Chia cứ điểm theo làng, thành phố</button>}
       {!wf?.zones.length && <button className="btn" onClick={() => patch((d) => { const area = d.warfare?.area ?? defaultArea; const auto = autoWarfareLayout(area?.half ?? half); d.warfare = { ...auto, enabled: d.warfare?.enabled ?? true, ...(area ? { area } : {}), ...(d.warfare?.config ? { config: d.warfare.config } : {}) }; })}><Icon name="lucide:wand-2" /> Tạo bố cục tự động</button>}
       {defaultArea && wf?.area && field('Nửa cạnh vùng chiến trường', wf.area.half, (v) => patch((d) => { ensureWarfare(d).area!.half = v; }), 30, 400, 5, ' m')}
       {defaultArea && !wf?.area && <p className="ix-hint">Đặt tâm vùng chiến trường bằng công cụ vùng (◎) trên thanh bên trái, hoặc bấm Tạo bố cục tự động.</p>}

@@ -15,3 +15,4 @@ export * from './settlement/composite';
 export * from './settlement/urban';
 export { Simplex2 } from '../noise';
 export * from './battle-export';
+export * from './warfare-auto';

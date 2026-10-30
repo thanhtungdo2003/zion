@@ -189,7 +189,7 @@ export function validateWarfareLayout(layout: WarfareLayout, mapHalf = 400): str
 }
 
 /** A playable default layout for a map without one: bases on opposite edges, zones between. */
-export function autoWarfareLayout(half: number, zoneCount = 5): WarfareLayout {
+export function autoWarfareLayout(half: number, zoneCount = 7): WarfareLayout {
   const edge = Math.max(20, half - 18);
   const n = Math.max(1, Math.min(9, zoneCount));
   const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India'];
