@@ -1,7 +1,8 @@
 import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
-import { packGear, reloadMsFor, type MapEnvironment } from '@zion/shared';
+import { packGear, reloadMsFor, type DoorStateEvent, type MapEnvironment } from '@zion/shared';
+import { chunkStudioDoors, inStudioDoorSwing, studioDoorColliders, studioDoorOwner, type StudioDoor } from '@zion/assets';
 import { watchSection } from '../watchdog';
 import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, LONG_LUNGE_CLIP, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
@@ -382,6 +383,8 @@ export class GameServer {
   private readonly deathCrates = new Map<string, { id: string; x: number; y: number; z: number }>();
   private readonly battleDoors = new Map<number, { x: number; y: number; z: number; yaw: number; open: boolean }>();
   private readonly doorUsedAt = new Map<number, number>();
+  /** Doors of the Model Studio houses on the loaded map (studio-doors.ts). */
+  private readonly studioDoors = new Map<number, StudioDoor & { open: boolean }>();
   private battleWasOccupied = false;
   private battleFlightStarted = false;
 
@@ -448,6 +451,14 @@ export class GameServer {
     });
     this.controller = new CharacterController(this.collision);
     this.physics = new PhysicsChunkManager(deps.world, this.collision, deps.registry, this.log);
+    // Model Studio houses: their doors open and close (closed until someone opens them).
+    this.physics.onChunk = (chunk) => {
+      for (const d of chunkStudioDoors(chunk, deps.registry)) {
+        if (this.studioDoors.has(d.id)) continue;
+        this.studioDoors.set(d.id, { ...d, open: false });
+        this.collision.setOwnerColliders(studioDoorOwner(d.id), studioDoorColliders(d, false));
+      }
+    };
     // Fixed maps keep what was loaded for the whole match (the chunk data is in the world cache
     // anyway): evicting it had the main thread rebuild colliders over and over as bots roamed,
     // and the whole battlefield lagged.
@@ -503,6 +514,12 @@ export class GameServer {
       chests: (x, z, radius) => this.battleChestsNear(x, z, radius),
       loot: (id, choose) => this.botLoot(id, choose),
       openDoor: (x, y, z, yaw) => {
+        for (const d of this.studioDoors.values()) {
+          if (d.open || Math.abs(d.y - y) > 1.6) continue;
+          const mx = d.x + Math.cos(d.yaw) * d.w / 2, mz = d.z - Math.sin(d.yaw) * d.w / 2, dx = mx - x, dz = mz - z, dist = Math.hypot(dx, dz);
+          if (dist > 2.2 || (dist > .4 && (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / dist < .3)) continue;
+          this.setStudioDoor(d, true);
+        }
         // A closed door within reach ahead swings open (same as a player pressing E).
         for (const [id, door] of this.battleDoors) {
           if (door.open || Math.abs(door.y - y) > 1.6) continue;
@@ -1217,6 +1234,15 @@ export class GameServer {
     return t - Math.floor(t);
   }
 
+  private studioDoorEvent(d: StudioDoor & { open: boolean }): DoorStateEvent {
+    return { t: 'door', id: d.id, x: d.x, y: d.y, z: d.z, yaw: d.yaw, open: d.open, studio: { w: d.w, h: d.h, ...(d.color ? { color: d.color } : {}) } };
+  }
+  private setStudioDoor(d: StudioDoor & { open: boolean }, open: boolean): void {
+    d.open = open;
+    this.collision.setOwnerColliders(studioDoorOwner(d.id), studioDoorColliders(d, open));
+    this.broadcast(this.studioDoorEvent(d));
+  }
+
   /** This match's weather: everyone in it sees the same drift and lightning. */
   private readonly weatherSeed = (Math.random() * 0x7fffffff) | 0;
 
@@ -1441,6 +1467,8 @@ export class GameServer {
     this.syncVegetation(player);
     this.sendInv(player);
     if (this.arena) for (const [id, door] of this.battleDoors) session.sendJson({ t: 'door', id, ...door });
+    // Studio doors are closed unless said otherwise: only the open ones.
+    for (const d of this.studioDoors.values()) if (d.open) session.sendJson(this.studioDoorEvent(d));
     this.sendQuests(player);
     this.sendTeam(player);
     this.sendLife(player);
@@ -1527,6 +1555,16 @@ export class GameServer {
     if (!p || p.questBusy) return;
     switch (msg.t) {
       case 'door': {
+        const sd = this.studioDoors.get(msg.id);
+        if (sd) {
+          if (p.dead || p.downed || Math.hypot(p.state.x - sd.x, p.state.z - sd.z) > sd.w + 2.2 || Math.abs(p.state.y - sd.y) > 2) return;
+          if (this.serverTime - (this.doorUsedAt.get(p.id) ?? -Infinity) < 250) return;
+          this.doorUsedAt.set(p.id, this.serverTime);
+          // Never shut on someone standing in its swing.
+          if (sd.open && [...this.players.values()].some((o) => !o.dead && o !== p && Math.abs(o.state.y - sd.y) < 2 && inStudioDoorSwing(sd, o.state.x, o.state.z))) return;
+          this.setStudioDoor(sd, !sd.open);
+          return;
+        }
         const door = this.battleDoors.get(msg.id);
         if (!this.arena || !door || p.dead || p.downed || Math.hypot(p.state.x - door.x, p.state.z - door.z) > 3 || Math.abs(p.state.y - door.y) > 2) return;
         if (this.serverTime - (this.doorUsedAt.get(p.id) ?? -Infinity) < 250) return;

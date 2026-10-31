@@ -30,6 +30,8 @@ export interface StudioAssetInput {
   refs: AssetPlacement[];
   /** The model has triangles of its own (else it is only its placed game models, which collide themselves). */
   solid?: boolean;
+  /** Door leaves that open and close in game (export.ts; left out of the mesh). */
+  doors?: ReadonlyArray<{ x: number; y: number; z: number; yaw: number; w: number; h: number; color?: string }>;
 }
 
 /** The game asset definition of a published model. */
@@ -49,6 +51,7 @@ export function studioModelAsset(input: StudioAssetInput): AssetDefinitionInput 
     render: { maxDistance: big ? 700 : input.kind === 'rock' ? 450 : 220 },
     tags: ['model-studio', ...(input.lotClass ? [`lot:${input.lotClass}`] : [])],
     ...(input.refs.length ? { composite: input.refs.slice(0, 512) } : {}),
+    ...(input.doors?.length ? { doors: input.doors.slice(0, 64).map((d) => ({ ...d, w: Math.min(6, Math.max(.2, d.w)), h: Math.min(8, Math.max(.5, d.h)) })) } : {}),
   } as AssetDefinitionInput;
 }
 

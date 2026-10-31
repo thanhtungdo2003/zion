@@ -101,6 +101,16 @@ describe('model studio: textures and export', () => {
     expect(names.has('Tường trước') && names.has('Mái nhà')).toBe(true);
   });
 
+  it('exports a house’s door leaves as game doors (out of its mesh), carried into the asset', () => {
+    const doc = emptyDoc('Nhà', 'building');
+    generateHouse(doc, { seed: 5, floors: 1 });
+    const out = exportModel(doc, { mode: 'game', deflate, textureSize: 32 });
+    expect(out.doors?.length).toBeGreaterThan(0);
+    for (const d of out.doors!) { expect(d.w).toBeGreaterThan(.5); expect(d.h).toBeGreaterThan(1.8); expect(d.y).toBeGreaterThanOrEqual(-.1); }
+    const def = studioModelAsset({ asset: 3001, name: 'Nhà', kind: 'building', min: [-5, 0, -5], max: [5, 6, 5], refs: [], doors: out.doors });
+    expect(createDefaultRegistry().registerUploaded(def).doors?.length).toBe(out.doors!.length);
+  });
+
   it('exports a game GLB: one primitive per material, the walls collide, glass does not', () => {
     const doc = emptyDoc('Nhà', 'building');
     generateHouse(doc, { seed: 5, floors: 2 });

@@ -834,7 +834,8 @@ function wallParts(b: DocBuilder, doc: ModelDoc, plan: FloorPlan, w: FloorPlan['
       if (o.kind === 'door' && o.leaf !== false) {
         // Hinged on one jamb, ajar into the room side (−z): a varied angle per door unless set.
         const open = (o.open ?? 25 + ((seed + k * 53) % 60)) * Math.PI / 180, lw = W - 2 * fw - .01, lh = o.height - fw - .02;
-        const hinge = b.group('Cánh cửa', g, { position: [x - W / 2 + fw, y0 + .01, -half + .02], rotation: [0, open, 0] });
+        // (In game the leaf is a real door: tagged with its size, it opens and closes — game-asset.ts.)
+        const hinge = b.group('Cánh cửa', g, { position: [x - W / 2 + fw, y0 + .01, -half + .02], rotation: [0, open, 0] }, { tags: ['door-leaf', `leaf:${lw.toFixed(3)}:${lh.toFixed(3)}`] });
         b.box('Cánh', hinge, [0, 0, -.02], [lw, lh, .02], m(o.leafMaterial ?? f.doorLeaf, 'wood_oak'), { collision: 'none' });
         b.box('Tay nắm', hinge, [lw - .12, lh * .47, -.05], [lw - .06, lh * .47 + .03, .05], ensureMaterial(doc, 'metal_steel'), { collision: 'none' });
       }

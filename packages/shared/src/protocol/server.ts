@@ -66,7 +66,11 @@ export interface ChatBroadcast {
   /** A server reply (command output), shown greyed out without a sender. */
   system?: boolean;
 }
-export interface DoorStateEvent { t: 'door'; id: number; x: number; y: number; z: number; yaw: number; open: boolean }
+export interface DoorStateEvent {
+  t: 'door'; id: number; x: number; y: number; z: number; yaw: number; open: boolean;
+  /** A Model Studio house's door (its leaf's size and colour); absent: a battle door. */
+  studio?: { w: number; h: number; color?: string };
+}
 export interface LootCratesEvent { t: 'lootCrates'; crates: { id: string; x: number; y: number; z: number }[] }
 
 export interface HitEvent {

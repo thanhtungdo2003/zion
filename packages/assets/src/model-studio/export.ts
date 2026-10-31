@@ -1,5 +1,5 @@
 import type { ModelDoc, ModelMaterial } from './doc';
-import { bakeMesh, bounds, evaluate, mergeMeshes, nodeMeshes, transformPoint, type Mat4 } from './evaluate';
+import { bakeMesh, bounds, effectiveVisible, evaluate, mergeMeshes, nodeMeshes, transformPoint, type Mat4 } from './evaluate';
 import { emptyScene, eulerToQuat, mergeScene, readGltf, writeGlb, type GltfMaterial, type GltfNode, type GltfScene } from './gltf';
 import type { MeshData } from './mesh';
 import { encodePng, type Deflate } from './png';
@@ -31,7 +31,9 @@ export interface ExportOptions {
 }
 
 export interface AssetPlacement { asset: number; x: number; y: number; z: number; yaw: number; scale: number }
-export interface ExportResult { glb: Uint8Array; refs: AssetPlacement[]; warnings: string[]; triangles: number; materials: number }
+/** A door leaf that opens in game (model space): hinge at its foot, closed along +x turned by yaw. */
+export interface DoorLeaf { x: number; y: number; z: number; yaw: number; w: number; h: number; color?: string }
+export interface ExportResult { glb: Uint8Array; refs: AssetPlacement[]; warnings: string[]; triangles: number; materials: number; doors?: DoorLeaf[] }
 
 function srgbToLinear(c: number): number { return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }
 
@@ -112,10 +114,37 @@ export function exportModel(doc: ModelDoc, opts: ExportOptions): ExportResult {
     try { const s = readGltf(bytes); return mergeScene(scene, s); } catch (err) { warnings.push(`Model game #${asset}: ${(err as Error).message}; giữ dạng tham chiếu.`); return null; }
   };
 
+  let doors: DoorLeaf[] | undefined;
   if (opts.mode === 'game') {
+    // Door leaves (tagged 'door-leaf' with their size) leave the mesh: the game opens and closes
+    // them as doors of their own, closed across the doorway.
+    const byId = new Map(doc.nodes.map((n) => [n.id, n])), leafOf = new Map<string, string>();
+    const leaves = doc.nodes.filter((n) => n.tags?.includes('door-leaf') && effectiveVisible(doc, n.id));
+    for (const n of doc.nodes) for (let at: typeof n | undefined = n, i = 0; at && i < 64; at = at.parent ? byId.get(at.parent) : undefined, i++) if (at.tags?.includes('door-leaf')) { leafOf.set(n.id, at.id); break; }
+    doors = [];
+    for (const leaf of leaves) {
+      const size = leaf.tags!.find((t) => t.startsWith('leaf:'))?.split(':');
+      const m = ev.matrices.get(leaf.id), frame = leaf.parent ? ev.matrices.get(leaf.parent) : undefined;
+      if (!size || !m || !frame) continue;
+      const draw = ev.draws.find((d) => leafOf.get(d.node) === leaf.id), mat = draw ? doc.materials.find((x) => x.id === draw.material) : undefined;
+      doors.push({ x: round(m[12]!), y: round(m[13]!), z: round(m[14]!), yaw: round(Math.atan2(-frame[2]!, frame[0]!)), w: round(Number(size[1])), h: round(Number(size[2])), ...(mat && /^#[0-9a-f]{6}$/i.test(mat.color) ? { color: mat.color } : {}) });
+      if (doors.length >= 64) break;
+    }
+    // Walls whose doorways have no leaf of their own (houses built wall by wall): a door in each.
+    if (!leaves.length) for (const n of doc.nodes) {
+      if (n.kind !== 'wall' || !effectiveVisible(doc, n.id) || doors.length >= 64) continue;
+      const m = ev.matrices.get(n.id)!;
+      for (const o of n.openings) {
+        if (o.kind !== 'door' || o.width < .5 || o.height < 1.6) continue;
+        const [x, y, z] = transformPoint(m, o.offset - o.width / 2 + .03, o.sill + .01, -n.thickness / 2 + .03);
+        doors.push({ x: round(x), y: round(y), z: round(z), yaw: round(Math.atan2(-m[2]!, m[0]!)), w: round(o.width - .07), h: round(o.height - .05) });
+        if (doors.length >= 64) break;
+      }
+    }
     // Bake and merge per material (and collision).
     const groups = new Map<string, MeshData[]>();
     for (const d of ev.draws) {
+      if (leafOf.has(d.node) && doors.length) continue;
       const mat = mats.get(d.material);
       if (!mat) { warnings.push(`Phần ${d.node}: thiếu vật liệu ${d.material}.`); continue; }
       const baked = bakeMesh(d.mesh, d.matrix);
@@ -173,7 +202,7 @@ export function exportModel(doc: ModelDoc, opts: ExportOptions): ExportResult {
     scene.extras = { zionModelDoc: doc };
   }
   const glb = writeGlb(scene);
-  return { glb, refs, warnings: [...new Set(warnings)], triangles: Math.round(triangles), materials: doc.materials.length };
+  return { glb, refs, warnings: [...new Set(warnings)], triangles: Math.round(triangles), materials: doc.materials.length, ...(doors?.length ? { doors } : {}) };
 }
 
 const round = (v: number) => Math.round(v * 1000) / 1000;

@@ -134,6 +134,11 @@ export const assetDefinitionSchema = z
      * and garden trees: shared game models drawn instanced), relative to its origin.
      */
     composite: z.array(z.object({ asset: z.number().int().min(1).max(65535), x: z.number().finite(), y: z.number().finite(), z: z.number().finite(), yaw: z.number().finite(), scale: z.number().min(.5).max(2) }).strict()).max(512).optional(),
+    /**
+     * Door leaves that open and close in game (a Model Studio house's; left out of its mesh): the
+     * hinge at the foot of the leaf, the closed leaf running along local +x turned by `yaw`.
+     */
+    doors: z.array(z.object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite(), yaw: z.number().finite(), w: z.number().min(.2).max(6), h: z.number().min(.5).max(8), color: z.string().regex(/^#[0-9a-f]{6}$/i).optional() }).strict()).max(64).optional(),
   })
   .strict();
 

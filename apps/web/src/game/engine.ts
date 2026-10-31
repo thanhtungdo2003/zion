@@ -146,6 +146,7 @@ import { BuildingController } from './building-controller';
 import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
 import { ImpostorCache } from './render/impostor-cache';
+import { StudioDoorRenderer } from './render/studio-doors';
 import { EnvironmentSystem, applyEnvironmentToGround, type EnvEffectsQuality } from './render/environment';
 import { readEnvironment } from '@zion/shared';
 import { weaponOptic } from '@zion/shared';
@@ -293,6 +294,8 @@ export class GameEngine {
    */
   private environment: EnvironmentSystem | null = (applyEnvironmentToGround(this.terrainMaterial), null);
   private readonly envRoof = makeRayHit();
+  /** Doors of Model Studio houses (render/studio-doors.ts). */
+  private studioDoors: StudioDoorRenderer | null = null;
   /** Depth impostors of distant trees (render/impostor.ts). */
   private impostors: ImpostorCache | null = null;
 
@@ -983,6 +986,7 @@ export class GameEngine {
     this.sounds?.dispose();
     this.props?.dispose();
     this.impostors?.dispose(); this.impostors = null;
+    this.studioDoors?.dispose(); this.studioDoors = null;
     this.building?.dispose();
     this.building = null;
     this.campLights?.dispose();
@@ -1497,6 +1501,8 @@ export class GameEngine {
     this.impostors?.dispose();
     this.impostors = new ImpostorCache(this.renderer, settingsStore.get().renderScale >= 1 ? 96 : 64);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values(), this.impostors);
+    this.studioDoors?.dispose();
+    this.studioDoors = new StudioDoorRenderer(this.scene, this.registry, () => this.store?.collision);
     this.impostors.onBaked = () => this.props?.markDirty();
     if (typeof window !== 'undefined') (window as unknown as { zionVegetationBench?: (seconds?: number) => Promise<unknown> }).zionVegetationBench = (seconds) => this.vegetationBenchmark(seconds);
 
@@ -1540,6 +1546,7 @@ export class GameEngine {
         if (prev) this.minimap?.forget(prev);
         if (chunk.props.length || prev?.props.length) this.props?.markDirty();
         if (chunk.lod === 0) this.vegetation?.invalidate(chunk.cx, chunk.cz);
+        this.studioDoors?.addChunk(chunk);
       },
       onChunkRemoved: (chunk) => {
         const key = chunkKey(chunk.cx, chunk.cz);
@@ -1551,6 +1558,7 @@ export class GameEngine {
         if (chunk.props.length) this.props?.markDirty();
         this.vegetation?.invalidate(chunk.cx, chunk.cz);
         this.building?.forget(chunk);
+        this.studioDoors?.removeChunk(chunk);
       },
     });
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.streaming' }, username: m.username });
@@ -1825,6 +1833,10 @@ export class GameEngine {
         break;
       }
       case 'door': {
+        if (m.studio) {
+          if (this.studioDoors?.setState(m)) this.sounds?.play(m.open ? 'doorOpen' : 'doorClose', { volume: .8, at: m });
+          break;
+        }
         const was = this.doors.get(m.id)?.open;
         this.doors.set(m.id, { x: m.x, y: m.y, z: m.z, yaw: m.yaw, open: m.open });
         this.store?.collision.setOwnerColliders(0xb0000000 + m.id, doorColliders(m));
@@ -2408,6 +2420,7 @@ export class GameEngine {
       this.localAvatar.attackIntent = (this.input.buttons() & (Buttons.Attack | Buttons.ThrowC4)) !== 0 && !local.state.swimming && !this.building?.planning;
     }
     this.feel = this.meleeFeel.update(dt, performance.now());
+    this.studioDoors?.update(dt);
     this.localAvatar?.update(px, py, pz, this.shotYaw, selfFlags, dt * this.feel.timeScale, this.elapsed, local.state, dt);
     { const m = this.mantleGrip(-1, local.state.mantle ? EntityFlags.Mantling : 0, local.state.x, local.state.y, local.state.z, this.input.yaw, local.state.mantle); this.localAvatar?.poseMantle(m?.grip ?? null, m?.k ?? 0, m?.clip ?? null); }
     this.localAvatar?.posePlan(!!this.building?.planning);
@@ -3346,6 +3359,7 @@ export class GameEngine {
       if (Math.hypot(door.x - px, door.z - pz) > 2.4 || Math.abs(door.y - py) >= 2) continue;
       out.push({ kind: 'door', x: door.x, y: door.y + 1, z: door.z, radius: .9, label: { key: 'raw', vars: { text: door.open ? 'Đóng cửa' : 'Mở cửa' } }, run: () => this.conn.sendDoor(id) });
     }
+    for (const d of this.studioDoors?.near(px, py, pz, 2.2) ?? []) out.push({ kind: 'door', x: d.x, y: d.y + 1, z: d.z, radius: .9, label: { key: 'raw', vars: { text: d.open ? 'Đóng cửa' : 'Mở cửa' } }, run: () => this.conn.sendDoor(d.id) });
     const down = this.downedNear();
     if (down) {
       const p = this.remotes.get(down.id)?.avatar.root.position;

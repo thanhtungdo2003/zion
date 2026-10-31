@@ -2,6 +2,7 @@ export * from './schema';
 export * from './registry';
 export * from './builtin';
 export * from './collision';
+export * from './studio-doors';
 export * from './bbmodel';
 export * from './manifest';
 

@@ -1,4 +1,4 @@
-import { chunkKey, chunkKeyX, chunkKeyZ, type PropInstance } from '@zion/shared';
+import { chunkKey, chunkKeyX, chunkKeyZ, type ChunkData, type PropInstance } from '@zion/shared';
 import { buildChunkCollision, type AssetRegistry } from '@zion/assets';
 import type { CollisionWorld } from '@zion/physics';
 import type { Logger } from '../logger';
@@ -57,6 +57,9 @@ export class PhysicsChunkManager {
     }
   }
 
+  /** A chunk's data went into the collision world (the game sets up what its props carry: doors). */
+  onChunk: ((data: ChunkData) => void) | null = null;
+
   /** Props left out of the collision world (felled trees); reload a chunk after it changes. */
   propFilter: ((cx: number, cz: number, prop: PropInstance) => boolean) | null = null;
 
@@ -95,6 +98,7 @@ export class PhysicsChunkManager {
         if (col.unknownAssets > 0) this.logger.warn({ cx, cz, unknown: col.unknownAssets }, 'chunk has unknown assets');
         this.collision.addChunk(cx, cz, col.heightfield, col.colliders);
         this.loaded.add(key);
+        this.onChunk?.(rec.data);
       })
       .finally(() => this.loading.delete(key));
     this.loading.set(key, p);
