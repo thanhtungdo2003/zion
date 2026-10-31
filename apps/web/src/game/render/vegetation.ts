@@ -35,7 +35,7 @@ export const COVER_ASSETS = {
   reeds: [2649],
   /** Ferns on forest and jungle floors. */
   ferns: [2652],
-  /** Realtime grass: a low dense clump laid into the gaps of a carpet (bigger models may cover it). */
+  /** Realtime grass: a low dense patch (~1.7 m) laid into the gaps of a carpet (bigger models may cover it). */
   fill: [2653],
 } as const;
 export type Cover = keyof typeof COVER_ASSETS;
@@ -58,7 +58,7 @@ const MEADOW_FULL_CAMP_DISTANCE = 400;
 /** Instance floats: matrix (16), colour (3), cell key, "near only" detail flag. */
 const STRIDE = 21;
 /** Heavy models (thousands of triangles): only so many per chunk. */
-const CAP: Partial<Record<Cover, number>> = { lush: 10, tuft: 12, dry: 14, patch: 40, ferns: 70, fill: 600 };
+const CAP: Partial<Record<Cover, number>> = { lush: 10, tuft: 12, dry: 14, patch: 40, ferns: 70, fill: 220 };
 
 interface ChunkCover {
   /** Per model (asset id): packed instances (see STRIDE). */
@@ -286,11 +286,10 @@ export class VegetationRenderer {
         if (!clumps && rng.next() < base * .03 * this.density) add('carpet', lx, lz, k, .7 + rng.next() * .4, false, species);
         // Gaps in a grass carpet (thin patch edges, the ground between patches): filled with low
         // realtime grass, denser the grassier the ground; the carpet's own clumps stand over it.
-        if (GRASSY.has(surface) && base > .3 && inside < .75 && rng.next() < base * (.75 - inside) * .9 * this.density) {
-          for (let i = 0; i < 2; i++) {
-            const jx = Math.min(CHUNK_SIZE - .01, Math.max(0, lx + (rng.next() - .5) * cellSize)), jz = Math.min(CHUNK_SIZE - .01, Math.max(0, lz + (rng.next() - .5) * cellSize));
-            add('fill', jx, jz, k, .9 + rng.next() * .6, i > 0);
-          }
+        // (One patch is ~1.7 m across: one cell in a few.)
+        if (GRASSY.has(surface) && base > .3 && inside < .75 && rng.next() < base * (.75 - inside) * .45 * this.density) {
+          const jx = Math.min(CHUNK_SIZE - .01, Math.max(0, lx + (rng.next() - .5) * cellSize)), jz = Math.min(CHUNK_SIZE - .01, Math.max(0, lz + (rng.next() - .5) * cellSize));
+          add('fill', jx, jz, k, .7 + rng.next() * .45, false);
         }
         // Meadows: tall grass and wildflowers in open, lush, humid fields away from the camp.
         if (lush && inside > .5) {
