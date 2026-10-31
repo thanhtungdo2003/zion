@@ -27,6 +27,9 @@ const EXAMPLES = [
   'Từ các model tường, cửa, cửa sổ và mái nhà đang có, lắp ghép thành một căn nhà hoàn chỉnh, tối ưu draw call.',
 ];
 const MAX_UNDO = 80;
+/** Parts copied with Ctrl+C (kept in this browser, so they paste into another project too). */
+const CLIPBOARD_KEY = 'zion.model-studio.clipboard.v1';
+interface Clip { roots: string[]; nodes: ModelNode[]; materials: ModelDoc['materials'] }
 type LeftTab = 'projects' | 'library' | 'scene';
 type RightTab = 'props' | 'material' | 'checks' | 'versions';
 
@@ -68,6 +71,7 @@ export default function ModelStudio() {
   const undo = useRef<ModelDoc[]>([]), redo = useRef<ModelDoc[]>([]);
   const view = useRef<ModelViewport | null>(null), host = useRef<HTMLDivElement>(null);
   const docRef = useRef<ModelDoc | null>(null);
+  const clipboard = useRef<Clip | null>(null), pasteCount = useRef(0);
   const agentRunning = useRef(false);
   const [plansOn, setPlansOn] = useState(true);
   docRef.current = doc;
@@ -216,6 +220,45 @@ export default function ModelStudio() {
     mutate('Nhân bản', (d) => { for (const id of selected) { const c = duplicateNode(d, id); c.transform.position = [c.transform.position[0] + 1, c.transform.position[1], c.transform.position[2] + 1]; made.push(c.id); } });
     setSelected(made);
   };
+  /**
+   * Copy (Ctrl+C): the selected parts with everything under them and the materials they use, kept
+   * in this browser (pasted into this model or another project). Paste (Ctrl+V): fresh ids, in the
+   * same place in the hierarchy, each paste a step further along so copies do not overlap.
+   */
+  const copySel = () => {
+    if (!doc || !selected.length) return;
+    const ids = new Set(selected), nodes = selected.filter((id) => { for (let n = doc.nodes.find((x) => x.id === id); n?.parent; n = doc.nodes.find((x) => x.id === n!.parent)) if (ids.has(n.parent)) return false; return true; }).flatMap((id) => subtree(doc, id));
+    if (!nodes.length) return;
+    const text = JSON.stringify(nodes), materials = doc.materials.filter((m) => text.includes(`"${m.id}"`));
+    const clip = { roots: selected.filter((id) => nodes.some((n) => n.id === id)), nodes, materials };
+    clipboard.current = clip; pasteCount.current = 0;
+    try { localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(clip)); } catch { /* too big or no storage: this tab keeps it */ }
+    flash(`Đã sao chép ${clip.roots.length} khối (${nodes.length} phần).`);
+  };
+  const pasteSel = () => {
+    let clip = clipboard.current;
+    if (!clip) { try { const raw = localStorage.getItem(CLIPBOARD_KEY); if (raw) clip = JSON.parse(raw) as Clip; } catch { /* nothing to paste */ } }
+    if (!clip?.nodes.length) return;
+    const step = ++pasteCount.current, made: string[] = [];
+    mutate('Dán', (d) => {
+      for (const m of clip!.materials) if (!d.materials.some((x) => x.id === m.id)) d.materials.push(structuredClone(m));
+      const map = new Map<string, string>(), taken = new Set(d.nodes.map((n) => n.id));
+      for (const n of clip!.nodes) {
+        let k = 1, fresh: string;
+        do fresh = `${n.id.replace(/-copy\d*$/, '')}-copy${k++}`; while (taken.has(fresh));
+        taken.add(fresh); map.set(n.id, fresh);
+      }
+      for (const n of clip!.nodes) {
+        const c = structuredClone(n) as typeof n, root = clip!.roots.includes(n.id);
+        c.id = map.get(n.id)!;
+        // A copied block keeps its place in the hierarchy when that is in this model, else the top.
+        c.parent = root ? (n.parent && d.nodes.some((x) => x.id === n.parent) ? n.parent : null) : map.get(n.parent!) ?? null;
+        if (root) { c.transform = { ...c.transform, position: [c.transform.position[0] + step, c.transform.position[1], c.transform.position[2] + step] }; made.push(c.id); }
+        d.nodes.push(c);
+      }
+    });
+    setSelected(made);
+  };
   const deleteSel = () => {
     if (!selected.length) return;
     mutate('Xóa', (d) => { const gone = new Set(selected.flatMap((id) => subtree(d, id).map((n) => n.id))); d.nodes = d.nodes.filter((n) => !gone.has(n.id)); });
@@ -247,6 +290,8 @@ export default function ModelStudio() {
       if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); }
       else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); doRedo(); }
       else if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); duplicateSel(); }
+      else if ((e.ctrlKey || e.metaKey) && k === 'c') { if (!window.getSelection()?.toString()) { e.preventDefault(); copySel(); } }
+      else if ((e.ctrlKey || e.metaKey) && k === 'v') { e.preventDefault(); pasteSel(); }
       else if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); void save({ note: 'Lưu thủ công' }); }
       else if ((e.ctrlKey || e.metaKey) && k === 'g') { e.preventDefault(); groupSel(); }
       else if (k === 'delete' || k === 'backspace') deleteSel();
@@ -429,7 +474,7 @@ export default function ModelStudio() {
               <input type="number" step={5} min={1} value={snap.angle} onChange={(e) => setSnap({ ...snap, angle: Math.max(1, Number(e.target.value) || 15) })} title="Bước xoay (°)" />
             </div>
             <div className={s.group}>
-              <button className={s.ibtn} title="Nhân bản (Ctrl+D)" disabled={!selected.length} onClick={duplicateSel}><Icon name="lucide:copy" /></button>
+              <button className={s.ibtn} title="Nhân bản (Ctrl+D) · Sao chép Ctrl+C, dán Ctrl+V" disabled={!selected.length} onClick={duplicateSel}><Icon name="lucide:copy" /></button>
               <button className={s.ibtn} title="Gom nhóm (Ctrl+G)" disabled={!selected.length} onClick={groupSel}><Icon name="lucide:group" /></button>
               <button className={s.ibtn} title="Đặt xuống bề mặt bên dưới" disabled={!selected.length} onClick={dropSel}><Icon name="lucide:arrow-down-to-line" /></button>
               <button className={s.ibtn} title="Xóa (Delete)" disabled={!selected.length} onClick={deleteSel}><Icon name="lucide:trash-2" /></button>
