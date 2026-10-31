@@ -50,8 +50,8 @@ async function handle(event: MessageEvent<{ id: number; job?: WorkerJob; cancel?
       await studioModels;
       // Models published since: looked up again (at most every 20 s), the catalogue rebuilt.
       if (Date.now() - modelsAt > 20_000) { modelsAt = Date.now(); await registerStudioModels(registry); catalog = null; }
-      // Houses only from the Model Studio's published models (no kit buildings).
-      catalog ??= buildCatalog(registry, { studioOnly: true });
+      // Whole house models (built-in and the Model Studio's), no brick / concrete kit buildings.
+      catalog ??= buildCatalog(registry, { noKits: true });
       const t = job.input.terrain, terrain = new Heightfield(t.size, t.cell, new Float32Array(t.heights), new Uint8Array(t.surface));
       const result = await drive(id, generateSettlement({ ...job.input, terrain, catalog }), (p) => post({ id, progress: { label: `${p.stage}/10 · ${p.label}`, value: (p.stage - 1 + p.progress) / 10 } }));
       post({ id, done: { kind: 'settlement', result } });

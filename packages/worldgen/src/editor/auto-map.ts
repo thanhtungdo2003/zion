@@ -131,8 +131,8 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   yield .35;
 
   /* Settlements, one after another: each joins the roads of those before it. */
-  // Houses only from the Model Studio's published models (no kit buildings).
-  const catalog = buildCatalog(registry, { studioOnly: true });
+  // Whole house models (built-in and the Model Studio's), no brick / concrete kit buildings.
+  const catalog = buildCatalog(registry, { noKits: true });
   const roadsSoFar: Array<{ points: Vec2[]; width: number }> = [], obstacles: Obb[] = [];
   for (let i = 0; i < sites.length; i++) {
     const site = sites[i]!, poly: Vec2[] = [];

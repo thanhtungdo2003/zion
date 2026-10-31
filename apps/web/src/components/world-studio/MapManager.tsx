@@ -27,8 +27,8 @@ const DEFAULT_ISLAND_ID = 'map-hac-son-default';
 const DEFAULT_ISLAND_ADDED = 'zion.studio.hac-son-added.v1';
 
 /**
- * Rebuilds the houses of every region of a map with the current catalogue (the Model Studio's
- * published houses; the old brick / concrete kit buildings go, even placed by hand); roads and
+ * Rebuilds the houses of every region of a map with the current catalogue (whole house models,
+ * built-in and the Model Studio's; the brick / concrete kit buildings go, even placed by hand); roads and
  * lots stay. Regions one after another, each seeing the others' new houses.
  */
 async function rebuildMapHouses(doc: WorldMapDoc, terrain: Heightfield, report: (label: string) => void): Promise<{ doc: WorldMapDoc; regions: number; buildings: number }> {
@@ -104,7 +104,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maps === null]);
 
-  /** Every map in the library: houses rebuilt from the Model Studio's published models. */
+  /** Every map in the library: houses rebuilt from whole models (no kit buildings). */
   const rebuildAll = async () => {
     setRebuilding(false);
     let maps0 = 0, total = 0;
@@ -119,7 +119,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       await refresh();
       setError(null);
       setBusy(null);
-      window.alert(`Đã xây lại nhà cửa ở ${maps0} bản đồ (${total} công trình từ các model đã xuất bản). Bản đồ đã xuất bản lên game cần xuất bản lại.`);
+      window.alert(`Đã xây lại nhà cửa ở ${maps0} bản đồ (${total} công trình). Bản đồ đã xuất bản lên game cần xuất bản lại.`);
     } catch (err) { setError(`Xây lại nhà cửa bị dừng: ${err instanceof Error ? err.message : String(err)}`); setBusy(null); }
   };
   const publishedIds = useMemo(() => new Set((published ?? []).map((p) => p.id)), [published]);
@@ -178,7 +178,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       <h1>ZION <span>World Studio</span></h1>
       <div className={s.spacer} />
       <button className={s.tbtn} onClick={() => { if ((maps ?? []).some((m) => m.id === DEFAULT_ISLAND_ID)) onOpen(DEFAULT_ISLAND_ID); else void addDefaultIsland(true); }} disabled={!!busy} title="Bản đồ Battle Royale mặc định của game, chỉnh sửa được" data-testid="default-island"><Icon name="lucide:palmtree" /><span>Đảo Hắc Sơn</span></button>
-      <button className={s.tbtn} onClick={() => setRebuilding(true)} disabled={!!busy || !maps?.length} title="Sinh lại nhà ở mọi khu vực của mọi bản đồ bằng các model nhà đã xuất bản từ Model Studio" data-testid="rebuild-houses"><Icon name="lucide:house" /><span>Xây lại nhà cửa</span></button>
+      <button className={s.tbtn} onClick={() => setRebuilding(true)} disabled={!!busy || !maps?.length} title="Sinh lại nhà ở mọi khu vực của mọi bản đồ bằng các model nhà nguyên khối (có sẵn và từ Model Studio), bỏ nhà ghép từ mảng tường" data-testid="rebuild-houses"><Icon name="lucide:house" /><span>Xây lại nhà cửa</span></button>
       <button className={s.tbtn} onClick={importFile} data-testid="import-map"><Icon name="lucide:upload" /><span>Nhập file</span></button>
       <button className={`${s.tbtn} ${s.primary}`} onClick={() => setCreating(true)} data-testid="new-map"><Icon name="lucide:plus" /><span>Bản đồ mới</span></button>
     </header>
@@ -258,7 +258,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       onCancel={() => setLogin(false)} onConfirm={async (pw) => { await studioLogin(pw); setLogin(false); await refreshServer(); }} />}
     {unpublishing && <ConfirmDialog title="Gỡ bản đồ khỏi game?" message={<>Xóa <b>{unpublishing.name}</b> khỏi máy chủ: người chơi không chọn được nữa, trận đang chạy trên bản đồ này kết thúc.{localFor(unpublishing) ? ' Bản trong máy này vẫn giữ, có thể xuất bản lại.' : ' Bản đồ không có trong máy này — hãy "Tải về để sửa" trước nếu cần giữ.'}</>}
       confirmLabel="Gỡ khỏi game" onCancel={() => setUnpublishing(null)} onConfirm={async () => { await studioUnpublishBattleMap(unpublishing.id); setUnpublishing(null); await refreshServer(); }} />}
-    {rebuilding && <ConfirmDialog title="Xây lại nhà cửa ở mọi bản đồ?" message={<>Sinh lại nhà ở mọi khu vực của {maps?.length ?? 0} bản đồ trong máy này bằng <b>các model nhà đã xuất bản từ Model Studio</b>. Nhà ghép từ mảng tường gạch, bê tông cũ bị bỏ (kể cả nhà đặt tay); đường và lô đất giữ nguyên. Bản đồ đã xuất bản lên game cần xuất bản lại để người chơi thấy.</>}
+    {rebuilding && <ConfirmDialog title="Xây lại nhà cửa ở mọi bản đồ?" message={<>Sinh lại nhà ở mọi khu vực của {maps?.length ?? 0} bản đồ trong máy này bằng <b>các model nhà nguyên khối</b> (nhà có sẵn và nhà xuất bản từ Model Studio). Nhà ghép từ mảng tường gạch, bê tông cũ bị bỏ (kể cả nhà đặt tay); đường và lô đất giữ nguyên. Bản đồ đã xuất bản lên game cần xuất bản lại để người chơi thấy.</>}
       confirmLabel="Xây lại" danger={false} onCancel={() => setRebuilding(false)} onConfirm={() => void rebuildAll()} />}
     {creating && <NewMapDialog onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); onOpen(id); }} />}
     {editing && <MetaDialog meta={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void refresh(); }} />}
