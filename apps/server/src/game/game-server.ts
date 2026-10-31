@@ -2,6 +2,7 @@ import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
 import { packGear, reloadMsFor, type MapEnvironment } from '@zion/shared';
+import { watchSection } from '../watchdog';
 import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, LONG_LUNGE_CLIP, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
@@ -1923,6 +1924,7 @@ export class GameServer {
     }
     if (this.bots) {
       const state = match.state(now);
+      this.section('bots');
       this.bots.step(now, this.tick, {
         phase: state.phase, circle: state.circle, nextCircle: state.nextCircle, shrinking: state.shrinking, remainingMs: state.remainingMs,
         plane: match.startedAt !== null && state.phase === 'running' ? battlePlaneAt(this.deps.world.generator.worldSize, now - match.startedAt) : null,
@@ -2392,6 +2394,7 @@ export class GameServer {
     for (const p of this.players.values()) p.life.stamina = p.life.capacity;
     if (this.bots) {
       const circle = { x: this.infectionCentre, z: this.infectionCentre, radius: this.infectionMap.half - 6 };
+      this.section('bots');
       this.bots.step(now, this.tick, { phase: m.phase, circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, [...this.players.values()]);
     }
     if (this.tick % TICK_RATE === 0) this.broadcastInfection();
@@ -2457,6 +2460,7 @@ export class GameServer {
     }
     if (this.bots) {
       const circle = { x: c, z: c, radius: this.infectionMap.half - 6 };
+      this.section('bots');
       this.bots.step(now, this.tick, { phase: 'running', circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, humans);
     }
     if (m.phase !== before || ev.spawn.length || this.tick % TICK_RATE === 0) this.broadcastWaves();
@@ -2812,6 +2816,7 @@ export class GameServer {
   }
 
   private stepWarfare(now: number): void {
+    this.section('warfare');
     const m = this.warfare!;
     if (this.wfClosed) return;
     this.expireRejoins(now);
@@ -2832,6 +2837,7 @@ export class GameServer {
     for (const p of humans) p.life.stamina = p.life.capacity;
     if (this.bots && m.phase !== 'over') {
       const circle = { x: this.wfCentre.x, z: this.wfCentre.z, radius: this.wfHalf * 3 };
+      this.section('bots');
       this.bots.step(now, this.tick, { phase: m.fighting ? 'running' : 'waiting', circle, nextCircle: circle, shrinking: false, remainingMs: 1e9, plane: null }, humans);
     }
     if (m.phase !== before || now - this.wfLastBroadcast >= 1000) this.broadcastWarfare(now);
@@ -3654,8 +3660,22 @@ export class GameServer {
 
   private stepErrors = 0;
 
+  /** Where this tick spends its time (logged when a tick is very slow; the watchdog names it). */
+  private sections: Array<[string, number]> = [];
+  private sectionAt = 0;
+  private section(name: string): void {
+    const t = performance.now();
+    if (this.sections.length) this.sections[this.sections.length - 1]![1] = t - this.sectionAt;
+    this.sections.push([name, 0]); this.sectionAt = t;
+    watchSection(`${this.deps.mode ?? 'survival'} tick ${this.tick}: ${name}`);
+  }
+  /** Players held back by a pending save or quest (they freeze meanwhile): since when. */
+  private readonly busySince = new Map<number, number>();
+
   private step(): void {
     const t0 = performance.now();
+    this.sections.length = 0;
+    this.section('modes');
     this.tick++;
     this.worldTimeMs += TICK_MS;
     const now = this.serverTime;
@@ -3664,6 +3684,7 @@ export class GameServer {
     if (this.waves) this.stepWaves(now);
     if (this.warfare) this.stepWarfare(now);
 
+    this.section('players');
     this.chests.step();
 
     if (!this.lifeBusy && this.life.expireCoals(this.lifeWorld, Date.now())) {
@@ -3674,6 +3695,14 @@ export class GameServer {
       for (const p of this.players.values()) this.sendLife(p);
     }
     for (const p of this.players.values()) {
+      if (p.questBusy) {
+        // A save or quest that never answers left the player frozen in place with nothing said:
+        // logged, and after 15 s let go (losing at worst that one quest step).
+        const since = this.busySince.get(p.id) ?? now;
+        this.busySince.set(p.id, since);
+        if (now - since > 5000 && !this.busySince.has(-p.id)) { this.busySince.set(-p.id, now); this.log.warn({ player: p.username, ms: now - since }, 'player held by a pending save/quest (frozen)'); }
+        if (now - since > 15000) { this.log.error({ player: p.username }, 'pending save/quest never finished: player released'); p.questBusy = false; this.busySince.delete(p.id); this.busySince.delete(-p.id); }
+      } else if (this.busySince.size) { this.busySince.delete(p.id); this.busySince.delete(-p.id); }
       if (!p.active || p.questBusy) continue;
       if (p.pvpUntil && (now >= p.pvpUntil || p.dead || p.downed)) {
         p.pvpUntil = 0;
@@ -3754,6 +3783,7 @@ export class GameServer {
     }
 
     // Walkers shove loose props before the shared Jolt step moves them.
+    this.section('vehicles');
     this.freeBodies.push(this.walkers(), TICK_DT);
     this.vehicles.step(now, TICK_DT, this.players, (v, occupants) => {
       for (const occupant of occupants) if (!occupant.dead) this.killPlayer(occupant, null, now, 'xe phát nổ');
@@ -3761,6 +3791,7 @@ export class GameServer {
       this.collision.removeOwnerColliders(vehicleOwner(v.id));
       this.explode(0x60000000 + v.id, v.x, v.y + .8, v.z, 7, 220, null, 'rocket', now);
     }, (p, speed) => this.damage(null, p, Math.round((speed - 8) * 1.8), 'vehicle_collision', p.state.x, p.state.y + 1, p.state.z, now));
+    this.section('gunnery');
     this.gunnery.step(now);
     // Signs, cones, barrels and saplings in the way give.
     for (const v of this.vehicles.states.values()) {
@@ -3816,6 +3847,7 @@ export class GameServer {
       if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) background.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
       // Survival and the rest: bots as before (they share players' ground).
       if (!this.fixedMap) { centers.push(...background); background.length = 0; }
+      this.section('physics chunks');
       this.physics.update(centers, background);
     }
 
@@ -3824,6 +3856,7 @@ export class GameServer {
     this.activeScratch.length = 0;
     for (const p of this.players.values()) if (p.active) this.activeScratch.push(p);
     if (!this.arena) {
+      this.section('zombies');
       this.zombies.step(this.activeScratch, now, this.timeOfDay());
       this.guards.step(this.zombies.zombies.values(), this.activeScratch, now);
     }
@@ -3886,6 +3919,7 @@ export class GameServer {
       }
     }
     // Snapshots first, then terrain into whatever room the connection has left.
+    this.section('snapshots');
     if (this.tick % SNAPSHOT_INTERVAL_TICKS === 0) this.sendSnapshots(now);
     for (const p of this.players.values()) p.streamer.update();
     if (this.bots && this.tick % 10 === 0) for (const p of this.players.values()) if (p.aiDebug) this.sendBotDebug(p);
@@ -3896,8 +3930,12 @@ export class GameServer {
         this.persisting = null;
       });
     }
+    this.section('end');
     const spent = performance.now() - t0;
     if (spent > TICK_MS) this.lastSlowTickAt = performance.now();
+    // A tick far over its 33 ms: where the time went.
+    if (spent > 250) this.log.warn({ mode: this.deps.mode, tick: this.tick, ms: Math.round(spent), players: this.players.size, bots: this.bots?.bots.length ?? 0, sections: Object.fromEntries(this.sections.filter(([, ms]) => ms > 5).map(([n, ms]) => [n, Math.round(ms)])) }, 'very slow tick');
+    watchSection('idle');
     this.deps.metrics.recordTick(spent, TICK_MS);
   }
 

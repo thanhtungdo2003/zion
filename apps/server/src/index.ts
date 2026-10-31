@@ -1,3 +1,4 @@
+import { startWatchdog } from './watchdog';
 import { getHeapStatistics } from 'node:v8';
 import { WaveRooms } from './game/wave-rooms';
 import { WarfareRooms } from './game/warfare-rooms';
@@ -478,6 +479,8 @@ async function main(): Promise<void> {
 
   // Memory, every minute in the log (and a warning near the limit): a crash for lack of memory
   // then leaves its trail.
+  // A frozen event loop (every match stops, nobody is dropped) is reported from a side thread.
+  startWatchdog();
   const memoryWatch = setInterval(() => {
     const m = process.memoryUsage(), limit = getHeapStatistics().heap_size_limit, mb = (n: number) => Math.round(n / 1048576);
     const fields = { rssMb: mb(m.rss), heapMb: mb(m.heapUsed), heapLimitMb: mb(limit), externalMb: mb(m.external), sessions: gateway?.connectionCount ?? 0 };
