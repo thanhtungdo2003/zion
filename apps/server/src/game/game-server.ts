@@ -1,7 +1,7 @@
 import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
-import { packGear, reloadMsFor } from '@zion/shared';
+import { packGear, reloadMsFor, type MapEnvironment } from '@zion/shared';
 import { ARCHITECT_ID, BLADE_COMBO, BLADE_COMBO_TOLERANCE_MS, BLADE_COMBO_WEAPONS, bladeStepTiming, nextBladeStep, meleeSwing, LONG_LUNGE_CLIP, type BuildMessage } from '@zion/shared';
 import { Vehicles } from './vehicles';
 import { BattleRoyaleMatch } from './battle-royale';
@@ -188,6 +188,8 @@ export interface GameServerDeps {
   waves?: WaveRoomConfig;
   /** Warfare: this room's id and map. */
   warfare?: WarfareRoomConfig;
+  /** A Studio map's environment (weather, sky, climate zones), read as each player joins. */
+  environment?: () => MapEnvironment;
 }
 
 export interface WaveRoomConfig {
@@ -1214,6 +1216,9 @@ export class GameServer {
     return t - Math.floor(t);
   }
 
+  /** This match's weather: everyone in it sees the same drift and lightning. */
+  private readonly weatherSeed = (Math.random() * 0x7fffffff) | 0;
+
   worldInfo(): WorldInfo {
     const gen = this.deps.world.generator;
     return {
@@ -1227,6 +1232,7 @@ export class GameServer {
       cosmeticSeed: gen.cosmeticSeed,
       camp: gen.camp ? { x: gen.camp.x, z: gen.camp.z, halfSize: CAMP_HALF_SIZE } : null,
       ...(this.deps.world.extraAssets.length ? { assets: [...this.deps.world.extraAssets] } : {}),
+      ...(this.deps.environment ? { environment: this.deps.environment(), weatherSeed: this.weatherSeed } : {}),
     };
   }
 

@@ -1,3 +1,4 @@
+import type { MapEnvironment } from './environment';
 import { clamp } from './math';
 
 /** Edge length of a chunk in metres. */
@@ -164,4 +165,8 @@ export interface WorldInfo {
    * definitions (model, colliders), registered by the client before the world streams in.
    */
   assets?: unknown[];
+  /** A Studio map's environment (weather, sky, local climate zones); absent: the default. */
+  environment?: MapEnvironment;
+  /** Seeds this match's weather (its drift and lightning), the same for everyone in it. */
+  weatherSeed?: number;
 }

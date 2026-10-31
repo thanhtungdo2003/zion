@@ -2,6 +2,7 @@ export * from './math';
 export * from './random';
 export * from './binary';
 export * from './world';
+export * from './environment';
 export * from './chunk';
 export * from './constants';
 export * from './protocol/client';

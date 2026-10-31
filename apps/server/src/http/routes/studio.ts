@@ -369,6 +369,9 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
       try { return await deps.battleMaps!.setModes(req.params.id, (req.body as { modes?: unknown } | null)?.modes); } catch (err) { return fail(reply, err); }
     });
     // Warfare on a published map: set or clear its battlefield without rebuilding the world.
+    app.put<{ Params: { id: string } }>('/api/studio/battle-maps/:id/environment', { preHandler: guard, bodyLimit: 512 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+      try { return await deps.battleMaps!.setEnvironment(req.params.id, (req.body as { environment?: unknown } | null)?.environment ?? null); } catch (err) { return fail(reply, err); }
+    });
     app.put<{ Params: { id: string } }>('/api/studio/battle-maps/:id/warfare', { preHandler: guard, bodyLimit: 512 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
       try { return await deps.battleMaps!.setWarfare(req.params.id, (req.body as { warfare?: unknown } | null)?.warfare ?? null); } catch (err) { return fail(reply, err); }
     });

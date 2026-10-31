@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { warfareLayoutSchema, worldMapModesSchema, type WarfareLayout, type WorldMapMode } from '@zion/shared';
+import { mapEnvironmentSchema, warfareLayoutSchema, worldMapModesSchema, type MapEnvironment, type WarfareLayout, type WorldMapMode } from '@zion/shared';
 
 /** The modes a map is published for: as chosen, else what its kind suggests. */
 export const publishModesOf = (meta: { kind: string; modes?: WorldMapMode[] }): WorldMapMode[] => meta.modes?.length ? meta.modes : meta.kind === 'warfare' ? ['warfare'] : ['battle-royale'];
@@ -69,6 +69,8 @@ export interface WorldMapDoc {
   activeGameplay: string;
   /** Warfare: the battlefield (area, zones, bases, vehicle spawns, rules), when the map has one. */
   warfare?: WarfareLayout;
+  /** Weather, sky, grade and local climate zones (absent on older maps: the default). */
+  environment?: MapEnvironment;
 }
 
 /* ------------------------------------------------------------------------------ schemas */
@@ -124,6 +126,7 @@ export const worldMapSchema = z.object({
   gameplay: z.array(battleConfigSchema).min(1).max(16),
   activeGameplay: z.string(),
   warfare: warfareLayoutSchema.optional(),
+  environment: mapEnvironmentSchema.optional(),
 }).strict();
 const fileSchema = worldMapSchema.extend({ data: z.object({ heights: z.string(), surface: z.string() }).strict() });
 

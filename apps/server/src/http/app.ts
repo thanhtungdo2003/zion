@@ -53,7 +53,7 @@ export interface HttpDeps {
   atlas?: (mode?: GameMode, map?: string) => Promise<WorldAtlas>;
   atlasTile?: (x: number, z: number, mode?: GameMode, map?: string) => Promise<AtlasTile>;
   /** Battle royale maps from the World Studio (map picker, publishing). */
-  battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void>; catalog(): Promise<unknown>; stored(id: string): Promise<unknown | null>; setWarfare(id: string, layout: unknown): Promise<unknown>; setModes(id: string, modes: unknown): Promise<unknown> };
+  battleMaps?: { list(): unknown; publish(input: unknown): Promise<unknown>; remove(id: string): Promise<void>; catalog(): Promise<unknown>; stored(id: string): Promise<unknown | null>; setWarfare(id: string, layout: unknown): Promise<unknown>; setModes(id: string, modes: unknown): Promise<unknown>; setEnvironment(id: string, environment: unknown): Promise<unknown> };
   /** Zombie Wave Survival maps and leaderboards. */
   waves?: WaveBackend;
   /** Warfare parties (max 4, one side) and the maps Warfare is on. */

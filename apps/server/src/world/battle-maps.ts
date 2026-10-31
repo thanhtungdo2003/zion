@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AssetDefinitionInput, AssetRegistry } from '@zion/assets';
-import { BATTLE_MAP, WORLD_MAP_MODE_IDS, validateWarfareLayout, warfareLayoutSchema, worldMapModesSchema, type WarfareLayout, type WorldMapMode } from '@zion/shared';
+import { BATTLE_MAP, WORLD_MAP_MODE_IDS, mapEnvironmentSchema, readEnvironment, validateWarfareLayout, warfareLayoutSchema, worldMapModesSchema, type MapEnvironment, type WarfareLayout, type WorldMapMode } from '@zion/shared';
 import { GENERATOR_VERSION, authoredMapSchema, normalizeSeed, type AuthoredMap } from '@zion/worldgen';
 import type { Db } from '../db/pool';
 import type { Logger } from '../logger';
@@ -31,10 +31,12 @@ export const publishSchema = z.object({
   warfare: warfareLayoutSchema.optional(),
   /** Game modes it is offered in (default: battle royale, as maps published before). */
   modes: worldMapModesSchema.default(['battle-royale']),
+  /** Weather, sky and climate zones (absent: the default environment). */
+  environment: mapEnvironmentSchema.optional(),
 }).strict();
 export type PublishInput = z.infer<typeof publishSchema>;
 
-interface Entry { id: string; name: string; thumbnail: string | null; updatedAt: string; warfare: WarfareLayout | null; modes: WorldMapMode[]; world: WorldService; pool: MatchPool | null; worldId: string; atlas: ReturnType<typeof atlasProvider>; tiles: ReturnType<typeof atlasTileProvider> }
+interface Entry { id: string; name: string; thumbnail: string | null; updatedAt: string; warfare: WarfareLayout | null; environment: MapEnvironment; modes: WorldMapMode[]; world: WorldService; pool: MatchPool | null; worldId: string; atlas: ReturnType<typeof atlasProvider>; tiles: ReturnType<typeof atlasTileProvider> }
 
 export class BattleMapService {
   private readonly maps = new Map<string, Entry>();
@@ -49,7 +51,7 @@ export class BattleMapService {
     private readonly registry: AssetRegistry,
     private readonly cacheSize: number,
     private readonly log: Logger,
-    private readonly createMatch: (world: WorldService, worldId: string) => GameServer,
+    private readonly createMatch: (world: WorldService, worldId: string, environment: () => MapEnvironment) => GameServer,
     /** Runtime-registered models a map may place (Model Studio): its workers and players get them. */
     private readonly extraAssets: () => AssetDefinitionInput[] = () => [],
     /** Generator threads per map: battlefield matches with many bots ask a lot of one map. */
@@ -65,9 +67,9 @@ export class BattleMapService {
 
   async load(): Promise<void> {
     try {
-      const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; sea_level: number; map: unknown; updated_at: Date; warfare: unknown; modes: string[] | null }>('SELECT id, name, thumbnail, sea_level, map, updated_at, warfare, modes FROM battle_maps ORDER BY updated_at')).rows;
+      const rows = (await this.db.query<{ id: string; name: string; thumbnail: string | null; sea_level: number; map: unknown; updated_at: Date; warfare: unknown; modes: string[] | null; environment: unknown }>('SELECT id, name, thumbnail, sea_level, map, updated_at, warfare, modes, environment FROM battle_maps ORDER BY updated_at')).rows;
       for (const r of rows) {
-        try { await this.build(r.id, r.name, r.thumbnail, r.sea_level, authoredMapSchema.parse(r.map) as AuthoredMap, r.updated_at.toISOString(), this.parseWarfare(r.warfare), this.parseModes(r.modes)); }
+        try { await this.build(r.id, r.name, r.thumbnail, r.sea_level, authoredMapSchema.parse(r.map) as AuthoredMap, r.updated_at.toISOString(), this.parseWarfare(r.warfare), this.parseModes(r.modes), readEnvironment(r.environment)); }
         catch (err) { this.failed.set(r.id, err instanceof Error ? err.message : String(err)); this.log.error({ err, id: r.id }, 'battle map could not be built (skipped)'); }
       }
     } catch (err) {
@@ -99,7 +101,7 @@ export class BattleMapService {
   /** Battle royale matches only where the map is published for battle royale. */
   private applyModes(e: Entry, modes: WorldMapMode[]): void {
     e.modes = modes;
-    if (modes.includes('battle-royale') && !e.pool) { e.pool = new MatchPool(() => this.createMatch(e.world, e.worldId), this.log.child({ module: `battle-map-${e.id}` }), 6); e.pool.start(); }
+    if (modes.includes('battle-royale') && !e.pool) { e.pool = new MatchPool(() => this.createMatch(e.world, e.worldId, () => e.environment), this.log.child({ module: `battle-map-${e.id}` }), 6); e.pool.start(); }
     if (!modes.includes('battle-royale') && e.pool) { const pool = e.pool; e.pool = null; void pool.stop().catch((err: unknown) => this.log.error({ err }, 'battle map pool stop failed')); }
   }
 
@@ -139,19 +141,33 @@ export class BattleMapService {
     return { id, warfare: layout };
   }
 
-  /** Published maps with Warfare turned on. */
-  warfareMaps(): Array<{ id: string; name: string; thumbnail: string | null; world: WorldService; worldId: string; layout: WarfareLayout }> {
-    return [...this.maps.values()].filter((e) => e.modes.includes('warfare') && e.warfare?.enabled).map((e) => ({ id: e.id, name: e.name, thumbnail: e.thumbnail, world: e.world, worldId: e.worldId, layout: e.warfare! }));
+  /**
+   * Sets a published map's environment (null: the default) without rebuilding it: players joining
+   * afterwards get it (those in a match keep theirs until they join again).
+   */
+  async setEnvironment(id: string, input: unknown): Promise<{ id: string; environment: MapEnvironment }> {
+    const e = this.maps.get(id);
+    if (!e) throw new Error('Bản đồ chưa được xuất bản lên máy chủ (hoặc chưa dựng xong) — hãy xuất bản trước.');
+    const environment = input === null ? readEnvironment(null) : mapEnvironmentSchema.parse(input);
+    await this.db.query('UPDATE battle_maps SET environment = $2::jsonb WHERE id = $1', [id, input === null ? null : JSON.stringify(environment)]);
+    e.environment = environment;
+    this.log.info({ id, weather: environment.weather, zones: environment.zones.length }, 'battle map environment set');
+    return { id, environment };
   }
 
-  private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string, warfare: WarfareLayout | null = null, modes: WorldMapMode[] = ['battle-royale']): Promise<Entry> {
+  /** Published maps with Warfare turned on. */
+  warfareMaps(): Array<{ id: string; name: string; thumbnail: string | null; world: WorldService; worldId: string; layout: WarfareLayout; environment: () => MapEnvironment }> {
+    return [...this.maps.values()].filter((e) => e.modes.includes('warfare') && e.warfare?.enabled).map((e) => ({ id: e.id, name: e.name, thumbnail: e.thumbnail, world: e.world, worldId: e.worldId, layout: e.warfare!, environment: () => e.environment }));
+  }
+
+  private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string, warfare: WarfareLayout | null = null, modes: WorldMapMode[] = ['battle-royale'], environment: MapEnvironment = readEnvironment(null)): Promise<Entry> {
     const size = map.terrainGrid?.size ?? BATTLE_MAP.sizeChunks * 32;
     const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, this.workers, this.cacheSize, this.log, this.usedAssets(map));
     await world.start();
     // A fixed map: chunks generated once, kept on disk, the rest baked in the background.
     if (this.bakeRoot) { world.bakeTo(this.bakeRoot); void world.bake(); }
     const worldId = `br-${id}-${updatedAt.replace(/\D/g, '').slice(0, 14)}`;
-    const entry: Entry = { id, name, thumbnail, updatedAt, warfare, modes: [], world, pool: null, worldId, atlas: atlasProvider(world.generator, worldId), tiles: atlasTileProvider(world.generator, worldId) };
+    const entry: Entry = { id, name, thumbnail, updatedAt, warfare, environment, modes: [], world, pool: null, worldId, atlas: atlasProvider(world.generator, worldId), tiles: atlasTileProvider(world.generator, worldId) };
     this.applyModes(entry, modes);
     const old = this.maps.get(id);
     this.maps.set(id, entry);
@@ -166,7 +182,7 @@ export class BattleMapService {
     const map = authoredMapSchema.parse(body.map) as AuthoredMap;
     if (!map.terrainGrid) throw new Error('Bản đồ thiếu dữ liệu địa hình.');
     const updatedAt = new Date().toISOString();
-    const warfare = body.warfare ?? null, modes = body.modes;
+    const warfare = body.warfare ?? null, modes = body.modes, environment = body.environment ?? null;
     if (modes.includes('warfare') && !warfare?.enabled) throw new Error('Muốn xuất bản cho Chiến trường, hãy bật và vẽ bố cục ở tab Chiến trường.');
     if (warfare?.enabled && modes.includes('warfare')) {
       const errs = this.checkWarfare(warfare, map.terrainGrid.size);
@@ -174,10 +190,10 @@ export class BattleMapService {
     }
     // Built first: a map whose world cannot be made is refused instead of stored unplayable
     // (it would be listed nowhere in the game). The previous version keeps running meanwhile.
-    await this.build(body.id, body.name, body.thumbnail ?? null, body.seaLevel, map, updatedAt, warfare, modes);
-    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at, source, warfare, modes) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9)
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source, warfare = EXCLUDED.warfare, modes = EXCLUDED.modes`,
-      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt, body.source ? JSON.stringify(body.source) : null, warfare ? JSON.stringify(warfare) : null, modes]);
+    await this.build(body.id, body.name, body.thumbnail ?? null, body.seaLevel, map, updatedAt, warfare, modes, environment ?? readEnvironment(null));
+    await this.db.query(`INSERT INTO battle_maps (id, name, thumbnail, sea_level, map, updated_at, source, warfare, modes, environment) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9, $10::jsonb)
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, thumbnail = EXCLUDED.thumbnail, sea_level = EXCLUDED.sea_level, map = EXCLUDED.map, updated_at = EXCLUDED.updated_at, source = EXCLUDED.source, warfare = EXCLUDED.warfare, modes = EXCLUDED.modes, environment = EXCLUDED.environment`,
+      [body.id, body.name, body.thumbnail ?? null, body.seaLevel, JSON.stringify(map), updatedAt, body.source ? JSON.stringify(body.source) : null, warfare ? JSON.stringify(warfare) : null, modes, environment ? JSON.stringify(environment) : null]);
     this.failed.delete(body.id);
     this.log.info({ id: body.id, sites: map.placed?.length ?? 0, flora: map.flora?.length ?? 0 }, 'battle map published');
     return { id: body.id, name: body.name };

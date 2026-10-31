@@ -151,8 +151,8 @@ async function main(): Promise<void> {
     return match;
   }, logger.child({ module: 'battle-matches' }));
   // Battle royale maps published from the World Studio: one world and match pool each.
-  const battleMaps = new BattleMapService(db, registry, mapCache, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId) => {
-    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
+  const battleMaps = new BattleMapService(db, registry, mapCache, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId, environment) => {
+    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale', environment });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
   }, () => modelStudio.definitions(), Math.max(1, Math.min(2, config.WORLDGEN_WORKERS)));
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
   ];
   const warfareRooms = new WarfareRooms((cfg) => {
     const big = battleMaps.warfareMaps().find((m) => m.id === cfg.mapId);
-    if (big) return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: big.world, registry, playerStates, worlds, worldId: big.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: { ...cfg, layout: big.layout } });
+    if (big) return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: big.world, registry, playerStates, worlds, worldId: big.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: { ...cfg, layout: big.layout }, environment: big.environment });
     const b = waveWorld(cfg.mapId);
     if (!b) return null;
     return new GameServer({ appearances: accounts, teams: warfareTeams, config, logger, metrics: new Metrics(), audit, world: b.world, registry, playerStates, worlds, worldId: b.worldId, initialWorldTimeMs: 0, mode: 'warfare', warfare: cfg });
@@ -313,6 +313,7 @@ async function main(): Promise<void> {
       stored: (id) => battleMaps.stored(id),
       setWarfare: (id, layout) => battleMaps.setWarfare(id, layout),
       setModes: (id, modes) => battleMaps.setModes(id, modes),
+      setEnvironment: (id, environment) => battleMaps.setEnvironment(id, environment),
     },
     teams,
     battleTeams,
