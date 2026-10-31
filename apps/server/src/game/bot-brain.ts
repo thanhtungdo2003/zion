@@ -45,8 +45,15 @@ interface Search {
 
 /** The coarse navigation grid of one world: lazily tested edges, shared bad edges, budgeted searches. */
 export class CoarseNav {
-  private readonly cells = new Map<Key, boolean>();
-  private readonly edges = new Map<string, boolean>();
+  /**
+   * What is known of each cell and edge, in flat arrays over the whole map (0 untested, 1 open,
+   * 2 blocked): a few MB however much the bots explore. (Maps keyed by strings grew to millions
+   * of entries on a big battlefield with many bots, and the server ran out of memory.)
+   */
+  private readonly size: number;
+  private readonly cells: Uint8Array;
+  /** Per cell, its edges to (+1,−1), (+1,0), (+1,+1) and (0,+1): every edge once, from its lower end. */
+  private readonly edges: Uint8Array;
   /** Edges bots got stuck on: avoided by everyone until then (ms). */
   private readonly bad = new Map<string, number>();
   private readonly hit = makeRayHit();
@@ -54,7 +61,13 @@ export class CoarseNav {
   /** Edge tests and expanded nodes, since start (for the profile). */
   readonly stats = { edgeTests: 0, expanded: 0, searches: 0, failed: 0 };
 
-  constructor(private readonly world: CollisionWorld, private readonly budget = 700, private readonly maxMs = 2.5) {}
+  constructor(private readonly world: CollisionWorld, private readonly budget = 700, private readonly maxMs = 2.5) {
+    this.size = Math.ceil(world.worldSize / NAV_CELL);
+    this.cells = new Uint8Array(this.size * this.size);
+    this.edges = new Uint8Array(this.size * this.size * 4);
+  }
+
+  private inGrid(cx: number, cz: number): boolean { return cx >= 0 && cz >= 0 && cx < this.size && cz < this.size; }
 
   private ground(cx: number, cz: number): number { return this.world.terrainHeight((cx + .5) * NAV_CELL, (cz + .5) * NAV_CELL); }
 
@@ -64,24 +77,33 @@ export class CoarseNav {
    * through it and is corrected once the bot gets there and it loads.
    */
   open(cx: number, cz: number): boolean {
-    const k = key(cx, cz);
-    const known = this.cells.get(k);
-    if (known !== undefined) return known;
+    if (!this.inGrid(cx, cz)) return false;
+    const i = cz * this.size + cx, known = this.cells[i]!;
+    if (known) return known === 1;
     const x = (cx + .5) * NAV_CELL, z = (cz + .5) * NAV_CELL, y = this.world.terrainHeight(x, z);
-    if (!Number.isFinite(y)) return x >= 0 && z >= 0 && x < this.world.worldSize && z < this.world.worldSize;
+    if (!Number.isFinite(y)) return true;
     const ok = this.world.waterLevel(x, z) - y < .9 && !this.world.overlapsCapsule(x, y + .5, z, x, y + 1.5, z, .35, Layer.Static);
-    this.cells.set(k, ok);
+    this.cells[i] = ok ? 1 : 2;
     return ok;
+  }
+
+  /** The slot of the edge between neighbouring cells a and b (−1 off the map). */
+  private edgeSlot(ax: number, az: number, bx: number, bz: number): number {
+    if (ax > bx || (ax === bx && az > bz)) { const tx = ax, tz = az; ax = bx; az = bz; bx = tx; bz = tz; }
+    if (!this.inGrid(ax, az) || !this.inGrid(bx, bz)) return -1;
+    const d = bx === ax ? 3 : bz - az + 1;
+    return (az * this.size + ax) * 4 + d;
   }
 
   /** Whether one can walk from cell a to its neighbour b: slope, then fences and walls at knee and chest height. */
   passable(ax: number, az: number, bx: number, bz: number): boolean {
-    const id = ax < bx || (ax === bx && az < bz) ? `${ax},${az}>${bx},${bz}` : `${bx},${bz}>${ax},${az}`;
-    const known = this.edges.get(id);
-    if (known !== undefined) return known && !this.isBad(id);
+    const slot = this.edgeSlot(ax, az, bx, bz);
+    if (slot < 0) return false;
+    const known = this.edges[slot]!;
+    if (known) return known === 1 && !this.isBad(ax, az, bx, bz);
     const ha = this.ground(ax, az), hb = this.ground(bx, bz);
     // Either end not loaded: assumed passable, tested (and remembered) once it loads.
-    if (!Number.isFinite(ha) || !Number.isFinite(hb)) return this.open(ax, az) && this.open(bx, bz) && !this.isBad(id);
+    if (!Number.isFinite(ha) || !Number.isFinite(hb)) return this.open(ax, az) && this.open(bx, bz) && !this.isBad(ax, az, bx, bz);
     this.stats.edgeTests++;
     let ok = this.open(ax, az) && this.open(bx, bz);
     if (ok) {
@@ -95,11 +117,13 @@ export class CoarseNav {
         if (this.world.raycast(ox, oy, oz, dx, (hb - ha) / len, dz, len, Layer.Static, this.hit)) ok = false;
       }
     }
-    this.edges.set(id, ok);
-    return ok && !this.isBad(id);
+    this.edges[slot] = ok ? 1 : 2;
+    return ok && !this.isBad(ax, az, bx, bz);
   }
 
-  private isBad(id: string): boolean {
+  private isBad(ax: number, az: number, bx: number, bz: number): boolean {
+    if (!this.bad.size) return false;
+    const id = ax < bx || (ax === bx && az < bz) ? `${ax},${az}>${bx},${bz}` : `${bx},${bz}>${ax},${az}`;
     const until = this.bad.get(id);
     if (until === undefined) return false;
     if (performance.now() < until) return true;
@@ -137,6 +161,7 @@ export class CoarseNav {
 
   /** Advances every pending search within this tick's budget (nodes and milliseconds). */
   beginTick(): void {
+    if (this.bad.size > 64) { const t = performance.now(); for (const [id, until] of this.bad) if (t >= until) this.bad.delete(id); }
     let budget = this.budget;
     const deadline = performance.now() + this.maxMs;
     for (const s of [...this.pending]) {

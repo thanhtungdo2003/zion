@@ -439,7 +439,7 @@ export class JoltVehicles {
     const p = this.props.get(id);
     if (!p) return;
     this.bodyMaterial.delete(p.id.GetIndex());
-    this.bodies.RemoveBody(p.id); this.bodies.DestroyBody(p.id);
+    this.bodies.RemoveBody(p.id); this.bodies.DestroyBody(p.id); Jolt.destroy(p.id);
     this.props.delete(id);
   }
 
@@ -603,7 +603,7 @@ export class JoltVehicles {
       const b = c.aabb;
       if (!this.regions.some(([x0, z0, x1, z1]) => b.maxX >= x0 && b.minX <= x1 && b.maxZ >= z0 && b.minZ <= z1)) continue;
       this.bodyMaterial.delete(entry.id.GetIndex());
-      this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(c);
+      this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); Jolt.destroy(entry.id); this.statics.delete(c);
     }
     this.regions.length = 0;
     this.stepNo++;
@@ -611,8 +611,8 @@ export class JoltVehicles {
 
   private expire(now: number): void {
     this.dropRemoved();
-    for (const [key, entry] of this.statics) if (now - entry.seen > MIRROR_GRACE) { this.bodyMaterial.delete(entry.id.GetIndex()); this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.statics.delete(key); }
-    for (const [key, entry] of this.terrain) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); this.terrain.delete(key); }
+    for (const [key, entry] of this.statics) if (now - entry.seen > MIRROR_GRACE) { this.bodyMaterial.delete(entry.id.GetIndex()); this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); Jolt.destroy(entry.id); this.statics.delete(key); }
+    for (const [key, entry] of this.terrain) if (now - entry.seen > MIRROR_GRACE) { this.bodies.RemoveBody(entry.id); this.bodies.DestroyBody(entry.id); Jolt.destroy(entry.id); this.terrain.delete(key); }
   }
 
   /**
@@ -836,7 +836,7 @@ export class JoltVehicles {
     if (car.listener) this.system.RemoveStepListener(car.listener);
     if (car.constraint) this.system.RemoveConstraint(car.constraint);
     this.bodyMaterial.delete(car.id.GetIndex()); if (car.callbacks) Jolt.destroy(car.callbacks);
-    this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
+    this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id); Jolt.destroy(car.id);
     this.cars.delete(id);
   }
 
@@ -850,11 +850,11 @@ export class JoltVehicles {
       if (car.listener) this.system.RemoveStepListener(car.listener);
       if (car.constraint) this.system.RemoveConstraint(car.constraint);
       if (car.callbacks) Jolt.destroy(car.callbacks);
-      this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id);
+      this.bodies.RemoveBody(car.id); this.bodies.DestroyBody(car.id); Jolt.destroy(car.id);
     }
     this.cars.clear();
     for (const id of [...this.props.keys()]) this.removeBody(id);
-    for (const e of [...this.statics.values(), ...this.terrain.values()]) { this.bodies.RemoveBody(e.id); this.bodies.DestroyBody(e.id); }
+    for (const e of [...this.statics.values(), ...this.terrain.values()]) { this.bodies.RemoveBody(e.id); this.bodies.DestroyBody(e.id); Jolt.destroy(e.id); }
     this.statics.clear(); this.terrain.clear(); this.bodyMaterial.clear();
     Jolt.destroy(this.jolt);
     for (const m of this.materials.values()) m.Release();
