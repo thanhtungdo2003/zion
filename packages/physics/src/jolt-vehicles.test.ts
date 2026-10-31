@@ -151,3 +151,16 @@ describe('Jolt vehicles', () => {
     } finally { sim.dispose(); }
   });
 });
+
+describe('Jolt heap (fixed size, shared by every world of the process)', () => {
+  it('gives a disposed world back: matches can open and close forever', () => {
+    // Some 12 MB of a fixed 128 MB heap each: without dispose the eleventh world failed (OOM).
+    const w = world();
+    for (let i = 0; i < 30; i++) {
+      const sim = new JoltVehicles(w), v = car(w);
+      run(sim, [v], .5);
+      sim.dispose();
+      sim.dispose();
+    }
+  });
+});

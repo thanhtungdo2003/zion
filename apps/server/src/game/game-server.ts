@@ -1283,6 +1283,10 @@ export class GameServer {
     if (this.persisting) await this.persisting;
     await this.persistAll(true);
     await this.building?.flush().catch((err: unknown) => this.log.error({ err }, 'structures save failed'));
+    // The vehicle physics lives in Jolt's fixed 128 MB heap, shared by every match of the
+    // process (some 12 MB each): never released, a dozen finished matches filled it and every new
+    // one failed to start ("could not join the world: Aborted(OOM)").
+    this.vehicles.dispose();
   }
 
   /* ------------------------------------ join/leave --------------------------------------- */

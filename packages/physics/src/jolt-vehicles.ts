@@ -538,7 +538,7 @@ export class JoltVehicles {
   private addTerrain(hf: Heightfield): BodyID {
     const n = hf.verts, padded = n + (n % 2);
     const settings = new Jolt.HeightFieldShapeSettings();
-    settings.mOffset = new Jolt.Vec3(0, 0, 0); settings.mScale = new Jolt.Vec3(hf.cellSize, 1, hf.cellSize);
+    settings.mOffset = v3(0, 0, 0); settings.mScale = v3(hf.cellSize, 1, hf.cellSize);
     settings.mSampleCount = padded; settings.mBlockSize = 2;
     settings.mHeightSamples.reserve(padded * padded);
     for (let j = 0; j < padded; j++) for (let i = 0; i < padded; i++)
@@ -620,6 +620,7 @@ export class JoltVehicles {
    * Returns the hardest impact (m/s velocity change) each vehicle took this step.
    */
   step(vehicles: Iterable<VehicleState>, input: (v: VehicleState) => VehicleInput | undefined, dt: number, now: number): Map<number, number> {
+    if (this.disposed) return new Map();
     const impacts = new Map<number, number>(), live: Array<[VehicleState, Car]> = [];
     for (const v of vehicles) {
       const car = this.cars.get(v.id);
@@ -839,7 +840,12 @@ export class JoltVehicles {
     this.cars.delete(id);
   }
 
+  private disposed = false;
+
+  /** Frees everything this world holds in Jolt's heap (shared by every world of the process). */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const car of this.cars.values()) {
       if (car.listener) this.system.RemoveStepListener(car.listener);
       if (car.constraint) this.system.RemoveConstraint(car.constraint);
