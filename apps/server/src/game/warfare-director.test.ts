@@ -40,6 +40,29 @@ describe('warfare director', () => {
     expect(d.tasks('blue')[0]).toMatchObject({ kind: 'attack', zone: 'b' });
   });
 
+  it('after taking a zone, goes on to objectives across the map instead of standing in it', () => {
+    const d = new WarfareDirector(bases, 4);
+    for (let i = 1; i <= 8; i++) d.enlist(i, 'blue');
+    const u = units([1, 2, 3, 4, 5, 6, 7, 8].map((id) => ({ id, side: 'blue' as const })));
+    // Just taken a zone by our base; the only others are far over the map.
+    const zones = [zone('taken', -60, 'blue'), zone('far', 600, 'red'), zone('farther', 900)];
+    d.think(0, zones, u, none, true);
+    const tasks = d.tasks('blue');
+    expect(tasks.filter((t) => t.kind === 'attack').length).toBeGreaterThanOrEqual(1);
+    expect(tasks.filter((t) => t.zone === 'taken').length).toBeLessThanOrEqual(1);
+  });
+
+  it('everything held and quiet: squads patrol from zone to zone', () => {
+    const d = new WarfareDirector(bases, 4);
+    for (let i = 1; i <= 4; i++) d.enlist(i, 'blue');
+    const u = units([1, 2, 3, 4].map((id) => ({ id, side: 'blue' as const })));
+    const zones = [zone('a', -40, 'blue'), zone('b', 0, 'blue'), zone('c', 40, 'blue')];
+    d.think(0, zones, u, none, true);
+    const first = d.tasks('blue')[0]!.zone;
+    d.think(60_000, zones, u, none, true);
+    expect(d.tasks('blue')[0]!.zone).not.toBe(first);
+  });
+
   it('rushes to a held zone under attack and calls for reinforcements', () => {
     const d = new WarfareDirector(bases, 2);
     for (let i = 1; i <= 6; i++) d.enlist(i, 'blue');

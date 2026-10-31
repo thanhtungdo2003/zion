@@ -212,9 +212,13 @@ export class WarfareDirector {
       if (z.owner === side) {
         const slipping = (side === 'blue' ? z.progress < 1 : z.progress > -1) ? 1.5 : 0;
         const threat = p[enemy] + (z.contested ? 2 : 0) + slipping;
-        score.set(z.id, threat > 0 ? { kind: 'reinforce', value: z.value * (1.2 + threat * 1.4) } : { kind: 'defend', value: z.value * .35 });
+        // A quiet zone of ours is worth little: one squad guards the front (below), the rest go on
+        // (at .35 it outbid any objective a few hundred metres off, and whole squads stood about
+        // in the zone they had just taken).
+        score.set(z.id, threat > 0 ? { kind: 'reinforce', value: z.value * (1.2 + threat * 1.4) } : { kind: 'defend', value: z.value * .05 });
       } else {
-        const proximity = 1 / (1 + front(z) / 120);
+        // Nearer is better, but the far side of a big map is still worth the walk.
+        const proximity = 1 / (1 + front(z) / 400);
         const neutral = z.owner === null ? 1.3 : 1;
         // Already being taken by us: finish the job.
         const finishing = p[side] > 0 && (side === 'blue' ? z.progress > 0 : z.progress < 0) ? 1.25 : 1;
@@ -239,6 +243,12 @@ export class WarfareDirector {
       return t.kind === 'attack' || t.kind === 'scout' ? z.owner !== side : z.owner === side;
     };
     const scouting = squads.length >= 4 && zones.some((z) => z.owner === enemy);
+    const allHeld = held.length === zones.length && ![...score.values()].some((s) => s.kind === 'reinforce');
+    const patrol = (sq: AiSquad) => {
+      const others = held.filter((z) => z.id !== sq.task?.zone);
+      const z = (others.length ? others : held)[Math.floor(Math.random() * (others.length || held.length))]!;
+      return { id: z.id, kind: 'defend' as WarfareTaskKind, value: 1 };
+    };
     squads.forEach((sq, i) => {
       // The last squad of a big side scouts round the far side of the enemy's deepest zone.
       if (scouting && i === squads.length - 1) {
@@ -246,7 +256,8 @@ export class WarfareDirector {
         if (!valid(sq.task) || sq.task!.kind !== 'scout') sq.task = { kind: 'scout', zone: deep.id, since: now };
         return;
       }
-      const best = pick();
+      // Everything held and quiet: patrol, a different zone each time, rather than stand about.
+      const best = allHeld ? patrol(sq) : pick();
       const keep = valid(sq.task) && now - sq.task!.since < STICKY_MS
         && !(best && best.kind === 'reinforce' && sq.task!.kind !== 'reinforce' && best.value > (score.get(sq.task!.zone)?.value ?? 0) * 2);
       if (keep) { taken.set(sq.task!.zone, (taken.get(sq.task!.zone) ?? 0) + 1); return; }
