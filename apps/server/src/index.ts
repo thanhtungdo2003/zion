@@ -1,3 +1,4 @@
+import { getHeapStatistics } from 'node:v8';
 import { WaveRooms } from './game/wave-rooms';
 import { WarfareRooms } from './game/warfare-rooms';
 import { WaveScoreRepository } from './repositories/wave-scores';
@@ -132,7 +133,11 @@ async function main(): Promise<void> {
   const studioHouses = trialAssets.map((asset) => ({ asset, radius: (modelStudio.publishedModel(asset)!.def as { bounds: { radius: number } }).bounds.radius }));
   const battleWorldId = studioHouses.length ? `${BATTLE_MAP.id}-trial-${trialAssets.join('-')}` : BATTLE_MAP.id;
   if (studioHouses.length) logger.info({ assets: trialAssets }, 'battle royale island: Model Studio houses on trial');
-  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', ...(studioHouses.length ? { studioHouses } : {}) }, registry, Math.min(1, config.WORLDGEN_WORKERS), config.CHUNK_CACHE_SIZE, logger, modelStudio.definitions());
+  // Every fixed map has a world (and a chunk cache) of its own, some 38 KB a chunk: at the
+  // survival world's 12 000 entries each one could take ~450 MB, and with bots spread over a few
+  // big battlefields the server ran out of memory. Baked chunks come back cheaply from disk.
+  const mapCache = Math.min(config.CHUNK_CACHE_SIZE, 4000);
+  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', ...(studioHouses.length ? { studioHouses } : {}) }, registry, Math.min(1, config.WORLDGEN_WORKERS), mapCache, logger, modelStudio.definitions());
   await battleWorld.start();
   if (config.CHUNK_BAKE_DIR) { battleWorld.bakeTo(config.CHUNK_BAKE_DIR); void battleWorld.bake(); }
   // Battle royale squads are separate from survival teams: three players, kept in memory.
@@ -146,7 +151,7 @@ async function main(): Promise<void> {
     return match;
   }, logger.child({ module: 'battle-matches' }));
   // Battle royale maps published from the World Studio: one world and match pool each.
-  const battleMaps = new BattleMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId) => {
+  const battleMaps = new BattleMapService(db, registry, mapCache, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId) => {
     const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
@@ -155,7 +160,7 @@ async function main(): Promise<void> {
   await battleMaps.load();
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
   // Infection maps come from the Studio; new matches are built on the active one.
-  const infectionMaps = new InfectionMapService(db, registry, config.CHUNK_CACHE_SIZE, logger.child({ module: 'infection-maps' }));
+  const infectionMaps = new InfectionMapService(db, registry, mapCache, logger.child({ module: 'infection-maps' }));
   await infectionMaps.load();
   const infectionPool = new MatchPool(() => new GameServer({ appearances: accounts, config, logger, metrics: new Metrics(), audit, world: infectionMaps.world, registry, playerStates, worlds, worldId: infectionMaps.worldId, initialWorldTimeMs: 0, mode: 'infection' }), logger.child({ module: 'infection-matches' }));
   infectionMaps.onSwitch = () => { void infectionPool.retireIdle(); };
@@ -470,6 +475,15 @@ async function main(): Promise<void> {
   await app.listen({ host: config.HOST, port: config.PORT });
   logger.info({ port: config.PORT, worldId: config.WORLD_ID, seed: worldConfig.seed }, 'ZION server listening');
 
+  // Memory, every minute in the log (and a warning near the limit): a crash for lack of memory
+  // then leaves its trail.
+  const memoryWatch = setInterval(() => {
+    const m = process.memoryUsage(), limit = getHeapStatistics().heap_size_limit, mb = (n: number) => Math.round(n / 1048576);
+    const fields = { rssMb: mb(m.rss), heapMb: mb(m.heapUsed), heapLimitMb: mb(limit), externalMb: mb(m.external), sessions: gateway?.connectionCount ?? 0 };
+    if (m.heapUsed > limit * .85) logger.warn(fields, 'memory: heap close to its limit');
+    else logger.info(fields, 'memory');
+  }, 60_000);
+  memoryWatch.unref();
   const purge = setInterval(() => {
     refreshTokens.purgeExpired().catch((err: unknown) => logger.error({ err }, 'token purge failed'));
   }, 6 * 3600_000);
