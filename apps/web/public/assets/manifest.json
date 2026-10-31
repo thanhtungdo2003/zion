@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-10-28T11:54:27.914Z",
+  "generatedAt": "2026-10-31T03:30:02.206Z",
   "files": {
     "decor/supply_crate.bbmodel": {
       "url": "/assets/models/decor_supply_crate.c5eb16b65f02.bbmodel",
@@ -1448,10 +1448,58 @@
       "bytes": 904856,
       "kind": "glb"
     },
+    "prepared/drive_marauder.glb": {
+      "url": "/assets/models/prepared_drive_marauder.2981a91f767d.glb",
+      "sha256": "2981a91f767d084d9cd26a4079d60cf8b53ed6aa3514a49552cce343cdd98f79",
+      "bytes": 19889516,
+      "kind": "glb"
+    },
+    "prepared/drive_mi17.glb": {
+      "url": "/assets/models/prepared_drive_mi17.549680acc5a5.glb",
+      "sha256": "549680acc5a5e598f36bf060dc393e7b971a1a08bc979cae8549fbdcc8aa0c63",
+      "bytes": 4610500,
+      "kind": "glb"
+    },
     "prepared/drive_quad.glb": {
       "url": "/assets/models/prepared_drive_quad.424789d9236f.glb",
       "sha256": "424789d9236f6185299a135ba7b45b0eef9a02d93d150e327e7bd4eae255233d",
       "bytes": 131700,
+      "kind": "glb"
+    },
+    "prepared/drive_t62a.glb": {
+      "url": "/assets/models/prepared_drive_t62a.54e0e4a0b992.glb",
+      "sha256": "54e0e4a0b9922c9be1ab9cb634a34884dfd4d376576c10d59fd16d078ae933d5",
+      "bytes": 15777048,
+      "kind": "glb"
+    },
+    "prepared/drive_t80u.glb": {
+      "url": "/assets/models/prepared_drive_t80u.fd6c32739946.glb",
+      "sha256": "fd6c327399464a66986a363ac511d2ea7e3e3384224ebfb185db81f23c75c725",
+      "bytes": 1516004,
+      "kind": "glb"
+    },
+    "prepared/drive_t90a.glb": {
+      "url": "/assets/models/prepared_drive_t90a.9a1969ca02c6.glb",
+      "sha256": "9a1969ca02c6f54ee49eaf0b75535a11ea1ad19aa918c3087b7f768bb46d2b8d",
+      "bytes": 1414204,
+      "kind": "glb"
+    },
+    "prepared/drive_tank.glb": {
+      "url": "/assets/models/prepared_drive_tank.0952138f9ee9.glb",
+      "sha256": "0952138f9ee98969975063d5e4c646ef1ecc71596f8b1f861f4b8c6c40c08cb8",
+      "bytes": 7186360,
+      "kind": "glb"
+    },
+    "prepared/drive_tiger.glb": {
+      "url": "/assets/models/prepared_drive_tiger.e76c7b1cc90d.glb",
+      "sha256": "e76c7b1cc90d64dc2c39f19a0b483fceb7d344a2dac857dea4e9f484d74d1c11",
+      "bytes": 1640420,
+      "kind": "glb"
+    },
+    "prepared/drive_z10.glb": {
+      "url": "/assets/models/prepared_drive_z10.986d8a8f57c0.glb",
+      "sha256": "986d8a8f57c002ccdd73d747a72622810e81b765a4d97814f3bcef8ded0ec4c9",
+      "bytes": 997972,
       "kind": "glb"
     },
     "prepared/favela.glb": {
