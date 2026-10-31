@@ -49,10 +49,12 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   app.get<{ Params: { file: string } }>('/api/model-assets/:file', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (req, reply) => {
     const m = /^(\d{4})\.glb$/.exec(req.params.file);
     const model = m ? store.publishedModel(Number(m[1])) : undefined;
-    const glb = model ? await store.publishedFile(model.asset) : null;
-    if (!model || !glb) return reply.code(404).send({ error: 'not_found', message: 'model not found' });
+    if (!model) return reply.code(404).send({ error: 'not_found', message: 'model not found' });
+    // A copy the browser already has: answered before the (possibly big) file is read.
     const etag = `"${model.asset}-${model.version}"`;
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+    const glb = await store.publishedFile(model.asset);
+    if (!glb) return reply.code(404).send({ error: 'not_found', message: 'model not found' });
     reply.header('etag', etag).header('cache-control', 'no-cache').type('model/gltf-binary');
     return reply.send(glb);
   });

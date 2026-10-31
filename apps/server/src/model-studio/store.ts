@@ -20,6 +20,12 @@ import { uploadedHitMeshes } from '../world/uploaded-hit-meshes';
  *    match. Publishing never overwrites a published model unless the admin names it to replace.
  */
 export const MAX_FILE_BYTES = 40 * 1024 * 1024;
+/**
+ * A published model (its textures at full resolution): players download it once per version
+ * (the browser keeps it, an unchanged model answers 304), so a big one only costs loading time.
+ */
+const FILE_CACHE_BYTES = 384 * 1024 * 1024;
+export const MAX_PUBLISH_BYTES = 256 * 1024 * 1024;
 export const MAX_PROJECTS = 500;
 const MAX_VERSIONS = 60;
 
@@ -67,11 +73,35 @@ export class ModelStudioStore {
   publishedList(): PublishedModel[] { return [...this.published.values()].sort((a, b) => a.asset - b.asset); }
   publishedModel(asset: number): PublishedModel | undefined { return this.published.get(asset); }
 
+  /**
+   * A published model's file. The latest ones are kept in memory (up to 384 MB together) and a
+   * download already being read is shared: a crowd joining a map does not read a big model from
+   * the database once per player.
+   */
   async publishedFile(asset: number): Promise<Buffer | null> {
-    if (!this.published.has(asset)) return null;
-    const { rows } = await this.db.query<{ glb: Buffer }>('SELECT glb FROM model_assets WHERE asset = $1', [asset]);
-    return rows[0]?.glb ?? null;
+    const model = this.published.get(asset);
+    if (!model) return null;
+    const key = `${asset}:${model.version}`, hit = this.fileCache.get(key);
+    if (hit) { this.fileCache.delete(key); this.fileCache.set(key, hit); return hit; }
+    let pending = this.fileReads.get(key);
+    if (!pending) {
+      pending = this.db.query<{ glb: Buffer }>('SELECT glb FROM model_assets WHERE asset = $1', [asset]).then(({ rows }) => {
+        const glb = rows[0]?.glb ?? null;
+        if (glb) {
+          for (const k of this.fileCache.keys()) if (k.startsWith(`${asset}:`)) this.fileCache.delete(k);
+          this.fileCache.set(key, glb);
+          let total = 0;
+          for (const b of this.fileCache.values()) total += b.length;
+          for (const [k, b] of this.fileCache) { if (total <= FILE_CACHE_BYTES || this.fileCache.size <= 1) break; this.fileCache.delete(k); total -= b.length; }
+        }
+        return glb;
+      }).finally(() => this.fileReads.delete(key));
+      this.fileReads.set(key, pending);
+    }
+    return pending;
   }
+  private readonly fileCache = new Map<string, Buffer>();
+  private readonly fileReads = new Map<string, Promise<Buffer | null>>();
 
   /* ------------------------------------------------------------------ projects */
 
@@ -262,7 +292,7 @@ export class ModelStudioStore {
       while (this.published.has(asset)) if (++asset > STUDIO_MODEL_ASSET_MAX) throw new Error('Đã hết chỗ cho model mới (tối đa 1000).');
     }
     const out = await this.exportDoc(doc, 'game');
-    if (out.glb.length > MAX_FILE_BYTES) throw new Error(`Model xuất ra ${(out.glb.length / 1024 / 1024).toFixed(1)} MB — quá lớn (tối đa 40 MB): giảm độ phân giải texture.`);
+    if (out.glb.length > MAX_PUBLISH_BYTES) throw new Error(`Model xuất ra ${(out.glb.length / 1024 / 1024).toFixed(1)} MB — quá lớn (tối đa ${MAX_PUBLISH_BYTES / 1024 / 1024} MB): giảm độ phân giải texture của vài vật liệu.`);
     // Bounds of the model and its placed game models (so a map reserves room for its yard too).
     const tris = glbTriangles(out.glb, false);
     const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];

@@ -38,21 +38,32 @@ export interface ExportResult { glb: Uint8Array; refs: AssetPlacement[]; warning
 function srgbToLinear(c: number): number { return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }
 
 /** glTF materials and images for the project's materials (each texture set encoded once). */
-function materialTable(doc: ModelDoc, scene: GltfScene, opts: ExportOptions, warnings: string[]): Map<string, { index: number; scale: number; noCollide: number }> {
+function materialTable(doc: ModelDoc, scene: GltfScene, opts: ExportOptions, warnings: string[], used?: ReadonlySet<string>): Map<string, { index: number; scale: number; noCollide: number }> {
   const table = new Map<string, { index: number; scale: number; noCollide: number }>();
+  // Identical images (the same file or the same generated texture) stored once.
+  const images = new Map<string, number>();
+  const keyOf = (b: Uint8Array) => { let h = 2166136261; for (let i = 0; i < b.length; i += Math.max(1, b.length >> 14)) h = Math.imul(h ^ b[i]!, 16777619); return `${b.length}:${h >>> 0}`; };
+  const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const store = (mime: string, bytes: Uint8Array, name: string): number => {
+    const k = keyOf(bytes), at = images.get(k);
+    if (at !== undefined && same(scene.images[at]!.bytes, bytes)) return at;
+    scene.images.push({ mime, bytes, name }); images.set(k, scene.images.length - 1);
+    return scene.images.length - 1;
+  };
   for (const m of doc.materials) {
+    // The game model carries only the materials something is drawn with.
+    if (used && !used.has(m.id)) continue;
     const size = m.resolution ?? opts.textureSize ?? 512;
     let generated: ReturnType<typeof materialTextures> | null = null;
     const set = () => (generated ??= materialTextures(m, size));
     const blend = m.opacity < .99;
-    const img = (bytes: Uint8Array, name: string) => { scene.images.push({ mime: 'image/png', bytes, name }); return scene.images.length - 1; };
+    const img = (bytes: Uint8Array, name: string) => store('image/png', bytes, name);
     // A real texture set (downloaded or painted) when its files are there, else the generated one.
     const file = (id: string | undefined, name: string, what: string) => {
       if (!id) return null;
       const f = opts.imageFile?.(id);
       if (!f) { warnings.push(`Vật liệu "${m.name}": thiếu ảnh ${what} (${id}), dùng texture sinh tự động.`); return null; }
-      scene.images.push({ mime: f.mime, bytes: f.bytes, name: `${m.id}_${name}` });
-      return scene.images.length - 1;
+      return store(f.mime, f.bytes, `${m.id}_${name}`);
     };
     const albedo = file(m.maps?.albedo ?? m.albedoFile, 'albedo', 'màu') ?? img(encodePng(set().size, set().size, set().albedo, opts.deflate, blend), `${m.id}_albedo`);
     const normal = file(m.maps?.normal, 'normal', 'normal') ?? img(encodePng(set().size, set().size, set().normal, opts.deflate, false), `${m.id}_normal`);
@@ -98,8 +109,8 @@ function decompose(m: Mat4): { t: [number, number, number]; yaw: number; scale: 
 
 export function exportModel(doc: ModelDoc, opts: ExportOptions): ExportResult {
   const scene = emptyScene(), warnings: string[] = [], refs: AssetPlacement[] = [];
-  const mats = materialTable(doc, scene, opts, warnings);
   const ev = evaluate(doc);
+  const mats = materialTable(doc, scene, opts, warnings, opts.mode === 'game' ? new Set(ev.draws.map((d) => d.material)) : undefined);
   let triangles = 0;
   const importScene = (file: string): number[] | null => {
     const bytes = opts.importFile?.(file);

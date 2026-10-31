@@ -201,7 +201,8 @@ describe('model studio: tools', () => {
     expect(s.doc.nodes.find((n) => n.id === 'w')).toMatchObject({ material: 'son' });
     expect(s.doc.materials.find((x) => x.id === 'son')?.source?.kind).toBe('ai');
     // Exported with the real maps (not the generated ones).
-    const out = exportModel(s.doc, { mode: 'editable', deflate, textureSize: 16, imageFile: (id) => ({ mime: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, id.length]) }) });
+    const out = exportModel(s.doc, { mode: 'editable', deflate, textureSize: 16, imageFile: (id) => ({ mime: 'image/jpeg', bytes: new Uint8Array([0xff, 0xd8, 0xff, ...new TextEncoder().encode(id)]) }) });
+    // (Six different files; identical bytes would be stored once.)
     expect(readGltf(out.glb).images.filter((i) => i.mime === 'image/jpeg')).toHaveLength(6);
   });
 
