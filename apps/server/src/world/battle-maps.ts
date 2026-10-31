@@ -52,6 +52,8 @@ export class BattleMapService {
     private readonly createMatch: (world: WorldService, worldId: string) => GameServer,
     /** Runtime-registered models a map may place (Model Studio): its workers and players get them. */
     private readonly extraAssets: () => AssetDefinitionInput[] = () => [],
+    /** Generator threads per map: battlefield matches with many bots ask a lot of one map. */
+    private readonly workers = 1,
   ) {}
 
   /** The runtime models a map places (its parts or their composites). */
@@ -144,7 +146,7 @@ export class BattleMapService {
 
   private async build(id: string, name: string, thumbnail: string | null, seaLevel: number, map: AuthoredMap, updatedAt: string, warfare: WarfareLayout | null = null, modes: WorldMapMode[] = ['battle-royale']): Promise<Entry> {
     const size = map.terrainGrid?.size ?? BATTLE_MAP.sizeChunks * 32;
-    const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, 1, this.cacheSize, this.log, this.usedAssets(map));
+    const world = new WorldService({ seed: normalizeSeed(`br-${id}`), sizeChunks: Math.round(size / 32), seaLevel, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', battleIsland: map as never }, this.registry, this.workers, this.cacheSize, this.log, this.usedAssets(map));
     await world.start();
     // A fixed map: chunks generated once, kept on disk, the rest baked in the background.
     if (this.bakeRoot) { world.bakeTo(this.bakeRoot); void world.bake(); }

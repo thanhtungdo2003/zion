@@ -1654,7 +1654,9 @@ export class GameServer {
       this.flag(p, 'sequence_replay', { seq: msg.s, last: p.lastReceivedSeq });
       return;
     }
-    if (p.lastReceivedSeq >= 0 && msg.s > p.lastReceivedSeq + 1) this.flag(p, 'sequence_gap', { gap: msg.s - p.lastReceivedSeq });
+    // A gap is no sign of cheating: a client whose socket backs up (lag) drops inputs it cannot
+    // send, and fewer inputs only means less movement. Counted as suspicion, a lag spike got
+    // honest players kicked by the anti-cheat.
     p.lastReceivedSeq = msg.s;
     if (p.inputs.length >= MAX_QUEUED_INPUTS) {
       p.inputs.shift();
@@ -3791,14 +3793,16 @@ export class GameServer {
     for (const p of this.players.values()) if (this.tick % 2 === 0 || p.vehicleId) this.vehicles.send(p, now);
 
     if (this.tick % PHYSICS_UPDATE_TICKS === 0) {
-      const centers: Array<[number, number]> = [];
+      const centers: Array<[number, number]> = [], background: Array<[number, number]> = [];
       for (const p of this.players.values()) centers.push([p.chunkX, p.chunkZ]);
       for (const c of this.joining.values()) centers.push(c);
-      if (this.bots) centers.push(...this.bots.centers());
+      if (this.bots) background.push(...this.bots.centers());
       // The battlefield's fixed places stay loaded with nobody near: a side whose base is far from
       // every player (bots queued to deploy are dead, they hold no ground) still needs it to deploy.
-      if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) centers.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
-      this.physics.update(centers);
+      if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) background.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
+      // Survival and the rest: bots as before (they share players' ground).
+      if (!this.fixedMap) { centers.push(...background); background.length = 0; }
+      this.physics.update(centers, background);
     }
 
     this.stepGrenades(now);
@@ -4095,9 +4099,8 @@ export class GameServer {
   private tryAttack(p: Player, now: number, renderTime: number | undefined, blade?: MeleeSpec): void {
     if (now < p.attackReadyAt - (BLADE_COMBO_WEAPONS.has(p.weapon) && blade ? BLADE_COMBO_TOLERANCE_MS : FIRE_TOLERANCE_MS)) return;
     if (!this.life.spend(p.life, this.attackStaminaCost(p))) return;
-    if (renderTime !== undefined && (renderTime > now + 1000 || renderTime < now - 2000)) {
-      this.flag(p, 'rewind_out_of_window', { delta: Math.round(now - renderTime) });
-    }
+    // (A render time far off is lag, not cheating: the rewind is clamped anyway. Flagged per shot,
+    // holding the trigger through a lag spike got honest players kicked by the anti-cheat.)
     if (blade && BLADE_COMBO_WEAPONS.has(p.weapon)) {
       // One-handed blade: the next step of the combo, timed and weighted by that step.
       const step = nextBladeStep(p.bladeStep, p.bladeReadyAt, now), timing = bladeStepTiming(blade, step), c = BLADE_COMBO[step]!;

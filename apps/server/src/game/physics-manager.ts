@@ -73,14 +73,22 @@ export class PhysicsChunkManager {
     return this.world.generator.inWorld(cx, cz);
   }
 
-  /** Loads one chunk into the collision world (idempotent, de-duplicated). */
-  load(cx: number, cz: number): Promise<void> {
+  /**
+   * Loads one chunk into the collision world (idempotent, de-duplicated). `priority`: players need
+   * theirs first (Physics); bots' ground waits behind the players' own terrain (Lod1), or a few
+   * dozen roaming bots kept the map's generator busy and players' terrain never came.
+   */
+  load(cx: number, cz: number, priority: ChunkPriority = ChunkPriority.Physics): Promise<void> {
     const key = chunkKey(cx, cz);
     if (this.loaded.has(key) || !this.inWorld(cx, cz)) return Promise.resolve();
     const pending = this.loading.get(key);
-    if (pending) return pending;
+    if (pending) {
+      // Queued for a bot and now a player needs it: moved to the front.
+      if (priority === ChunkPriority.Physics) this.world.getChunk(cx, cz, 0, priority).catch(() => undefined);
+      return pending;
+    }
     const p = this.world
-      .getChunk(cx, cz, 0, ChunkPriority.Physics)
+      .getChunk(cx, cz, 0, priority)
       .then((rec) => {
         const filter = this.propFilter;
         const col = buildChunkCollision(filter ? { ...rec.data, props: rec.data.props.filter((p) => filter(cx, cz, p)) } : rec.data, this.registry);
@@ -122,7 +130,13 @@ export class PhysicsChunkManager {
    * Requests chunks around the given player chunk positions and evicts chunks no player is near.
    * Called periodically from the tick loop.
    */
-  update(centers: ReadonlyArray<readonly [number, number]>): void {
+  update(centers: ReadonlyArray<readonly [number, number]>, background: ReadonlyArray<readonly [number, number]> = []): void {
+    // Bots and fixed places: the ground right round them, behind the players' needs.
+    for (const [cx, cz] of background) {
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        this.load(cx + dx, cz + dz, ChunkPriority.Lod1).catch((err: unknown) => this.logger.error({ err, cx: cx + dx, cz: cz + dz }, 'physics chunk load failed'));
+      }
+    }
     for (const [cx, cz] of centers) {
       for (let dz = -PREFETCH_RADIUS; dz <= PREFETCH_RADIUS; dz++) {
         for (let dx = -PREFETCH_RADIUS; dx <= PREFETCH_RADIUS; dx++) {

@@ -155,7 +155,7 @@ async function main(): Promise<void> {
     const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
     return match;
-  }, () => modelStudio.definitions());
+  }, () => modelStudio.definitions(), Math.max(1, Math.min(2, config.WORLDGEN_WORKERS)));
   battleMaps.bakeRoot = config.CHUNK_BAKE_DIR || null;
   await battleMaps.load();
   // Infection ("Lây Nhiễm"): the small walled night town, its own rooms of humans and bots.
