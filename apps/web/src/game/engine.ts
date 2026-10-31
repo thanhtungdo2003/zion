@@ -591,6 +591,8 @@ export class GameEngine {
   private passenger = false;
   /** Battlefield, aboard: the camera behind the vehicle (C) instead of the seat's own view. */
   private vehicleChase = false;
+  /** This frame's camera is the pilot's seat, fixed to the airframe (the mouse does not turn it). */
+  private airframeView = false;
   private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private readonly tankSight = new TankSight();
@@ -3663,7 +3665,8 @@ export class GameEngine {
 
   private updateShoulderAim(px: number, py: number, pz: number): void {
     if (!this.mouseLook) return;
-    this.camera.rotation.set(this.input.pitch, this.input.yaw, this.camera.rotation.z, 'YXZ');
+    // (The pilot looks where the nose points, climbing or diving: the aim keeps that view.)
+    if (!this.airframeView) this.camera.rotation.set(this.input.pitch, this.input.yaw, this.camera.rotation.z, 'YXZ');
     this.camera.updateMatrixWorld(true);
     this.raycaster.setFromCamera(this.ndc.set(0, 0), this.camera);
     const ray = this.raycaster.ray;
@@ -3935,7 +3938,9 @@ export class GameEngine {
     const cam = this.camera;
     const vehicle = this.local?.riding && !this.passenger && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
     const chase = this.welcome?.mode === 'warfare' ? this.vehicleChase : true;
+    this.airframeView = false;
     if (vehicle && isAircraft(vehicle.kind) && !(this.welcome?.mode === 'warfare' && chase)) {
+      this.airframeView = true;
       // The pilot's seat: first person through the windscreen, the view fixed to the airframe
       // (it pitches, banks and shakes with it), the instrument panel below.
       const eye = this.vehicles!.eye(this.welcome!.playerId) ?? vehiclePoint(vehicle, 0, 2, 0);

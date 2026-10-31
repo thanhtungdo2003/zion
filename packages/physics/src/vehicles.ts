@@ -1,4 +1,4 @@
-import { VEHICLE_ROLES, VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, tyreHandling, vehicleBasis, vehiclePoint, type VehicleKind, type VehicleState, type VehicleMotion } from '@zion/shared';
+import { VEHICLE_ROLES, VEHICLES, VEHICLE_EXPLODE_DELAY, createVehicleMotion, isAircraft, tyreHandling, vehicleBasis, vehiclePoint, type VehicleKind, type VehicleState, type VehicleMotion } from '@zion/shared';
 import { makeBox, shapeAABB, makeContact, type BoxShape, type Collider } from './shapes';
 import { capsuleVsBox } from './geometry';
 import { Layer, Mask } from './layers';
@@ -48,7 +48,8 @@ const hitBounds = new Map<VehicleKind, ReturnType<typeof vehicleHitBounds>>();
 export function damageVehicle(v: VehicleState, damage: number, now: number): void {
   if (v.exploded || v.health <= 0 || damage <= 0 || !Number.isFinite(damage)) return;
   v.health = Math.max(0, v.health - damage);
-  if (v.health === 0) { v.explodeAt = now + VEHICLE_EXPLODE_DELAY; v.speed = 0; }
+  // (An aircraft keeps its way: shot down, it falls on along its path.)
+  if (v.health === 0) { v.explodeAt = now + VEHICLE_EXPLODE_DELAY; if (!isAircraft(v.kind)) v.speed = 0; }
 }
 const hit = makeRayHit();
 const GRAVITY=9.81;

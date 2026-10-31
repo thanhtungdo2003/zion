@@ -3797,6 +3797,14 @@ export class GameServer {
       for (const p of this.players.values()) centers.push([p.chunkX, p.chunkZ]);
       for (const c of this.joining.values()) centers.push(c);
       if (this.bots) background.push(...this.bots.centers());
+      // A vehicle on the move or in the air needs its ground at once, whoever is aboard (or nobody:
+      // a helicopter shot down with its crew dead hung in the air where no ground was loaded). The
+      // ground two seconds ahead too.
+      for (const v of this.vehicles.states.values()) {
+        if (v.motion?.grounded !== false && Math.abs(v.speed) < 1) continue;
+        centers.push([Math.floor(v.x / CHUNK_SIZE), Math.floor(v.z / CHUNK_SIZE)]);
+        if (Math.abs(v.speed) > 8) centers.push([Math.floor((v.x - Math.sin(v.yaw) * v.speed * 2) / CHUNK_SIZE), Math.floor((v.z - Math.cos(v.yaw) * v.speed * 2) / CHUNK_SIZE)]);
+      }
       // The battlefield's fixed places stay loaded with nobody near: a side whose base is far from
       // every player (bots queued to deploy are dead, they hold no ground) still needs it to deploy.
       if (this.warfare && this.wfReady) for (const p of [this.wfBases.blue, this.wfBases.red, ...this.wfLayout.zones, ...this.wfLayout.vehicleSpawns]) background.push([Math.floor(p.x / CHUNK_SIZE), Math.floor(p.z / CHUNK_SIZE)]);
