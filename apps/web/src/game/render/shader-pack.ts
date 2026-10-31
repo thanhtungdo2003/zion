@@ -114,6 +114,9 @@ export class ShaderPack {
    * cooler grade); `world`: draws the scene into the target instead of the plain render pass
    * (the zombie outline uses its own render).
    */
+  /** The map's grade (environment): saturation and contrast as factors on the pack's own. */
+  mapGrade = { saturation: 1, contrast: 1 };
+
   render(camera: PerspectiveCamera, sunDir: Vector3, night: number, elapsed: number, world?: (target: WebGLRenderTarget) => void, nearBlur = 0): void {
     this.renderer.getDrawingBufferSize(this.size);
     if (this.composer.readBuffer.width !== this.size.x || this.composer.readBuffer.height !== this.size.y) {
@@ -128,6 +131,8 @@ export class ShaderPack {
     u.uVisible!.value = ahead && sunDir.y > -.02 ? Math.min(1, (sunDir.y + .02) * 6) * (1 - night) : 0;
     const g = this.grade.uniforms;
     g.uTime!.value = elapsed % 100;
+    g.uSaturation!.value = 1.14 * this.mapGrade.saturation;
+    g.uContrast!.value = 1.08 * this.mapGrade.contrast;
     g.uWarm!.value.setRGB(1.06 - night * .1, .98 - night * .04, .9 + night * .1);
     g.uCool!.value.setRGB(.92 - night * .08, .97, 1.08 + night * .08);
     this.bloom.strength = .45 + night * .35;

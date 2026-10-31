@@ -145,6 +145,8 @@ import { loadPlayerCharacter, type CharacterTemplate } from './render/character-
 import { BuildingController } from './building-controller';
 import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
+import { EnvironmentSystem, applyEnvironmentToGround, type EnvEffectsQuality } from './render/environment';
+import { readEnvironment } from '@zion/shared';
 import { weaponOptic } from '@zion/shared';
 import { ARCHITECT_MODEL_URL, ARCHITECT_NAME } from '@zion/shared';
 import { BLADE_COMBO_WEAPONS, EDGED_MELEE_WEAPONS, LONG_LUNGE_CLIP, bladeStepTiming, meleeSwing, type MeleeSpec } from '@zion/shared';
@@ -284,6 +286,12 @@ export class GameEngine {
   private readonly resize: ResizeObserver;
   private readonly terrainMaterial = groundMaterial();
   private readonly groundTextures = new GroundTextures(this.terrainMaterial);
+  /**
+   * A Studio map's weather, sky and local climate (none: the plain sky as before). The ground
+   * reads the map's climate (tint, wetness, puddles) from the start, idle without one.
+   */
+  private environment: EnvironmentSystem | null = (applyEnvironmentToGround(this.terrainMaterial), null);
+  private readonly envRoof = makeRayHit();
   /** Blast shock waves: clear spheres bending the light as they race out. */
   private readonly shockwaves = new Shockwaves();
   private readonly terrainGroup = new Group();
@@ -945,6 +953,7 @@ export class GameEngine {
     this.worldMap.dispose();
     this.vegetation?.dispose();
     this.sky?.dispose();
+    this.environment?.dispose(); this.environment = null;
     for (const m of this.meshes.values()) this.disposeChunkMeshes(m);
     this.meshes.clear();
     this.buildQueue.clear();
@@ -1411,6 +1420,15 @@ export class GameEngine {
     this.input.yaw = m.spawn.yaw;
     this.sky?.dispose();
     this.sky = new SkySystem(this.scene, world.cosmeticSeed);
+    this.environment?.dispose(); this.environment = null;
+    if (world.environment) {
+      const env = readEnvironment(world.environment), s = settingsStore.get();
+      // Effects quality: the player's graphics settings, capped by what the map asks.
+      const own: EnvEffectsQuality = s.renderScale < .7 ? 'low' : s.renderScale < .9 ? 'medium' : s.shaders ? 'ultra' : 'high';
+      const order: EnvEffectsQuality[] = ['low', 'medium', 'high', 'ultra'];
+      const quality = env.quality === 'auto' ? own : order[Math.min(order.indexOf(own), order.indexOf(env.quality))]!;
+      this.environment = new EnvironmentSystem(this.scene, env, world.sizeChunks * world.chunkSize, world.weatherSeed ?? 0, quality);
+    }
     this.waterMaterial = createWaterMaterial(true);
     this.oceanMaterial = createWaterMaterial(false, getWaterUniforms(this.waterMaterial));
     this.ocean = new Mesh(createOceanGeometry(), this.oceanMaterial);
@@ -2397,8 +2415,13 @@ export class GameEngine {
 
     // Day/night: server time of day, advanced locally between snapshots.
     const daySec = this.welcome!.world.dayLengthSec;
-    const tod = this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' || this.welcome!.mode === 'waves' ? this.infectionRules.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1;
+    const tod = this.environment?.timeOfDay ?? (this.welcome!.mode === 'battle-royale' ? BATTLE_TIME_OF_DAY : this.welcome!.mode === 'infection' || this.welcome!.mode === 'waves' ? this.infectionRules.timeOfDay : (this.timeOfDay + (now - this.todAt) / 1000 / daySec) % 1);
     this.focus.set(px, py, pz);
+    if (this.environment) {
+      const col = store.collision;
+      this.environment.update(dt, this.camera.position, this.clock.now() / 1000, this.sky,
+        (x, y, z) => col.raycast(x, y, z, 0, 1, 0, 30, Mask.LineOfSight, this.envRoof), (x, z) => col.terrainHeight(x, z));
+    }
     this.sky.update(tod, this.elapsed, this.focus, this.clock.now() / 1000);
     this.campLights?.update(store.chunks.values(), px, pz, this.sky.night, now);
     this.updateRockMoss(store.chunks, px, pz, now);
@@ -2438,7 +2461,7 @@ export class GameEngine {
     // Night vision amplifies the light inside the lens (everything else is the scope housing),
     // so dark scenes read clearly without seeing through anything that blocks the view.
     const lensSight = this.lensSight;
-    const exposure = settingsStore.get().brightness * (nightVision && !this.lensScoped ? 3.2 : 1);
+    const exposure = settingsStore.get().brightness * (nightVision && !this.lensScoped ? 3.2 : 1) * (this.environment?.environment.grading.exposure ?? 1);
     if (Math.abs(this.renderer.toneMappingExposure - exposure) > 1e-3) this.renderer.toneMappingExposure = exposure;
     if (hud.aiming !== this.aiming || hud.scoped !== this.scoped || hud.scopeMagnification !== scopeMagnification || hud.reticle !== reticle || hud.nightVision !== nightVision || hud.nvScope !== nvScope || hud.lensScope !== lensSight) {
       this.hud.set({ aiming: this.aiming, scoped: this.scoped, scopeMagnification, reticle, nightVision, nvScope, lensScope: lensSight });
@@ -2493,6 +2516,7 @@ export class GameEngine {
       this.shaderPack ??= new ShaderPack(this.renderer, this.scene, this.camera);
       const outlined = this.outlinedZombies.length > 0;
       if (outlined) this.zombieOutline ??= new ZombieOutline();
+      { const g = this.environment?.environment.grading, w = this.environment?.frame?.weather; this.shaderPack.mapGrade.saturation = (g?.saturation ?? 1) * (w?.saturation ?? 1); this.shaderPack.mapGrade.contrast = g?.contrast ?? 1; }
       this.shaderPack.render(this.camera, this.sky.sunDir, this.sky.night, this.elapsed, outlined ? (target) => {
         const before = this.renderer.getRenderTarget();
         this.renderer.setRenderTarget(target);

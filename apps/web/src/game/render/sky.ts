@@ -163,6 +163,9 @@ const MOON = new Color(0x8ea6ff);
 /** Ambient sky fill at night (moonlit, readable but clearly night). */
 const NIGHT_FILL = new Color(0x6a7ca6);
 const WHITE = new Color(0xffffff);
+const FLASH = new Color(0xdfe6ff);
+const TMP = new Color();
+const UP = new Vector3(0, 1, 0);
 /** Soft dusk/dawn sky fill so twilight stays readable. */
 const TWILIGHT_FILL = new Color(0xc8b8c8);
 /** Axial tilt: noon sun sits towards +Z (south; the cold north is at z = 0). */
@@ -197,6 +200,12 @@ export class SkySystem {
   night = 0;
   /** Overall scene brightness factor for custom shaders. */
   lightLevel = 1;
+  /**
+   * The weather over the sky (render/environment.ts sets it each frame; null: the plain sky).
+   * cloud 0…1, sun and ambient as factors, fog 0…3 haze, its colour where `fogMix` > 0,
+   * warmth −1…1, flash a lightning flash 0…1, azimuth turning the sun's path (radians).
+   */
+  weather: { cloud: number; sun: number; ambient: number; fog: number; fogColor: Color; fogMix: number; warmth: number; flash: number; azimuth: number } | null = null;
 
   constructor(private readonly scene: Scene, cosmeticSeed = 0) {
     this.cloudMaterial.uniforms.uSeed!.value = (cosmeticSeed >>> 0) % 997;
@@ -267,6 +276,8 @@ export class SkySystem {
     const angle = (timeOfDay - 0.25) * Math.PI * 2;
     const s = Math.sin(angle);
     this.sunDir.set(Math.cos(angle), s * Math.cos(LATITUDE), s * Math.sin(LATITUDE)).normalize();
+    const w = this.weather;
+    if (w?.azimuth) this.sunDir.applyAxisAngle(UP, w.azimuth);
     const e = this.sunDir.y;
     sampleKeys(e, this.top, this.horizon);
     this.night = smooth(0.02, -0.2, e);
@@ -303,6 +314,24 @@ export class SkySystem {
     this.lightLevel = Math.min(1, 0.5 + 0.5 * day + 0.5 * twilight);
 
     this.fog.color.copy(this.horizon).multiplyScalar(0.92);
+    if (w) {
+      // Cloud: the sun's light is cut and spread over the whole sky (softer, flatter light);
+      // haze closes in the view; a flash lights everything for a moment.
+      const warm = w.warmth;
+      this.light.intensity *= w.sun;
+      this.light.color.multiply(TMP.setRGB(1 + .08 * warm, 1 + .01 * warm, 1 - .1 * warm));
+      this.hemi.intensity = this.hemi.intensity * w.ambient + w.flash * 3;
+      if (w.flash) this.hemi.color.lerp(FLASH, Math.min(1, w.flash));
+      const grey = w.cloud * w.cloud * .55;
+      this.top.lerp(TMP.copy(this.horizon).multiplyScalar(.85), grey);
+      this.horizon.lerp(TMP.setRGB(.62, .64, .66).multiplyScalar(.4 + .6 * this.lightLevel), grey * .7);
+      this.fog.color.copy(this.horizon).multiplyScalar(.92);
+      if (w.fogMix > 0) this.fog.color.lerp(TMP.copy(w.fogColor).multiplyScalar(.35 + .65 * this.lightLevel), Math.min(1, w.fogMix));
+      if (w.flash) { this.top.lerp(FLASH, w.flash * .5); this.fog.color.lerp(FLASH, w.flash * .3); }
+      const far = 560 / (1 + 1.8 * Math.max(0, w.fog - .15));
+      this.fog.far = far; this.fog.near = Math.max(3, 35 * far / 560);
+      this.cloudMaterial.uniforms.uCover!.value = .78 - w.cloud * .62;
+    } else { this.fog.far = 560; this.fog.near = 35; this.cloudMaterial.uniforms.uCover!.value = .52; }
     this.material.uniforms.uNight!.value = this.night;
     // Turned with the sun: as authored at midnight.
     this.material.uniforms.uSkyTurn!.value = -(angle + Math.PI / 2);
