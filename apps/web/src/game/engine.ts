@@ -4058,13 +4058,14 @@ export class GameEngine {
         const shake = (this.effects?.shake ?? 0) * 0.25;
         if (shake > 0) cam.position.add(this.focus.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
         cam.rotation.set(this.input.pitch + this.feel.pitch, this.input.yaw + this.feel.yaw, -this.leanBlend * .2 + this.feel.roll, 'YXZ');
-        // First person: the head bobs in step with the run (steadied while aiming).
-        if (this.firstPerson && this.viewModel) {
+        // First person: the head bobs in step with the run (steadied while aiming) — on foot only:
+        // aboard a vehicle the seat carries the eye.
+        if (this.firstPerson && this.viewModel && !this.local?.riding) {
           const b = this.viewModel.headBob;
           cam.position.y += b.y; cam.translateX(b.x); cam.rotateZ(b.roll);
         }
         if (this.feel.shake) cam.position.add(this.focus.set((Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6, (Math.random() - .5) * this.feel.shake * .6));
-        if (this.firstPerson && this.local && !this.local.dead && this.hud.get().downed === null) {
+        if (this.firstPerson && this.local && !this.local.dead && !this.local.riding && this.hud.get().downed === null) {
           const rolling=this.local.state.rollTicks>0;
           const alongLook=Math.abs(Math.cos(this.local.state.rollYaw-this.input.yaw))>.65;
           if(!(rolling&&alongLook&&this.localAvatar?.rollCamera(cam)))
