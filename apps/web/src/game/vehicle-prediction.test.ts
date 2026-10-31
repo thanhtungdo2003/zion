@@ -73,7 +73,7 @@ describe('vehicle prediction', () => {
       const firstStop = (zs: number[]) => zs.findIndex((z, i) => i > 10 && zs[i - 1]! - z < .05 && z < 135);
       expect(firstStop(l.predicted)).toBeLessThan(firstStop(l.authoritative));
       // Our prediction runs `latency` ticks ahead of the server's; where they overlap they agree.
-      expect(l.client.stats.error).toBeLessThan(.1);
+      expect(l.client.stats.error).toBeLessThan(.25);
     } finally { l.dispose(); }
   });
 

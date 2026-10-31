@@ -23,8 +23,13 @@ const clone = (v: VehicleState): VehicleState => {
   return { ...v, motion: { ...m, suspension: [...m.suspension] } };
 };
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-/** Within these the prediction stands: metres, radians, m/s. */
-const TOLERANCE = { position: .05, angle: .02, velocity: .25 };
+/**
+ * Within these the prediction stands: metres, radians, m/s. The body's height and tilt on its
+ * springs differ a little between two simulations of the same drive; correcting each such
+ * difference put the body back on its springs to settle again, and the ride bounced (more so as
+ * the server lagged): the track over the ground and the heading are what must agree closely.
+ */
+const TOLERANCE = { position: .2, height: .35, heading: .05, tilt: .15, velocity: .8 };
 /** Beyond this the server moved the vehicle (teleport, reset): no easing. */
 const SNAP_DISTANCE = 6;
 const HISTORY = 120;
@@ -94,10 +99,11 @@ export class VehiclePredictor {
     this.history.splice(0, at + 1);
     const pm = predicted.motion!, sm = server.motion ?? createVehicleMotion(server.kind);
     const position = Math.hypot(server.x - predicted.x, server.y - predicted.y, server.z - predicted.z);
-    const angle = Math.max(Math.abs(wrap(server.yaw - predicted.yaw)), Math.abs(sm.pitch - pm.pitch), Math.abs(sm.roll - pm.roll));
-    const velocity = Math.hypot(server.speed - predicted.speed, (sm.lateral ?? 0) - (pm.lateral ?? 0), sm.vy - pm.vy);
+    const track = Math.hypot(server.x - predicted.x, server.z - predicted.z), height = Math.abs(server.y - predicted.y);
+    const heading = Math.abs(wrap(server.yaw - predicted.yaw)), tilt = Math.max(Math.abs(sm.pitch - pm.pitch), Math.abs(sm.roll - pm.roll));
+    const velocity = Math.hypot(server.speed - predicted.speed, (sm.lateral ?? 0) - (pm.lateral ?? 0));
     this.stats.error = position; this.stats.maxError = Math.max(this.stats.maxError * .995, position);
-    if (position < TOLERANCE.position && angle < TOLERANCE.angle && velocity < TOLERANCE.velocity) return;
+    if (track < TOLERANCE.position && height < TOLERANCE.height && heading < TOLERANCE.heading && tilt < TOLERANCE.tilt && velocity < TOLERANCE.velocity) return;
     if (position > SNAP_DISTANCE) { this.reset(server); return; }
     // Re-simulate from the server's state with the inputs it has not seen yet.
     // The server does not send its wheels' spin or the engine's rpm: ours at that input stand in.
