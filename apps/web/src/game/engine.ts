@@ -145,6 +145,7 @@ import { loadPlayerCharacter, type CharacterTemplate } from './render/character-
 import { BuildingController } from './building-controller';
 import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
+import { ImpostorCache } from './render/impostor-cache';
 import { EnvironmentSystem, applyEnvironmentToGround, type EnvEffectsQuality } from './render/environment';
 import { readEnvironment } from '@zion/shared';
 import { weaponOptic } from '@zion/shared';
@@ -292,6 +293,43 @@ export class GameEngine {
    */
   private environment: EnvironmentSystem | null = (applyEnvironmentToGround(this.terrainMaterial), null);
   private readonly envRoof = makeRayHit();
+  /** Depth impostors of distant trees (render/impostor.ts). */
+  private impostors: ImpostorCache | null = null;
+
+  /**
+   * Distant vegetation benchmark (browser console: \`await zionVegetationBench(6)\`): the same view
+   * drawn with the old simplified far models, then with depth impostors; frame time, draw calls,
+   * triangles, instances and impostor texture memory for each. Stand still on a hill facing a
+   * forest for comparable numbers.
+   */
+  async vegetationBenchmark(seconds = 6): Promise<Array<Record<string, number | string>>> {
+    const props = this.props;
+    if (!props) return [];
+    const out: Array<Record<string, number | string>> = [];
+    for (const mode of ['proxy', 'impostor'] as const) {
+      props.farMode = mode; props.markDirty();
+      if (mode === 'impostor') this.impostors?.bakeAll();
+      // Settle (rebuild, bakes), then measure.
+      await new Promise((r) => setTimeout(r, 1500));
+      const frames: number[] = [];
+      let calls = 0, tris = 0, last = performance.now();
+      await new Promise<void>((done) => {
+        const end = last + seconds * 1000;
+        const tick = () => {
+          const t = performance.now(); frames.push(t - last); last = t;
+          calls += this.renderer.info.render.calls; tris += this.renderer.info.render.triangles;
+          if (t < end) requestAnimationFrame(tick); else done();
+        };
+        requestAnimationFrame(tick);
+      });
+      frames.sort((a, b) => a - b);
+      const avg = frames.reduce((a, b) => a + b, 0) / frames.length;
+      out.push({ mode, frames: frames.length, avgMs: +avg.toFixed(2), p95Ms: +frames[Math.floor(frames.length * .95)]!.toFixed(2), drawCalls: Math.round(calls / frames.length), trianglesK: Math.round(tris / frames.length / 1000), instances: props.instanceCount,
+        ...(mode === 'impostor' && this.impostors ? { impostorModels: this.impostors.stats.models, impostorTextureMB: this.impostors.stats.textureMB, bakeMs: this.impostors.stats.bakeMs } : {}) });
+    }
+    props.farMode = 'impostor'; props.markDirty();
+    return out;
+  }
   /** Blast shock waves: clear spheres bending the light as they race out. */
   private readonly shockwaves = new Shockwaves();
   private readonly terrainGroup = new Group();
@@ -944,6 +982,7 @@ export class GameEngine {
     this.effects?.dispose();
     this.sounds?.dispose();
     this.props?.dispose();
+    this.impostors?.dispose(); this.impostors = null;
     this.building?.dispose();
     this.building = null;
     this.campLights?.dispose();
@@ -1454,7 +1493,12 @@ export class GameEngine {
     this.building.setWorld(world);
     this.slashes?.dispose();
     this.slashes = new SlashEffects(this.scene);
-    this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values());
+    // Distant trees: depth impostors baked on demand (larger views on the high preset).
+    this.impostors?.dispose();
+    this.impostors = new ImpostorCache(this.renderer, settingsStore.get().renderScale >= 1 ? 96 : 64);
+    this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values(), this.impostors);
+    this.impostors.onBaked = () => this.props?.markDirty();
+    if (typeof window !== 'undefined') (window as unknown as { zionVegetationBench?: (seconds?: number) => Promise<unknown> }).zionVegetationBench = (seconds) => this.vegetationBenchmark(seconds);
 
     this.vegetation = new VegetationRenderer(this.scene, (cx, cz) => this.store?.get(cx, cz), world.seaLevel, world.cosmeticSeed, world.camp, this.library, (asset) => {
       const def = this.registry.byNumericId(asset);
@@ -2237,6 +2281,7 @@ export class GameEngine {
 
     const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
     this.props?.update(px, pz, now, buildDeadline);
+    this.impostors?.pump(buildDeadline);
     this.processBuildQueue(px, pz, buildDeadline);
     this.vegetation?.update(px, pz, false, buildDeadline);
     if (this.effects) this.vegetation?.emitBurning(this.clock.now(), (x, y, z) => {

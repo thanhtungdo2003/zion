@@ -101,6 +101,11 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
 export class AssetLibrary {
   private glbActive = 0;
   private readonly glbWaiters: Array<() => void> = [];
+  /** A tree or big plant: drawn as a depth impostor beyond its model's range (render/impostor.ts). */
+  hasImpostor(numericId: number): boolean {
+    const def = this.registry.byNumericId(numericId);
+    return !!def && (def.category === 'tree' || def.category === 'vegetation') && def.bounds.radius > 1.2;
+  }
   inRange(numericId: number, distanceSquared: number): boolean {
     const def = this.registry.byNumericId(numericId);
     return !!def && distanceSquared <= def.render.maxDistance ** 2;

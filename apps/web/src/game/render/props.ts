@@ -2,6 +2,7 @@ import { DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, type BufferG
 import { farFoliageMaterial, farMaterial, simplifyAsset } from './far-lod';
 import { PROPS_MAX_LOD, propTransform, type ChunkData } from '@zion/shared';
 import type { AssetLibrary, AssetVisual } from './asset-library';
+import type { ImpostorCache } from './impostor-cache';
 
 interface Batch {
   matrices: Float32Array;
@@ -13,7 +14,17 @@ interface Batch {
   /** Any instance currently faded (so idle batches skip the attribute upload). */
   fading: boolean;
   hidden: Uint8Array;
+  /** Full models handing over to their impostors: the distance band (start, width) they dissolve over. */
+  band: [number, number] | null;
 }
+
+/** Batch keys: an asset id as is (full model), negated (simplified far model), or offset (impostors). */
+const IMPOSTOR_KEY = 1 << 20, IMPOSTOR_FAR_KEY = 2 << 20;
+/** Width of the hand-over from model to impostor (m). */
+const HANDOVER = 18;
+/** Beyond this, impostors drop their per-pixel depth and parallax (too small to tell). */
+const IMPOSTOR_FLAT_DISTANCE = 320;
+const assetOfKey = (key: number): number => (key >= IMPOSTOR_FAR_KEY ? key - IMPOSTOR_FAR_KEY : key >= IMPOSTOR_KEY ? key - IMPOSTOR_KEY : Math.abs(key));
 
 /** Beyond these distances (m, × draw distance) models switch to their simplified far form. */
 const TREE_LOD_DISTANCE = 70;
@@ -55,7 +66,11 @@ export class PropRenderer {
     private readonly scene: Scene,
     private readonly library: AssetLibrary,
     private readonly chunks: () => Iterable<ChunkData>,
+    /** Depth impostors for distant trees (none: the simplified far models, as before). */
+    private readonly impostors: ImpostorCache | null = null,
   ) {}
+  /** Benchmark switch: draw distant trees as 'impostor' (default) or the old simplified 'proxy' models. */
+  farMode: 'impostor' | 'proxy' = 'impostor';
 
   private readonly proxies = new Map<number, Proxy>();
   private distanceScale = 1;
@@ -91,7 +106,7 @@ export class PropRenderer {
 
   private batch(asset: number): Batch {
     let b = this.spareBatches.get(asset);
-    if (!b) this.spareBatches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), hidden: new Uint8Array(256), fading: false }));
+    if (!b) this.spareBatches.set(asset, (b = { matrices: new Float32Array(16 * 256), count: 0, spheres: new Float32Array(INFO * 256), fade: new Float32Array(256), hidden: new Uint8Array(256), fading: false, band: null }));
     return b;
   }
 
@@ -101,6 +116,7 @@ export class PropRenderer {
       b.fade.fill(0);
       b.hidden.fill(0);
       b.fading = false;
+      b.band = null;
     }
     const visuals = new Map<number, AssetVisual>();
     let scanned = 0;
@@ -109,7 +125,7 @@ export class PropRenderer {
       for (const p of chunk.props) {
         if (p.asset === 2202) continue;
         const location = propTransform(chunk, p);
-        if (!this.library.inRange(p.asset, (location.x - camX) ** 2 + (location.z - camZ) ** 2)) continue;
+        if (!this.library.inRange(p.asset, (location.x - camX) ** 2 + (location.z - camZ) ** 2) && !(this.impostors && this.farMode === 'impostor' && this.library.hasImpostor(p.asset))) continue;
         if (++scanned % 128 === 0) yield;
         let v = visuals.get(p.asset);
         if (!v) {
@@ -130,52 +146,80 @@ export class PropRenderer {
         // Max draw distance (high preset): full detail much further out, models drawn as far as streamed.
         const high = this.distanceScale >= 1;
         const max = v.def.render.maxDistance * this.distanceScale * (high ? 1.8 : 1), d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
-        if (d2 > max * max) continue;
-        // Distant models keep their place and shape, drawn simplified and flat (negative key).
         const lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * (high ? 2.4 : Math.max(.6, this.distanceScale));
-        const b = this.batch(v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset);
-        if ((b.count + 1) * 16 > b.matrices.length) {
-          const grown = new Float32Array(b.matrices.length * 2);
-          grown.set(b.matrices);
-          b.matrices = grown;
-          const sp = new Float32Array(b.spheres.length * 2);
-          sp.set(b.spheres);
-          b.spheres = sp;
-          b.fade = new Float32Array(b.fade.length * 2);
-          b.hidden = new Uint8Array(b.fade.length);
+        // Trees and big plants far off: depth impostors, as far as the world is streamed (never
+        // hidden for being far); the full model dissolves into its impostor over a short band.
+        const leafy = (v.def.category === 'tree' || v.def.category === 'vegetation') && v.def.bounds.radius > 1.2;
+        const impostor = leafy && this.farMode === 'impostor' && this.impostors ? this.impostors.ready(p.asset, v) : false;
+        let key: number;
+        if (impostor) {
+          const d = Math.sqrt(d2);
+          if (d < lod + HANDOVER) {
+            const full = this.batch(p.asset);
+            full.band = [lod, HANDOVER];
+            this.place(full, t, p.group);
+          }
+          if (d <= lod) { if (++scanned % 128 === 0) yield; continue; }
+          key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + p.asset;
+        } else {
+          if (d2 > max * max) continue;
+          // Distant models keep their place and shape, drawn simplified and flat (negative key).
+          key = v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset;
         }
-        const so = b.count * INFO;
-        b.spheres[so] = t.x;
-        b.spheres[so + 1] = t.y;
-        b.spheres[so + 2] = t.z;
-        b.spheres[so + 3] = t.rotY;
-        b.spheres[so + 4] = t.scale;
-        b.spheres[so + 5] = p.group ?? 0;
-        const c = Math.cos(t.rotY) * t.scale;
-        const s = Math.sin(t.rotY) * t.scale;
-        const m = b.matrices;
-        const o = b.count * 16;
-        m[o] = c;
-        m[o + 1] = 0;
-        m[o + 2] = -s;
-        m[o + 3] = 0;
-        m[o + 4] = 0;
-        m[o + 5] = t.scale;
-        m[o + 6] = 0;
-        m[o + 7] = 0;
-        m[o + 8] = s;
-        m[o + 9] = 0;
-        m[o + 10] = c;
-        m[o + 11] = 0;
-        m[o + 12] = t.x;
-        m[o + 13] = t.y;
-        m[o + 14] = t.z;
-        m[o + 15] = 1;
-        b.count++;
+        this.place(this.batch(key), t, p.group);
+        if (key >= IMPOSTOR_KEY) this.impostorLod = lod;
       }
       yield;
     }
+    this.publish();
+  }
 
+  /** Nearest distance at which impostors take over (for their material's fade-in). */
+  private impostorLod = TREE_LOD_DISTANCE;
+
+  /** Adds one instance to a batch. */
+  private place(b: Batch, t: { x: number; y: number; z: number; rotY: number; scale: number }, group: number | undefined): void {
+    if ((b.count + 1) * 16 > b.matrices.length) {
+      const grown = new Float32Array(b.matrices.length * 2);
+      grown.set(b.matrices);
+      b.matrices = grown;
+      const sp = new Float32Array(b.spheres.length * 2);
+      sp.set(b.spheres);
+      b.spheres = sp;
+      b.fade = new Float32Array(b.fade.length * 2);
+      b.hidden = new Uint8Array(b.fade.length);
+    }
+    const so = b.count * INFO;
+    b.spheres[so] = t.x;
+    b.spheres[so + 1] = t.y;
+    b.spheres[so + 2] = t.z;
+    b.spheres[so + 3] = t.rotY;
+    b.spheres[so + 4] = t.scale;
+    b.spheres[so + 5] = group ?? 0;
+    const c = Math.cos(t.rotY) * t.scale;
+    const s = Math.sin(t.rotY) * t.scale;
+    const m = b.matrices;
+    const o = b.count * 16;
+    m[o] = c;
+    m[o + 1] = 0;
+    m[o + 2] = -s;
+    m[o + 3] = 0;
+    m[o + 4] = 0;
+    m[o + 5] = t.scale;
+    m[o + 6] = 0;
+    m[o + 7] = 0;
+    m[o + 8] = s;
+    m[o + 9] = 0;
+    m[o + 10] = c;
+    m[o + 11] = 0;
+    m[o + 12] = t.x;
+    m[o + 13] = t.y;
+    m[o + 14] = t.z;
+    m[o + 15] = 1;
+    b.count++;
+  }
+
+  private publish(): void {
     // Keep the previous scene/occlusion data intact until the new buffers are complete.
     const old = this.batches;
     this.batches = this.spareBatches;
@@ -184,11 +228,16 @@ export class PropRenderer {
     const used = new Set<string>();
     for (const [asset, b] of this.batches) {
       if (b.count === 0) { this.batches.delete(asset); continue; }
-      const v = this.library.get(Math.abs(asset));
+      const v = this.library.get(assetOfKey(asset));
       if (!v) continue;
-      const far = asset < 0;
+      const far = asset < 0 || asset >= IMPOSTOR_KEY;
       let parts: Proxy['parts'] = v.parts;
-      if (far) { let proxy = this.proxies.get(-asset); if (!proxy) this.proxies.set(-asset, proxy = makeProxy(v)); parts = proxy.parts; }
+      if (asset < 0) { let proxy = this.proxies.get(-asset); if (!proxy) this.proxies.set(-asset, proxy = makeProxy(v)); parts = proxy.parts; }
+      else if (asset >= IMPOSTOR_KEY) {
+        const imp = this.impostors?.parts(assetOfKey(asset), asset >= IMPOSTOR_FAR_KEY, this.impostorLod, HANDOVER);
+        if (!imp) continue;
+        parts = imp;
+      }
       parts.forEach((part, i) => {
         const key = `${asset}:${i}`;
         used.add(key);
@@ -270,7 +319,12 @@ export class PropRenderer {
         const g = b.spheres[i * INFO + 5]!;
         const target = (g && groups.has(g)) || (!g && b.hidden[i]) ? 1 : 0;
         const f = b.fade[i]!;
-        if (f !== target) {
+        if (b.band) {
+          // Handing over to its impostor: dissolved by distance (the impostor's dither is the complement).
+          const o = i * INFO, d = Math.hypot(b.spheres[o]! - cx, b.spheres[o + 2]! - cz), k = Math.min(1, Math.max(0, (d - b.band[0]) / b.band[1]));
+          const lodFade = k * k * (3 - 2 * k), next = Math.max(lodFade, target > f ? Math.min(1, f + step) : Math.max(0, f - step));
+          if (next !== f) { b.fade[i] = next; changed = true; }
+        } else if (f !== target) {
           b.fade[i] = target > f ? Math.min(1, f + step) : Math.max(0, f - step);
           changed = true;
         }
@@ -278,6 +332,7 @@ export class PropRenderer {
       }
       if (!changed && !b.fading) continue;
       b.fading = any;
+      if (asset < 0 || asset >= IMPOSTOR_KEY) continue;
       const v = this.library.get(asset);
       if (!v) continue;
       v.parts.forEach((_part, k) => {
