@@ -243,7 +243,8 @@ export function impostorMaterial(atlas: ImpostorAtlas, opts: ImpostorOptions): M
         vImpB = impFrame(cB, impCenter, transformed, impCam, vRayB);
         vImpC = impFrame(cC, impCenter, transformed, impCam, vRayC);
         vec3 impWorld = (impM * vec4(impCenter, 1.0)).xyz;
-        vImpW = vec4(w, distance(cameraPosition, impWorld));
+        // Ground distance to its foot: the very measure the full model dissolves by (no gap between them).
+        vImpW = vec4(w, distance(cameraPosition.xz, impM[3].xz));
         vImpI = vec4(impM[0].x / impScale, -impM[0].z / impScale, impScale, 0.0);
         // Wind: the crown sways (more towards the top), each tree in its own rhythm.
         float h = clamp((transformed.y - impBottom) / (2.0 * impRadius), 0.0, 1.0);

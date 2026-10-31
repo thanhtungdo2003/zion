@@ -24,6 +24,8 @@ const IMPOSTOR_KEY = 1 << 20, IMPOSTOR_FAR_KEY = 2 << 20;
 const HANDOVER = 18;
 /** Beyond this, impostors drop their per-pixel depth and parallax (too small to tell). */
 const IMPOSTOR_FLAT_DISTANCE = 320;
+/** How far the camera may move before the instance lists are rebuilt (see update), plus slack. */
+const REBUILD_MARGIN = 40;
 const assetOfKey = (key: number): number => (key >= IMPOSTOR_FAR_KEY ? key - IMPOSTOR_FAR_KEY : key >= IMPOSTOR_KEY ? key - IMPOSTOR_KEY : Math.abs(key));
 
 /** Beyond these distances (m, × draw distance) models switch to their simplified far form. */
@@ -154,12 +156,15 @@ export class PropRenderer {
         let key: number;
         if (impostor) {
           const d = Math.sqrt(d2);
-          if (d < lod + HANDOVER) {
+          // Both forms dissolve by the live distance, but the lists are only rebuilt every few dozen
+          // metres walked: each keeps a margin past its band, or a tree walked towards (or away
+          // from) had neither form and vanished.
+          if (d < lod + HANDOVER + REBUILD_MARGIN) {
             const full = this.batch(p.asset);
             full.band = [lod, HANDOVER];
             this.place(full, t, p.group);
           }
-          if (d <= lod) { if (++scanned % 128 === 0) yield; continue; }
+          if (d <= lod - REBUILD_MARGIN) { if (++scanned % 128 === 0) yield; continue; }
           key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + p.asset;
         } else {
           if (d2 > max * max) continue;
