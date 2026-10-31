@@ -233,6 +233,9 @@ export class EnvironmentSystem {
   private airAmount = 0;
   private readonly fogColor = new Color();
   private started = false;
+  /** The weather being eased away from (a preset changed in the Studio) and how far (0…1). */
+  private from: WeatherParams | null = null;
+  private blend = 1;
   /** What the camera sees now (read by the engine: grade, exposure, sounds). */
   frame: EnvironmentFrame | null = null;
 
@@ -253,6 +256,8 @@ export class EnvironmentSystem {
 
   /** A new or edited environment (the Studio's live preview). */
   setEnvironment(env: MapEnvironment): void {
+    // Another kind of weather: eased over a few seconds from what is on screen now.
+    if (this.frame && env.weather !== this.env.weather) { this.from = this.frame.weather; this.blend = 0; }
     this.env = env; this.ordered = zonesInOrder(env);
     this.bake();
   }
@@ -273,7 +278,13 @@ export class EnvironmentSystem {
    * something is overhead (indoors: no rain); `ground` the height under a point (splashes).
    */
   update(dt: number, camera: Vector3, time: number, sky: SkySystem, roof: (x: number, y: number, z: number) => boolean, ground: (x: number, z: number) => number): EnvironmentFrame {
-    const env = this.env, w = resolveWeather(env, this.seed, time), s = sampleEnvironment(env, camera.x, camera.z, this.sample, this.ordered);
+    const env = this.env, w: WeatherParams = resolveWeather(env, this.seed, time), s = sampleEnvironment(env, camera.x, camera.z, this.sample, this.ordered);
+    if (this.from && this.blend < 1) {
+      this.blend = Math.min(1, this.blend + dt / 4);
+      const k = this.blend * this.blend * (3 - 2 * this.blend), a = this.from;
+      for (const key of ['cloud', 'fog', 'sun', 'ambient', 'rain', 'lightning', 'dust', 'wind', 'wet', 'warmth', 'saturation'] as const) w[key] = a[key] + (w[key] - a[key]) * k;
+      if (k < .5) w.fogColor = a.fogColor;
+    }
     const flash = lightningFlash(this.seed, time, w.lightning);
     const dir = env.wind.dir, windX = Math.sin(dir) * w.wind + s.windX, windZ = Math.cos(dir) * w.wind + s.windZ;
     // Indoors (a roof overhead): no rain, less dust; checked a few times a second.

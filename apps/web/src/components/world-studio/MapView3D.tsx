@@ -11,6 +11,9 @@ import { registerStudioModels } from '@/lib/studio-models';
 import { Surface } from '@zion/shared';
 import { climateTint, compositeParts, floraGroup, riverLevels, type FloraItem, type BrushSettings, type Heightfield, type SettlementResult, type WorldMapDoc } from '@zion/worldgen/editor';
 import { AssetLibrary } from '@/game/render/asset-library';
+import { SkySystem } from '@/game/render/sky';
+import { EnvironmentSystem } from '@/game/render/environment';
+import { emptySample, readEnvironment, sampleEnvironment, zonesInOrder, resolveWeather } from '@zion/shared';
 import { isBrush, type Tool } from './types';
 import s from './world-studio.module.css';
 
@@ -25,15 +28,23 @@ const MAX_INSTANCES = 120000;
  * rivers at their water levels, and every generated building and prop with its real model from
  * the game's asset library. Terrain brushes work here too.
  */
-export default function MapView3D({ terrain, doc, version, tool, brush, onBrush, preview }: {
+export default function MapView3D({ terrain, doc, version, tool, brush, onBrush, preview, envPreview }: {
   terrain: Heightfield; doc: WorldMapDoc; version: number; tool: Tool; brush: BrushSettings;
   onBrush: (phase: 'start' | 'move' | 'end', x: number, z: number) => void; preview?: SettlementResult | null;
+  /** The environment's live preview: the sky, weather and climate at eye level (`before`: the plain sky). */
+  envPreview?: { on: boolean; before: boolean };
 }) {
+  /** Called every frame while the environment preview runs. */
+  const frameHook = useRef<((dt: number) => void) | null>(null);
+  /** Where the preview eye stands (double-click the ground to move it). */
+  const eyeAt = useRef<{ x: number; z: number } | null>(null);
+  const [eyeVersion, setEyeVersion] = useState(0);
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<{ renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera; controls: OrbitControls; ground: Mesh; step: number; n: number; objects: Group; water: Group; cursor: Line; library: AssetLibrary; dirty: boolean } | null>(null);
-  const live = useRef({ tool, brush, onBrush, terrain });
-  live.current = { tool, brush, onBrush, terrain };
+  const live = useRef({ tool, brush, onBrush, terrain, doc });
+  live.current = { tool, brush, onBrush, terrain, doc };
   const [status, setStatus] = useState('');
+  const envRef = useRef<EnvironmentSystem | null>(null);
 
   // One-time scene setup.
   useEffect(() => {
@@ -45,8 +56,8 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     renderer.domElement.style.display = 'block';
     const sc = new Scene();
     sc.background = new Color('#9fb3bf'); sc.fog = new Fog('#9fb3bf', terrain.size * 1.6, terrain.size * 4);
-    sc.add(new HemisphereLight('#dfe9f2', '#4a4636', 1.1));
-    const sun = new DirectionalLight('#fff2dc', 1.6); sun.position.set(-1, 1.4, -.6); sc.add(sun);
+    const fill = new HemisphereLight('#dfe9f2', '#4a4636', 1.1); fill.name = 'studio-fill'; sc.add(fill);
+    const sun = new DirectionalLight('#fff2dc', 1.6); sun.position.set(-1, 1.4, -.6); sun.name = 'studio-sun'; sc.add(sun);
     const camera = new PerspectiveCamera(50, 1, 1, terrain.size * 4);
     camera.position.set(terrain.size * .5, terrain.size * .45, terrain.size * 1.15);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -70,8 +81,12 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     scene.current = { renderer, scene: sc, camera, controls, ground, step, n, objects, water, cursor, library, dirty: true };
     const resize = () => { const r = el.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();
-    let raf = 0;
-    const loop = () => { raf = requestAnimationFrame(loop); controls.update(); renderer.render(sc, camera); };
+    let raf = 0, last = performance.now();
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const t = performance.now(), dt = Math.min(.1, (t - last) / 1000); last = t;
+      controls.update(); frameHook.current?.(dt); renderer.render(sc, camera);
+    };
     loop();
     return () => {
       cancelAnimationFrame(raf); ro.disconnect(); controls.dispose(); library.dispose();
@@ -87,6 +102,9 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     const st = scene.current;
     if (!st) return;
     const gt = climateTint(doc.terrain.climate);
+    // In the environment preview the ground shows the climate: tint and wetness.
+    const envOn = !!envPreview?.on && !envPreview.before, env = readEnvironment(doc.environment), ordered = zonesInOrder(env), es = emptySample();
+    const wetAll = envOn ? Math.max(resolveWeather(env, 1, 0).wet, resolveWeather(env, 1, 0).rain) : 0;
     const { ground, step, n } = st, pos = ground.geometry.getAttribute('position') as BufferAttribute, col = ground.geometry.getAttribute('color') as BufferAttribute;
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const gi = Math.min(terrain.cols - 1, i * step), gj = Math.min(terrain.rows - 1, j * step), k = j * n + i;
@@ -94,12 +112,73 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
       pos.setXYZ(k, gi * terrain.cell, h, gj * terrain.cell);
       const c = RGB[terrain.surface[terrain.index(gi, gj)]!] ?? RGB[Surface.Grass]!;
       const under = h < doc.terrain.seaLevel ? .55 : 1;
-      col.setXYZ(k, c[0] * under * gt[0]!, c[1] * under * gt[1]!, c[2] * under * gt[2]!);
+      let r = c[0] * under * gt[0]!, g = c[1] * under * gt[1]!, b = c[2] * under * gt[2]!;
+      if (envOn) {
+        const e = sampleEnvironment(env, gi * terrain.cell, gj * terrain.cell, es, ordered), wet = 1 - .42 * Math.max(e.wetness, wetAll);
+        r *= (1 + (e.tint[0] * 2 - 1) * e.tintStrength) * wet; g *= (1 + (e.tint[1] * 2 - 1) * e.tintStrength) * wet; b *= (1 + (e.tint[2] * 2 - 1) * e.tintStrength) * wet;
+      }
+      col.setXYZ(k, r, g, b);
     }
     pos.needsUpdate = true; col.needsUpdate = true;
     ground.geometry.computeVertexNormals(); ground.geometry.computeBoundingSphere(); ground.geometry.computeBoundingBox();
     const sea = st.scene.getObjectByName('sea'); if (sea) sea.position.y = doc.terrain.seaLevel;
-  }, [terrain, version, doc.terrain.seaLevel, doc.terrain.climate]);
+  }, [terrain, version, doc.terrain.seaLevel, doc.terrain.climate, doc.environment, envPreview?.on, envPreview?.before]);
+
+  // The environment preview: the game's own sky and weather, the eye on the ground.
+  const previewOn = !!envPreview?.on, previewBefore = !!envPreview?.before;
+  useEffect(() => {
+    const st = scene.current;
+    if (!st || !previewOn) return;
+    const sc = st.scene, cam = st.camera, ctl = st.controls;
+    const saved = { pos: cam.position.clone(), target: ctl.target.clone(), near: cam.near, far: cam.far, fov: cam.fov, fog: sc.fog, background: sc.background, min: ctl.minDistance, max: ctl.maxDistance, pan: ctl.enablePan, polar: ctl.maxPolarAngle };
+    const studioLights = ['studio-sun', 'studio-fill'].map((name) => sc.getObjectByName(name)).filter((o) => !!o);
+    for (const o of studioLights) o.visible = false;
+    const sky = new SkySystem(sc, 7);
+    const env = previewBefore ? null : new EnvironmentSystem(sc, readEnvironment(live.current.doc.environment), terrain.size, 1, 'high');
+    envRef.current = env;
+    // The eye: on the ground, looking round from where it stands.
+    const at = eyeAt.current ?? { x: terrain.size / 2, z: terrain.size / 2 };
+    const y = Math.max(terrain.heightAt(at.x, at.z), live.current.doc.terrain.seaLevel) + 1.7;
+    ctl.target.set(at.x, y, at.z);
+    cam.position.set(at.x, y, at.z + .1);
+    cam.near = .1; cam.far = 2400; cam.fov = 70; cam.updateProjectionMatrix();
+    ctl.minDistance = .1; ctl.maxDistance = .1; ctl.enablePan = false; ctl.maxPolarAngle = Math.PI * .97;
+    const focus = new Vector3();
+    let time = 0;
+    frameHook.current = (dt) => {
+      time += dt;
+      const e = envRef.current;
+      if (e) e.update(dt, cam.position, time, sky, () => false, (x, z) => terrain.heightAt(x, z)); else sky.weather = null;
+      const tod = e?.timeOfDay ?? .42;
+      sky.update(tod, time, focus.copy(cam.position), time);
+      sky.follow(cam.position.x, cam.position.y, cam.position.z);
+    };
+    return () => {
+      frameHook.current = null; envRef.current = null;
+      env?.dispose(); sky.dispose();
+      for (const o of studioLights) o.visible = true;
+      sc.fog = saved.fog; sc.background = saved.background;
+      cam.position.copy(saved.pos); ctl.target.copy(saved.target); cam.near = saved.near; cam.far = saved.far; cam.fov = saved.fov; cam.updateProjectionMatrix();
+      ctl.minDistance = saved.min; ctl.maxDistance = saved.max; ctl.enablePan = saved.pan; ctl.maxPolarAngle = saved.polar;
+    };
+  }, [previewOn, previewBefore, terrain, eyeVersion]);
+  // Edits show at once (a weather change eases over a few seconds).
+  useEffect(() => { envRef.current?.setEnvironment(readEnvironment(doc.environment)); }, [doc.environment]);
+  // Double-click the ground: stand there.
+  useEffect(() => {
+    const st = scene.current;
+    if (!st || !previewOn) return;
+    const el = st.renderer.domElement, ray = new Raycaster(), ndc = new Vector2();
+    const dbl = (e: MouseEvent) => {
+      const r = el.getBoundingClientRect();
+      ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, st.camera);
+      const p = ray.intersectObject(st.ground, false)[0]?.point;
+      if (p) { eyeAt.current = { x: p.x, z: p.z }; setEyeVersion((v) => v + 1); }
+    };
+    el.addEventListener('dblclick', dbl);
+    return () => el.removeEventListener('dblclick', dbl);
+  }, [previewOn]);
 
   // Lakes and rivers at their own water levels.
   useEffect(() => {

@@ -1,5 +1,6 @@
 'use client';
 
+import { shapeBounds, shapeDistance, zonesInOrder, type EnvShape } from '@zion/shared';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { distanceToPolyline, floraGroup, obbCorners, pointInPolygon, type BattleConfig, type Heightfield, type Obb, type Vec2, type WorldMapDoc } from '@zion/worldgen/editor';
 import type { TerrainRaster } from '@/studio/world/raster';
@@ -21,6 +22,8 @@ interface Props {
   selection: Selection | null;
   /** The Chiến trường tab is open: the battlefield is drawn strongly and its items can be picked. */
   warfareEdit?: boolean;
+  /** The Môi trường tab is open: climate zones are drawn (with their blend margin) and can be picked. */
+  envEdit?: boolean;
   onBrush: (phase: 'start' | 'move' | 'end', x: number, z: number) => void;
   onPlace: (x: number, z: number) => void;
   onDraft: (points: Vec2[]) => void;
@@ -34,6 +37,7 @@ const CLASS_COLOR: Record<string, string> = { residential: '#d9c08a', commercial
 const PROP_COLOR: Record<string, string> = { sign: '#f2f2f2', trafficLight: '#e8c34a', quay: '#9c9a92', pier: '#8b7f6a', pile: '#7a3d2e', breakwater: '#6f6c66', crane: '#e0a530', container: '#b4523a', bollard: '#444', hedge: '#4c7a3e', crop: '#9aa64e', wall: '#a7a49c', tree: '#3f6b3a', bush: '#56804a', deadTree: '#6f6450', fence: '#a58a62', perimeter: '#b0a36e', lamp: '#ffd36a', vehicle: '#c35a4a', militaryVehicle: '#6c7a4a', clutter: '#9a8466', industrialClutter: '#8b8f93', militaryClutter: '#7d7a56', bench: '#9b8a6e', debris: '#7a7570' };
 const ROAD_COLOR: Record<string, string> = { main: '#cfc6ae', secondary: '#b5ad98', alley: '#968f7f', connector: '#cfc6ae' };
 const LOT_FILL: Record<string, string> = { yard: 'rgba(120,160,90,.18)', full: 'rgba(170,150,120,.22)', garden: 'rgba(90,170,80,.3)', orchard: 'rgba(70,140,60,.3)', farm: 'rgba(170,150,70,.3)', walled: 'rgba(150,150,150,.2)', overgrown: 'rgba(80,110,60,.32)', vacant: 'rgba(140,130,100,.15)', work: 'rgba(130,135,140,.22)' };
+const ENV_ZONE_COLOR: Record<string, string> = { temperate: '#8fd18a', dusty: '#d8b47a', humid: '#7fc6c0', wet: '#6d8fb8', desert: '#f0c060', forest: '#4f9a52', industrial: '#a0a0a8' };
 const LOOT_COLOR: Record<string, string> = { weapons: '#ff5a4a', ammo: '#ffb000', medical: '#5ad17a', armor: '#5ab0ff', food: '#d9d16a', tools: '#b58cff' };
 
 /**
@@ -231,6 +235,28 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       ctx.globalAlpha = 1;
     }
 
+    /* Environment: each climate zone in its biome's colour, its blend margin dashed. */
+    if (p.envEdit && doc.environment) {
+      const trace = (sh: EnvShape, grow: number) => {
+        ctx.beginPath();
+        if (sh.kind === 'circle') ctx.arc(sh.x, sh.z, sh.r + grow, 0, 6.283);
+        else if (sh.kind === 'box') {
+          const c = Math.cos(sh.yaw), sn = Math.sin(sh.yaw), hx = sh.hx + grow, hz = sh.hz + grow;
+          ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).forEach(([a, b], i) => { const x = sh.x + a * hx * c + b * hz * sn, z = sh.z - a * hx * sn + b * hz * c; if (i) ctx.lineTo(x, z); else ctx.moveTo(x, z); });
+          ctx.closePath();
+        } else { sh.points.forEach(([x, z], i) => (i ? ctx.lineTo(x, z) : ctx.moveTo(x, z))); ctx.closePath(); }
+      };
+      for (const zn of doc.environment.zones) {
+        const on = isSel({ kind: 'envZone', id: zn.id }), c = ENV_ZONE_COLOR[zn.biome] ?? '#cccccc';
+        trace(zn.shape, 0); ctx.fillStyle = `${c}40`; ctx.fill(); ctx.strokeStyle = on ? '#ffb000' : c; ctx.lineWidth = (on ? 3 : 2) * px; ctx.stroke();
+        // (A polygon's margin is drawn as its outline grown by the blend: close enough to read.)
+        if (zn.blend > 0 && zn.shape.kind !== 'polygon') { ctx.setLineDash([6 * px, 5 * px]); trace(zn.shape, zn.blend); ctx.strokeStyle = `${c}aa`; ctx.lineWidth = 1.2 * px; ctx.stroke(); ctx.setLineDash([]); }
+        if (on && zn.shape.kind === 'polygon') for (const [x, z] of zn.shape.points) { ctx.fillStyle = '#ffb000'; ctx.fillRect(x - 3 * px, z - 3 * px, 6 * px, 6 * px); }
+        const b = shapeBounds(zn.shape);
+        if (s > .05) { ctx.fillStyle = '#fff'; ctx.font = `${12 * px}px sans-serif`; ctx.textAlign = 'center'; ctx.fillText(zn.name, (b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2); }
+      }
+    }
+
     /* Validation markers. */
     for (const m of overlay.markers) { ctx.beginPath(); ctx.arc(m.x, m.z, 7 * px, 0, 6.283); ctx.strokeStyle = m.severity === 'error' ? '#ff3b30' : '#ffb000'; ctx.lineWidth = 2.5 * px; ctx.stroke(); }
 
@@ -341,6 +367,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
       const i = pts?.findIndex(([px, pz]) => Math.hypot(px - x, pz - z) < tol) ?? -1;
       if (i >= 0) return { ...sel, vertex: i };
     }
+    if (p.envEdit) {
+      const env = p.doc.environment;
+      if (sel?.kind === 'envZone') {
+        const zn = env?.zones.find((q) => q.id === sel.id);
+        if (zn?.shape.kind === 'polygon') { const i = zn.shape.points.findIndex(([px, pz]) => Math.hypot(px - x, pz - z) < tol); if (i >= 0) return { kind: 'shape', shape: 'envzone', id: zn.id, vertex: i }; }
+      }
+      // The top zone under the cursor (the one laid last).
+      const hit = env ? [...zonesInOrder(env)].reverse().find((q) => shapeDistance(q.shape, x, z) <= 0) : undefined;
+      return hit ? { kind: 'envZone', id: hit.id } : null;
+    }
     const wf = p.doc.warfare;
     if (p.warfareEdit && wf?.area) {
       const lx = x - wf.area.x, lz = z - wf.area.z;
@@ -433,7 +469,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(p
     schedule();
   };
 
-  const cursor = props.tool === 'pan' ? 'grab' : isBrush(props.tool) ? 'none' : isDraw(props.tool) || props.tool.startsWith('place-') || props.tool.startsWith('wf-') ? 'crosshair' : 'default';
+  const cursor = props.tool === 'pan' ? 'grab' : isBrush(props.tool) ? 'none' : isDraw(props.tool) || props.tool.startsWith('place-') || props.tool.startsWith('wf-') || props.tool.startsWith('env-') ? 'crosshair' : 'default';
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', cursor, touchAction: 'none' }}
     aria-label="Bản đồ 2D" data-testid="map-canvas"
     onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
@@ -451,6 +487,7 @@ export function shapeOf(doc: WorldMapDoc, g: BattleConfig | undefined, shape: st
   if (shape === 'river') return doc.water.rivers.find((r) => r.id === id)?.points.map((q) => [q.x, q.z] as Vec2) ?? null;
   if (shape === 'nogo') return g?.noGoZones.find((r) => r.id === id)?.polygon ?? null;
   if (shape === 'spawnzone') return g?.spawnZones.find((r) => r.id === id)?.polygon ?? null;
+  if (shape === 'envzone') { const z = doc.environment?.zones.find((r) => r.id === id); return z?.shape.kind === 'polygon' ? z.shape.points : null; }
   return null;
 }
 
@@ -460,6 +497,12 @@ function anchorOf(p: Props, sel: Selection): Vec2 | null {
   if ((sel.kind === 'wfZone' || sel.kind === 'wfVehicle' || sel.kind === 'wfBase') && wf?.area) {
     const q = sel.kind === 'wfZone' ? wf.zones[sel.index] : sel.kind === 'wfVehicle' ? wf.vehicleSpawns[sel.index] : wf.bases?.[sel.side];
     return q ? [wf.area.x + q.x, wf.area.z + q.z] : null;
+  }
+  if (sel.kind === 'envZone') {
+    const sh = p.doc.environment?.zones.find((q) => q.id === sel.id)?.shape;
+    if (!sh) return null;
+    if (sh.kind !== 'polygon') return [sh.x, sh.z];
+    return [sh.points.reduce((a, q) => a + q[0], 0) / sh.points.length, sh.points.reduce((a, q) => a + q[1], 0) / sh.points.length];
   }
   if (sel.kind === 'play-area') return g ? [g.playArea.x, g.playArea.z] : null;
   if (sel.kind === 'phase') { const c = g?.phases[sel.index]?.center; return c ? [c[0], c[1]] : null; }

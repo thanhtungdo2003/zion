@@ -65,7 +65,7 @@ export async function publishWorldMap(api: EditorApi, modes: WorldMapMode[]): Pr
   const d = api.doc, map = toBattleMap(d, api.terrain);
   // The editor document goes along so the map can be opened again from any machine.
   const { thumbnail: _thumb, ...meta } = d.meta;
-  const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta: { ...meta, modes } }, modes, ...(d.warfare ? { warfare: d.warfare } : {}) });
+  const r = await studioPublishBattleMap({ id: publishedMapId(d.meta.id), name: d.meta.name, thumbnail: renderThumbnail(api.terrain, d.terrain.seaLevel, 320, climateTint(d.terrain.climate)), seaLevel: d.terrain.seaLevel, map, source: { ...d, meta: { ...meta, modes } }, modes, ...(d.warfare ? { warfare: d.warfare } : {}), ...(d.environment ? { environment: d.environment } : {}) });
   return r.name;
 }
 

@@ -1,14 +1,17 @@
 import type { BrushSettings, Circle, SettlementResult, TerrainTool, Vec2 } from '@zion/worldgen/editor';
 
-export type EditorTab = 'terrain' | 'settlement' | 'gameplay' | 'warfare' | 'settings';
-export type ShapeType = 'region' | 'lake' | 'river' | 'nogo' | 'spawnzone';
+export type EditorTab = 'terrain' | 'settlement' | 'gameplay' | 'warfare' | 'environment' | 'settings';
+export type ShapeType = 'region' | 'lake' | 'river' | 'nogo' | 'spawnzone' | 'envzone';
 export type PointType = 'spawn' | 'loot' | 'hotspot' | 'poi' | 'rare';
-export type DrawTool = 'draw-region' | 'draw-lake' | 'draw-river' | 'draw-nogo' | 'draw-spawnzone';
+export type DrawTool = 'draw-region' | 'draw-lake' | 'draw-river' | 'draw-nogo' | 'draw-spawnzone' | 'draw-envzone';
 export type PlaceTool = 'place-spawn' | 'place-loot' | 'place-hotspot' | 'place-poi' | 'place-rare' | 'place-playarea';
 export type FloraTool = 'trees' | 'biome';
 /** Warfare: the battlefield area, zones, bases, vehicle spawns, a zone's deploy and tactical points. */
 export type WarfareTool = 'wf-area' | 'wf-zone' | 'wf-blue' | 'wf-red' | 'wf-vehicle' | 'wf-spawn' | 'wf-point';
-export type Tool = 'select' | 'pan' | TerrainTool | FloraTool | DrawTool | PlaceTool | WarfareTool;
+/** Environment: a round or a rectangular climate zone, placed with a click. */
+export type EnvTool = 'env-circle' | 'env-box';
+export type Tool = 'select' | 'pan' | TerrainTool | FloraTool | DrawTool | PlaceTool | WarfareTool | EnvTool;
+export const isEnvTool = (t: Tool): t is EnvTool => t === 'env-circle' || t === 'env-box';
 export const isWarfareTool = (t: Tool): t is WarfareTool => t.startsWith('wf-');
 
 export const BRUSH_TOOLS: readonly string[] = ['raise', 'lower', 'smooth', 'flatten', 'sculpt', 'noise', 'erosion', 'paint', 'trees', 'biome'];
@@ -26,7 +29,8 @@ export type Selection =
   | { kind: 'phase'; index: number }
   | { kind: 'wfZone'; index: number }
   | { kind: 'wfBase'; side: 'blue' | 'red' }
-  | { kind: 'wfVehicle'; index: number };
+  | { kind: 'wfVehicle'; index: number }
+  | { kind: 'envZone'; id: string };
 
 export const sameSelection = (a: Selection | null, b: Selection | null): boolean => JSON.stringify(a) === JSON.stringify(b);
 

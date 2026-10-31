@@ -50,12 +50,16 @@ export async function listBattleMaps(): Promise<BattleMapInfo[]> {
   return (await request<{ maps: BattleMapInfo[] }>('/api/battle/maps')).maps;
 }
 /** Publishes a World Studio map to the server as a playable battle royale map. */
-export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown; source?: unknown; warfare?: unknown; modes?: string[] }): Promise<{ id: string; name: string }> {
+export function studioPublishBattleMap(body: { id: string; name: string; thumbnail?: string; seaLevel: number; map: unknown; source?: unknown; warfare?: unknown; modes?: string[]; environment?: unknown }): Promise<{ id: string; name: string }> {
   return studioRequest('/api/studio/battle-maps', { method: 'POST', body: JSON.stringify(body) });
 }
 /** Warfare on a published World Studio map: set (or clear with null) its battlefield. */
 export function studioSetBattleMapWarfare(id: string, warfare: unknown): Promise<{ id: string; warfare: unknown }> {
   return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}/warfare`, { method: 'PUT', body: JSON.stringify({ warfare }) });
+}
+/** A published World Studio map's environment (weather, sky, climate zones; null: the default), no rebuild. */
+export function studioSetBattleMapEnvironment(id: string, environment: unknown): Promise<{ id: string; environment: unknown }> {
+  return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}/environment`, { method: 'PUT', body: JSON.stringify({ environment }) });
 }
 /** The game modes a published World Studio map is offered in (no rebuild). */
 export function studioSetBattleMapModes(id: string, modes: string[]): Promise<{ id: string; modes: string[] }> {

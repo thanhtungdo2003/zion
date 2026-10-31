@@ -39,4 +39,7 @@ export interface EditorApi {
   flash: (msg: string, error?: boolean) => void;
   centerOn: (x: number, z: number, span?: number) => void;
   confirm: (title: string, message: string, onConfirm: () => void, label?: string) => void;
+  /** The environment's live preview in the 3D view (`before`: the plain sky, to compare). */
+  envPreview: { on: boolean; before: boolean };
+  setEnvPreview: (p: { on: boolean; before: boolean }) => void;
 }
