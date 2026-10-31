@@ -589,6 +589,8 @@ export class GameEngine {
   }
   /** Riding in a passenger seat (free look and shooting; the driver steers). */
   private passenger = false;
+  /** Battlefield, aboard: the camera behind the vehicle (C) instead of the seat's own view. */
+  private vehicleChase = false;
   private readonly leanFocus = new Vector3();
   private readonly vehicleCamera = new ThirdPersonCamera();
   private readonly tankSight = new TankSight();
@@ -1040,6 +1042,13 @@ export class GameEngine {
    * send them there (pointing); Shift+G lets every follower go. Z waves the team over, Y halts it.
    */
   private warfareKey(code: string, shift: boolean): boolean {
+    // C aboard a vehicle on the battlefield: the seat's own view or the camera behind the vehicle
+    // (on foot C stays prone).
+    if (code === 'KeyC') {
+      if (this.welcome?.mode !== 'warfare' || !this.local?.riding) return false;
+      this.vehicleChase = !this.vehicleChase;
+      return true;
+    }
     // V aboard a vehicle: flares / smoke (on foot V stays the roll).
     if (code === 'KeyV') {
       if (!this.local?.riding) return false;
@@ -3826,7 +3835,13 @@ export class GameEngine {
     this.input.setTouchEnabled(settings.touchControls);
     this.renderer.toneMappingExposure = settings.brightness;
     // Spectating always uses the shoulder camera: the mouse orbits around the watched teammate.
-    const mode = (this.local?.riding && !this.passenger) || (this.local?.dead && this.hud.get().spectating) ? 'third-person' : settings.cameraMode;
+    // The battlefield is played in first person, the camera setting aside: aboard a vehicle too,
+    // through the seat's eye, unless C put the camera behind it.
+    const battlefield = this.welcome?.mode === 'warfare';
+    const mode = this.local?.dead && this.hud.get().spectating ? 'third-person'
+      : battlefield ? (this.local?.riding && this.vehicleChase ? 'third-person' : 'first-person')
+        : this.local?.riding && !this.passenger ? 'third-person' : settings.cameraMode;
+    if (!this.local?.riding) this.vehicleChase = false;
     const fp = mode === 'first-person';
     const mouseLook = mode !== 'top-down';
     this.input.sensitivity = settings.mouseSens * 0.00004;
@@ -3919,7 +3934,8 @@ export class GameEngine {
     if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return;
     const cam = this.camera;
     const vehicle = this.local?.riding && !this.passenger && this.welcome ? this.vehicles?.rider(this.welcome.playerId) : undefined;
-    if (vehicle && isAircraft(vehicle.kind)) {
+    const chase = this.welcome?.mode === 'warfare' ? this.vehicleChase : true;
+    if (vehicle && isAircraft(vehicle.kind) && !(this.welcome?.mode === 'warfare' && chase)) {
       // The pilot's seat: first person through the windscreen, the view fixed to the airframe
       // (it pitches, banks and shakes with it), the instrument panel below.
       const eye = this.vehicles!.eye(this.welcome!.playerId) ?? vehiclePoint(vehicle, 0, 2, 0);
@@ -3964,7 +3980,8 @@ export class GameEngine {
       return;
     }
     this.tankSight.hide();
-    if (vehicle) {
+    // (Battlefield: only when C put the camera behind; otherwise the seat's eye, below.)
+    if (vehicle && chase) {
       // Centre the chase camera above the roof; the vehicle's own body never blocks it.
       const f = this.camFocus, height = VEHICLES[vehicle.kind].height + .6;
       const k = this.camFocusInit ? 1 - Math.exp(-dt * 18) : 1;

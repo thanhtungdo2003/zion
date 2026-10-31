@@ -60,8 +60,9 @@ export function heliForces(v: VehicleState, body: HeliBody, pilot: HeliControls 
     // Altitude hold: the lever eases towards zero climb.
     else if (body.airborne) collective += clamp(hoverCollective - .06 * vy - collective, -dt * .35, dt * .35);
     wantPitch = -clamp(pilot.stickY, -1, 1) * cfg.maxPitch;
-    wantBank = clamp(pilot.bank + pilot.stickX * .5, -1, 1) * cfg.maxBank;
-    wantYaw = -clamp(pilot.stickX, -1, 1) * cfg.yawRate;
+    // The mouse is the cyclic (nose and bank); A and D the pedals (the tail rotor turns the nose).
+    wantBank = clamp(pilot.stickX, -1, 1) * cfg.maxBank;
+    wantYaw = -clamp(pilot.bank, -1, 1) * cfg.yawRate;
   } else if (intent) {
     collective += clamp(hoverCollective + .08 * (intent.climb - vy) - collective, -dt * .5, dt * .5);
     wantPitch = -clamp(intent.forward, -1, 1) * cfg.maxPitch * .8;

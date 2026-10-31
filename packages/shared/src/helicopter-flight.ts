@@ -42,9 +42,9 @@ export const HELI_FLIGHT: Partial<Record<VehicleKind, HeliFlight>> = {
 /**
  * A pilot's controls, all −1…1:
  * - `collective`: raising (W) or lowering (S) the collective lever; it stays where it is left;
- * - `bank`: the cyclic to the left (A, −) or right (D, +);
- * - `stickX` / `stickY`: the mouse as the cyclic and pedals — right turns the nose right (and
- *   banks into the turn), forward (mouse up) dips the nose to fly forward.
+ * - `bank`: the pedals — A (−) turns the nose left, D (+) right (the tail rotor);
+ * - `stickX` / `stickY`: the mouse as the cyclic — right banks right, forward (mouse up) dips the
+ *   nose to fly forward.
  * Bots (and a crew holding a hover with nobody at the controls) fly by intent instead: a climb
  * rate, a forward push and a turn, which the same stability system turns into rotor commands.
  */

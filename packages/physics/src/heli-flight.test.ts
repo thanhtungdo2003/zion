@@ -66,14 +66,23 @@ describe('helicopter flight', () => {
     } finally { sim.dispose(); }
   });
 
-  it('banks and drifts sideways on A/D; a broken tail rotor spins it', () => {
+  it('turns the nose on A/D (pedals), banks and drifts on the mouse (cyclic); a broken tail rotor spins it', () => {
     const w = world(), sim = new JoltVehicles(w), v = heli(), x0 = v.x;
     try {
       sim.add(v);
       fly(sim, v, 4, {}); fly(sim, v, 4, { collective: 1 }); fly(sim, v, 3, {});
-      fly(sim, v, 4, { bank: 1 });
+      // D: the nose swings right (yaw falls) without banking over.
+      const yaw0 = v.yaw;
+      fly(sim, v, 1.5, { bank: 1 });
+      expect(Math.atan2(Math.sin(v.yaw - yaw0), Math.cos(v.yaw - yaw0))).toBeLessThan(-.4);
+      expect(Math.abs(v.motion!.roll)).toBeLessThan(.15);
+      fly(sim, v, 2, {});
+      // Mouse right: banks right and drifts that way.
+      const xs = v.x, side = { x: Math.cos(v.yaw), z: -Math.sin(v.yaw) }, zs = v.z;
+      fly(sim, v, 4, { stickX: 1 });
       expect(v.motion!.roll).toBeLessThan(-.2);
-      expect(v.x).toBeGreaterThan(x0 + 3);
+      expect((v.x - xs) * side.x + (v.z - zs) * side.z).toBeGreaterThan(3);
+      void x0;
       fly(sim, v, 3, {});
       let turned = 0, last = v.yaw;
       v.parts = { tailRotor: 0 };
