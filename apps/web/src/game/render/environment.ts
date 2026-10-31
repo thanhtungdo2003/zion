@@ -84,9 +84,9 @@ export function applyEnvironmentToGround(material: MeshStandardMaterial): void {
           diffuseColor.rgb *= env.rgb * 2.0;
           envWet = max(env.a, uEnvWet);
           // Water gathers on flat ground in patches; slopes only darken.
-          float flat = smoothstep(0.93, 0.99, normalize(vGroundNormal).y);
+          float envFlat = smoothstep(0.93, 0.99, normalize(vGroundNormal).y);
           float patches = envNoise(vNaturalPosition.xz * 0.09) * 0.65 + envNoise(vNaturalPosition.xz * 0.37) * 0.35;
-          envPuddle = flat * smoothstep(0.62, 0.7, patches + envWet * 0.35 - 0.3) * smoothstep(0.45, 0.85, envWet);
+          envPuddle = envFlat * smoothstep(0.62, 0.7, patches + envWet * 0.35 - 0.3) * smoothstep(0.45, 0.85, envWet);
           diffuseColor.rgb *= mix(1.0, 0.58, envWet * 0.85) * mix(1.0, 0.7, envPuddle);
         }`)
       .replace('#include <lights_fragment_begin>', `
