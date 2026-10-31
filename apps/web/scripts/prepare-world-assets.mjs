@@ -86,6 +86,9 @@ const jobs = [
   ['nationals/grass-2.glb', 'Grass_Reeds_LOD0_GrassBase_0', 'meadow_grass', 2650, .32, { collider: 'none', category: 'vegetation', alphaMask: .45, uv: [0, 0, .5, 1], tags: ['ground-cover'] }],
   ['nationals/grass-2.glb', 'Grass_Reeds_LOD0_GrassBase_0', 'meadow_flowers', 2651, .32, { collider: 'none', category: 'vegetation', alphaMask: .45, uv: [.5, 0, 1, .76], tags: ['ground-cover'] }],
   ['nationals/fern_grass_02.glb', null, 'fern', 2652, 1, { height: .55, collider: 'none', category: 'vegetation', alphaMask: .45, tags: ['ground-cover'] }],
+  // Realtime grass: one clump of its three crossed card plates (the source repeats it over a field),
+  // a low dense filler laid into the gaps of a grass carpet.
+  ['nationals/realtime_grass.glb', ['Plate1.003', 'Plate2.003', 'Plate3.003', 'Plate3.002', 'Plate2.002', 'Plate1.002'], 'realtime_grass', 2653, 1, { height: .42, collider: 'none', category: 'vegetation', alphaMask: .45, tags: ['ground-cover'] }],
   // Voxel construction-site kit: barrels, pallets of bricks and blocks, lumber, site cabins, a hoist, crates, steel beams.
   ...[['Barrel-1-Global_4', 'vox_barrel', .9], ['WoodenCase-Global_34', 'vox_brick_pallet', 1.1], ['WoodenCasePriket-Global_56', 'vox_block_pallet', 1.05],
     ['WoodenStacks-Global_68', 'vox_lumber', .45], ['Container-1$$(1)-Global_78', 'vox_cabin', 2.6], ['Container1-Global_74', 'vox_cabin_stack', 5.2],
