@@ -56,6 +56,8 @@ const PROPS: Record<PropKind, number[]> = {
 
 export interface Catalog {
   buildings: Record<LotClass | 'abandoned', CatalogItem[]>;
+  /** Houses come only from the Model Studio (none published: no houses, and the generator says so). */
+  studioOnly?: boolean;
   props: Record<PropKind, CatalogItem[]>;
   byAsset: Map<number, CatalogItem>;
 }
@@ -78,7 +80,12 @@ export function measure(registry: AssetRegistry, asset: number): CatalogItem | n
   return { asset, name: a.name, w: x1 - x0, d: z1 - z0, ox: (x0 + x1) / 2, oz: (z0 + z1) / 2, height: a.bounds.height };
 }
 
-export function buildCatalog(registry: AssetRegistry): Catalog {
+/**
+ * The generator's models. `studioOnly`: houses are only those published from the Model Studio,
+ * each in its lot class (a class with none borrows the others'); the built-in houses and the
+ * brick / concrete kit buildings are not used. Without it (tests, previews) the built-in houses.
+ */
+export function buildCatalog(registry: AssetRegistry, opts: { studioOnly?: boolean } = {}): Catalog {
   const byAsset = new Map<number, CatalogItem>();
   const take = (ids: number[]) => ids.flatMap((id) => {
     const item = byAsset.get(id) ?? measure(registry, id);
@@ -88,7 +95,13 @@ export function buildCatalog(registry: AssetRegistry): Catalog {
   });
   // Models published from the Model Studio fill the lot class they were published for.
   const studio = (k: string) => registry.all().filter((a) => a.tags.includes('model-studio') && a.tags.includes(`lot:${k}`) && a.category === 'structure').map((a) => a.numericId);
-  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take([...ids, ...studio(k)]).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
+  const allStudio = registry.all().filter((a) => a.tags.includes('model-studio') && a.category === 'structure' && a.tags.some((t) => t.startsWith('lot:'))).map((a) => a.numericId);
+  const pick = (k: string, ids: number[]): number[] => {
+    if (!opts.studioOnly) return [...ids, ...studio(k)];
+    const own = studio(k === 'abandoned' ? 'residential' : k);
+    return own.length ? own : studio('residential').length ? studio('residential') : allStudio;
+  };
+  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take(pick(k, ids)).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
   const props = Object.fromEntries(Object.entries(PROPS).map(([k, ids]) => [k, take(ids)])) as Catalog['props'];
-  return { buildings, props, byAsset };
+  return { buildings, props, byAsset, ...(opts.studioOnly ? { studioOnly: true } : {}) };
 }

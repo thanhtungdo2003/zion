@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BATTLE_MAP } from '@zion/shared';
+import { validateRegion, type Region, type WorldMapDoc } from '@zion/worldgen/editor';
 import { CLIMATES, Heightfield, MAP_KINDS, type Climate, MAP_SIZES, TERRAIN_PRESETS, duplicateMap, fromStoredBattleMap, newId, parseMapFile, type MapKind, type TerrainPreset, type WorldMapMeta } from '@zion/worldgen/editor';
 import { DEFAULT_AUTO, type AutoParams, type MapTemplate, type NewMapRequest } from '@zion/worldgen/editor/templates';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -21,6 +22,35 @@ const TEMPLATES: Array<{ id: MapTemplate; name: string; description: string; ico
 ];
 const kindName = (k: string) => MAP_KINDS.find((m) => m.id === k)?.name ?? k;
 type Sort = 'updated' | 'name' | 'size' | 'created';
+/** The battle royale island's editable copy in the library (added once, kept if renamed). */
+const DEFAULT_ISLAND_ID = 'map-hac-son-default';
+const DEFAULT_ISLAND_ADDED = 'zion.studio.hac-son-added.v1';
+
+/**
+ * Rebuilds the houses of every region of a map with the current catalogue (the Model Studio's
+ * published houses; the old brick / concrete kit buildings go, even placed by hand); roads and
+ * lots stay. Regions one after another, each seeing the others' new houses.
+ */
+async function rebuildMapHouses(doc: WorldMapDoc, terrain: Heightfield, report: (label: string) => void): Promise<{ doc: WorldMapDoc; regions: number; buildings: number }> {
+  let regions: Region[] = doc.regions, rebuilt = 0, buildings = 0;
+  for (const region of doc.regions) {
+    if (!region.result || validateRegion(region.polygon, terrain.size).some((i) => i.severity === 'error')) continue;
+    report(`${doc.meta.name}: ${region.name}`);
+    const others = regions.filter((r) => r.id !== region.id && r.result);
+    const previous = { ...region.result, buildings: region.result.buildings.filter((b) => !b.recipe) };
+    const handle = runJob<'settlement'>({ kind: 'settlement', input: {
+      polygon: region.polygon, seed: region.seed, settings: region.settings, water: doc.water, seaLevel: doc.terrain.seaLevel,
+      externalRoads: [...doc.base.roads.map((r) => ({ points: r.points, width: r.width })), ...others.flatMap((r) => r.result!.roads.map((q) => ({ points: q.points, width: q.width })))],
+      obstacles: [...doc.base.structures, ...others.flatMap((r) => r.result!.buildings.map((b) => b.obb)), ...region.exclusions],
+      previous, from: 'buildings',
+      terrain: { size: terrain.size, cell: terrain.cell, heights: terrain.heights.slice().buffer, surface: terrain.surface.slice().buffer },
+    } }, () => undefined);
+    const { grading: _grading, ...result } = (await handle.promise).result;
+    regions = regions.map((r) => (r.id !== region.id ? r : { ...r, result, history: [...r.history, { at: Date.now(), from: 'buildings' as const, seed: r.seed, buildings: result.buildings.length, props: result.props.length, roads: result.roads.length }].slice(-30) }));
+    rebuilt++; buildings += result.buildings.length;
+  }
+  return { doc: { ...doc, regions, meta: { ...doc.meta, updatedAt: Date.now() } }, regions: rebuilt, buildings };
+}
 
 export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
   const [maps, setMaps] = useState<WorldMapMeta[] | null>(null);
@@ -39,6 +69,7 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [login, setLogin] = useState(false);
   const [unpublishing, setUnpublishing] = useState<PublishedBattleMap | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
 
   const refresh = useCallback(async () => {
     try { setMaps(await listMaps()); setError(null); } catch (err) { setError(err instanceof Error ? err.message : String(err)); setMaps([]); }
@@ -49,6 +80,48 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
     catch (err) { setServerError(err instanceof Error ? err.message : String(err)); }
   }, []);
   useEffect(() => { void refresh(); void refreshServer(); }, [refresh, refreshServer]);
+
+  /** The battle royale island (Đảo Hắc Sơn), as an editable map, in the library: built once. */
+  const addDefaultIsland = useCallback(async (open: boolean) => {
+    setBusy('Đang lấy Đảo Hắc Sơn (bản đồ Battle Royale mặc định) từ bộ sinh map…');
+    try {
+      const req: NewMapRequest = { template: 'hac-son', name: 'Đảo Hắc Sơn (bản đồ BR mặc định)', kind: 'battle-royale', size: BATTLE_MAP.sizeChunks * 32, seed: BATTLE_MAP.seed, preset: 'island', maxHeight: 120, roughness: .5, detail: 5, seaEdge: true, climate: 'temperate', erosion: .3 };
+      const r = await runJob<'map'>({ kind: 'new-map', req }, (label, value) => setBusy(`Đảo Hắc Sơn: ${label} ${Math.round(value * 100)}%`)).promise;
+      r.doc.meta = { ...r.doc.meta, id: DEFAULT_ISLAND_ID };
+      await saveMap(r.doc, new Heightfield(r.doc.terrain.size, r.doc.terrain.cell, new Float32Array(r.heights), new Uint8Array(r.surface)));
+      try { localStorage.setItem(DEFAULT_ISLAND_ADDED, '1'); } catch { /* the island is in the library either way */ }
+      await refresh();
+      if (open) onOpen(DEFAULT_ISLAND_ID);
+    } catch (err) { setError(`Không lấy được Đảo Hắc Sơn: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { setBusy(null); }
+  }, [onOpen, refresh]);
+  useEffect(() => {
+    if (!maps) return;
+    let added = false;
+    try { added = localStorage.getItem(DEFAULT_ISLAND_ADDED) === '1'; } catch { /* no storage: offer it every time */ }
+    if (!added && !maps.some((m) => m.id === DEFAULT_ISLAND_ID)) void addDefaultIsland(false);
+  // Once, when the library is first listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maps === null]);
+
+  /** Every map in the library: houses rebuilt from the Model Studio's published models. */
+  const rebuildAll = async () => {
+    setRebuilding(false);
+    let maps0 = 0, total = 0;
+    try {
+      for (const m of maps ?? []) {
+        const { doc, terrain } = await loadMap(m.id);
+        if (!doc.regions.some((r) => r.result)) continue;
+        const out = await rebuildMapHouses(doc, terrain, (label) => setBusy(`Đang xây lại nhà cửa · ${label}`));
+        await saveMap(out.doc, terrain);
+        maps0++; total += out.buildings;
+      }
+      await refresh();
+      setError(null);
+      setBusy(null);
+      window.alert(`Đã xây lại nhà cửa ở ${maps0} bản đồ (${total} công trình từ các model đã xuất bản). Bản đồ đã xuất bản lên game cần xuất bản lại.`);
+    } catch (err) { setError(`Xây lại nhà cửa bị dừng: ${err instanceof Error ? err.message : String(err)}`); setBusy(null); }
+  };
   const publishedIds = useMemo(() => new Set((published ?? []).map((p) => p.id)), [published]);
   const localFor = (p: PublishedBattleMap) => (maps ?? []).find((m) => publishedMapId(m.id) === p.id);
   const openPublished = async (p: PublishedBattleMap) => {
@@ -104,6 +177,8 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       <Link className={s.back} href="/studio" title="Về Zion Studio"><Icon name="lucide:arrow-left" /></Link>
       <h1>ZION <span>World Studio</span></h1>
       <div className={s.spacer} />
+      <button className={s.tbtn} onClick={() => { if ((maps ?? []).some((m) => m.id === DEFAULT_ISLAND_ID)) onOpen(DEFAULT_ISLAND_ID); else void addDefaultIsland(true); }} disabled={!!busy} title="Bản đồ Battle Royale mặc định của game, chỉnh sửa được" data-testid="default-island"><Icon name="lucide:palmtree" /><span>Đảo Hắc Sơn</span></button>
+      <button className={s.tbtn} onClick={() => setRebuilding(true)} disabled={!!busy || !maps?.length} title="Sinh lại nhà ở mọi khu vực của mọi bản đồ bằng các model nhà đã xuất bản từ Model Studio" data-testid="rebuild-houses"><Icon name="lucide:house" /><span>Xây lại nhà cửa</span></button>
       <button className={s.tbtn} onClick={importFile} data-testid="import-map"><Icon name="lucide:upload" /><span>Nhập file</span></button>
       <button className={`${s.tbtn} ${s.primary}`} onClick={() => setCreating(true)} data-testid="new-map"><Icon name="lucide:plus" /><span>Bản đồ mới</span></button>
     </header>
@@ -183,6 +258,8 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       onCancel={() => setLogin(false)} onConfirm={async (pw) => { await studioLogin(pw); setLogin(false); await refreshServer(); }} />}
     {unpublishing && <ConfirmDialog title="Gỡ bản đồ khỏi game?" message={<>Xóa <b>{unpublishing.name}</b> khỏi máy chủ: người chơi không chọn được nữa, trận đang chạy trên bản đồ này kết thúc.{localFor(unpublishing) ? ' Bản trong máy này vẫn giữ, có thể xuất bản lại.' : ' Bản đồ không có trong máy này — hãy "Tải về để sửa" trước nếu cần giữ.'}</>}
       confirmLabel="Gỡ khỏi game" onCancel={() => setUnpublishing(null)} onConfirm={async () => { await studioUnpublishBattleMap(unpublishing.id); setUnpublishing(null); await refreshServer(); }} />}
+    {rebuilding && <ConfirmDialog title="Xây lại nhà cửa ở mọi bản đồ?" message={<>Sinh lại nhà ở mọi khu vực của {maps?.length ?? 0} bản đồ trong máy này bằng <b>các model nhà đã xuất bản từ Model Studio</b>. Nhà ghép từ mảng tường gạch, bê tông cũ bị bỏ (kể cả nhà đặt tay); đường và lô đất giữ nguyên. Bản đồ đã xuất bản lên game cần xuất bản lại để người chơi thấy.</>}
+      confirmLabel="Xây lại" danger={false} onCancel={() => setRebuilding(false)} onConfirm={() => void rebuildAll()} />}
     {creating && <NewMapDialog onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); onOpen(id); }} />}
     {editing && <MetaDialog meta={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void refresh(); }} />}
     {removing && <ConfirmDialog title="Xóa bản đồ?" message={<>Xóa vĩnh viễn <b>{removing.name}</b> khỏi trình duyệt này — địa hình, khu vực và mọi cấu hình trận. Không hoàn tác được; hãy xuất file trước nếu cần giữ.</>}

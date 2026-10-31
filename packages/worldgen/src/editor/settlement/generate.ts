@@ -633,6 +633,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   if (!keepBuildings) {
     const rng = stream(seed, 'buildings');
     const order = lots.filter((l) => l.cls !== 'empty' && l.cls !== 'green').sort((a, b) => b.obb.hx * b.obb.hz - a.obb.hx * a.obb.hz);
+    if (catalog.studioOnly && !Object.values(catalog.buildings).some((list) => list.length)) issues.push({ severity: 'warning', code: 'no-studio-houses', message: 'Chưa có model nhà nào được xuất bản từ Model Studio (có gán loại lô đất): khu vực không có nhà. Xuất bản nhà ở Model Studio rồi sinh lại.' });
     const taken = new Set(keptBuildings.map((b) => b.lot));
     let done = 0;
     for (const lot of order) {
@@ -641,7 +642,8 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       if (taken.has(lot.id)) continue;
       const cls = lot.cls as LotClass;
       const condition = decayAt(lot.obb.x, lot.obb.z).condition;
-      const pool = lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
+      // Studio houses only: every plot (tube house, school, market…) takes a published model.
+      const pool = !catalog.studioOnly && lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
         : catalog.buildings[(st.decay > .7 || condition !== 'intact') && cls === 'residential' ? 'abandoned' : cls];
       // Lot frame: width along the front, depth inward.
       const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], width = Math.hypot(fx, fz);
@@ -660,7 +662,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const tall = cls === 'military' ? .8 : st.preset === 'small-city' || st.preset === 'planned-city' ? .95 : st.preset === 'dense-town' ? .65 : st.sizeBias * .6;
       const kitShare = cls === 'commercial' ? .55 + tall * .4 : cls === 'military' ? .75 : cls === 'industrial' ? .45 : tall * .7;
       const asCandidate = (o: ReturnType<typeof compositeOptions>[number]): Candidate => ({ item: { asset: o.recipe.kind === 'brick' ? 2050 : 2051, name: o.recipe.kind, w: o.w, d: o.d, ox: 0, oz: 0, height: o.height }, turned: false, recipe: o.recipe });
-      if (lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse')) fits.unshift(...urbanBuildingOptions(lot.use, rng, availW, availD).map(asCandidate));
+      // (Kit buildings of brick / concrete panels: not when the houses come from the Model Studio.)
+      if (catalog.studioOnly) { /* published models only */ }
+      else if (lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse')) fits.unshift(...urbanBuildingOptions(lot.use, rng, availW, availD).map(asCandidate));
       else if (lot.style !== 'farm' && rng.next() < kitShare) fits.unshift(...compositeOptions(cls, rng, tall, availW, availD).map(asCandidate));
       fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
       if (!fits.length) continue;

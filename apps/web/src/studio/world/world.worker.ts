@@ -15,6 +15,7 @@ const registry = createDefaultRegistry();
 // Houses and props published from the Model Studio join the settlement catalogue by lot class.
 const studioModels = registerStudioModels(registry);
 let catalog: Catalog | null = null;
+let modelsAt = Date.now();
 const cancelled = new Set<number>();
 const post = (m: WorkerReply, transfer: Transferable[] = []) => scope.postMessage(m, transfer);
 // Lets queued messages (a cancel) in between steps.
@@ -47,7 +48,10 @@ async function handle(event: MessageEvent<{ id: number; job?: WorkerJob; cancel?
       post({ id, done: { kind: 'terrain', heights: hf.heights.buffer as ArrayBuffer, surface: hf.surface.buffer as ArrayBuffer } }, [hf.heights.buffer as ArrayBuffer, hf.surface.buffer as ArrayBuffer]);
     } else {
       await studioModels;
-      catalog ??= buildCatalog(registry);
+      // Models published since: looked up again (at most every 20 s), the catalogue rebuilt.
+      if (Date.now() - modelsAt > 20_000) { modelsAt = Date.now(); await registerStudioModels(registry); catalog = null; }
+      // Houses only from the Model Studio's published models (no kit buildings).
+      catalog ??= buildCatalog(registry, { studioOnly: true });
       const t = job.input.terrain, terrain = new Heightfield(t.size, t.cell, new Float32Array(t.heights), new Uint8Array(t.surface));
       const result = await drive(id, generateSettlement({ ...job.input, terrain, catalog }), (p) => post({ id, progress: { label: `${p.stage}/10 · ${p.label}`, value: (p.stage - 1 + p.progress) / 10 } }));
       post({ id, done: { kind: 'settlement', result } });
