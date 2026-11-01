@@ -26,6 +26,8 @@ const HANDOVER = 18;
 const IMPOSTOR_FLAT_DISTANCE = 320;
 /** How far the camera may move before the instance lists are rebuilt (see update), plus slack. */
 const REBUILD_MARGIN = 40;
+/** Trees closer than this are never impostors. */
+const MIN_TREE_LOD = 100;
 const assetOfKey = (key: number): number => (key >= IMPOSTOR_FAR_KEY ? key - IMPOSTOR_FAR_KEY : key >= IMPOSTOR_KEY ? key - IMPOSTOR_KEY : Math.abs(key));
 
 /** Beyond these distances (m, × draw distance) models switch to their simplified far form. */
@@ -148,7 +150,7 @@ export class PropRenderer {
         // Max draw distance (high preset): full detail much further out, models drawn as far as streamed.
         const high = this.distanceScale >= 1;
         const max = v.def.render.maxDistance * this.distanceScale * (high ? 1.8 : 1), d2 = (t.x - camX) ** 2 + (t.z - camZ) ** 2;
-        const lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * (high ? 2.4 : Math.max(.6, this.distanceScale));
+        let lod = (v.def.category === 'tree' ? TREE_LOD_DISTANCE : MODEL_LOD_DISTANCE) * (high ? 2.4 : Math.max(.6, this.distanceScale));
         // Trees and big plants far off: depth impostors, as far as the world is streamed (never
         // hidden for being far); the full model dissolves into its impostor over a short band.
         const leafy = (v.def.category === 'tree' || v.def.category === 'vegetation') && v.def.bounds.radius > 1.2;
@@ -156,6 +158,8 @@ export class PropRenderer {
         let key: number;
         if (impostor) {
           const d = Math.sqrt(d2);
+          // Trees nearby are always the full model, whatever the draw-distance setting.
+          lod = Math.max(MIN_TREE_LOD, lod);
           // Both forms dissolve by the live distance, but the lists are only rebuilt every few dozen
           // metres walked: each keeps a margin past its band, or a tree walked towards (or away
           // from) had neither form and vanished.
@@ -164,7 +168,7 @@ export class PropRenderer {
             full.band = [lod, HANDOVER];
             this.place(full, t, p.group);
           }
-          if (d <= lod - REBUILD_MARGIN) { if (++scanned % 128 === 0) yield; continue; }
+          if (d <= lod - HANDOVER - REBUILD_MARGIN) { if (++scanned % 128 === 0) yield; continue; }
           key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + p.asset;
         } else {
           if (d2 > max * max) continue;
@@ -239,7 +243,9 @@ export class PropRenderer {
       let parts: Proxy['parts'] = v.parts;
       if (asset < 0) { let proxy = this.proxies.get(-asset); if (!proxy) this.proxies.set(-asset, proxy = makeProxy(v)); parts = proxy.parts; }
       else if (asset >= IMPOSTOR_KEY) {
-        const imp = this.impostors?.parts(assetOfKey(asset), asset >= IMPOSTOR_FAR_KEY, this.impostorLod, HANDOVER);
+        // The impostor is whole by the time the model starts to go (lod − band … lod), the model goes
+        // after (lod … lod + band): at every distance at least one of them is fully there.
+        const imp = this.impostors?.parts(assetOfKey(asset), asset >= IMPOSTOR_FAR_KEY, this.impostorLod - HANDOVER, HANDOVER);
         if (!imp) continue;
         parts = imp;
       }

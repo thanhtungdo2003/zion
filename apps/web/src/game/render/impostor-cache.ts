@@ -52,7 +52,8 @@ export class ImpostorCache {
     if (!atlas) return null;
     const key = `${asset}:${far ? 'f' : 'n'}`;
     let mat = this.materials.get(key);
-    if (!mat) this.materials.set(key, mat = impostorMaterial(atlas, { near: far ? 0 : near, band: far ? 1 : band, depth: !far }));
+    // (Flat in both rings: the depth-written, parallax version left gaps where trees went missing.)
+    if (!mat) this.materials.set(key, mat = impostorMaterial(atlas, { near: far ? 0 : near, band: far ? 1 : band, depth: false }));
     // (The hand-over distance follows the draw-distance setting.)
     else if (!far) (mat.userData.impFade as { value: number[] }).value = [near, band];
     return [{ geometry: this.quad, material: mat }];

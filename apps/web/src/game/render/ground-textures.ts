@@ -104,8 +104,38 @@ const COLOR = `
       // Steep ground: project from the side instead of stretching the top view down the slope.
       float side = 1.0 - smoothstep(0.55, 0.8, gn.y);
       vec2 sideP = abs(gn.x) > abs(gn.z) ? gp.zy : gp.xy;
-      vec2 uv0 = mix(gp.xz, sideP, step(0.5, side)) / groundTile[i0];
-      vec2 uv1 = mix(gp.xz, sideP, step(0.5, side)) / groundTile[i1];
+      vec2 proj = mix(gp.xz, sideP, step(0.5, side));
+      // Relief from the texture itself (parallax occlusion): close up, the view ray is marched into
+      // the dominant layer's height map, so the cracks, ledges and stones painted in it sit at
+      // their depth and move with the eye like real ones — strongest on rock and steep ground.
+      float viewDist = length(vViewPosition);
+      float rockyNow = max(side, gw[6]);
+      float relief = mix(0.035, 0.14, rockyNow) * groundFade * (1.0 - smoothstep(14.0, 32.0, viewDist));
+      if (relief > 0.002) {
+        vec3 V = normalize(cameraPosition - gp);
+        vec3 uAx = side > 0.5 ? (abs(gn.x) > abs(gn.z) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)) : vec3(1.0, 0.0, 0.0);
+        vec3 vAx = side > 0.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
+        vec2 shift = vec2(dot(V, uAx), dot(V, vAx)) / max(dot(V, gn), 0.12);
+        const int RELIEF_STEPS = 14;
+        float stepDepth = relief / float(RELIEF_STEPS), depth = 0.0, prevGap = 0.0;
+        vec2 at = proj;
+        for (int k = 0; k < RELIEF_STEPS; k++) {
+          float surface = (1.0 - texture(groundHeight, vec3(at / groundTile[i0], float(i0))).r) * relief;
+          float gap = surface - depth;
+          if (gap <= 0.0) {
+            // Between the last two steps, where the ray met the surface.
+            float t = prevGap / max(prevGap - gap, 1e-4);
+            at = at + shift * stepDepth * (1.0 - t);
+            break;
+          }
+          prevGap = gap;
+          depth += stepDepth;
+          at = proj - shift * depth;
+        }
+        proj = at;
+      }
+      vec2 uv0 = proj / groundTile[i0];
+      vec2 uv1 = proj / groundTile[i1];
       // Height blend: the bumpier layer wins where the two meet.
       float h0 = texture(groundHeight, vec3(uv0, float(i0))).r, h1 = texture(groundHeight, vec3(uv1, float(i1))).r;
       float b0 = w0 + h0 * 0.45, b1 = w1 + h1 * 0.45, top = max(b0, b1) - 0.18;
@@ -133,7 +163,7 @@ const COLOR = `
       float shelter = smoothstep(0.15, 0.75, gn.y) * (0.65 + vTerrainDetail.z * 0.35);
       float moss = gw[6] * damp * shelter * smoothstep(0.3, 0.62, naturalNoise(gp * 0.6) + cavity * 0.15) * groundFade;
       if (moss > 0.002) {
-        vec2 muv = mix(gp.xz, sideP, step(0.5, side)) / groundTile[${MOSS}];
+        vec2 muv = proj / groundTile[${MOSS}];
         vec3 ma = mix(texture(groundAlbedo, vec3(muv, ${MOSS}.0)).rgb, texture(groundAlbedo, vec3(groundTwist(muv), ${MOSS}.0)).rgb, twist);
         diffuseColor.rgb = mix(diffuseColor.rgb, ma * (0.8 + cavity * 0.3), moss);
         nrm = mix(nrm, texture(groundNormal, vec3(muv, ${MOSS}.0)).rgb, moss);
@@ -222,7 +252,7 @@ export class GroundTextures {
         .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>${MATTE}`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${NORMAL}`);
     };
-    material.customProgramCacheKey = () => `${key()}|ground-layers-4`;
+    material.customProgramCacheKey = () => `${key()}|ground-layers-5`;
   }
 
   /** Loads the layers for a quality level (the plain ground shows until they arrive). */
