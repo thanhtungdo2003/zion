@@ -63,6 +63,7 @@ export const msApi = {
   published: () => studioJson<PublishedModel[]>(`${P}/published`),
   publish: (id: string, body: { lotClass?: string; replaceAsset?: number; version?: number }) => studioJson<PublishedModel & { warnings: string[] }>(`${P}/projects/${id}/publish`, json({ confirm: true, ...body })),
   /** Where a published building may stand on maps, changed without publishing it again. */
+  classifyPublished: (asset: number) => studioJson<{ kind: string; fit: LotFit | null; summary: string; reasons: string[]; source: 'ai' | 'rules' }>(`${P}/published/${asset}/classify`, json({}, 'POST')),
   setFit: (asset: number, fit: unknown) => studioJson<PublishedModel>(`${P}/published/${asset}/fit`, json({ fit }, 'PUT')),
   unpublish: (asset: number) => studioJson<{ ok: true }>(`${P}/published/${asset}?confirm=1`, { method: 'DELETE' }),
   trial: () => studioJson<{ active: number[]; saved: number[] }>(`${P}/trial`),

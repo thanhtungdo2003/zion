@@ -651,6 +651,7 @@ function TextureBrowser({ projectId, material, apply, clear }: { projectId: stri
  */
 function PublishedFits({ published, busy, setFit }: { published: PublishedModel[]; busy: boolean; setFit(asset: number, fit: LotFit): void }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [batch, setBatch] = useState<{ done: number; total: number; log: string[] } | null>(null);
   const houses = published.filter((m) => m.def.category === 'structure' || m.def.fit || m.def.tags?.includes('kind:building'));
   if (!houses.length) return null;
   const fitOf = (m: PublishedModel): LotFit => (m.def.fit as LotFit | undefined) ?? lotFitFromLegacy(m.def.tags?.find((t) => t.startsWith('lot:'))?.slice(4)) ?? DEFAULT_FIT;
@@ -659,6 +660,27 @@ function PublishedFits({ published, busy, setFit }: { published: PublishedModel[
     <h3><Icon name="lucide:map-pin" /> Nơi đặt của các công trình đã xuất bản</h3>
     {intactless > 0 && <p className={s.muted}>{intactless}/{houses.length} công trình chỉ hợp nơi bỏ hoang hoặc đổ nát (chưa bật Nguyên vẹn): chúng chỉ xuất hiện ở khu bỏ hoang.{' '}
       <button type="button" className={s.tbtn} disabled={busy} onClick={() => { if (confirm(`Bật "Nguyên vẹn" cho ${intactless} công trình để chúng có ở mọi thành phố, khu dân cư?`)) for (const m of houses) { const f = fitOf(m); if (!f.conditions.includes('intact')) setFit(m.asset, { ...f, conditions: ['intact', ...f.conditions] }); } }}>Bật Nguyên vẹn cho tất cả</button></p>}
+    <p className={s.muted}>
+      <button type="button" className={s.tbtn} disabled={busy || (!!batch && batch.done < batch.total)} title="AI đọc từng công trình (tên, ghi chú, phòng, tầng, vật liệu của dự án đã xuất bản) và gán loại công trình, loại lô, tình trạng, kiểu khu vực"
+        onClick={async () => {
+          if (!confirm(`AI phân loại lại ${houses.length} công trình đã xuất bản? Lựa chọn hiện tại của chúng sẽ được thay.`)) return;
+          const log: string[] = [];
+          let lastFit: { asset: number; fit: LotFit } | null = null;
+          setBatch({ done: 0, total: houses.length, log });
+          // One at a time: the AI is asked once per model, the results saved as they come.
+          for (const [i, m] of houses.entries()) {
+            try {
+              const c = await msApi.classifyPublished(m.asset);
+              if (c.fit) { await msApi.setFit(m.asset, c.fit); lastFit = { asset: m.asset, fit: c.fit }; log.push(`#${m.asset} ${m.name}: ${describeLotFit(c.fit)}${c.source === 'ai' ? '' : ' (quy tắc)'}`); }
+              else log.push(`#${m.asset} ${m.name}: ${c.summary} — giữ nguyên`);
+            } catch (e) { log.push(`#${m.asset} ${m.name}: lỗi — ${(e as Error).message}`); }
+            setBatch({ done: i + 1, total: houses.length, log: [...log] });
+          }
+          // Saved again through the page's own save, which reloads the list with the new choices.
+          if (lastFit) setFit(lastFit.asset, lastFit.fit);
+        }}>{batch && batch.done < batch.total ? `AI đang phân loại ${batch.done}/${batch.total}…` : 'AI phân loại tất cả'}</button>
+    </p>
+    {batch && <details className={s.muted} open={batch.done < batch.total}><summary>Kết quả phân loại ({batch.done}/{batch.total})</summary>{batch.log.map((l, i) => <div key={i}>{l}</div>)}</details>}
     {houses.map((m) => {
       const fit = fitOf(m);
       return <div key={m.asset} className={s.card}>

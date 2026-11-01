@@ -1,6 +1,6 @@
 import { planRegion, regionRequestSchema } from '../../model-studio/region-planner';
 import { classifyWithAi } from '../../model-studio/ai-classify';
-import { parseDoc } from '@zion/assets/model-studio';
+import { emptyDoc, parseDoc } from '@zion/assets/model-studio';
 import { lotFitSchema } from '@zion/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -160,6 +160,15 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   // "Tự phân loại": the AI sorts the model out (rules of thumb without an AI connection).
   app.post('/api/studio/models/classify', { ...pre, bodyLimit: 8 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     try { return await classifyWithAi(parseDoc((req.body as { doc?: unknown } | null)?.doc), ms.ai?.client() ?? null); } catch (err) { return fail(reply, err); }
+  });
+  // The same for a published model, from the project version it was published from (or its name).
+  app.post<{ Params: { asset: string } }>('/api/studio/models/published/:asset/classify', { ...pre, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try {
+      const m = store.publishedModel(Number(req.params.asset));
+      if (!m) return reply.code(404).send({ error: 'not_found', message: 'Model chưa xuất bản.' });
+      const doc = (m.projectId ? await store.versionDoc(m.projectId, m.projectVersion).catch(() => null) ?? (await store.get(m.projectId))?.doc : null) ?? { ...emptyDoc(m.name, 'building') };
+      return await classifyWithAi(doc, ms.ai?.client() ?? null);
+    } catch (err) { return fail(reply, err); }
   });
   app.put<{ Params: { asset: string } }>('/api/studio/models/published/:asset/fit', pre, async (req, reply) => {
     try { return await store.setFit(Number(req.params.asset), lotFitSchema.parse((req.body as { fit?: unknown } | null)?.fit)); } catch (err) { return fail(reply, err); }
