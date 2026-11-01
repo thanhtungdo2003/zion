@@ -656,7 +656,7 @@ describe('survivor model', () => {
     const before = state().time;
     move(0, .6, P, 1); expect(state().time).toBeLessThan(before);
     move(0, 0, 0, 260); expect(state().clip).toBe('rifle_aim_idle');
-    expect(bone(avatar, 'spine_006').y).toBeGreaterThan(1.8);
+    expect(bone(avatar, 'spine_006').y).toBeGreaterThan(1.44 * SURVIVOR_SIZE);
   });
 
   it('turns feet and torso with a stationary aiming camera and shares elevation through the chest', () => {

@@ -42,10 +42,11 @@ export const HUMAN_MODEL_URL = '/models/characters/zion-survivor.glb';
 /** Eye level of the source model (m); scaled so the eyes sit at the first-person camera height. */
 export const MODEL_EYE_Y = 1.597;
 /**
- * The survivor is drawn larger than a real person with its eyes at the camera's 1.62 m: weapons,
- * buildings and the map are sized for the stylised block character (≈2.2 m with hair).
+ * The survivor is drawn at real size: eyes at the camera's 1.62 m (the physics eye height and the
+ * hit rig's head), ≈1.75 m to the top of the hair, so doors, rooms, vehicles and weapons keep their
+ * real proportions around it. (It was drawn 1.25× — ≈2.2 m — which dwarfed the buildings.)
  */
-export const SURVIVOR_SIZE = 1.25;
+export const SURVIVOR_SIZE = 1;
 export const HUMAN_SCALE = (1.62 / MODEL_EYE_Y) * SURVIVOR_SIZE;
 /** Half thickness of the palm and fingers (m): the skin between the bones and a held handle. */
 const PALM_SKIN = 0.013;

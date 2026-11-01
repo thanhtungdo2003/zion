@@ -90,8 +90,9 @@ describe('guns in third person', () => {
     const frames = run(survivor, 'gl18', [[2.5, G, 0], [1, G | F.Aiming, 0]]);
     const lowest = Math.min(...frames.filter((f) => f.t > 2.5).map((f) => f.grip.y));
     // Through the raise the gun stays above the belt; it ends at eye level.
-    expect(lowest).toBeGreaterThan(1.1);
-    expect(frames.at(-1)!.grip.y).toBeGreaterThan(1.45);
+    // (Heights for the real-size survivor, eyes at 1.62 m.)
+    expect(lowest).toBeGreaterThan(.88);
+    expect(frames.at(-1)!.grip.y).toBeGreaterThan(1.16);
   });
 
   it('fades between posing methods: a pistol reload starts without a jump', () => {
