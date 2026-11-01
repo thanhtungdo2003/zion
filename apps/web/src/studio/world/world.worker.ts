@@ -21,6 +21,12 @@ const post = (m: WorkerReply, transfer: Transferable[] = []) => scope.postMessag
 // Lets queued messages (a cancel) in between steps.
 const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** The Model Studio's published models, looked up again when the last look is 20 s old (the catalogue rebuilt). */
+async function refreshModels(): Promise<void> {
+  await studioModels;
+  if (Date.now() - modelsAt > 20_000) { modelsAt = Date.now(); await registerStudioModels(registry); catalog = null; }
+}
+
 class Cancelled extends Error {}
 
 async function drive<T, P>(id: number, gen: Generator<P, T>, report: (p: P) => void): Promise<T> {
@@ -40,6 +46,8 @@ async function handle(event: MessageEvent<{ id: number; job?: WorkerJob; cancel?
   if (!job) return;
   try {
     if (job.kind === 'new-map') {
+      // An automatic map builds its towns now: with the Model Studio's houses (looked up again).
+      await refreshModels();
       const { doc, terrain } = await drive(id, buildNewMap(job.req, registry), (p) => post({ id, progress: { label: job.req.template === 'hac-son' ? 'Lấy mẫu địa hình Đảo Hắc Sơn từ bộ sinh map' : 'Sinh địa hình', value: p } }));
       post({ id, done: { kind: 'map', doc, heights: terrain.heights.buffer as ArrayBuffer, surface: terrain.surface.buffer as ArrayBuffer } }, [terrain.heights.buffer as ArrayBuffer, terrain.surface.buffer as ArrayBuffer]);
     } else if (job.kind === 'terrain') {
@@ -47,9 +55,7 @@ async function handle(event: MessageEvent<{ id: number; job?: WorkerJob; cancel?
       await drive(id, generateTerrain(s, hf), (p) => post({ id, progress: { label: 'Sinh địa hình từ seed', value: p } }));
       post({ id, done: { kind: 'terrain', heights: hf.heights.buffer as ArrayBuffer, surface: hf.surface.buffer as ArrayBuffer } }, [hf.heights.buffer as ArrayBuffer, hf.surface.buffer as ArrayBuffer]);
     } else {
-      await studioModels;
-      // Models published since: looked up again (at most every 20 s), the catalogue rebuilt.
-      if (Date.now() - modelsAt > 20_000) { modelsAt = Date.now(); await registerStudioModels(registry); catalog = null; }
+      await refreshModels();
       // Whole house models (built-in and the Model Studio's), no brick / concrete kit buildings.
       catalog ??= buildCatalog(registry, { noKits: true });
       const t = job.input.terrain, terrain = new Heightfield(t.size, t.cell, new Float32Array(t.heights), new Uint8Array(t.surface));
