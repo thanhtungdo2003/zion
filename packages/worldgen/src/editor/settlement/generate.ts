@@ -289,6 +289,24 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const dz = ground.height(b[0], b[1]) - ground.height(a[0], a[1]), run = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
       return !ground.water(b[0], b[1]) && Math.abs(dz) / run <= .22 && ground.slope(b[0], b[1]) <= .6;
     };
+    /**
+     * A road blocked at step i by a gully, a ditch or a stream a few metres wide carries on over
+     * a culvert on a short embankment (in the game the road's bed rises over the water): the
+     * index of the first good step beyond (within ~15 m, dry and at an easy grade from the last
+     * good step), or −1.
+     */
+    const culvert = (pts: Vec2[], i: number): number => {
+      const a = pts[i - 1]!;
+      for (let j = i + 1; j < Math.min(pts.length, i + 4); j++) {
+        const b = pts[j]!, run = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        if (!ground.water(b[0], b[1]) && Math.abs(ground.height(b[0], b[1]) - ground.height(a[0], a[1])) / run <= .22 && ground.slope(b[0], b[1]) <= .6) return j;
+      }
+      return -1;
+    };
+    const passable = (pts: Vec2[]) => {
+      for (let i = 1; i < pts.length; i++) if (!roadOk(pts[i - 1]!, pts[i]!)) { const j = culvert(pts, i); if (j < 0) return false; i = j; }
+      return true;
+    };
     /** A local-frame polyline clipped to the region and cut where the ground is impassable. */
     const addLine = (kind: RoadKind, width: number, line: Vec2[], minLength: number) => {
       const world = line.map(([u, v]) => toWorld(frame, u, v));
@@ -304,7 +322,12 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         pts.push(piece[piece.length - 1]!);
         for (let i = 0; i < pts.length; i++) {
           const p = pts[i]!;
-          if (i && !roadOk(pts[i - 1]!, p)) { flush(); continue; }
+          if (i && run.length && !roadOk(pts[i - 1]!, p)) {
+            const j = culvert(pts, i);
+            if (j < 0) { flush(); continue; }
+            run.push(pts[j]!); i = j; continue;
+          }
+          if (i && !run.length && !roadOk(pts[i - 1]!, p)) continue;
           if (!i && ground.water(p[0], p[1])) continue;
           run.push(p);
         }
@@ -388,7 +411,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const d = Math.hypot(s.x - end[0], s.z - end[1]);
         if (!best || d < best.d) best = { a: end, b: [s.x, s.z], d };
       }
-      if (best && best.d <= bs * .7 && walk([best.a, best.b], 4).every((s, i, all) => !i || roadOk([all[i - 1]!.x, all[i - 1]!.z], [s.x, s.z]))) {
+      if (best && best.d <= bs * .7 && passable(walk([best.a, best.b], 4).map((q): Vec2 => [q.x, q.z]))) {
         net.push(stray, { id: `r${n++}`, kind: 'alley', width: st.alleyWidth, points: [best.a, best.b] });
       } else dropped++;
     }
@@ -402,7 +425,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
     }
     if (link && link.d <= 900) {
       const pts = walk([link.a, link.b], 6);
-      if (pts.every((s, i) => !i || roadOk([pts[i - 1]!.x, pts[i - 1]!.z], [s.x, s.z]))) net.push({ id: `r${n++}`, kind: 'connector', width: st.mainRoadWidth, points: [link.a, link.b] });
+      if (passable(pts.map((q): Vec2 => [q.x, q.z]))) net.push({ id: `r${n++}`, kind: 'connector', width: st.mainRoadWidth, points: [link.a, link.b] });
       else issues.push({ severity: 'warning', code: 'no-connector', message: 'Không nối được đường chính ra mạng đường bên ngoài (nước hoặc dốc trên tuyến nối).', x: link.a[0], z: link.a[1] });
     } else if (input.externalRoads.length) issues.push({ severity: 'info', code: 'far-from-roads', message: 'Vùng cách mạng đường hiện có hơn 900 m — chưa nối ra ngoài.' });
     roads = net;

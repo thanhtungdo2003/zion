@@ -216,7 +216,8 @@ export function validateMap(doc: WorldMapDoc, hf: Heightfield): MapIssue[] {
   }
   for (const river of doc.water.rivers) {
     const levels = river.levels ?? riverLevels(hf, river), grade = riverMaxGrade(river, levels);
-    if (grade > 8) out.push({ area: 'water', severity: 'warning', code: 'river-grade', message: `Sông "${river.name}" có đoạn dốc ${grade.toFixed(1)}% — giống thác hơn sông.`, x: river.points[0]!.x, z: river.points[0]!.z });
+    // Mountain streams tumble (rapids up to ~20 %); a broad river that steep is a waterfall.
+    if (grade > (Math.max(...river.points.map((p) => p.width)) < 8 ? 20 : 8)) out.push({ area: 'water', severity: 'warning', code: 'river-grade', message: `Sông "${river.name}" có đoạn dốc ${grade.toFixed(1)}% — giống thác hơn sông.`, x: river.points[0]!.x, z: river.points[0]!.z });
     if (!river.levels) out.push({ area: 'water', severity: 'info', code: 'river-uncarved', message: `Sông "${river.name}" chưa khắc lòng vào địa hình.` });
   }
   doc.regions.forEach((r, i) => {

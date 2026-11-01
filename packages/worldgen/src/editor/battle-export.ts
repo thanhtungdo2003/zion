@@ -1,8 +1,9 @@
 import type { AuthoredMap } from '../maps/island';
 import { compositeParts } from './settlement/composite';
 import type { WorldMapDoc } from './document';
+import { quantizeHeight } from '@zion/shared';
 import { bytesToBase64, encodeHeights, type Heightfield } from './heightfield';
-import { waterLevelAt } from './water';
+import { rasterizeWater } from './water';
 
 /**
  * A World Studio map as the game's battle royale generator reads it (`battleIsland`): the
@@ -31,6 +32,7 @@ export function toBattleMap(doc: WorldMapDoc, hf: Heightfield): AuthoredMap {
     }
   }
   const g = doc.gameplay.find((x) => x.id === doc.activeGameplay);
+  const water = rasterizeWater(hf, doc.water);
   return {
     id: `studio-${doc.meta.id}`.slice(0, 80),
     name: doc.meta.name,
@@ -40,7 +42,9 @@ export function toBattleMap(doc: WorldMapDoc, hf: Heightfield): AuthoredMap {
     roads: roads.slice(0, 256).map((r) => ({ ...r, points: r.points.slice(0, 2048) })),
     terrainGrid: { size, cell: hf.cell, data: encodeHeights(hf.heights) },
     surfaceGrid: bytesToBase64(hf.surface),
-    moistureGrid: moistureGrid(doc, hf),
+    waterGrid: waterGrid(water, hf),
+    moistureGrid: moistureGrid(water, doc.terrain.seaLevel, hf),
+    ...(g?.vehicles !== undefined ? { vehicles: g.vehicles } : {}),
     climate: doc.terrain.climate ?? 'temperate',
     placed,
     flora: doc.flora.map((f) => [f[0], f[1], f[2], f[3], f[4]] as [number, number, number, number, number]),
@@ -51,11 +55,13 @@ export function toBattleMap(doc: WorldMapDoc, hf: Heightfield): AuthoredMap {
  * about 110 m inland. In a dry climate only this ground stays green.
  */
 export const MOISTURE_CELL = 16;
-function moistureGrid(doc: WorldMapDoc, hf: Heightfield): string {
+type WaterRaster = ReturnType<typeof rasterizeWater>;
+function moistureGrid(water: WaterRaster, seaLevel: number, hf: Heightfield): string {
   const n = Math.ceil(hf.size / MOISTURE_CELL) + 1, dist = new Float32Array(n * n).fill(1e9);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const x = Math.min(hf.size, i * MOISTURE_CELL), z = Math.min(hf.size, j * MOISTURE_CELL);
-    if (waterLevelAt(hf, doc.water, doc.terrain.seaLevel, x, z) !== null || hf.surfaceAt(x, z) === 7 /* Mud */) dist[j * n + i] = 0;
+    const k = hf.clampJ(Math.round(z / hf.cell)) * hf.cols + hf.clampI(Math.round(x / hf.cell)), ground = hf.heights[k]!;
+    if (ground < seaLevel || water.level[k]! > ground || hf.surfaceAt(x, z) === 7 /* Mud */) dist[j * n + i] = 0;
   }
   // Two-pass chamfer distance transform (metres).
   const d1 = MOISTURE_CELL, d2 = MOISTURE_CELL * Math.SQRT2;
@@ -73,6 +79,17 @@ function moistureGrid(doc: WorldMapDoc, hf: Heightfield): string {
   const out = new Uint8Array(n * n);
   for (let k = 0; k < out.length; k++) { const t = Math.max(0, 1 - dist[k]! / 110); out[k] = Math.round(t * t * 255); }
   return bytesToBase64(out);
+}
+
+/** The lakes and rivers per height-grid vertex as the game reads them (AuthoredMap.waterGrid). */
+function waterGrid(water: WaterRaster, hf: Heightfield): string {
+  const out = new Uint16Array(water.level.length);
+  for (let k = 0; k < out.length; k++) {
+    const l = water.level[k]!;
+    // Only where it stands over the ground (or would at the cell's edge): the rest stays dry.
+    if (l === l && l > hf.heights[k]! - .5) out[k] = Math.max(2, quantizeHeight(l) & ~1) | water.lake[k]!;
+  }
+  return bytesToBase64(new Uint8Array(out.buffer));
 }
 
 const clamp = (v: number, size: number) => Math.max(0, Math.min(size, v));

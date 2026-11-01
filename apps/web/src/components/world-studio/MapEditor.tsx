@@ -298,14 +298,15 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
         // A new map size: a fresh grid (not undoable cell by cell; the previous file stays until saved).
         const next = new Heightfield(d.terrain.size, d.terrain.cell, new Float32Array(r.heights), new Uint8Array(r.surface));
         terrainRef.current = next; rasterRef.current!.reset(next, d.terrain.seaLevel);
-        history.current.clear(); commit('Đổi kích thước bản đồ', { ...d, meta: { ...d.meta, size: d.terrain.size } });
+        history.current.clear(); commit('Đổi kích thước bản đồ', { ...d, meta: { ...d.meta, size: d.terrain.size }, water: r.water });
         setVersion((v) => v + 1); canvasRef.current?.fit();
         flash('Đã sinh địa hình với kích thước mới. Lịch sử hoàn tác được làm mới.');
         return;
       }
-      terrainOp('Sinh địa hình từ seed', (t) => { t.heights.set(new Float32Array(r.heights)); t.surface.set(new Uint8Array(r.surface)); return { i0: 0, j0: 0, i1: t.cols - 1, j1: t.rows - 1 }; });
+      // The lakes and rivers come with the ground they drain: the old ones would lie on hillsides.
+      terrainOp('Sinh địa hình từ seed', (t) => { t.heights.set(new Float32Array(r.heights)); t.surface.set(new Uint8Array(r.surface)); return { i0: 0, j0: 0, i1: t.cols - 1, j1: t.rows - 1 }; }, (doc) => ({ ...doc, water: r.water }));
       rasterRef.current!.reset(terrainRef.current, d.terrain.seaLevel);
-      flash(`Đã sinh địa hình "${d.terrain.seed}" (${d.terrain.preset}). Có thể hoàn tác.`);
+      flash(`Đã sinh địa hình "${d.terrain.seed}" (${d.terrain.preset}): ${r.water.rivers.length} sông suối, ${r.water.lakes.length} hồ. Có thể hoàn tác.`);
     }).catch((err: unknown) => flash(err instanceof Error ? err.message : String(err), !(err instanceof JobError && err.cancelled)));
   }, [commit, flash, startJob, terrainOp]);
 
@@ -631,7 +632,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
       if (!id) { flash('Chọn một khu vực (hoặc vẽ vùng mới bằng công cụ Vẽ vùng) rồi bấm Sinh.', true); return; }
       generateRegion(id, 'roads');
     } else if (tab === 'gameplay') flash('Dùng "Mô phỏng vòng bo" trong bảng Gameplay để xem các phase.');
-    else setConfirm({ title: 'Sinh lại địa hình?', message: `Thay toàn bộ độ cao và bề mặt bằng địa hình "${doc.terrain.preset}" từ seed "${doc.terrain.seed}". Hồ, sông, khu vực và cấu hình trận vẫn giữ. Có thể hoàn tác.`, label: 'Sinh địa hình', run: regenerateTerrain });
+    else setConfirm({ title: 'Sinh lại địa hình?', message: `Thay toàn bộ độ cao, bề mặt, sông và hồ bằng địa hình "${doc.terrain.preset}" từ seed "${doc.terrain.seed}" (sông hồ sinh theo dòng chảy của địa hình mới). Khu vực và cấu hình trận vẫn giữ. Có thể hoàn tác.`, label: 'Sinh địa hình', run: regenerateTerrain });
   };
 
   rasterRef.current.contours = layers.contours;

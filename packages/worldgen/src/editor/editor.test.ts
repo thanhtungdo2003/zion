@@ -39,7 +39,8 @@ describe('terrain', () => {
       const s = defaultTerrainSettings(preset, 'p', 1024), hf = new Heightfield(s.size, s.cell);
       run(generateTerrain(s, hf));
       const above = hf.heights.filter((h) => h > s.seaLevel).length / hf.heights.length;
-      expect(above, preset).toBeGreaterThan(.3);
+      // (The island preset is mostly sea: a small island with islets.)
+      expect(above, preset).toBeGreaterThan(preset === 'island' ? .2 : .3);
       if (preset === 'island') { expect(hf.heightAt(2, 2)).toBeLessThan(s.seaLevel); expect(hf.heightAt(512, 512)).toBeGreaterThan(s.seaLevel); }
     }
   });

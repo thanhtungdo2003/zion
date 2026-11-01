@@ -1,6 +1,6 @@
 import {
-  AdditiveBlending, BufferGeometry, Color, DataTexture, Float32BufferAttribute, LinearFilter, NormalBlending, Points, RGBAFormat, type Scene, ShaderMaterial,
-  type MeshStandardMaterial, UnsignedByteType, Vector3,
+  AdditiveBlending, BufferGeometry, Color, DataTexture, Float32BufferAttribute, InstancedBufferAttribute, InstancedBufferGeometry, LinearFilter, Mesh, NormalBlending, Points, RGBAFormat,
+  type Scene, ShaderMaterial, type MeshStandardMaterial, UnsignedByteType, Vector3,
 } from 'three';
 import {
   ENV_PARTICLES, emptySample, hexRgb, lightningFlash, resolveWeather, sampleEnvironment, zonesInOrder,
@@ -127,18 +127,74 @@ const particleVertex = /* glsl */ `
   }
 `;
 
+/**
+ * Rain: every drop a thin quad stretched along its motion as the eye sees it (its fall plus the
+ * wind, minus the camera's own movement), as long as the distance it covers in a ~1/22 s glimpse:
+ * long streaks in a downpour, short ones in a drizzle, slanting in the wind and when running.
+ * World-anchored in a box round the camera (moving through the rain does not drag it along).
+ * Under a roof a dry bubble round the camera keeps it out of the room while it still falls past
+ * the windows and the doorway.
+ */
+const rainVertex = /* glsl */ `
+  attribute vec4 seed;
+  uniform vec3 uCam; uniform vec3 uBox; uniform vec3 uVel; uniform vec3 uCamVel;
+  uniform float uTime; uniform float uDensity; uniform float uWidth; uniform float uStreak; uniform float uShelter;
+  varying float vFade; varying float vAlong; varying float vAcross;
+  void main() {
+    if (seed.w > uDensity) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    // Bigger drops fall faster (a spread of speeds, independent of the density rank).
+    vec3 vel = uVel * (0.82 + 0.36 * fract(seed.x * 13.7 + seed.z * 7.1));
+    vec3 origin = uCam - uBox * 0.5;
+    vec3 p = mod(seed.xyz * uBox + vel * uTime - origin, uBox) + origin;
+    vec3 rel = vel - uCamVel;
+    float speed = max(length(rel), 0.001);
+    vec3 dir = rel / speed;
+    vec3 at = p - dir * clamp(speed * uStreak, 0.12, 2.8) * (1.0 - position.y);
+    vec3 toCam = uCam - at;
+    float dist = length(toCam);
+    vec3 side = cross(dir, toCam / max(dist, 0.001));
+    side /= max(length(side), 0.001);
+    // Never thinner than about a pixel, or far drops shimmer away.
+    at += side * position.x * max(uWidth, dist * 0.0011);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
+    vec3 q = abs(p - uCam) / (uBox * 0.5);
+    vFade = 1.0 - smoothstep(0.7, 1.0, max(q.x, max(q.y, q.z)));
+    vFade *= mix(1.0, smoothstep(9.0, 13.0, length((p - uCam).xz)), uShelter);
+    vAlong = position.y; vAcross = position.x * 2.0;
+  }
+`;
 const rainFragment = /* glsl */ `
   uniform vec3 uColor; uniform float uOpacity;
-  varying float vFade; varying float vSeed;
+  varying float vFade; varying float vAlong; varying float vAcross;
   void main() {
-    vec2 c = gl_PointCoord - 0.5;
-    // A thin streak (motion blur of a falling drop).
-    float a = smoothstep(0.07, 0.0, abs(c.x + c.y * 0.08)) * smoothstep(0.5, 0.15, abs(c.y));
-    a *= uOpacity * vFade;
+    // Brightest at the drop, fading up the streak; soft across.
+    float a = uOpacity * vFade * (0.2 + 0.8 * vAlong) * (1.0 - smoothstep(0.35, 1.0, abs(vAcross)));
     if (a < 0.01) discard;
     gl_FragColor = vec4(uColor, a);
   }
 `;
+
+function rainGeometry(count: number): InstancedBufferGeometry {
+  const g = new InstancedBufferGeometry(), s = new Float32Array(count * 4);
+  g.setAttribute('position', new Float32BufferAttribute([-.5, 0, 0, .5, 0, 0, -.5, 1, 0, .5, 1, 0], 3));
+  g.setIndex([0, 1, 2, 2, 1, 3]);
+  for (let i = 0; i < count * 4; i++) s[i] = Math.random();
+  // Sorted ranks: a density keeps the first share of the drops.
+  for (let i = 0; i < count; i++) s[i * 4 + 3] = (i + Math.random()) / count;
+  g.setAttribute('seed', new InstancedBufferAttribute(s, 4));
+  g.instanceCount = count;
+  return g;
+}
+
+function rainMaterial(): ShaderMaterial {
+  return new ShaderMaterial({
+    uniforms: {
+      uCam: { value: new Vector3() }, uBox: { value: new Vector3(40, 26, 40) }, uVel: { value: new Vector3() }, uCamVel: { value: new Vector3() }, uTime: { value: 0 },
+      uDensity: { value: 0 }, uWidth: { value: .012 }, uStreak: { value: .045 }, uShelter: { value: 0 }, uColor: { value: new Color() }, uOpacity: { value: .3 },
+    },
+    vertexShader: rainVertex, fragmentShader: rainFragment, transparent: true, depthWrite: false, blending: NormalBlending, fog: false,
+  });
+}
 
 const airFragment = /* glsl */ `
   uniform vec3 uColor; uniform float uOpacity; uniform float uSoft;
@@ -218,15 +274,20 @@ export interface EnvironmentFrame {
 }
 
 export class EnvironmentSystem {
-  private readonly rain: Points;
+  private readonly rain: Mesh;
   private readonly air: Points;
   private readonly splashes: Points;
-  private readonly rainMat = particleMaterial(rainFragment);
+  private readonly rainMat = rainMaterial();
+  /** The camera's own velocity (smoothed): rain streaks slant as the eye moves through them. */
+  private readonly camVel = new Vector3();
+  private readonly lastCam = new Vector3();
+  private hasLastCam = false;
   private readonly airMat = particleMaterial(airFragment);
   private readonly splashMat: ShaderMaterial;
   private readonly sample = emptySample();
   private ordered;
   private sheltered = 0;
+  private roofed = 0;
   private shelterCheck = 0;
   private splashNext = 0;
   private airKind: Exclude<EnvParticles, 'none'> = 'dust';
@@ -241,7 +302,7 @@ export class EnvironmentSystem {
 
   constructor(private readonly scene: Scene, private env: MapEnvironment, private readonly worldSize: number, private readonly seed: number, readonly quality: EnvEffectsQuality) {
     this.ordered = zonesInOrder(env);
-    this.rain = new Points(seeds(RAIN_COUNT[quality]), this.rainMat);
+    this.rain = new Mesh(rainGeometry(RAIN_COUNT[quality]), this.rainMat);
     this.air = new Points(seeds(AIR_COUNT[quality]), this.airMat);
     this.splashMat = new ShaderMaterial({
       uniforms: { uTime: { value: 0 }, uSize: { value: .35 }, uDensity: { value: 0 }, uColor: { value: new Color(0xcfd8de) }, uOpacity: { value: .55 } },
@@ -249,8 +310,6 @@ export class EnvironmentSystem {
     });
     this.splashes = new Points(seeds(Math.max(1, SPLASH_COUNT[quality])), this.splashMat);
     for (const p of [this.rain, this.air, this.splashes]) { p.frustumCulled = false; p.renderOrder = 5; scene.add(p); }
-    this.rainMat.uniforms.uBox!.value.set(36, 22, 36);
-    this.rainMat.uniforms.uSize!.value = .32;
     this.bake();
   }
 
@@ -288,7 +347,16 @@ export class EnvironmentSystem {
     const flash = lightningFlash(this.seed, time, w.lightning);
     const dir = env.wind.dir, windX = Math.sin(dir) * w.wind + s.windX, windZ = Math.cos(dir) * w.wind + s.windZ;
     // Indoors (a roof overhead): no rain, less dust; checked a few times a second.
-    if ((this.shelterCheck -= dt) <= 0) { this.shelterCheck = .3; this.sheltered = roof(camera.x, camera.y + 1.6, camera.z) ? 1 : 0; }
+    if ((this.shelterCheck -= dt) <= 0) { this.shelterCheck = .3; this.roofed = roof(camera.x, camera.y + 1.6, camera.z) ? 1 : 0; }
+    // Eased over a few tenths of a second: stepping through a doorway does not snap the rain.
+    this.sheltered += (this.roofed - this.sheltered) * Math.min(1, dt * 6);
+    if (this.hasLastCam && dt > 0) {
+      const v = this.lastCam.sub(camera).multiplyScalar(-1 / dt);
+      // A teleport or respawn is not movement.
+      if (v.length() > 60) v.set(0, 0, 0);
+      this.camVel.lerp(v, Math.min(1, dt * 8));
+    }
+    this.lastCam.copy(camera); this.hasLastCam = true;
 
     // The sky: weather, local haze over it, the map's grade on the light.
     const fogMix = s.fogColorWeight > 0 ? s.fogColorWeight : w.fogColor ? 1 : 0;
@@ -301,19 +369,25 @@ export class EnvironmentSystem {
       warmth: Math.max(-1, Math.min(1, w.warmth + env.grading.warmth * .6 + (s.temperature - 22) / 60)), flash, azimuth: env.sun.azimuth,
     };
 
-    // Rain: falling with the wind, gone under a roof.
-    const rain = w.rain * (1 - this.sheltered);
-    const r = this.rainMat.uniforms;
-    r.uCam!.value.copy(camera); r.uTime!.value = time % 1000;
-    r.uVel!.value.set(windX * .6, -(9 + 4 * w.rain), windZ * .6);
-    r.uDensity!.value = rain;
-    r.uOpacity!.value = .22 + .18 * w.rain;
+    // Rain: drizzle to downpour. Heavier rain falls faster (bigger drops), in longer, thicker,
+    // denser streaks, and the wind carries it almost fully sideways. The fall speeds are what a
+    // camera's motion blur shows (drops at 6–9 m/s read as slow without it), not the bare
+    // terminal velocity.
+    const rain = w.rain, r = this.rainMat.uniforms;
+    r.uCam!.value.copy(camera); r.uTime!.value = time % 600;
+    r.uCamVel!.value.copy(this.camVel);
+    r.uVel!.value.set(windX * .9, -(13 + 11 * rain), windZ * .9);
+    r.uDensity!.value = rain * (1 - .5 * this.sheltered);
+    r.uShelter!.value = this.sheltered;
+    r.uWidth!.value = .008 + .012 * rain;
+    r.uStreak!.value = .03 + .025 * rain;
+    r.uOpacity!.value = .2 + .22 * rain;
     (r.uColor!.value as Color).setRGB(.62, .67, .72).multiplyScalar(.5 + .5 * sky.lightLevel).lerp(new Color(1, 1, 1), flash * .6);
     this.rain.visible = rain > .005;
 
     // Splashes on the ground round the camera: a few re-placed each frame.
     const sp = this.splashes.geometry.getAttribute('position') as Float32BufferAttribute, count = SPLASH_COUNT[this.quality];
-    if (count && rain > .05) {
+    if (count && rain > .05 && this.sheltered < .5) {
       for (let k = 0; k < Math.ceil(count / 30); k++) {
         const i = this.splashNext = (this.splashNext + 1) % count;
         const a = Math.random() * Math.PI * 2, d = 1.5 + Math.sqrt(Math.random()) * 16;
@@ -323,7 +397,7 @@ export class EnvironmentSystem {
       sp.needsUpdate = true;
     }
     const su = this.splashMat.uniforms;
-    su.uTime!.value = time % 1000; su.uDensity!.value = rain; this.splashes.visible = rain > .05 && count > 0;
+    su.uTime!.value = time % 1000; su.uDensity!.value = rain * (1 - this.sheltered); this.splashes.visible = rain > .05 && count > 0 && this.sheltered < .95;
 
     // Airborne particles: the kind that dominates here, as much as the place and weather hold.
     let kind: Exclude<EnvParticles, 'none'> = 'dust', amount = 0;

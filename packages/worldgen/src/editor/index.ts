@@ -4,6 +4,8 @@ export * from './heightfield';
 export * from './terrain-gen';
 export * from './brushes';
 export * from './water';
+export * from './landform';
+export * from './hydro';
 export * from './history';
 export * from './flora';
 export * from './gameplay';

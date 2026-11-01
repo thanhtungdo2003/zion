@@ -1,6 +1,6 @@
-import { VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, seatCount, damagePart, partAt, vehicleParts, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
+import { Rng, hashCombine, VEHICLES, VEHICLE_REACH, VEHICLE_ROLES, seatCount, damagePart, partAt, vehicleParts, freshArms, mountedSeat, slewMount, isAircraft, vehicleInReach, vehicleOwner, vehicleSeatOf, vehicleOccupants, vehicleFreeSeat, vehicleLocalPoint, wheelAt, wheelCentre, createVehicleMotion, type VehicleKind, type VehicleState } from '@zion/shared';
 import { JoltVehicles, loadJolt, damageVehicle, vehicleHitBounds, heliImpactDamage, stepHelicopter, stepVehicle, vehicleColliders, DEFAULT_CHARACTER, Mask, makeRayHit, type CharacterState, type CollisionWorld } from '@zion/physics';
-import { allStructures, type WorldGenerator } from '@zion/worldgen';
+import { allStructures, makeColumnSample, type WorldGenerator } from '@zion/worldgen';
 import type { Player } from './player';
 
 
@@ -31,8 +31,9 @@ export class Vehicles {
     if (gen.config.mode === 'battle-royale') {
       // Battle royale: a pool of parking spots on roads beside inhabited places; every match
       // draws a fresh random selection from it.
-      this.parking = battleParking(gen);
-      for (let id = 1; id <= Math.min(BATTLE_VEHICLES, this.parking.length); id++) {
+      const count = battleVehicleCount(gen);
+      this.parking = battleParking(gen, count);
+      for (let id = 1; id <= Math.min(count, this.parking.length); id++) {
         const kind = kinds[(id - 1) % 4]!;
         const v: VehicleState = { id, kind, x: 0, y: 0, z: 0, yaw: 0, speed: 0, driver: null, health: VEHICLES[kind].health, explodeAt: 0, exploded: false };
         this.states.set(id, v);
@@ -553,23 +554,58 @@ export class Vehicles {
 }
 
 const BATTLE_VEHICLES = 36;
-/** Road-side spots within reach of a building site, spaced along the road network. */
-function battleParking(gen: WorldGenerator): Array<{ x: number; y: number; z: number; yaw: number }> {
+/** Vehicles a battle royale match has: the map's own number (World Studio maps), else 36. */
+export function battleVehicleCount(gen: WorldGenerator): number {
+  const wanted = gen.config.battleIsland?.vehicles;
+  return Math.max(0, Math.min(120, wanted ?? BATTLE_VEHICLES));
+}
+/**
+ * Parking spots for the battle vehicles, at least `count` of them on any map — abandoned, ruined
+ * or wild ones too: first on the verges beside the settlements, then along every other road,
+ * then round the settlements' edges (yards, car parks, the approach), and last on any flat dry
+ * open ground. Spots are spread out, on land, out of the water and clear of the buildings.
+ */
+export function battleParking(gen: WorldGenerator, count = BATTLE_VEHICLES): Array<{ x: number; y: number; z: number; yaw: number }> {
   const sites = allStructures(gen).filter(s => s.radius > 10 && s.parts.length > 2);
   const spots: Array<{ x: number; y: number; z: number; yaw: number }> = [];
-  for (const segment of gen.roads?.segments ?? []) {
+  const column = makeColumnSample();
+  const ok = (x: number, z: number, spacing: number) => {
+    if (x < 8 || z < 8 || x > gen.worldSize - 8 || z > gen.worldSize - 8) return null;
+    if (spots.some(p => Math.hypot(p.x - x, p.z - z) < spacing)) return null;
+    if (sites.some(s => Math.hypot(s.x - x, s.z - z) < Math.min(s.radius, 30))) return null;
+    const y = gen.heightAt(x, z);
+    if (y < gen.seaLevel + 1 || Math.abs(gen.heightAt(x + 2, z) - y) > .6 || Math.abs(gen.heightAt(x, z + 2) - y) > .6) return null;
+    gen.sampleColumn(x, z, column);
+    return column.water === column.water ? null : y;
+  };
+  const segments = gen.roads?.segments ?? [];
+  // 1–2. Road verges: by the settlements first, then anywhere on the network.
+  for (const nearSites of [true, false]) for (const segment of segments) {
+    if (!nearSites && spots.length >= count) break;
     if (segment.bridge || segment.halfWidth > 14) continue;
     const dx = segment.b.x - segment.a.x, dz = segment.b.z - segment.a.z, length = Math.hypot(dx, dz);
     if (length < 1) continue;
     // Park on the verge, beside the carriageway.
     const nx = -dz / length, nz = dx / length, side = spots.length % 2 ? 1 : -1;
     const x = (segment.a.x + segment.b.x) / 2 + nx * side * (segment.halfWidth + 1.6), z = (segment.a.z + segment.b.z) / 2 + nz * side * (segment.halfWidth + 1.6);
-    if (!sites.some(s => Math.hypot(s.x - x, s.z - z) < s.radius + 45)) continue;
-    if (sites.some(s => Math.hypot(s.x - x, s.z - z) < Math.min(s.radius, 30))) continue;
-    if (spots.some(p => Math.hypot(p.x - x, p.z - z) < 25)) continue;
-    const y = gen.heightAt(x, z);
-    if (y < gen.seaLevel + 1 || Math.abs(gen.heightAt(x + 2, z) - y) > .6 || Math.abs(gen.heightAt(x, z + 2) - y) > .6) continue;
-    spots.push({ x, y, z, yaw: Math.atan2(-dx, -dz) });
+    if (nearSites !== sites.some(s => Math.hypot(s.x - x, s.z - z) < s.radius + 45)) continue;
+    const y = ok(x, z, nearSites ? 25 : 70);
+    if (y !== null) spots.push({ x, y, z, yaw: Math.atan2(-dx, -dz) });
+  }
+  // 3. Round the settlements: a ring just outside each site.
+  for (let ring = 0; ring < 3 && spots.length < count; ring++) for (const s of sites) {
+    if (spots.length >= count) break;
+    for (let a = 0; a < 8; a++) {
+      const ang = a * Math.PI / 4 + ring * .4 + s.x * .001, r = s.radius + 10 + ring * 14, x = s.x + Math.cos(ang) * r, z = s.z + Math.sin(ang) * r;
+      const y = ok(x, z, 30);
+      if (y !== null) { spots.push({ x, y, z, yaw: ang + Math.PI / 2 }); break; }
+    }
+  }
+  // 4. Open ground: flat, dry land anywhere (wild maps with no roads or towns).
+  const rng = new Rng(hashCombine(gen.seed, 0x7e41c1e));
+  for (let tries = 0; tries < 6000 && spots.length < count; tries++) {
+    const x = gen.worldSize * (.05 + rng.next() * .9), z = gen.worldSize * (.05 + rng.next() * .9), y = ok(x, z, 90);
+    if (y !== null) spots.push({ x, y, z, yaw: rng.next() * Math.PI * 2 });
   }
   return spots;
 }

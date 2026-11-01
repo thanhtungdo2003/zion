@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, Rng, Surface, Biome, hash3, smoothstep, quantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type PropInstance } from '@zion/shared';
+import { CHUNK_SIZE, Rng, Surface, Biome, hash3, smoothstep, quantizeHeight, dequantizeHeight, quantizeLocal, quantizeRotation, quantizeScale, type PropInstance } from '@zion/shared';
 import { BATTLE_ASSET, BRIDGE_ASSET, BUILDING_ASSET, CAMP_ASSET, STREET_ASSET } from '@zion/assets';
 import type { CampPart } from '../camp';
 import type { Structure } from '../structures';
@@ -61,6 +61,8 @@ export class AuthoredWorld {
   private readonly heightGrid: { size: number; cell: number; cols: number; heights: Float32Array } | null;
   private readonly surfaceGrid: Uint8Array | null;
   private readonly moistureGrid: Uint8Array | null;
+  /** Studio maps: inland water per height-grid vertex (see AuthoredMap.waterGrid). */
+  private readonly waterGrid: Uint16Array | null;
   private floraChunks: Map<string, Array<[number, number, number, number, number]>> | null = null;
 
 
@@ -101,6 +103,10 @@ export class AuthoredWorld {
     } else this.heightGrid = null;
     this.surfaceGrid = map.surfaceGrid ? new Uint8Array(Buffer.from(map.surfaceGrid, 'base64')) : null;
     this.moistureGrid = map.moistureGrid ? new Uint8Array(Buffer.from(map.moistureGrid, 'base64')) : null;
+    if (map.waterGrid && this.heightGrid) {
+      const bytes = Buffer.from(map.waterGrid, 'base64'), grid = new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+      this.waterGrid = grid.length === this.heightGrid.heights.length ? grid : null;
+    } else this.waterGrid = null;
     this.noise = new Simplex2(host.seed ^ 0x15a7d);
     this.bedrock = new BedrockRelief(host.seed);
     this.forestNoise = new Simplex2(host.seed ^ 0xf0e57);
@@ -196,6 +202,23 @@ export class AuthoredWorld {
       out.push(...line.slice(1));
     }
     return out;
+  }
+
+  /**
+   * Studio maps: the lake or river surface over a point (NaN where there is none). The highest of
+   * the wet corners of its grid cell: along a river the surface falls a few centimetres per cell,
+   * and at the banks the ground rises above it, which is where the water ends.
+   */
+  inlandWater(x: number, z: number, out: { lake: boolean }): number {
+    const w = this.waterGrid, g = this.heightGrid;
+    if (!w || !g) return NaN;
+    const fx = Math.max(0, Math.min(g.cols - 1.0001, x / g.cell)), fz = Math.max(0, Math.min(g.cols - 1.0001, z / g.cell));
+    const k = Math.floor(fz) * g.cols + Math.floor(fx);
+    let best = 0;
+    for (const q of [w[k]!, w[k + 1]!, w[k + g.cols]!, w[k + g.cols + 1]!]) if (q > best) best = q;
+    if (!best) return NaN;
+    out.lake = (best & 1) === 1;
+    return dequantizeHeight(best & ~1);
   }
 
   /** Natural ground height before districts and roads level it (eroded from generator v9). */

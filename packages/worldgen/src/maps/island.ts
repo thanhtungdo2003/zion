@@ -46,12 +46,20 @@ export interface AuthoredMap {
   terrainGrid?: { size: number; cell: number; data: string };
   /** World Studio maps: painted ground surfaces, one byte per grid vertex (base64), same grid as terrainGrid. */
   surfaceGrid?: string;
+  /**
+   * World Studio maps: inland water (lakes and rivers) per vertex of terrainGrid, uint16
+   * little-endian (base64): 0 dry, else the surface as `quantizeHeight` with the lowest bit set
+   * on lakes. The same data the Studio draws, so the game has every lake and river it shows.
+   */
+  waterGrid?: string;
   /** World Studio maps: closeness to water per 16 m cell (bytes, base64). */
   moistureGrid?: string;
   /** World Studio maps: battlefield climate (drives biomes, ground cover and colours in game). */
   climate?: 'temperate' | 'arid' | 'desert' | 'snow' | 'tropical';
   /** World Studio maps: every building and prop as a site (replaces the island's districts). */
   placed?: Array<{ x: number; z: number; y: number; yaw: number; radius: number; halfX?: number; halfZ?: number; decal?: boolean; parts: Array<{ asset: number; x: number; y: number; z: number; yaw: number; scale: number }> }>;
+  /** Battle royale: the fewest vehicles a match on this map has (whatever its style or condition). */
+  vehicles?: number;
   /** World Studio maps: painted vegetation [asset, x, z, yaw, scale] (replaces the forest scatter). */
   flora?: Array<[number, number, number, number, number]>;
 }

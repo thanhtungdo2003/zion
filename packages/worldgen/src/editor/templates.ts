@@ -6,6 +6,7 @@ import { authoredWorld } from '../maps/authored';
 import type { Vec2 } from './geometry';
 import { createMapDoc, type MapKind, type WorldMapDoc } from './document';
 import { Heightfield } from './heightfield';
+import type { WaterData } from './water';
 import { defaultTerrainSettings, generateTerrain, type Climate, type TerrainPreset } from './terrain-gen';
 import { autoMap, type AutoParams } from './auto-map';
 export { DEFAULT_AUTO, type AutoParams } from './auto-map';
@@ -50,10 +51,12 @@ export function* buildNewMap(req: NewMapRequest, registry: AssetRegistry): Gener
   if (req.seaEdge !== undefined) settings.seaEdge = req.seaEdge || req.preset === 'island';
   if (req.climate) settings.climate = req.climate;
   if (req.erosion !== undefined) settings.erosion = req.erosion;
-  const terrain = new Heightfield(settings.size, settings.cell);
+  const terrain = new Heightfield(settings.size, settings.cell), drained: { water?: WaterData } = {};
   if (req.template === 'blank') { terrain.heights.fill(settings.seaLevel + 10); terrain.surface.fill(0); yield 1; }
-  else yield* generateTerrain(settings, terrain);
+  else yield* generateTerrain(settings, terrain, drained);
   const doc = createMapDoc({ name: req.name, kind: req.kind, description: req.description, template: req.template === 'blank' ? 'blank' : req.preset, terrain: settings });
+  // The rivers and lakes the terrain drains into come with it (their beds are already cut).
+  if (drained.water) doc.water = drained.water;
   return { doc, terrain };
 }
 

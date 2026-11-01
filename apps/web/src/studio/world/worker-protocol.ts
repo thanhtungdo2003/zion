@@ -1,4 +1,4 @@
-import type { SettlementInput, SettlementIssue, SettlementResult, TerrainSettings, WorldMapDoc } from '@zion/worldgen/editor';
+import type { SettlementInput, SettlementIssue, SettlementResult, TerrainSettings, WaterData, WorldMapDoc } from '@zion/worldgen/editor';
 import type { NewMapRequest } from '@zion/worldgen/editor/templates';
 
 /** Settlement input as it crosses to the worker: the terrain travels as plain arrays. */
@@ -11,7 +11,8 @@ export type WorkerJob =
 
 export type WorkerResult =
   | { kind: 'map'; doc: WorldMapDoc; heights: ArrayBuffer; surface: ArrayBuffer }
-  | { kind: 'terrain'; heights: ArrayBuffer; surface: ArrayBuffer }
+  /** `water`: the lakes and rivers the new terrain drains into (their beds are cut into the heights). */
+  | { kind: 'terrain'; heights: ArrayBuffer; surface: ArrayBuffer; water: WaterData }
   | { kind: 'settlement'; result: SettlementResult };
 
 export type WorkerReply =

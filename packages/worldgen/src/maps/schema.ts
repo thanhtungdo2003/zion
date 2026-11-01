@@ -19,6 +19,8 @@ export const authoredMapSchema = z.object({
   dressExtraBuildings: z.boolean().optional(),
   surfaceGrid: z.string().max(12_000_000).optional(),
   moistureGrid: z.string().max(2_000_000).optional(),
+  waterGrid: z.string().max(12_000_000).optional(),
+  vehicles: z.number().int().min(0).max(120).optional(),
   climate: z.enum(['temperate', 'arid', 'desert', 'snow', 'tropical']).optional(),
   terrainGrid: z.object({ size: z.number().positive().max(16384), cell: z.number().positive().max(64), data: z.string().max(40_000_000) }).strict().optional(),
   placed: z.array(z.object({

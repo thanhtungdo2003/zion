@@ -123,21 +123,23 @@ export function erodeGrid(grid: ErosionGrid, options: ErosionOptions): ErosionRe
   }
   // Thermal: material above the talus slope slides to the lower neighbours (scree, softened cliffs).
   const talus = (options.talus ?? .9) * cell, passes = options.thermalPasses ?? 6;
-  const dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [-1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, -1, Math.SQRT2]] as const;
-  const excess = new Float32Array(8);
+  // (Offsets and limits per direction in flat arrays: this loop runs over every cell many times.)
+  const DX = [1, -1, 0, 0, 1, -1, 1, -1], DY = [0, 0, 1, -1, 1, 1, -1, -1];
+  const off = new Int32Array(8), lim = new Float64Array(8), excess = new Float32Array(8);
+  for (let q = 0; q < 8; q++) { off[q] = DY[q]! * cols + DX[q]!; lim[q] = talus * (DX[q] && DY[q] ? Math.SQRT2 : 1); }
   for (let pass = 0; pass < passes; pass++) for (let phase = 0; phase < 2; phase++) {
     for (let j = 1; j < rows - 1; j++) for (let i = 1 + ((j + phase) & 1); i < cols - 1; i += 2) {
       const k = j * cols + i, hk = h[k]!;
       let total = 0;
       for (let q = 0; q < 8; q++) {
-        const [dx, dy, dist] = dirs[q]!, diff = hk - h[k + dy * cols + dx]!, lim = talus * dist;
-        excess[q] = diff > lim ? diff - lim : 0;
+        const e = hk - h[k + off[q]!]! - lim[q]!;
+        excess[q] = e > 0 ? e : 0;
         total += excess[q]!;
       }
       if (total < 1e-4) continue;
       const move = total * .25;
       h[k] = hk - move;
-      for (let q = 0; q < 8; q++) if (excess[q]) { const [dx, dy] = dirs[q]!; h[k + dy * cols + dx] = h[k + dy * cols + dx]! + move * excess[q]! / total; }
+      for (let q = 0; q < 8; q++) if (excess[q]) h[k + off[q]!] = h[k + off[q]!]! + move * excess[q]! / total;
     }
   }
   // Protected ground keeps its height; the change elsewhere is what `sediment` records.

@@ -45,7 +45,7 @@ export function SettingsPanel({ api }: { api: EditorApi }) {
       <Check label="Biển bao quanh (đường bờ)" value={t.seaEdge || t.preset === 'island'} onChange={(seaEdge) => terrain({ seaEdge }, 'edge')} />
       {problems.map((p) => <p key={p} className={`${s.note} ${s.err}`}>{p}</p>)}
       {resized && <p className={`${s.note} ${s.warn}`}>Đổi kích thước cần sinh lại địa hình ({t.size} m, {t.cell} m/ô). Khu vực ngoài biên mới sẽ báo lỗi khi kiểm tra.</p>}
-      <Btn icon="wand-sparkles" kind="primary" disabled={!!problems.length || api.busy} onClick={() => api.confirm('Sinh lại địa hình?', `Thay toàn bộ độ cao và bề mặt bằng preset "${TERRAIN_PRESETS.find((p) => p.id === t.preset)?.name}" seed "${t.seed}". Sông hồ, khu vực và cấu hình trận được giữ.${resized ? '' : ' Có thể hoàn tác.'}`, api.regenerateTerrain, 'Sinh địa hình')} testId="regen-terrain">Sinh địa hình</Btn>
+      <Btn icon="wand-sparkles" kind="primary" disabled={!!problems.length || api.busy} onClick={() => api.confirm('Sinh lại địa hình?', `Thay toàn bộ độ cao và bề mặt bằng preset "${TERRAIN_PRESETS.find((p) => p.id === t.preset)?.name}" seed "${t.seed}". Sông hồ sinh lại theo địa hình mới; khu vực và cấu hình trận được giữ.${resized ? '' : ' Có thể hoàn tác.'}`, api.regenerateTerrain, 'Sinh địa hình')} testId="regen-terrain">Sinh địa hình</Btn>
       <p className={s.lead}>Cùng seed và thông số luôn cho cùng địa hình. Địa hình đã chỉnh được lưu trực tiếp, mở map không cần sinh lại.</p>
     </Section>
     <PublishSection api={api} />

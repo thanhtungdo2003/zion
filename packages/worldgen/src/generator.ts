@@ -92,6 +92,7 @@ export class WorldGenerator {
   readonly fields: WorldFields;
   readonly hydrology: Hydrology;
   private readonly rq: RiverQuery = { dist: 0, halfWidth: 0, surface: 0, depth: 0 };
+  private readonly lakeProbe = { lake: false };
   private readonly scratch = makeColumnSample();
   private readonly bedrock: BedrockRelief;
   private roadNetwork: RoadNetwork | null = null;
@@ -145,13 +146,20 @@ export class WorldGenerator {
       // Districts sit on levelled pads that blend into the natural ground.
       const height = world.levelled(x, z);
       out.height = height; out.water = NaN; out.waterKind = height < this.seaLevel ? WaterKind.Sea : WaterKind.None;
+      // Studio maps: their lakes and rivers (the beds are already cut into the height grid).
+      const inland = world.inlandWater(x, z, this.lakeProbe);
+      if (inland > height && inland > this.seaLevel) { out.water = inland; out.waterKind = this.lakeProbe.lake ? WaterKind.Lake : WaterKind.River; }
       // Studio maps carry a climate: hot and dry, cold, humid… (ground tint and vegetation follow it).
       const climate = world.map.climate, [t, h] = climate === 'desert' ? [.95, .05] : climate === 'arid' ? [.85, .18] : climate === 'snow' ? [.05, .45] : climate === 'tropical' ? [.92, .9] : [.6, .5];
       // Water keeps its banks green even in a dry climate: humidity rises toward lakes, rivers and the sea.
       const wet = world.moisture(x, z);
       out.river = 0; out.temperature = t; out.humidity = h + (Math.max(h, climate === 'snow' ? .5 : .78) - h) * wet;
       out.roadDistance = Infinity; out.roadBridge = false; out.roadPaved = false;
-      if (roads) { roads.query(x, z, out); out.height += (out.roadHeight - out.height) * roads.blend(out); }
+      if (roads) {
+        roads.query(x, z, out); out.height += (out.roadHeight - out.height) * roads.blend(out);
+        // A road over a stream runs on its embankment: dry where it rises above the water.
+        if (out.water === out.water && out.height >= out.water + .05) { out.water = NaN; out.waterKind = out.height < this.seaLevel ? WaterKind.Sea : WaterKind.None; }
+      }
       return out;
     }
     const roads = this.roads;
@@ -417,12 +425,13 @@ export class WorldGenerator {
           temperature[idx] = Math.round(s.temperature * 255); humidity[idx] = Math.round(s.humidity * 255); water[idx] = 0;
           continue;
         }
-        const b = battle ? battle.biome(s.height, slope, x, z) : this.classifyBiome(s, slope);
+        const wet = s.water === s.water && s.water > s.height;
+        const b = battle ? (wet ? (s.waterKind === WaterKind.Lake ? Biome.Lake : Biome.River) : battle.biome(s.height, slope, x, z)) : this.classifyBiome(s, slope);
         const idx = j * n + i;
         biome[idx] = b;
         surface[idx] = this.camp && campDistance(this.camp, x, z) <= CAMP_PAD
           ? (Math.abs(x - this.camp.x) < 5 || Math.abs(z - this.camp.z - 30) < 3 ? Surface.Gravel : Surface.Dirt)
-          : battle ? this.roads?.surface(s, x, z) ?? battle.surface(s.height, slope, x, z, battle.near(x, z, 0, false)[0])
+          : battle ? (wet ? this.classifySurface(s, b, slope, x, z) : this.roads?.surface(s, x, z) ?? battle.surface(s.height, slope, x, z, battle.near(x, z, 0, false)[0]))
           // From v7 a town's main street is paved right through it.
           : (this.config.generatorVersion >= 7 ? this.roads?.surface(s, x, z) : null) ?? (insideStructure(this, x, z, 0) ? Surface.Dirt : this.roads?.surface(s, x, z) ?? this.classifySurface(s, b, slope, x, z));
         temperature[idx] = Math.round(s.temperature * 255);

@@ -127,3 +127,77 @@ export function waterClearance(water: WaterData, x: number, z: number): number {
   }
   return best;
 }
+
+/**
+ * Cuts every river's bed and banks into the terrain, trunks first (a tributary then meets the
+ * trunk's carved channel). With `keepLevels` the surfaces stay and only the beds are cut again
+ * (after ground was levelled over them). The same profile as `carveRiver`, but each segment
+ * only visits the cells near it, so a whole drainage network costs about as much as its own
+ * area. Sets each river's `levels`; returns the cells changed.
+ */
+export function carveRivers(hf: Heightfield, rivers: River[], keepLevels = false): CellRect | null {
+  let rect: CellRect | null = null;
+  const touched: number[] = [], next = new Map<number, number>();
+  for (const river of rivers) {
+    const levels = keepLevels && river.levels ? river.levels : riverLevels(hf, river), pts = river.points;
+    river.levels = levels.map((v) => Math.round(v * 100) / 100);
+    const bank = Math.max(6, Math.max(...pts.map((p) => p.width)) * .8);
+    for (let s = 1; s < pts.length; s++) {
+      const a = pts[s - 1]!, b = pts[s]!, pad = Math.max(a.width, b.width) / 2 + bank;
+      const r = { i0: hf.clampI(Math.floor((Math.min(a.x, b.x) - pad) / hf.cell)), i1: hf.clampI(Math.ceil((Math.max(a.x, b.x) + pad) / hf.cell)), j0: hf.clampJ(Math.floor((Math.min(a.z, b.z) - pad) / hf.cell)), j1: hf.clampJ(Math.ceil((Math.max(a.z, b.z) + pad) / hf.cell)) };
+      rect = unionRect(rect, r);
+      const dx = b.x - a.x, dz = b.z - a.z, len = dx * dx + dz * dz;
+      for (let j = r.j0; j <= r.j1; j++) for (let i = r.i0; i <= r.i1; i++) {
+        const x = i * hf.cell, z = j * hf.cell, t = len ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len)) : 0;
+        const d = Math.hypot(x - a.x - dx * t, z - a.z - dz * t), half = (a.width + (b.width - a.width) * t) / 2;
+        if (d > half + bank) continue;
+        const level = levels[s - 1]! + (levels[s]! - levels[s - 1]!) * t, k = j * hf.cols + i, h = hf.heights[k]!;
+        // Parabolic bed inside the channel, then a bank rising to meet the ground.
+        const target = d < half ? level - river.depth * (1 - (d / half) ** 2) - .2 : level + .4 + (d - half) * .35;
+        const w = d < half ? 1 : 1 - smoothstep(half, half + bank, d);
+        if (h <= target) continue;
+        const v = h + (target - h) * w, prev = next.get(k);
+        if (prev === undefined) { next.set(k, v); touched.push(k); } else if (v < prev) next.set(k, v);
+      }
+    }
+    for (const k of touched) hf.heights[k] = next.get(k)!;
+    touched.length = 0; next.clear();
+  }
+  return rect;
+}
+
+/**
+ * The water surface over every grid vertex (NaN where dry), from the same lakes and rivers the
+ * Studio draws: a lake inside its shore wherever the ground is below its level, a river within
+ * its banks. This grid is what the game's terrain, physics and renderer read; the sea is not in
+ * it (it is everywhere below the sea level).
+ */
+export function rasterizeWater(hf: Heightfield, water: WaterData): { level: Float32Array; lake: Uint8Array } {
+  const n = hf.cols * hf.rows, level = new Float32Array(n).fill(NaN), lake = new Uint8Array(n), best = new Float32Array(n).fill(Infinity);
+  for (const river of water.rivers) {
+    const pts = river.points, levels = river.levels ?? riverLevels(hf, river);
+    for (let s = 1; s < pts.length; s++) {
+      const a = pts[s - 1]!, b = pts[s]!, pad = Math.max(a.width, b.width) / 2 + hf.cell;
+      const i0 = hf.clampI(Math.floor((Math.min(a.x, b.x) - pad) / hf.cell)), i1 = hf.clampI(Math.ceil((Math.max(a.x, b.x) + pad) / hf.cell));
+      const j0 = hf.clampJ(Math.floor((Math.min(a.z, b.z) - pad) / hf.cell)), j1 = hf.clampJ(Math.ceil((Math.max(a.z, b.z) + pad) / hf.cell));
+      const dx = b.x - a.x, dz = b.z - a.z, len = dx * dx + dz * dz;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const x = i * hf.cell, z = j * hf.cell, t = len ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len)) : 0;
+        const d = Math.hypot(x - a.x - dx * t, z - a.z - dz * t), half = (a.width + (b.width - a.width) * t) / 2, k = j * hf.cols + i;
+        // Half a cell beyond the banks: the surface reaches the shore, where the ground rises over it.
+        if (d > half + hf.cell * .5 || d >= best[k]!) continue;
+        best[k] = d; level[k] = levels[s - 1]! + (levels[s]! - levels[s - 1]!) * t;
+      }
+    }
+  }
+  for (const l of water.lakes) {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of l.polygon) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (let j = hf.clampJ(Math.floor(z0 / hf.cell)); j <= hf.clampJ(Math.ceil(z1 / hf.cell)); j++) for (let i = hf.clampI(Math.floor(x0 / hf.cell)); i <= hf.clampI(Math.ceil(x1 / hf.cell)); i++) {
+      const k = j * hf.cols + i;
+      if (hf.heights[k]! >= l.level + hf.cell * .25 || !pointInPolygon(i * hf.cell, j * hf.cell, l.polygon)) continue;
+      if (!(level[k]! >= l.level)) { level[k] = l.level; lake[k] = 1; }
+    }
+  }
+  return { level, lake };
+}

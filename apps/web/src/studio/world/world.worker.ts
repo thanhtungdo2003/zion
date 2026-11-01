@@ -1,5 +1,5 @@
 import { createDefaultRegistry } from '@zion/assets';
-import { Heightfield, SettlementError, buildCatalog, generateSettlement, generateTerrain, type Catalog, type TerrainSettings } from '@zion/worldgen/editor';
+import { Heightfield, SettlementError, buildCatalog, generateSettlement, generateTerrain, type Catalog, type TerrainSettings, type WaterData } from '@zion/worldgen/editor';
 import { buildNewMap } from '@zion/worldgen/editor/templates';
 import type { WorkerJob, WorkerReply } from './worker-protocol';
 import { registerStudioModels } from '@/lib/studio-models';
@@ -51,9 +51,9 @@ async function handle(event: MessageEvent<{ id: number; job?: WorkerJob; cancel?
       const { doc, terrain } = await drive(id, buildNewMap(job.req, registry), (p) => post({ id, progress: { label: job.req.template === 'hac-son' ? 'Lấy mẫu địa hình Đảo Hắc Sơn từ bộ sinh map' : 'Sinh địa hình', value: p } }));
       post({ id, done: { kind: 'map', doc, heights: terrain.heights.buffer as ArrayBuffer, surface: terrain.surface.buffer as ArrayBuffer } }, [terrain.heights.buffer as ArrayBuffer, terrain.surface.buffer as ArrayBuffer]);
     } else if (job.kind === 'terrain') {
-      const s: TerrainSettings = job.settings, hf = new Heightfield(s.size, s.cell);
-      await drive(id, generateTerrain(s, hf), (p) => post({ id, progress: { label: 'Sinh địa hình từ seed', value: p } }));
-      post({ id, done: { kind: 'terrain', heights: hf.heights.buffer as ArrayBuffer, surface: hf.surface.buffer as ArrayBuffer } }, [hf.heights.buffer as ArrayBuffer, hf.surface.buffer as ArrayBuffer]);
+      const s: TerrainSettings = job.settings, hf = new Heightfield(s.size, s.cell), out: { water?: WaterData } = {};
+      await drive(id, generateTerrain(s, hf, out), (p) => post({ id, progress: { label: 'Sinh địa hình, xói mòn và sông hồ từ seed', value: p } }));
+      post({ id, done: { kind: 'terrain', heights: hf.heights.buffer as ArrayBuffer, surface: hf.surface.buffer as ArrayBuffer, water: out.water ?? { lakes: [], rivers: [] } } }, [hf.heights.buffer as ArrayBuffer, hf.surface.buffer as ArrayBuffer]);
     } else {
       await refreshModels();
       // Whole house models (built-in and the Model Studio's), no brick / concrete kit buildings.

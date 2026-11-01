@@ -54,6 +54,8 @@ export const battleConfigSchema = z.object({
   hotspots: z.array(z.object({ id, name: z.string().max(80), x: coord, z: coord, radius: z.number().min(5).max(2000), danger: z.number().int().min(1).max(5) }).strict()).max(128),
   noGoZones: z.array(z.object({ id, name: z.string().max(80), kind: z.enum(['no-go', 'unplayable']), polygon: z.array(pt).min(3).max(64) }).strict()).max(64),
   pois: z.array(z.object({ id, name: z.string().min(1).max(80), kind: z.string().max(32), x: coord, z: coord, radius: z.number().min(5).max(2000) }).strict()).max(256),
+  /** The fewest vehicles a match has (parked by the roads, at the settlements). */
+  vehicles: z.number().int().min(0).max(120).optional(),
 }).strict();
 export type BattleConfig = z.infer<typeof battleConfigSchema>;
 
@@ -68,7 +70,7 @@ export function defaultBattleConfig(size: number, name = 'Cấu hình mặc đ�
     timeLimitSec: 0, winRule: 'last-standing', timeoutRule: 'closest-to-zone', spawnMode: 'plane-drop', minSpawnSpacing: 120,
     spawnPoints: [], spawnZones: [],
     loot: { density: 1, categories: { weapons: 3, ammo: 3, medical: 2, armor: 1, food: 1, tools: 1 }, points: [], rareAreas: [] },
-    hotspots: [], noGoZones: [], pois: [],
+    hotspots: [], noGoZones: [], pois: [], vehicles: 36,
   };
 }
 

@@ -313,7 +313,8 @@ export function frontageParcels(input: ParcelInput): { lots: UrbanLot[]; blocks:
         const pl = planned(m.x, m.z);
         // Lot width: tube-house frontages in the irregular town, regular plots where planned; now and then a wide plot.
         const wide = rng.next() < (road.kind === 'alley' ? .02 : .07);
-        const tube = road.kind !== 'alley' && rng.next() > pl;
+        // (A wide plot is never a narrow tube-house frontage.)
+        const tube = road.kind !== 'alley' && rng.next() > pl && !wide;
         const w = wide ? 22 + rng.next() * 14 : tube ? 4.5 + rng.next() * (3 + st.randomness * 2) : road.kind === 'alley' && pl < .5 ? 7 + rng.next() * 6 : st.lotWidth * (.8 + rng.next() * (.25 + st.randomness * .3));
         const s0 = s, s1 = Math.min(S.length - 1, s + Math.round(w));
         const gap = tube ? 0 : pl > .5 ? 1 : .5;

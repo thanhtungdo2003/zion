@@ -299,8 +299,8 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
       <div className={s.field}><span className={s.fieldRow}>Loại map</span><Seg value={kind} options={MAP_KINDS} onChange={setKind} /></div>
       {template !== 'hac-son' && <div className={s.field}><span className={s.fieldRow}>Kích thước</span><Seg value={String(size)} options={MAP_SIZES.map((v) => ({ id: String(v), name: `${v} m` }))} onChange={(v) => setSize(Number(v))} /></div>}
       {template === 'auto' && <div className={s.grid3}>
-        {([['cities', 'Thành phố', 4], ['towns', 'Thị trấn', 8], ['villages', 'Làng', 16], ['industrial', 'Khu công nghiệp', 6], ['military', 'Căn cứ', 6], ['ports', 'Cảng', 4], ['lakes', 'Hồ', 10], ['rivers', 'Sông', 8]] as const).map(([k, label, max]) =>
-          <label key={k} className={s.field}><span className={s.fieldRow}>{label}</span><input className={s.input} type="number" min={0} max={max} value={auto[k]} onChange={(e) => setAuto({ ...auto, [k]: Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))) })} /></label>)}
+        {([['cities', 'Thành phố', 4], ['towns', 'Thị trấn', 8], ['villages', 'Làng', 16], ['industrial', 'Khu công nghiệp', 6], ['mines', 'Mỏ khai thác', 4], ['military', 'Căn cứ', 6], ['ports', 'Cảng', 4], ['lakes', 'Hồ', 10], ['rivers', 'Hệ thống sông', 12], ['vehicles', 'Xe (tối thiểu)', 120]] as const).map(([k, label, max]) =>
+          <label key={k} className={s.field}><span className={s.fieldRow}>{label}</span><input className={s.input} type="number" min={0} max={max} value={auto[k] ?? 0} onChange={(e) => setAuto({ ...auto, [k]: Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))) })} /></label>)}
       </div>}
       {template === 'auto' && <>
         <Slider label="Độ phủ rừng" min={0} max={1} step={.05} value={auto.forest} onChange={(forest) => setAuto({ ...auto, forest })} format={(v) => `${Math.round(v * 100)}%`} />

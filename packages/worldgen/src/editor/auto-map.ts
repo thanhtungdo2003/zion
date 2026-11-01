@@ -11,7 +11,7 @@ import { generateSettlement, type SettlementResult } from './settlement/generate
 import { presetSettings, type SettlementPresetId } from './settlement/presets';
 import { defaultTerrainSettings, generateTerrain } from './terrain-gen';
 import type { NewMapRequest } from './templates';
-import { carveLake, carveRiver, lakeSpillLevel, type Lake, type River } from './water';
+import { carveRivers, rasterizeWater, type WaterData } from './water';
 
 /** What the automatic map holds. Counts are upper bounds: sites need suitable ground. */
 export interface AutoParams {
@@ -25,22 +25,59 @@ export interface AutoParams {
   rivers: number;
   /** 0..1: share of open land under forest. */
   forest: number;
+  /** Mines and quarries (at the foot of the ranges). */
+  mines?: number;
   /** Join the settlements with roads. */
   roads: boolean;
+  /** Battle royale: the fewest vehicles a match has. */
+  vehicles?: number;
   /** The state of the whole map (its settlements take the Model Studio buildings made for it); 'mixed': each settlement its own. */
   condition?: BuildingCondition | 'mixed';
 }
-export const DEFAULT_AUTO: AutoParams = { cities: 1, towns: 2, villages: 4, industrial: 1, military: 1, ports: 1, lakes: 2, rivers: 2, forest: .45, roads: true };
+export const DEFAULT_AUTO: AutoParams = { cities: 1, towns: 2, villages: 4, industrial: 1, mines: 1, military: 1, ports: 1, lakes: 2, rivers: 3, forest: .45, roads: true, vehicles: 36 };
 
-const SITE: Array<{ key: keyof AutoParams; preset: SettlementPresetId; radius: number; label: string }> = [
-  { key: 'cities', preset: 'mixed-city', radius: 330, label: 'Thành phố' },
-  { key: 'ports', preset: 'port', radius: 210, label: 'Cảng' },
-  { key: 'towns', preset: 'vn-town', radius: 230, label: 'Thị trấn' },
-  { key: 'industrial', preset: 'industrial-zone', radius: 190, label: 'Khu công nghiệp' },
-  { key: 'military', preset: 'military-base', radius: 170, label: 'Căn cứ' },
-  { key: 'villages', preset: 'small-village', radius: 120, label: 'Làng' },
+type SiteKind = 'city' | 'port' | 'town' | 'industrial' | 'mine' | 'military' | 'village';
+const SITE: Array<{ kind: SiteKind; key: keyof AutoParams; preset: SettlementPresetId; radius: number; label: string }> = [
+  { kind: 'city', key: 'cities', preset: 'mixed-city', radius: 330, label: 'Thành phố' },
+  { kind: 'port', key: 'ports', preset: 'port', radius: 210, label: 'Cảng' },
+  { kind: 'town', key: 'towns', preset: 'vn-town', radius: 230, label: 'Thị trấn' },
+  { kind: 'industrial', key: 'industrial', preset: 'industrial-zone', radius: 190, label: 'Khu công nghiệp' },
+  { kind: 'mine', key: 'mines', preset: 'industrial-zone', radius: 150, label: 'Mỏ' },
+  { kind: 'military', key: 'military', preset: 'military-base', radius: 170, label: 'Căn cứ' },
+  { kind: 'village', key: 'villages', preset: 'small-village', radius: 120, label: 'Làng' },
 ];
-const NAMES = ['Bắc', 'Nam', 'Đông', 'Tây', 'Hồng', 'Thạch', 'Vân', 'Phong', 'Lâm', 'Hải', 'Sơn', 'Minh', 'An', 'Bình', 'Kim', 'Ngọc'];
+
+/**
+ * Place names from the ground they stand on: a settlement by a river is a "Bến…", on a bay a
+ * "Vịnh…", under the mountains a "Đèo…" or "Chân Núi…"; the second word describes the place
+ * (stone, pines, wind, sand…) and repeats are avoided. Rivers, lakes and peaks are named the
+ * same way after what is around them.
+ */
+const PLACE_WORDS: Record<string, string[]> = {
+  river: ['Bến', 'Ngã Ba Sông', 'Bãi Bồi', 'Cầu', 'Đò'],
+  lake: ['Hồ', 'Đầm', 'Bờ Hồ'],
+  bay: ['Vịnh', 'Cửa Vịnh', 'Lạch'],
+  coast: ['Bãi', 'Mũi', 'Ghềnh', 'Cửa Biển'],
+  mountain: ['Đèo', 'Chân Núi', 'Lũng', 'Sườn'],
+  high: ['Cao Nguyên', 'Đồi', 'Đỉnh Gió'],
+  plain: ['Đồng', 'Cánh Đồng', 'Bình Nguyên'],
+  forest: ['Rừng', 'Lâm Trường'],
+};
+const PLACE_TRAITS: Record<string, string[]> = {
+  river: ['Phù Sa', 'Nước Bạc', 'Lau Sậy', 'Đá Cuội', 'Trúc'],
+  lake: ['Sen', 'Gương', 'Mây', 'Lặng', 'Ngọc'],
+  bay: ['Sóng Lặng', 'Thuyền', 'Hải Âu', 'Cát Trắng', 'San Hô'],
+  coast: ['Cát', 'Gió', 'Hải Đăng', 'Đá Đen', 'Phi Lao'],
+  mountain: ['Đá', 'Thông', 'Mây Trắng', 'Sấm', 'Đại Sơn', 'Kim Sơn'],
+  high: ['Gió', 'Sương', 'Thông Reo', 'Chè'],
+  plain: ['Lúa', 'An', 'Bình Yên', 'Hòa', 'Thịnh'],
+  forest: ['Thông', 'Tràm', 'Lim', 'Xanh'],
+};
+const SIDE = (x: number, z: number, size: number) => {
+  const dx = x / size - .5, dz = z / size - .5;
+  if (Math.hypot(dx, dz) < .12) return 'Trung';
+  return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? 'Đông' : 'Tây') : (dz > 0 ? 'Nam' : 'Bắc');
+};
 
 /**
  * A whole map from a few parameters, in the order a planner would: relief, rivers down the
@@ -57,79 +94,105 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   if (req.climate) settings.climate = req.climate;
   if (req.erosion !== undefined) settings.erosion = req.erosion;
   const hf = new Heightfield(settings.size, settings.cell), size = hf.size, sea = settings.seaLevel;
-  for (const f of generateTerrain(settings, hf)) yield f * .2;
+  // Relief, erosion and the drainage in one: the rivers and lakes are the terrain's own.
+  const hydro: { water?: WaterData; lakes?: number; rivers?: number } = { lakes: p.lakes, rivers: p.rivers };
+  for (const f of generateTerrain(settings, hf, hydro)) yield f * .3;
   const doc = createMapDoc({ name: req.name, kind: req.kind, description: req.description ?? 'Bản đồ sinh tự động.', template: 'auto', terrain: settings });
+  doc.water = hydro.water ?? { lakes: [], rivers: [] };
   const land = (x: number, z: number) => hf.heightAt(x, z) > sea + 1.5;
-
-  /* Rivers: from high ground, downhill to the sea (cutting through small dips). */
-  const rRng = stream(req.seed, 'auto-rivers');
-  for (let k = 0; k < p.rivers; k++) {
-    let best: Vec2 | null = null, bh = -Infinity;
-    for (let t = 0; t < 60; t++) { const x = size * (.15 + rRng.next() * .7), z = size * (.15 + rRng.next() * .7), h = hf.heightAt(x, z); if (h > bh && h > sea + 30) { bh = h; best = [x, z]; } }
-    if (!best) continue;
-    const pts: Vec2[] = [best], step = Math.max(20, size / 160);
-    let [x, z] = best, stuck = 0;
-    for (let i = 0; i < 600; i++) {
-      let nx = x, nz = z, nh = Infinity;
-      for (let a = 0; a < 16; a++) {
-        const ang = a / 16 * Math.PI * 2, cx = x + Math.cos(ang) * step, cz = z + Math.sin(ang) * step;
-        // Keep flowing roughly forward, no doubling back.
-        if (pts.length > 2) { const [px, pz] = pts[pts.length - 2]!; if (Math.hypot(cx - px, cz - pz) < step * 1.2) continue; }
-        const h = hf.heightAt(cx, cz);
-        if (h < nh) { nh = h; nx = cx; nz = cz; }
-      }
-      if (nh >= hf.heightAt(x, z) && ++stuck > 25) break;
-      x = nx; z = nz; pts.push([x, z]);
-      if (nh < sea - 1 || x < 4 || z < 4 || x > size - 4 || z > size - 4) break;
-    }
-    if (pts.length < 8) continue;
-    const thin = pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1);
-    const river: River = { id: `river-${k}`, name: `Sông ${NAMES[k % NAMES.length]}`, depth: 2.5, points: thin.map(([px, pz], i) => ({ x: px, z: pz, width: Math.round(8 + 26 * i / thin.length) })) };
-    river.levels = carveRiver(hf, river).levels;
-    doc.water.rivers.push(river);
-    yield .2 + .05 * (k + 1) / Math.max(1, p.rivers);
-  }
-
-  /* Lakes in gentle basins away from the rivers. */
-  const lRng = stream(req.seed, 'auto-lakes');
-  for (let k = 0, tries = 0; k < p.lakes && tries < 300; tries++) {
-    const x = size * (.1 + lRng.next() * .8), z = size * (.1 + lRng.next() * .8), h = hf.heightAt(x, z);
-    if (h < sea + 6 || h > sea + settings.maxHeight * .5 || hf.slopeAt(x, z) > .08) continue;
-    const r = 50 + lRng.next() * 90, poly: Vec2[] = [];
-    for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, rr = r * (.75 + lRng.next() * .45); poly.push([x + Math.cos(a) * rr, z + Math.sin(a) * rr]); }
-    if (poly.some(([px, pz]) => !land(px, pz)) || doc.water.lakes.some((l) => Math.hypot(l.polygon[0]![0] - x, l.polygon[0]![1] - z) < 400)) continue;
-    const lake: Lake = { id: `lake-${k}`, name: `Hồ ${NAMES[(k + 5) % NAMES.length]}`, polygon: poly, level: 0, depth: 4 };
-    lake.level = Math.round((lakeSpillLevel(hf, lake) - .4) * 10) / 10;
-    if (lake.level <= sea + 1) continue;
-    carveLake(hf, lake); doc.water.lakes.push(lake); k++;
-  }
-  yield .3;
-
-  /* Settlement sites: flat dry ground, apart from each other; ports on the shore. */
-  const sRng = stream(req.seed, 'auto-sites');
   const wetNear = (x: number, z: number, r: number) => { for (let a = 0; a < 8; a++) if (!land(x + Math.cos(a * .785) * r, z + Math.sin(a * .785) * r)) return true; return false; };
-  const cand: Array<{ x: number; z: number; flat: number; shore: boolean }> = [];
-  const gs = Math.max(48, size / 80);
+
+  /* What the ground is like, on a coarse grid: distance to the sea, to rivers and lakes, how
+     flat it is near and wide, the relief around (mountains), how enclosed the sea is (bays). */
+  const gs = Math.max(48, size / 80), gn = Math.floor(size / gs) + 1;
+  const wet = rasterizeWater(hf, doc.water);
+  const seaMask = new Uint8Array(gn * gn), riverMask = new Uint8Array(gn * gn), lakeMask = new Uint8Array(gn * gn);
+  for (let j = 0; j < gn; j++) for (let i = 0; i < gn; i++) {
+    const x = Math.min(size, i * gs), z = Math.min(size, j * gs), r = hf.rectAround(x, z, gs * .5);
+    if (hf.heightAt(x, z) < sea) seaMask[j * gn + i] = 1;
+    for (let jj = r.j0; jj <= r.j1; jj += 2) for (let ii = r.i0; ii <= r.i1; ii += 2) {
+      const k = jj * hf.cols + ii;
+      if (wet.level[k]! > hf.heights[k]!) { if (wet.lake[k]) lakeMask[j * gn + i] = 1; else riverMask[j * gn + i] = 1; }
+    }
+  }
+  const toSea = gridDistance(gn, seaMask, gs), toRiver = gridDistance(gn, riverMask, gs), toLake = gridDistance(gn, lakeMask, gs);
+  const at = (d: Float32Array, x: number, z: number) => d[Math.max(0, Math.min(gn - 1, Math.round(z / gs))) * gn + Math.max(0, Math.min(gn - 1, Math.round(x / gs)))]!;
+  const top = Math.max(30, hf.stats().max - sea);
+  const sRng = stream(req.seed, 'auto-sites');
+  interface Cand { x: number; z: number; h: number; flat: number; wide: number; relief: number; sea: number; river: number; lake: number; bay: number }
+  const cand: Cand[] = [];
   for (let z = gs; z < size - gs; z += gs) for (let x = gs; x < size - gs; x += gs) {
     if (!land(x, z)) continue;
-    let slope = 0;
-    for (const [ox, oz] of [[0, 0], [40, 0], [-40, 0], [0, 40], [0, -40]]) slope += hf.slopeAt(x + ox!, z + oz!);
+    let flat = 0, wide = 0, hi = -Infinity, seaRing = 0;
+    for (const [ox, oz] of [[0, 0], [40, 0], [-40, 0], [0, 40], [0, -40]] as const) flat += hf.slopeAt(x + ox, z + oz);
+    for (let a = 0; a < 12; a++) {
+      const c = Math.cos(a * Math.PI / 6), sn = Math.sin(a * Math.PI / 6);
+      wide += hf.slopeAt(x + c * 140, z + sn * 140);
+      hi = Math.max(hi, hf.heightAt(x + c * 450, z + sn * 450), hf.heightAt(x + c * 900, z + sn * 900));
+      if (hf.heightAt(x + c * 350, z + sn * 350) < sea) seaRing++;
+    }
     const h = hf.heightAt(x, z);
-    cand.push({ x, z, flat: slope / 5 + Math.max(0, h - sea - settings.maxHeight * .5) / 200 + sRng.next() * .04, shore: wetNear(x, z, 90) && hf.heightAt(x, z) < sea + 25 });
+    cand.push({ x, z, h, flat: flat / 5, wide: wide / 12, relief: Math.max(0, hi - h), sea: at(toSea, x, z), river: at(toRiver, x, z), lake: at(toLake, x, z), bay: seaRing / 12 });
   }
-  const sites: Array<{ x: number; z: number; r: number; preset: SettlementPresetId; label: string }> = [];
+  // Lower is better: each kind of place where it really would be.
+  const score: Record<SiteKind, (c: Cand) => number> = {
+    // Cities on wide, low, flat ground with room to grow, by a river or the coast.
+    city: (c) => c.flat * 5 + c.wide * 4 + Math.max(0, c.h - sea - top * .25) / 40 - (c.river < 500 ? .35 : 0) - (c.sea < 900 ? .2 : 0),
+    // Ports in sheltered bays and coves (sea on part of the horizon only), on the shore.
+    port: (c) => (c.sea > 160 || c.h > sea + 25 ? 99 : 0) + c.flat * 3 + Math.abs(c.bay - .4) * 2.5 - (c.river < 400 ? .25 : 0),
+    town: (c) => c.flat * 4 + c.wide * 2 + Math.max(0, c.h - sea - top * .35) / 50 - (c.river < 400 ? .3 : 0) - (c.lake < 500 ? .15 : 0),
+    // Industry by water (transport, cooling) and not far from the towns.
+    industrial: (c) => c.flat * 4 + c.wide * 2 + Math.min(c.river, c.sea) / 1500 + Math.max(0, c.h - sea - top * .3) / 50,
+    // Mines and quarries where the mountains rise: the ore and stone are there.
+    mine: (c) => (c.relief < top * .25 ? 99 : 0) + c.flat * 3 - c.relief / top + Math.max(0, c.h - sea - top * .6) / 30,
+    // Bases on commanding ground: raised, flat enough, away from the rest.
+    military: (c) => c.flat * 4 + (c.h - sea < top * .12 ? 1 : 0) - Math.min(c.h - sea, top * .45) / top - (c.bay > .55 ? .3 : 0),
+    // Villages in the valleys and by the water, farming the flats.
+    village: (c) => c.flat * 3 + Math.min(c.river, c.lake, c.sea * 1.5) / 1200 + Math.max(0, c.h - sea - top * .5) / 60,
+  };
+  const sites: Array<{ x: number; z: number; r: number; kind: SiteKind; preset: SettlementPresetId; label: string; c: Cand }> = [];
   for (const kind of SITE) {
-    const n = p[kind.key] as number;
+    const n = (p[kind.key] as number | undefined) ?? 0;
     for (let k = 0; k < n; k++) {
-      const pool = cand.filter((c) => (kind.preset === 'port' ? c.shore : !wetNear(c.x, c.z, kind.radius * .6))
+      const pool = cand.filter((c) => (kind.kind === 'port' || !wetNear(c.x, c.z, kind.radius * .6))
         && c.x > kind.radius && c.z > kind.radius && c.x < size - kind.radius && c.z < size - kind.radius
-        && sites.every((s) => Math.hypot(s.x - c.x, s.z - c.z) > (s.r + kind.radius) * 1.2));
-      if (!pool.length) break;
-      pool.sort((a, b) => a.flat - b.flat);
-      const c = pool[Math.floor(sRng.next() * Math.min(4, pool.length))]!;
-      sites.push({ x: c.x, z: c.z, r: kind.radius, preset: kind.preset, label: kind.label });
+        // Room between places: no two settlements crammed together.
+        && sites.every((s) => Math.hypot(s.x - c.x, s.z - c.z) > (s.r + kind.radius) * 1.35 + 120)
+        && (kind.kind !== 'military' || sites.every((s) => s.kind === 'military' || Math.hypot(s.x - c.x, s.z - c.z) > 800))
+        && (kind.kind !== 'industrial' || !sites.some((s) => s.kind === 'city' || s.kind === 'town' || s.kind === 'port') || sites.some((s) => (s.kind === 'city' || s.kind === 'town' || s.kind === 'port') && Math.hypot(s.x - c.x, s.z - c.z) < 1600)));
+      const rated = pool.map((c) => ({ c, v: score[kind.kind](c) + sRng.next() * .08 })).filter((q) => q.v < 50).sort((a, b) => a.v - b.v);
+      if (!rated.length) break;
+      const c = rated[Math.floor(sRng.next() * Math.min(3, rated.length))]!.c;
+      sites.push({ x: c.x, z: c.z, r: kind.radius, kind: kind.kind, preset: kind.preset, label: kind.label, c });
     }
   }
+  // Names from the place: its setting (river, bay, coast, mountain, plateau, plain, forest) and
+  // a trait of it, never twice the same.
+  const nRng = stream(req.seed, 'auto-names'), used = new Set<string>();
+  const nameFrom = (setting: string, x: number, z: number) => {
+    const words = PLACE_WORDS[setting]!, traits = PLACE_TRAITS[setting]!;
+    for (let t = 0; t < 40; t++) {
+      const name = `${words[Math.floor(nRng.next() * words.length)]!} ${traits[Math.floor(nRng.next() * traits.length)]!}${t > 12 ? ` ${SIDE(x, z, size)}` : ''}`;
+      if (!used.has(name)) { used.add(name); return name; }
+    }
+    return `${words[0]!} ${SIDE(x, z, size)} ${used.size}`;
+  };
+  const settingOf = (c: Cand, kind: SiteKind) =>
+    kind === 'port' ? (c.bay > .25 && c.bay < .6 ? 'bay' : 'coast')
+      : kind === 'mine' ? 'mountain'
+        : c.river < 250 ? 'river' : c.lake < 300 ? 'lake' : c.sea < 250 ? (c.bay > .25 && c.bay < .6 ? 'bay' : 'coast')
+          : c.relief > top * .35 ? 'mountain' : c.h - sea > top * .3 ? 'high' : c.flat < .06 ? 'plain' : 'forest';
+  const siteNames = sites.map((s) => nameFrom(settingOf(s.c, s.kind), s.x, s.z));
+  // Rivers: after the place they pass (a trunk "Sông …", a tributary "Suối …"); lakes after their own setting.
+  doc.water.rivers.forEach((r, i) => {
+    const src = r.points[0]!, mouth = r.points[r.points.length - 1]!, trunk = r.name.startsWith('Sông');
+    let near = -1, nd = Infinity;
+    sites.forEach((s, k) => { for (let q = 0; q < r.points.length; q += 4) { const d = Math.hypot(r.points[q]!.x - s.x, r.points[q]!.z - s.z); if (d < nd && d < s.r + 300) { nd = d; near = k; } } });
+    const base = near >= 0 ? siteNames[near]!.split(' ').slice(-1)[0]! : PLACE_TRAITS.river![i % PLACE_TRAITS.river!.length]!;
+    r.name = `${trunk ? 'Sông' : 'Suối'} ${base}${trunk ? '' : ` ${SIDE(src.x, src.z, size)}`}`;
+    if (doc.water.rivers.slice(0, i).some((q) => q.name === r.name)) r.name = `${r.name} ${SIDE(mouth.x, mouth.z, size)}`;
+  });
+  doc.water.lakes.forEach((l) => { const [cx, cz] = polygonCentroid(l.polygon); l.name = nameFrom('lake', cx, cz); });
   yield .35;
 
   /* Settlements, one after another: each joins the roads of those before it. */
@@ -150,7 +213,7 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
     const kind = kindOfArea(site.preset), preset = areaFor(kind, condition, site.preset) as SettlementPresetId;
     const region: Region = { ...newRegion(poly, preset, i, `${req.seed}-${i + 1}`), kind, condition };
     region.settings = { ...presetSettings(preset), decay: CONDITION_DECAY[condition] };
-    region.name = `${site.label} ${NAMES[(i * 7 + 3) % NAMES.length]} ${NAMES[(i * 3 + 11) % NAMES.length]}`;
+    region.name = `${site.label} ${siteNames[i]!}`;
     try {
       const gen = generateSettlement({ polygon: poly, seed: region.seed, settings: region.settings, terrain: hf, water: doc.water, seaLevel: sea, externalRoads: roadsSoFar, obstacles, catalog });
       let r: IteratorResult<unknown, SettlementResult>;
@@ -165,6 +228,9 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
     yield .35 + .35 * (i + 1) / Math.max(1, sites.length);
   }
 
+  // Levelling a town filled the stream beds through it: cut them again under the same water.
+  carveRivers(hf, doc.water.rivers, true);
+
   /* Roads between the settlements: a spanning tree routed over the ground, round the water. */
   if (p.roads && doc.regions.length > 1) {
     const centres = doc.regions.map((r) => polygonCentroid(r.polygon)), linked = [0], edges: Array<[number, number]> = [];
@@ -177,7 +243,7 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
       linked.push(best![1]); edges.push([best![0], best![1]]);
     }
     for (const [a, b] of edges) {
-      const route = routeOverGround(hf, sea, centres[a]!, centres[b]!);
+      const route = routeOverGround(hf, sea, centres[a]!, centres[b]!, wet);
       if (route) doc.base.roads.push({ points: route, width: 8, paved: true });
     }
   }
@@ -193,7 +259,7 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   const riverPts = new SpatialGrid<{ x: number; z: number; r: number }>(64, (q) => q.r);
   for (const r of doc.water.rivers) for (const q of r.points) riverPts.insert({ x: q.x, z: q.z, r: q.width / 2 + 120 });
   for (const l of doc.water.lakes) for (const q of l.polygon) riverPts.insert({ x: q[0], z: q[1], r: 100 });
-  const cap = Math.floor(MAX_FLORA * .9), top = Math.max(30, hf.stats().max - sea);
+  const cap = Math.floor(MAX_FLORA * .9);
   const FLORA_MIX: Record<string, { density: number; treeLine: number; wet: Array<[string, number]>; dry: Array<[string, number]>; high: Array<[string, number]>; coast: Array<[string, number]> }> = {
     temperate: { density: 1, treeLine: .78, wet: [['forest', 4], ['oak', 2], ['bigtree', 1], ['shrub', 3], ['grass', 2], ['reeds', .4]], dry: [['broadleaf', 2], ['bush', 2], ['grass', 4], ['meadow', 2], ['stone', .8]], high: [['pine', 4], ['smallpine', 2], ['conifer', 1], ['rock', 1.2], ['stone', 1], ['granite_blocks', 1.5]], coast: [['grass', 3], ['bush', 1.5], ['stone', 1], ['broadleaf', .6], ['limestone_blocks', .6]] },
     tropical: { density: 1.25, treeLine: .85, wet: [['palm', 3], ['broadleaf', 4], ['bush', 4], ['reeds', 1.5], ['bigtree', 1]], dry: [['broadleaf', 3], ['bush', 3], ['grass', 3], ['palm', 1]], high: [['forest', 3], ['broadleaf', 2], ['rock', 1], ['mossy_blocks', 1.2]], coast: [['palm', 4], ['bush', 2], ['grass', 2], ['limestone_blocks', .5]] },
@@ -223,6 +289,8 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
       if (fRng.next() > cover) continue;
       if (doc.regions.some((r) => pointInPolygon(px, pz, r.polygon)) || roadPts.query(px, pz, 0).length) continue;
       if (doc.water.lakes.some((l) => pointInPolygon(px, pz, l.polygon))) continue;
+      // Nothing grows in a river bed.
+      { const k = hf.clampJ(Math.round(pz / hf.cell)) * hf.cols + hf.clampI(Math.round(px / hf.cell)); if (wet.level[k]! > hf.heights[k]! - .3) continue; }
       const list = alt > mix.treeLine * .8 ? mix.high : rel < 8 ? mix.coast : moisture > .55 ? mix.wet : mix.dry;
       const item: FloraItem = [pickSp(pickFrom(list)), Math.round(px * 10) / 10, Math.round(pz * 10) / 10, Math.round(fRng.next() * 628) / 100, Math.round((.75 + fRng.next() * .55) * 100) / 100];
       // Uniform thinning to the budget (reservoir sampling): every region keeps its share.
@@ -240,6 +308,13 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   const br = doc.gameplay[0]!;
   br.name = 'Battle Royale — tự động';
   br.pois = doc.regions.map((r) => { const c = polygonCentroid(r.polygon); return { id: `poi-${r.id}`, name: r.name, kind: r.preset, x: Math.round(c[0]), z: Math.round(c[1]), radius: Math.round(Math.sqrt(r.result?.analysis.area ?? 10000) / 2) }; });
+  // The landmarks players steer by: the highest summits (apart from each other) and the lakes.
+  const peaks = cand.filter((c) => c.h - sea > top * .55).sort((a, b) => b.h - a.h), named: Cand[] = [];
+  for (const c of peaks) if (named.length < 3 && named.every((q) => Math.hypot(q.x - c.x, q.z - c.z) > 900)) named.push(c);
+  for (const [k, c] of named.entries()) br.pois.push({ id: `poi-peak-${k}`, name: `Đỉnh ${nameFrom('mountain', c.x, c.z).split(' ').slice(1).join(' ')} (${Math.round(c.h - sea)} m)`.slice(0, 80), kind: 'peak', x: Math.round(c.x), z: Math.round(c.z), radius: 80 });
+  for (const [k, l] of doc.water.lakes.entries()) { const [cx, cz] = polygonCentroid(l.polygon); br.pois.push({ id: `poi-lake-${k}`, name: l.name.slice(0, 80), kind: 'lake', x: Math.round(cx), z: Math.round(cz), radius: 60 }); }
+  // Vehicles in every battle royale match, whatever the map's condition.
+  br.vehicles = p.vehicles ?? DEFAULT_AUTO.vehicles;
   br.hotspots = doc.regions.filter((r) => r.preset === 'military-base' || r.preset === 'small-city' || r.preset === 'mixed-city' || r.preset === 'abandoned-city' || r.preset === 'port').map((r) => { const c = polygonCentroid(r.polygon); return { id: `hot-${r.id}`, name: r.name, x: Math.round(c[0]), z: Math.round(c[1]), radius: 200, danger: r.preset === 'military-base' ? 5 : 4 }; });
   const ctx = { terrain: hf, water: doc.water, seaLevel: sea };
   br.spawnPoints = autoSpawnPoints(br, ctx, req.seed, br.maxPlayers);
@@ -249,8 +324,12 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   return { doc, terrain: hf };
 }
 
-/** Cheapest way over the ground on a coarse grid: steep and wet cells cost much more. */
-function routeOverGround(hf: Heightfield, sea: number, a: Vec2, b: Vec2): Vec2[] | null {
+/**
+ * Cheapest way over the ground on a coarse grid: steep cells cost much more, cliffs are all but
+ * impassable, the sea and lakes are avoided and rivers are crossed where they are narrow.
+ */
+function routeOverGround(hf: Heightfield, sea: number, a: Vec2, b: Vec2, wet: ReturnType<typeof rasterizeWater>): Vec2[] | null {
+  const water = (x: number, z: number) => { const k = hf.clampJ(Math.round(z / hf.cell)) * hf.cols + hf.clampI(Math.round(x / hf.cell)); return wet.level[k]! > hf.heights[k]! ? (wet.lake[k] ? 2 : 1) : 0; };
   const step = Math.max(24, hf.size / 160), n = Math.ceil(hf.size / step) + 1;
   const cell = (x: number, z: number) => Math.max(0, Math.min(n - 1, Math.round(z / step))) * n + Math.max(0, Math.min(n - 1, Math.round(x / step)));
   const start = cell(...a), goal = cell(...b);
@@ -270,7 +349,8 @@ function routeOverGround(hf: Heightfield, sea: number, a: Vec2, b: Vec2): Vec2[]
       const ix = cx + dx, iz = cz + dz;
       if (ix < 0 || iz < 0 || ix >= n || iz >= n) continue;
       const nc = iz * n + ix, h = hf.heightAt(ix * step, iz * step), run = Math.hypot(dx, dz) * step, grade = Math.abs(h - hc) / run;
-      const g = cost[c]! + run * (1 + 300 * Math.max(0, grade - .06) ** 2) * (h < sea + 1 ? 40 : 1);
+      const w = water(ix * step, iz * step);
+      const g = cost[c]! + run * (1 + 300 * Math.max(0, grade - .06) ** 2 + 400 * Math.max(0, grade - .25)) * (h < sea + 1 || w === 2 ? 40 : w === 1 ? 6 : 1);
       if (g >= cost[nc]!) continue;
       cost[nc] = g; from[nc] = c;
       push(g + Math.hypot(gx - ix, gz - iz) * step, nc);
@@ -288,4 +368,23 @@ function routeOverGround(hf: Heightfield, sea: number, a: Vec2, b: Vec2): Vec2[]
     next.push(line[line.length - 1]!); line = next;
   }
   return line.length > 1 ? line : null;
+}
+
+/** Two-pass chamfer distance (m) on an n×n grid to the nearest marked cell (∞ when none). */
+function gridDistance(n: number, mask: Uint8Array, cell: number): Float32Array {
+  const d = new Float32Array(n * n);
+  for (let k = 0; k < d.length; k++) d[k] = mask[k] ? 0 : 1e9;
+  const d1 = cell, d2 = cell * Math.SQRT2;
+  const relax = (k: number, o: number, w: number) => { const v = d[o]! + w; if (v < d[k]!) d[k] = v; };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const k = j * n + i;
+    if (i > 0) relax(k, k - 1, d1);
+    if (j > 0) { relax(k, k - n, d1); if (i > 0) relax(k, k - n - 1, d2); if (i < n - 1) relax(k, k - n + 1, d2); }
+  }
+  for (let j = n - 1; j >= 0; j--) for (let i = n - 1; i >= 0; i--) {
+    const k = j * n + i;
+    if (i < n - 1) relax(k, k + 1, d1);
+    if (j < n - 1) { relax(k, k + n, d1); if (i < n - 1) relax(k, k + n + 1, d2); if (i > 0) relax(k, k + n - 1, d2); }
+  }
+  return d;
 }

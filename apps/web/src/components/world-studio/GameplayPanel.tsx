@@ -54,6 +54,8 @@ export function GameplayPanel({ api }: { api: EditorApi }) {
         <NumberField label="Chờ sảnh" unit="giây" min={0} max={1800} value={g.lobbyWaitSec} onChange={(v) => up('Thời gian chờ', (c) => { c.lobbyWaitSec = v; }, 'lobby')} />
         <NumberField label="Đếm ngược" unit="giây" min={0} max={600} value={g.countdownSec} onChange={(v) => up('Đếm ngược', (c) => { c.countdownSec = v; }, 'count')} />
         <NumberField label="Giới hạn" unit="phút (0 = không)" min={0} max={240} value={Math.round(g.timeLimitSec / 60)} onChange={(v) => up('Giới hạn trận', (c) => { c.timeLimitSec = v * 60; }, 'limit')} />
+        {/* Every battle royale match has vehicles, whatever the map's style or condition. */}
+        <NumberField label="Xe trong trận" unit="chiếc" min={0} max={120} value={g.vehicles ?? 36} onChange={(v) => up('Số xe trong trận', (c) => { c.vehicles = Math.round(v); }, 'vehicles')} />
       </div>
       <div className={s.field}><span className={s.fieldRow}>Điều kiện thắng</span><Seg value={g.winRule} options={[{ id: 'last-standing', name: 'Người cuối cùng' }, { id: 'last-squad', name: 'Đội cuối cùng' }]} onChange={(winRule) => up('Điều kiện thắng', (c) => { c.winRule = winRule; })} /></div>
       <div className={s.field}><span className={s.fieldRow}>Hết giờ thì</span><Seg value={g.timeoutRule} options={[{ id: 'closest-to-zone', name: 'Gần tâm bo thắng' }, { id: 'most-kills', name: 'Nhiều hạ gục' }, { id: 'draw', name: 'Hòa' }]} onChange={(timeoutRule) => up('Khi hết giờ', (c) => { c.timeoutRule = timeoutRule; })} /></div>
