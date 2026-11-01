@@ -1,3 +1,4 @@
+import { planRegion, regionRequestSchema } from '../../model-studio/region-planner';
 import { lotFitSchema } from '@zion/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -148,6 +149,11 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
       req.log.info({ asset: r.asset, project: req.params.id }, 'model studio: published');
       return r;
     } catch (err) { return fail(reply, err); }
+  });
+  // World Studio: what a drawn region should be (kind, condition, style, name) and which published
+  // buildings it takes — the Model Studio's AI when connected, rules of thumb otherwise.
+  app.post('/api/studio/world/plan-region', { ...pre, bodyLimit: 64 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try { return await planRegion(regionRequestSchema.parse(req.body), store.publishedList(), ms.ai?.client() ?? null); } catch (err) { return fail(reply, err); }
   });
   app.put<{ Params: { asset: string } }>('/api/studio/models/published/:asset/fit', pre, async (req, reply) => {
     try { return await store.setFit(Number(req.params.asset), lotFitSchema.parse((req.body as { fit?: unknown } | null)?.fit)); } catch (err) { return fail(reply, err); }

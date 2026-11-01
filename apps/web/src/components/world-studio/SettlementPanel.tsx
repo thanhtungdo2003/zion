@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, CONDITION_DECAY, LOT_CLASS_NAMES, SETTLEMENT_AREA_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, SETTLEMENT_KIND_STYLES, areaFor, kindOfArea, type BuildingCondition, type SettlementKind } from '@zion/shared';
 import { createDefaultRegistry } from '@zion/assets';
-import { SETTLEMENT_PRESETS, URBAN_PATTERNS, levelRegion, polygonArea, presetSettings, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
+import { SETTLEMENT_PRESETS, URBAN_PATTERNS, levelRegion, pointInPolygon, polygonArea, presetSettings, waterLevelAt, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
+import { ConfirmDialog } from '../ConfirmDialog';
+import { hasStudioSession, studioLogin, studioPlanRegion, type RegionPlan } from '@/lib/api';
 import type { EditorApi } from './editor-api';
 import { Btn, Check, NumberField, Section, Seg, Slider, TextField, fmt, fmtTime } from './ui';
 import s from './world-studio.module.css';
@@ -60,6 +63,7 @@ function RegionSection({ api, region }: { api: EditorApi; region: Region }) {
       <TextField label="Tên" value={region.name} onChange={(name) => api.updateRegion('Đổi tên khu vực', region.id, (r) => ({ ...r, name }), `${region.id}-name`)} testId="region-name" />
       <p className={s.note}>{fmt(Math.round(area))} m² · {region.polygon.length} điểm{region.result ? ` · ${region.result.buildings.length} công trình · ${region.result.props.length} vật thể` : ' · chưa sinh'}{region.exclusions.length ? ` · ${region.exclusions.length} chỗ xóa tay` : ''}</p>
       <RegionKind api={api} region={region} />
+      <RegionAi api={api} region={region} onGenerate={() => run('roads')} />
       <div className={s.field}><span className={s.fieldRow}>Seed</span>
         <div style={{ display: 'flex', gap: 4 }}><input className={s.input} value={region.seed} onChange={(e) => api.updateRegion('Đổi seed', region.id, (r) => ({ ...r, seed: e.target.value.slice(0, 64) || 'seed' }), `${region.id}-seed`)} data-testid="region-seed" />
           <button className={s.iconBtn} title="Seed ngẫu nhiên" onClick={() => api.updateRegion('Seed ngẫu nhiên', region.id, (r) => ({ ...r, seed: Math.random().toString(36).slice(2, 9) }))}><Icon name="lucide:dices" /></button></div></div>
@@ -176,4 +180,50 @@ function RegionKind({ api, region }: { api: EditorApi; region: Region }) {
       <Seg<string> value={region.preset} options={styles.map((id) => ({ id, name: SETTLEMENT_AREA_NAMES[id] }))} onChange={(st) => set('Phong cách', kind, condition, st)} /></div>}
     {preset && <p className={s.note}>{preset.description}</p>}
   </>;
+}
+
+/**
+ * The AI picks what the region is: from the admin's words (optional) and the ground the region
+ * covers — its size, water, height, slope and neighbours — it chooses the kind, condition, style
+ * and a name (the Model Studio's AI connection; rules of thumb without one), lists the published
+ * buildings that will stand there, and generates the region straight away.
+ */
+function RegionAi({ api, region, onGenerate }: { api: EditorApi; region: Region; onGenerate: () => void }) {
+  const [prompt, setPrompt] = useState(''), [busy, setBusy] = useState(false), [asking, setAsking] = useState(false);
+  const [plan, setPlan] = useState<RegionPlan | null>(null);
+  const ask = async (password?: string) => {
+    setBusy(true);
+    try {
+      if (password) await studioLogin(password);
+      const hf = api.terrain, sea = api.doc.terrain.seaLevel;
+      let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+      for (const [x, z] of region.polygon) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
+      // The ground: a grid of samples inside the polygon.
+      let n = 0, wet = 0, height = 0, slope = 0;
+      const stepX = (maxX - minX) / 16, stepZ = (maxZ - minZ) / 16;
+      for (let i = 0; i <= 16; i++) for (let j = 0; j <= 16; j++) {
+        const x = minX + i * stepX, z = minZ + j * stepZ;
+        if (!pointInPolygon(x, z, region.polygon)) continue;
+        const h = hf.heightAt(x, z), water = waterLevelAt(hf, api.doc.water, sea, x, z);
+        n++; height += h - sea; if (water !== null && water > h - .5) wet++;
+        slope += Math.hypot(hf.heightAt(x + 2, z) - hf.heightAt(x - 2, z), hf.heightAt(x, z + 2) - hf.heightAt(x, z - 2)) / 4;
+      }
+      const r = await studioPlanRegion({ prompt, region: { area: Math.abs(polygonArea(region.polygon)), width: maxX - minX, depth: maxZ - minZ, water: n ? wet / n : 0, elevation: n ? height / n : 0, slope: n ? slope / n : 0,
+        neighbours: api.doc.regions.filter((q) => q.id !== region.id).map((q) => q.name).slice(0, 30) } });
+      const kind = r.kind as SettlementKind, condition = r.condition as BuildingCondition;
+      api.updateRegion(`AI: ${r.name}`, region.id, (q) => ({ ...q, name: r.name, kind, condition, preset: r.preset as Region['preset'], settings: { ...presetSettings(r.preset as Region['preset']), decay: CONDITION_DECAY[condition] } }));
+      setPlan(r);
+      // Generated at once with what the AI chose (a preview, applied after review as always).
+      window.setTimeout(onGenerate, 0);
+    } catch (err) { api.flash(`AI không chọn được: ${err instanceof Error ? err.message : String(err)}`, true); throw err; }
+    finally { setBusy(false); }
+  };
+  return <Section title="AI chọn kiểu khu vực" icon="sparkles" collapsible>
+    <p className={s.lead}>Mô tả ngắn (tuỳ chọn), vd "căn cứ quân sự bỏ hoang trên đồi", "thị trấn ven biển". Để trống: AI tự chọn theo địa hình. Công trình là các model đã xuất bản từ Model Studio hợp với lựa chọn đó.</p>
+    <textarea className={s.input} rows={2} value={prompt} maxLength={1000} onChange={(e) => setPrompt(e.target.value)} placeholder="Khu vực này là…" />
+    <Btn icon="sparkles" kind="primary" disabled={busy || api.busy} onClick={() => { if (hasStudioSession()) void ask().catch(() => {}); else setAsking(true); }}>{busy ? 'AI đang chọn…' : 'AI chọn và sinh khu vực'}</Btn>
+    {plan && <p className={s.note}>{plan.source === 'ai' ? 'AI' : 'Quy tắc (chưa nối AI)'}: {SETTLEMENT_KIND_NAMES[plan.kind as SettlementKind]} · {BUILDING_CONDITION_NAMES[plan.condition as BuildingCondition]} · {SETTLEMENT_AREA_NAMES[plan.preset as Region['preset']]}{plan.reason ? ` — ${plan.reason}` : ''}. {plan.buildings.length ? `${plan.buildings.length} công trình Model Studio hợp: ${plan.buildings.slice(0, 8).map((b) => b.name).join(', ')}${plan.buildings.length > 8 ? '…' : ''}.` : 'Chưa có công trình Model Studio nào hợp: dùng nhà có sẵn.'}</p>}
+    {asking && <ConfirmDialog title="Đăng nhập Studio" message="Nhập mật khẩu Studio để dùng AI." password danger={false} confirmLabel="Tiếp"
+      onCancel={() => setAsking(false)} onConfirm={async (pw) => { await ask(pw); setAsking(false); }} />}
+  </Section>;
 }

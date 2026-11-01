@@ -61,6 +61,11 @@ export function studioSetBattleMapWarfare(id: string, warfare: unknown): Promise
 export function studioSetBattleMapEnvironment(id: string, environment: unknown): Promise<{ id: string; environment: unknown }> {
   return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}/environment`, { method: 'PUT', body: JSON.stringify({ environment }) });
 }
+/** What a drawn World Studio region should be, from the admin's words and its ground (the Model Studio's AI, or rules). */
+export interface RegionPlan { kind: string; condition: string; style: string; preset: string; name: string; reason: string; buildings: Array<{ asset: number; name: string; fit: string }>; source: 'ai' | 'rules' }
+export function studioPlanRegion(body: { prompt: string; region: { area: number; width: number; depth: number; water: number; elevation: number; slope: number; neighbours: string[] } }): Promise<RegionPlan> {
+  return studioRequest('/api/studio/world/plan-region', { method: 'POST', body: JSON.stringify(body) });
+}
 /** The game modes a published World Studio map is offered in (no rebuild). */
 export function studioSetBattleMapModes(id: string, modes: string[]): Promise<{ id: string; modes: string[] }> {
   return studioRequest(`/api/studio/battle-maps/${encodeURIComponent(id)}/modes`, { method: 'PUT', body: JSON.stringify({ modes }) });
