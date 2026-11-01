@@ -145,6 +145,9 @@ export const sellMessageSchema = z.object({ t: z.literal('sell'), req: u32, uid:
 /** Pick up a dropped ZCoin (the server checks reach). */
 export const pickupCoinMessageSchema = z.object({ t: z.literal('pickcoin'), id: u32 }).strict();
 
+/** Window panes this client saw break (world centres in whole cm, x y z per pane); the server passes them on. */
+export const glassMessageSchema = z.object({ t: z.literal('glass'), p: z.array(z.number().int().min(-10_000_000).max(10_000_000)).min(3).max(192) }).strict();
+
 /** Downed: call for help / give up (die now). Alive: start reviving a downed player nearby. */
 export const distressMessageSchema = z.object({ t: z.literal('distress') }).strict();
 export const giveUpMessageSchema = z.object({ t: z.literal('giveup') }).strict();
@@ -235,6 +238,7 @@ const plainClientMessageSchema = z.discriminatedUnion('t', [
   devCoinsMessageSchema,
   healMessageSchema,
   pickupCoinMessageSchema,
+  glassMessageSchema,
   buyMessageSchema,
   sellMessageSchema,
   waveBuyMessageSchema,

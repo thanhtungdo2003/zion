@@ -176,6 +176,11 @@ export class GameConnection {
     return this.send(input);
   }
 
+  /** Window panes broken here (world centres in cm, x y z each). */
+  sendGlass(p: number[]): void {
+    if (p.length >= 3) this.send({ t: 'glass', p });
+  }
+
   sendPing(): void {
     this.send({ t: 'ping', id: ++this.pingId, ct: performance.now() });
   }

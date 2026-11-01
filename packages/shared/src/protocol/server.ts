@@ -233,6 +233,14 @@ export interface GroundItemsEvent {
   items: Array<{ id: number; itemId: string; count?: number; x: number; y: number; z: number; ttl?: number }>;
 }
 
+/** Window panes broken (or, `repair`, put back): world centres in whole cm, x y z per pane. `quiet`: no shards or sound (the list on joining). */
+export interface GlassEvent {
+  t: 'glass';
+  p: number[];
+  repair?: 1;
+  quiet?: 1;
+}
+
 export interface GroundGoneEvent {
   t: 'groundGone';
   id: number;
@@ -387,6 +395,7 @@ export type ServerJsonMessage =
   | InventoryEvent
   | GroundItemsEvent
   | GroundGoneEvent
+  | GlassEvent
   | CoinDropEvent
   | NpcListEvent
   | CoinGoneEvent

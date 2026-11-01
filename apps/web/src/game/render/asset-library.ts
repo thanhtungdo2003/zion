@@ -32,6 +32,7 @@ import { API_URL } from '@/lib/api';
 import { uploadedModelUrl } from '@zion/assets';
 import { mossyRock, naturalMaterial } from './natural-material';
 import { assetProfile, layerMaterial } from './surface-layers';
+import { prepareGlass } from './glass';
 import { ResourceDisposer } from './resources';
 
 export interface AssetVisual {
@@ -269,6 +270,8 @@ export class AssetLibrary {
         const profile = assetProfile(def);
         for (const part of v.parts) layerMaterial(part.material, profile, def.bounds.height, part.geometry);
         for (const part of v.parts) applyOcclusionFade(preserveAlphaCoverage(part.material));
+        // Window glass that shots, blasts and blows break (glass.ts).
+        prepareGlass(numericId, v);
         this.visuals.set(numericId, v);
         return v;
       });

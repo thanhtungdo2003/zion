@@ -84,7 +84,7 @@ export const SOUND_FILES = {
 } as const;
 
 /** Sounds from files, plus those synthesised here (a blunt weapon's whoosh). */
-export type SoundName = keyof typeof SOUND_FILES | 'airSwing';
+export type SoundName = keyof typeof SOUND_FILES | 'airSwing' | 'glassBreak';
 
 export interface PlayOptions {
   volume?: number;
@@ -164,6 +164,7 @@ export class SoundBank {
     this.deafen = this.ctx.createGain();
     this.master.connect(this.deafen).connect(this.ctx.destination);
     this.buffers.set('airSwing', airSwing(this.ctx));
+    this.buffers.set('glassBreak', glassBreak(this.ctx));
   }
 
   async load(onProgress?: (p: number) => void): Promise<void> {
@@ -401,6 +402,28 @@ export class SoundBank {
  * sweeps up as the swing speeds through and back down, swelling and fading — a whoosh, not a
  * blade's ring. Synthesised once.
  */
+/**
+ * A pane shattering: a sharp crack, a crash of broken glass (bright filtered noise) and the
+ * tinkle of shards falling and bouncing, each a short high ring. Synthesised once.
+ */
+function glassBreak(ctx: BaseAudioContext): AudioBuffer {
+  const rate = ctx.sampleRate, len = Math.floor(rate * 1.4), buf = ctx.createBuffer(1, len, rate), d = buf.getChannelData(0);
+  let seed = 29, prev = 0, peak = 0;
+  const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 1073741823.5 - 1; };
+  // The falling shards: when each lands and how high it rings.
+  const tinkles = Array.from({ length: 34 }, (_, i) => ({ at: .04 + Math.pow(i / 34, 1.4) * 1.05 + noise() * .03, f: 2600 + (noise() + 1) * 2600, a: .25 + (noise() + 1) * .2 }));
+  for (let i = 0; i < len; i++) {
+    const t = i / rate, x = noise();
+    // High-passed noise (the crash), a sharp attack, then a long-ish decay.
+    const hp = x - prev; prev = x;
+    let v = hp * (Math.min(1, t / .002) * Math.exp(-t * 9) * .9 + Math.exp(-t * 3.2) * .12);
+    for (const k of tinkles) if (t >= k.at) { const u = t - k.at; if (u < .12) v += Math.sin(2 * Math.PI * k.f * u) * Math.exp(-u * 55) * k.a * Math.exp(-k.at * 1.2); }
+    d[i] = v; peak = Math.max(peak, Math.abs(v));
+  }
+  for (let i = 0; i < len; i++) d[i]! /= peak || 1;
+  return buf;
+}
+
 function airSwing(ctx: BaseAudioContext): AudioBuffer {
   const rate = ctx.sampleRate, len = Math.floor(rate * .5), buf = ctx.createBuffer(1, len, rate), d = buf.getChannelData(0);
   let low = 0, band = 0, seed = 11, peak = 0;

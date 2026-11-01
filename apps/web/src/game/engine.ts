@@ -168,6 +168,7 @@ import { WeaponController } from './weapon-controller';
 import { ammoItemFor } from './inventory/items';
 import type { PlacedItem } from './inventory/inventory';
 import { SoundBank, type SoundName } from './audio';
+import { GlassBreaker, type GlassHit } from './render/glass';
 import { zombieVariant } from '@zion/shared';
 import { ZOMBIE_MODEL_URLS, ZombieAvatar, type LastHit } from './render/zombie-avatar';
 import { loadZombieModel, zombieTemplateIndex } from './render/zombie-model';
@@ -430,6 +431,9 @@ export class GameEngine {
   /** Peeking round a corner while aiming (TOP & third person): −1 left, 1 right, since when. */
   private autoLean = { side: 0, at: 0 };
   private readonly reachHit = makeRayHit();
+  private readonly glassRay = makeRayHit();
+  /** Window glass that breaks (render/glass.ts). */
+  private glass: GlassBreaker | null = null;
   /** Ledges being climbed: where each climber's hands are planted, when it started, the recording it follows. */
   private readonly mantles = new Map<number, { left: Vector3; right: Vector3; start: number; dur: number; kind: 0 | 1; t0: number; wall: Vector3; dir: Vector3; top: number }>();
 
@@ -989,6 +993,8 @@ export class GameEngine {
     this.effects?.dispose();
     this.sounds?.dispose();
     this.props?.dispose();
+    this.glass?.dispose();
+    this.glass = null;
     this.impostors?.dispose(); this.impostors = null;
     this.studioDoors?.dispose(); this.studioDoors = null;
     this.relief?.dispose(); this.relief = null;
@@ -1509,6 +1515,10 @@ export class GameEngine {
     this.impostors?.dispose();
     this.impostors = new ImpostorCache(this.renderer, settingsStore.get().renderScale >= 1 ? 96 : 64);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values(), this.impostors);
+    this.glass?.dispose();
+    this.glass = new GlassBreaker(this.scene, (visit) => this.props?.forEachPlaced(visit),
+      (x, y, z) => this.store?.collision.raycast(x, y + .05, z, 0, -1, 0, 40, Mask.CharacterMovement, this.glassRay) ? this.glassRay.y : y - 3,
+      (x, y, z, volume) => this.sounds?.play('glassBreak', { at: { x, y, z }, volume, maxDistance: 70, rate: .88 + Math.random() * .25 }));
     this.relief?.dispose();
     this.relief = new TerrainRelief(this.scene, this.terrainMaterial, (cx, cz) => this.store?.get(cx, cz), () => this.groundTextures.heightMaps, world.seaLevel, world.cosmeticSeed);
     this.studioDoors?.dispose();
@@ -2052,9 +2062,15 @@ export class GameEngine {
         const eject = shooter?.weaponPoint('eject', this.tmpC) ? this.tmpC : null;
         const right = eject ? new Vector3(-dir.z, 0, dir.x).normalize() : null;
         this.effects?.shot(m.shooterId, { weapon: m.w, muzzle, dir, eject, right, ends: m.ends, suppressed: m.sup === 1 });
+        // Their rounds break the windows on their way (each up to where it stopped).
+        for (let i = 0; i + 2 < m.ends.length; i += 3) this.glassShot(m.ox, m.oy, m.oz, m.ends[i]! - m.ox, m.ends[i + 1]! - m.oy, m.ends[i + 2]! - m.oz, Math.hypot(m.ends[i]! - m.ox, m.ends[i + 1]! - m.oy, m.ends[i + 2]! - m.oz) + .3, false);
         if (weaponSpec(m.w)?.kind === 'gun' && (weaponSpec(m.w) as { fire?: string }).fire !== 'flame') shooter?.kick(heavyKick(m.w) ? 0.35 : 0.12);
         break;
       }
+      case 'glass':
+        if (m.repair) this.glass?.repair(m.p);
+        else this.glass?.apply(m.p, !!m.quiet || m.p.length > 90);
+        break;
       case 'grenade':
         this.effects?.throwGrenade(m.id, { x: m.x, y: m.y, z: m.z, vx: m.vx, vy: m.vy, vz: m.vz, resting: false }, m.w);
         break;
@@ -2063,6 +2079,12 @@ export class GameEngine {
         break;
       case 'explosion':
         this.effects?.explode(m.id, m.x, m.y, m.z, m.radius, m.kind);
+        // The blast blows the windows round it out.
+        if (m.kind !== 'flash' && m.kind !== 'smoke' && this.glass) {
+          const hits = this.glass.near(m.x, m.y, m.z, Math.max(4, m.radius * 1.4)).slice(0, 120);
+          for (const h of hits) { const dx = h.x - m.x, dy = h.y - m.y, dz = h.z - m.z, d = Math.hypot(dx, dy, dz) || 1; this.glass.shatter(h, { x: dx / d, y: dy / d + .2, z: dz / d, speed: 9 / (1 + d * .15) }); }
+          this.reportGlass(hits);
+        }
         if (m.kind !== 'flash') this.shockwaves.add(m.x, m.y + .3, m.z, m.radius);
         // Close to a blast: the ears ring (a high whine over muffled hearing), more the closer.
         if (m.kind !== 'flash' && this.local && !this.local.dead) {
@@ -2558,6 +2580,7 @@ export class GameEngine {
     if (this.localWeaponPoint('muzzle', this.tmpA)) this.effects?.trackMuzzle(this.welcome!.playerId, this.tmpA);
     for (const [id, r] of this.remotes) if (r.avatar.weaponPoint('muzzle', this.tmpA)) this.effects?.trackMuzzle(id, this.tmpA);
     this.effects?.update(dt, this.store?.collision);
+    this.glass?.update(dt, this.camera.position.x, this.camera.position.z);
     this.debris?.update(dt, this.store?.collision);
     this.groundItems?.update(now);
     this.building?.update(dt, this.elapsed);
@@ -2961,6 +2984,7 @@ export class GameEngine {
     const heavy = heavyKick(weapon);
     const av = this.localAvatar;
     const dir = new Vector3(fx * Math.cos(this.shotPitch), Math.sin(this.shotPitch), fz * Math.cos(this.shotPitch));
+    this.glassShot(ox, oy, oz, dir.x, dir.y, dir.z, 400, true);
     // Render after this frame's camera and weapon pose, so the flash shares the visible bore.
     this.pendingLocalShots.push(() => {
       const bore = this.localWeaponBore(this.tmpA, dir);
@@ -3206,6 +3230,28 @@ export class GameEngine {
     return this.names.get(id) ?? `#${id}`;
   }
 
+  /**
+   * A round's path: the window panes it passes through before it hits something solid (`solid`:
+   * found by the collision here; otherwise `maxT` is where it stopped) shatter, and the server hears of it.
+   */
+  private glassShot(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number, solid: boolean): void {
+    const glass = this.glass;
+    if (!glass) return;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    dx /= len; dy /= len; dz /= len;
+    let reach = maxT;
+    // (A little past the wall it hits: panes sit a little inside a building's outer collider.)
+    if (solid && this.store?.collision.raycast(ox, oy, oz, dx, dy, dz, maxT, Mask.LineOfSight, this.glassRay)) reach = this.glassRay.t + .35;
+    const hits = glass.raycast(ox, oy, oz, dx, dy, dz, reach);
+    for (const h of hits) glass.shatter(h, { x: dx, y: dy, z: dz, speed: 5 });
+    this.reportGlass(hits);
+  }
+
+  /** Tells the server which panes broke here (it passes them on to everyone). */
+  private reportGlass(hits: readonly GlassHit[]): void {
+    for (let i = 0; i < hits.length; i += 64) this.conn.sendGlass(hits.slice(i, i + 64).flatMap((h) => h.key.split(',').map(Number)));
+  }
+
   /** Blade swing visual and sound (local or remote), from the weapon's reach. */
   private slashAt(follow: () => SlashPose | null, weapon: number, variant: number, own = false): void {
     const spec = weaponSpec(weapon);
@@ -3220,6 +3266,16 @@ export class GameEngine {
       const hitMs = BLADE_COMBO_WEAPONS.has(weapon) ? bladeStepTiming(spec, Math.max(0, step)).hitMs : swing ? swing.hitMs : spec.hitDelayMs;
       this.slashes?.spawn(follow, reach * 0.85, variant, hitMs === undefined ? undefined : hitMs / 1000);
     }
+    // The blow breaks a window in reach (chest, head and hip height, straight ahead).
+    const blowMs = EDGED_MELEE_WEAPONS.has(weapon) ? (meleeSwing(weapon, spec, own ? this.weaponCtl.meleeSwings - 1 : 0)?.hitMs ?? spec.hitDelayMs ?? 250) : spec.hitDelayMs ?? 250;
+    window.setTimeout(() => {
+      const at = follow();
+      if (!at || !this.glass) return;
+      const fx = -Math.sin(at.yaw), fz = -Math.cos(at.yaw), hits: GlassHit[] = [];
+      for (const h of [.95, 1.4, 1.8]) for (const hit of this.glass.raycast(at.x, at.y + h, at.z, fx, 0, fz, reach + .4)) if (!hits.some((o) => o.key === hit.key)) hits.push(hit);
+      for (const hit of hits) this.glass.shatter(hit, { x: fx, y: .1, z: fz, speed: 3 + spec.weight * .4 });
+      this.reportGlass(hits);
+    }, blowMs);
     // Our own whoosh comes from the melee feel (pitched by weapon weight).
     if (!own) this.sounds?.play(EDGED_MELEE_WEAPONS.has(weapon) ? 'swordSlash' : 'airSwing', { at: { x: pose.x, y: pose.y + 1.2, z: pose.z }, volume: 0.55, maxDistance: 25, rate: EDGED_MELEE_WEAPONS.has(weapon) ? 1 : 1.15 - Math.min(3, spec.weight / 2) * .15 });
   }

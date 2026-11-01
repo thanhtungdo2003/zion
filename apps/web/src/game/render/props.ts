@@ -84,6 +84,11 @@ export class PropRenderer {
   /** Every model in range is loaded and placed (used to hold the loading screen). */
   get settled(): boolean { return !this.rebuildJob && !this.dirty && this.pending.size === 0; }
 
+  /** The full models placed now (not their far forms): asset, instance matrices, count. */
+  forEachPlaced(visit: (asset: number, matrices: Float32Array, count: number) => void): void {
+    for (const [key, b] of this.batches) if (key > 0 && key < IMPOSTOR_KEY) visit(key, b.matrices, b.count);
+  }
+
   markDirty(): void {
     this.dirty = true;
   }

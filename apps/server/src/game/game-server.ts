@@ -238,6 +238,9 @@ const HOLD_SPOTS = new WeakMap<object, HoldSpot[]>();
 export const REJOIN_GRACE_MS = 150_000;
 interface Rejoin { id: number; name: string; until: number; state: CharacterState; yaw: number; health: number; inventory: InventoryData; jumpPoint: { x: number; z: number } | null }
 
+/** How long a broken window stays broken in the survival world. */
+const GLASS_REPAIR_MS = 30 * 60_000;
+
 export class GameServer {
   readonly vehicles: Vehicles;
   /** Vehicle weapons and countermeasures (tank guns, mounted machine guns, rockets, missiles). */
@@ -1479,6 +1482,7 @@ export class GameServer {
     else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
     session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => this.groundView(id, g)) });
+    if (this.brokenGlass.size) session.sendJson({ t: 'glass', p: this.glassList(), quiet: 1 });
     if (this.battle || this.deathCrates.size) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
     this.building?.welcome(player);
     if (this.knock) player.session.sendJson(this.knock.message());
@@ -1528,6 +1532,7 @@ export class GameServer {
     });
     this.pendingSaves.set(p.accountId, tracked);
     for (const key of this.speechAt.keys()) if (key.startsWith(`${p.id}:`)) this.speechAt.delete(key);
+    this.glassBudget?.delete(p.id);
     this.broadcastPlayerList();
     this.log.info({ playerId: p.id, reason }, 'player left');
   }
@@ -1536,6 +1541,7 @@ export class GameServer {
 
   handleMessage(session: ClientSession, msg: ClientMessage): void {
     const p = session.player;
+    if (msg.t === 'glass') { if (p) this.onGlass(p, msg.p); return; }
     if (this.battle && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'heal', 'auth', 'door', 'vehicle', 'jumppoint'].includes(msg.t)) return;
     if (this.battle && this.battle.phase !== 'running' && ['inv', 'reload', 'heal'].includes(msg.t)) return;
     if (this.infection && !['in', 'ping', 'ready', 'chat', 'inv', 'reload', 'auth', 'door', 'loadout'].includes(msg.t)) return;
@@ -1924,7 +1930,7 @@ export class GameServer {
     this.expireRejoins(now);
     const match = this.battle!;
     if (!this.players.size && !this.joiningAccounts.size && !this.rejoins.size && this.battleWasOccupied) {
-      this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear();
+      this.chests.reset(); this.battleChests.clear(); this.deathCrates.clear(); this.groundItems.clear(); this.coinDrops.clear(); this.brokenGlass.clear();
       this.rounds.length = 0; this.grenades.length = 0; this.c4Charges.clear();
       this.battle = this.newBattleMatch();
       this.stats.clear();
@@ -3955,6 +3961,7 @@ export class GameServer {
     if (this.tick % TICK_RATE === 0) {
       this.expireCoins(now);
       this.expireGroundItems(now);
+      if (this.tick % (TICK_RATE * 10) === 0) this.repairGlass(now);
     }
     for (const z of this.zombies.zombies.values()) {
       if (!z.dead && now >= z.wireReadyAt && touchesBarbedWire(this.collision, z.state)) {
@@ -5288,6 +5295,44 @@ export class GameServer {
     }
     if (items.length) this.broadcast({ t: 'ground', items });
   }
+
+  /** Window panes broken, by name (world centre in cm) → when (battle royale: till the match ends). */
+  private readonly brokenGlass = new Map<string, number>();
+  private readonly glassBudget = new Map<number, { at: number; n: number }>();
+
+  /** Panes a client saw break: the new ones are passed on to everyone (near the player, a few hundred a second at most). */
+  private onGlass(p: Player, panes: readonly number[]): void {
+    if (p.dead || this.brokenGlass.size >= 50_000) return;
+    const now = this.serverTime, b = this.glassBudget.get(p.id);
+    const budget = b && now - b.at < 1000 ? b : { at: now, n: 0 };
+    this.glassBudget.set(p.id, budget);
+    const fresh: number[] = [];
+    for (let i = 0; i + 2 < panes.length && budget.n < 300; i += 3) {
+      const x = panes[i]!, y = panes[i + 1]!, z = panes[i + 2]!;
+      if (Math.hypot(x / 100 - p.state.x, z / 100 - p.state.z) > 400) continue;
+      const key = `${x},${y},${z}`;
+      if (this.brokenGlass.has(key)) continue;
+      this.brokenGlass.set(key, now);
+      fresh.push(x, y, z);
+      budget.n++;
+    }
+    if (fresh.length) this.broadcast({ t: 'glass', p: fresh });
+  }
+
+  /** The survival world puts its windows back after a while (the battle royale: each new match). */
+  private repairGlass(now: number): void {
+    if (this.battle) return;
+    const fixed: number[] = [];
+    for (const [key, at] of this.brokenGlass) {
+      if (now - at < GLASS_REPAIR_MS) continue;
+      this.brokenGlass.delete(key);
+      fixed.push(...key.split(',').map(Number));
+    }
+    for (let i = 0; i < fixed.length; i += 192) this.broadcast({ t: 'glass', p: fixed.slice(i, i + 192), repair: 1 });
+  }
+
+  /** The broken panes, for a player joining. */
+  private glassList(): number[] { return [...this.brokenGlass.keys()].flatMap((k) => k.split(',').map(Number)); }
 
   private expireGroundItems(now: number): void {
     for (const [id, g] of this.groundItems) {
