@@ -36,8 +36,10 @@ void main() {
   vec2 shift = n.xy * rim * fade * uStrength;
   // Slight chromatic split, as a real lens of compressed air would.
   vec3 col = vec3(texture2D(uScreen, uv - shift * 1.06).r, texture2D(uScreen, uv - shift).g, texture2D(uScreen, uv - shift * 0.94).b);
-  col += rim * fade * 0.12;
-  gl_FragColor = vec4(col, clamp(rim * 1.6, 0.0, 1.0) * fade);
+  // Seen only as the bend of what is behind it: no bright rim, and at most about a third
+  // opaque at its strongest, fading out quickly.
+  col += rim * fade * 0.03;
+  gl_FragColor = vec4(col, clamp(rim * 0.55, 0.0, 0.35) * fade * fade);
 }`;
 
 interface Wave { mesh: Mesh; material: ShaderMaterial; radius: number; born: number }
