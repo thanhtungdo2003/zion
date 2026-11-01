@@ -24,9 +24,20 @@ export function buildingSurfaces(boxes: readonly Box[], step = 2.2): LootSpot[] 
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const b of boxes) { const r = Math.hypot(b.hx, b.hz); x0 = Math.min(x0, b.cx - r); x1 = Math.max(x1, b.cx + r); z0 = Math.min(z0, b.cz - r); z1 = Math.max(z1, b.cz + r); }
   if (x1 - x0 < 3.5 || z1 - z0 < 3.5) return [];
+  // Boxes bucketed on a 4 m grid: a whole district (thousands of wall pieces) reads quickly.
+  const G = 4, gw = Math.ceil((x1 - x0) / G) + 1, grid = new Map<number, Box[]>();
+  for (const b of boxes) {
+    const r = Math.hypot(b.hx, b.hz) + .4;
+    for (let gx = Math.floor((b.cx - r - x0) / G); gx <= Math.floor((b.cx + r - x0) / G); gx++)
+      for (let gz = Math.floor((b.cz - r - z0) / G); gz <= Math.floor((b.cz + r - z0) / G); gz++) {
+        const k = gz * gw + gx; let l = grid.get(k); if (!l) grid.set(k, l = []); l.push(b);
+      }
+  }
   const out: LootSpot[] = [];
   for (let x = x0 + step / 2; x < x1; x += step) for (let z = z0 + step / 2; z < z1; z += step) {
-    const here = boxes.filter((b) => inside(b, x, z));
+    const near = grid.get(Math.floor((z - z0) / G) * gw + Math.floor((x - x0) / G));
+    if (!near) continue;
+    const here = near.filter((b) => inside(b, x, z));
     // The ground and the tops of whatever stands here (slabs, tables, counters, shelves).
     const levels = [0, ...here.map((b) => b.y1).filter((y) => y > .3)];
     for (const y of levels) {
@@ -37,44 +48,68 @@ export function buildingSurfaces(boxes: readonly Box[], step = 2.2): LootSpot[] 
       // A ceiling or roof overhead: indoors.
       if (!here.some((b) => b.y0 >= y + room && b.y0 < y + 6)) continue;
       // Not right against a wall (an item half in it): some clearance round the point.
-      if (!table && boxes.some((b) => b.y0 < y + 1 && b.y1 > y + .05 && inside(b, x, z, .35))) continue;
+      if (!table && near.some((b) => b.y0 < y + 1 && b.y1 > y + .05 && inside(b, x, z, .35))) continue;
       out.push({ x, y: y + .08, z });
     }
   }
   return out;
 }
 
-const cache = new Map<number, LootSpot[]>();
-function modelSpots(registry: AssetRegistry, asset: number): LootSpot[] {
-  let spots = cache.get(asset);
-  if (spots) return spots;
+const boxCache = new Map<number, Box[]>();
+/** A model's box colliders in its own frame (cached per model). */
+function modelBoxes(registry: AssetRegistry, asset: number): Box[] {
+  let boxes = boxCache.get(asset);
+  if (boxes) return boxes;
   const def = registry.byNumericId(asset);
-  spots = [];
-  if (def && def.category === 'structure') {
-    const boxes: Box[] = [];
+  boxes = [];
+  if (def && (def.category === 'structure' || def.category === 'block'))
     for (const c of def.colliders) if (c.type === 'box') boxes.push({ cx: c.center[0], cz: c.center[2], hx: c.halfExtents[0], hz: c.halfExtents[2], yaw: c.yaw ?? 0, y0: c.center[1] - c.halfExtents[1], y1: c.center[1] + c.halfExtents[1] });
-    spots = buildingSurfaces(boxes);
-  }
-  cache.set(asset, spots);
-  return spots;
+  boxCache.set(asset, boxes);
+  return boxes;
 }
 
-/** Floor and table spots in the buildings of a map (world coordinates), a few per building. */
-export function buildingLootSpots(registry: AssetRegistry, sites: readonly Site[], perBuilding = 6, random: () => number = Math.random): LootSpot[] {
+/**
+ * Floor, table and doorstep spots for the loot of a map, a few per building (world coordinates).
+ *
+ * A building is read whole: the colliders of every part of a site (the walls, slabs and roof of a
+ * kit building are separate parts, a Model Studio house is one model) are put together in the
+ * site's frame, and the rooms are found in that. A building with no room to enter (a solid
+ * house, a ruin without a roof) gets its loot on the ground round it instead, so every
+ * building of the map has some.
+ */
+export function buildingLootSpots(registry: AssetRegistry, sites: readonly Site[], perBuilding = 6, random: () => number = Math.random, ground?: (x: number, z: number) => number): LootSpot[] {
   const out: LootSpot[] = [];
   for (const site of sites) {
-    const sc = Math.cos(site.yaw), ss = Math.sin(site.yaw);
+    const boxes: Box[] = [];
     for (const p of site.parts) {
-      const local = modelSpots(registry, p.asset);
-      if (!local.length) continue;
-      const px = site.x + p.x * sc + p.z * ss, pz = site.z - p.x * ss + p.z * sc, py = site.y + p.y, yaw = site.yaw + p.yaw;
-      const c = Math.cos(yaw), s = Math.sin(yaw);
-      // A few of its spots, at random, so every match is different.
-      const pick = [...local].sort(() => random() - .5).slice(0, Math.max(2, Math.min(perBuilding, Math.ceil(local.length / 4))));
-      for (const l of pick) {
-        const lx = l.x * p.scale, lz = l.z * p.scale;
-        out.push({ x: px + lx * c + lz * s, y: py + l.y * p.scale, z: pz - lx * s + lz * c });
-      }
+      const own = modelBoxes(registry, p.asset);
+      if (!own.length) continue;
+      const c = Math.cos(p.yaw), sn = Math.sin(p.yaw);
+      for (const b of own) boxes.push({ cx: p.x + (b.cx * c + b.cz * sn) * p.scale, cz: p.z + (-b.cx * sn + b.cz * c) * p.scale, hx: b.hx * p.scale, hz: b.hz * p.scale, yaw: b.yaw + p.yaw, y0: p.y + b.y0 * p.scale, y1: p.y + b.y1 * p.scale });
+    }
+    if (!boxes.length) continue;
+    const sc = Math.cos(site.yaw), ss = Math.sin(site.yaw);
+    const world = (l: LootSpot) => ({ x: site.x + l.x * sc + l.z * ss, y: site.y + l.y, z: site.z - l.x * ss + l.z * sc });
+    const inside = buildingSurfaces(boxes);
+    if (inside.length) {
+      // A few spots per building, at random, so every match is different (a site holding a
+      // whole village gets as many as its buildings would).
+      const buildings = Math.max(1, site.parts.filter((p) => modelBoxes(registry, p.asset).length > 2).length / 8);
+      const pick = [...inside].sort(() => random() - .5).slice(0, Math.max(2, Math.min(Math.round(perBuilding * buildings), Math.ceil(inside.length / 4))));
+      for (const l of pick) out.push(world(l));
+      continue;
+    }
+    // On the ground round it: just outside its walls, on the levelled ground.
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const b of boxes) { const r = Math.hypot(b.hx, b.hz); x0 = Math.min(x0, b.cx - r); x1 = Math.max(x1, b.cx + r); z0 = Math.min(z0, b.cz - r); z1 = Math.max(z1, b.cz + r); }
+    if (x1 - x0 < 2.5 || z1 - z0 < 2.5) continue;
+    const n = 1 + Math.floor(random() * 2);
+    for (let k = 0; k < n; k++) {
+      const side = Math.floor(random() * 4), t = random() * .8 + .1;
+      const lx = side < 2 ? x0 + (x1 - x0) * t : side === 2 ? x0 - 1.1 : x1 + 1.1;
+      const lz = side >= 2 ? z0 + (z1 - z0) * t : side === 0 ? z0 - 1.1 : z1 + 1.1;
+      const w = world({ x: lx, y: 0, z: lz });
+      out.push({ x: w.x, y: (ground ? ground(w.x, w.z) : site.y) + .08, z: w.z });
     }
   }
   return out;

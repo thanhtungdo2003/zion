@@ -2000,7 +2000,7 @@ export class GameServer {
     const spots = world.lootSpots();
     for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spots[i], spots[j]] = [spots[j]!, spots[i]!]; }
     // Every building of the map (the Model Studio's too): a few spots on its floors and tables.
-    const inBuildings = buildingLootSpots(this.deps.registry, world.structures());
+    const inBuildings = buildingLootSpots(this.deps.registry, world.structures(), 6, Math.random, (x, z) => world.levelled(x, z));
     for (const spot of [...spots.slice(0, Math.min(320, Math.floor(spots.length * .35))), ...inBuildings].slice(0, 2500)) {
       // A gun with its ammunition beside it, ammunition, a medkit, armour, a backpack… never cleared away.
       for (const item of battleFloorLoot()) {
