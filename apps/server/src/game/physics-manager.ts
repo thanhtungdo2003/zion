@@ -44,8 +44,8 @@ export class PhysicsChunkManager {
     if (!this.keepAll) return;
     if (!this.started) {
       this.started = true;
-      const self = this;
-      this.preload = (function* () { for (let cz = 0; cz < sizeChunks; cz++) for (let cx = 0; cx < sizeChunks; cx++) if (self.inWorld(cx, cz)) yield [cx, cz] as const; })();
+      const inWorld = (cx: number, cz: number) => this.inWorld(cx, cz);
+      this.preload = (function* () { for (let cz = 0; cz < sizeChunks; cz++) for (let cx = 0; cx < sizeChunks; cx++) if (inWorld(cx, cz)) yield [cx, cz] as const; })();
     }
     while (this.preload && this.preloading < inflight) {
       const next = this.preload.next();

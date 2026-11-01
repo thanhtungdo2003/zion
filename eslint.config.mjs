@@ -17,6 +17,8 @@ export default tseslint.config(
       '**/*.config.{js,mjs,cjs,ts}',
       'apps/desktop/release/**',
       'apps/desktop/build/**',
+      // Scratch output (e2e page dumps, bundled Three.js): not source.
+      'tmp/**',
     ],
   },
   js.configs.recommended,
