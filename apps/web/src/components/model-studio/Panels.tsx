@@ -119,7 +119,7 @@ export function LibraryPanel(p: {
       {tab === 'files' && <>
         <input ref={input} type="file" accept=".glb,.gltf,.png,.jpg,.jpeg" multiple hidden onChange={(e) => { for (const f of Array.from(e.target.files ?? [])) p.importFile(f); e.target.value = ''; }} />
         <button className={`${s.tbtn} ${s.primary}`} onClick={() => input.current?.click()}><Icon name="lucide:upload" /> Import GLB / GLTF / ảnh texture</button>
-        <p className={s.muted}>GLB/GLTF (nhúng dữ liệu) ≤ 40 MB; ảnh PNG/JPEG dùng làm màu nền cho vật liệu.</p>
+        <p className={s.muted}>GLB/GLTF (nhúng dữ liệu) ≤ 256 MB; ảnh PNG/JPEG dùng làm màu nền cho vật liệu.</p>
         <div className={s.list}>
           {p.files.map((f) => (
             <div key={f.id} className={s.item}>

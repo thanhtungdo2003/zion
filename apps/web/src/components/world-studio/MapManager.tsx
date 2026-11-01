@@ -304,6 +304,11 @@ function NewMapDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
       </div>}
       {template === 'auto' && <>
         <Slider label="Độ phủ rừng" min={0} max={1} step={.05} value={auto.forest} onChange={(forest) => setAuto({ ...auto, forest })} format={(v) => `${Math.round(v * 100)}%`} />
+        {/* The state of the map: the settlements' layout and the Model Studio buildings made for it. */}
+        <label className={s.field}><span className={s.fieldRow}>Tình trạng bản đồ</span>
+          <select className={s.input} value={auto.condition ?? 'intact'} onChange={(e) => setAuto({ ...auto, condition: e.target.value as NonNullable<AutoParams['condition']> })}>
+            <option value="intact">Nguyên vẹn</option><option value="abandoned">Bỏ hoang</option><option value="ruined">Đổ nát</option><option value="mixed">Hỗn hợp (mỗi khu vực một tình trạng)</option>
+          </select></label>
         <label className={s.check}><input type="checkbox" checked={auto.roads} onChange={(e) => setAuto({ ...auto, roads: e.target.checked })} />Nối các khu vực bằng đường</label>
       </>}
       {(template === 'procedural' || template === 'auto') && <>

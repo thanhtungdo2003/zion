@@ -1,5 +1,5 @@
 import type { AssetRegistry } from '@zion/assets';
-import { Surface, smoothstep } from '@zion/shared';
+import { CONDITION_DECAY, Surface, areaFor, kindOfArea, smoothstep, type BuildingCondition } from '@zion/shared';
 import { Simplex2 } from '../noise';
 import { createMapDoc, newRegion, type Region, type WorldMapDoc } from './document';
 import { FLORA_SPECIES, MAX_FLORA, type FloraItem } from './flora';
@@ -8,7 +8,7 @@ import { SpatialGrid, pointInPolygon, polygonCentroid, type Obb, type Vec2 } fro
 import { Heightfield, seedNumber, stream } from './heightfield';
 import { buildCatalog } from './settlement/catalog';
 import { generateSettlement, type SettlementResult } from './settlement/generate';
-import type { SettlementPresetId } from './settlement/presets';
+import { presetSettings, type SettlementPresetId } from './settlement/presets';
 import { defaultTerrainSettings, generateTerrain } from './terrain-gen';
 import type { NewMapRequest } from './templates';
 import { carveLake, carveRiver, lakeSpillLevel, type Lake, type River } from './water';
@@ -27,6 +27,8 @@ export interface AutoParams {
   forest: number;
   /** Join the settlements with roads. */
   roads: boolean;
+  /** The state of the whole map (its settlements take the Model Studio buildings made for it); 'mixed': each settlement its own. */
+  condition?: BuildingCondition | 'mixed';
 }
 export const DEFAULT_AUTO: AutoParams = { cities: 1, towns: 2, villages: 4, industrial: 1, military: 1, ports: 1, lakes: 2, rivers: 2, forest: .45, roads: true };
 
@@ -140,7 +142,14 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
       const a = v / 9 * Math.PI * 2 + sRng.next() * .3, rr = site.r * (.75 + sRng.next() * .4);
       poly.push([Math.max(10, Math.min(size - 10, site.x + Math.cos(a) * rr)), Math.max(10, Math.min(size - 10, site.z + Math.sin(a) * rr))]);
     }
-    const region: Region = newRegion(poly, site.preset, i, `${req.seed}-${i + 1}`);
+    // The map's condition: an abandoned or ruined map lays its towns out run-down and takes the
+    // buildings published for that condition (mixed: mostly intact, some abandoned, a few ruined).
+    const want = p.condition ?? 'intact';
+    const roll = sRng.next();
+    const condition: BuildingCondition = want === 'mixed' ? (roll < .5 ? 'intact' : roll < .82 ? 'abandoned' : 'ruined') : want;
+    const kind = kindOfArea(site.preset), preset = areaFor(kind, condition, site.preset) as SettlementPresetId;
+    const region: Region = { ...newRegion(poly, preset, i, `${req.seed}-${i + 1}`), kind, condition };
+    region.settings = { ...presetSettings(preset), decay: CONDITION_DECAY[condition] };
     region.name = `${site.label} ${NAMES[(i * 7 + 3) % NAMES.length]} ${NAMES[(i * 3 + 11) % NAMES.length]}`;
     try {
       const gen = generateSettlement({ polygon: poly, seed: region.seed, settings: region.settings, terrain: hf, water: doc.water, seaLevel: sea, externalRoads: roadsSoFar, obstacles, catalog });
@@ -231,7 +240,7 @@ export function* autoMap(req: NewMapRequest, registry: AssetRegistry): Generator
   const br = doc.gameplay[0]!;
   br.name = 'Battle Royale — tự động';
   br.pois = doc.regions.map((r) => { const c = polygonCentroid(r.polygon); return { id: `poi-${r.id}`, name: r.name, kind: r.preset, x: Math.round(c[0]), z: Math.round(c[1]), radius: Math.round(Math.sqrt(r.result?.analysis.area ?? 10000) / 2) }; });
-  br.hotspots = doc.regions.filter((r) => r.preset === 'military-base' || r.preset === 'small-city' || r.preset === 'mixed-city' || r.preset === 'port').map((r) => { const c = polygonCentroid(r.polygon); return { id: `hot-${r.id}`, name: r.name, x: Math.round(c[0]), z: Math.round(c[1]), radius: 200, danger: r.preset === 'military-base' ? 5 : 4 }; });
+  br.hotspots = doc.regions.filter((r) => r.preset === 'military-base' || r.preset === 'small-city' || r.preset === 'mixed-city' || r.preset === 'abandoned-city' || r.preset === 'port').map((r) => { const c = polygonCentroid(r.polygon); return { id: `hot-${r.id}`, name: r.name, x: Math.round(c[0]), z: Math.round(c[1]), radius: 200, danger: r.preset === 'military-base' ? 5 : 4 }; });
   const ctx = { terrain: hf, water: doc.water, seaLevel: sea };
   br.spawnPoints = autoSpawnPoints(br, ctx, req.seed, br.maxPlayers);
   br.loot.points = autoLootPoints(br, doc.regions.flatMap((r) => r.result?.buildings ?? []).map((b) => ({ x: b.obb.x, z: b.obb.z, cls: b.cls, door: b.door })), req.seed);

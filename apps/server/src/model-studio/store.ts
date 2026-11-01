@@ -20,7 +20,7 @@ import { uploadedHitMeshes } from '../world/uploaded-hit-meshes';
  *    the game's registry at startup and on publish, their collision triangles loaded for every
  *    match. Publishing never overwrites a published model unless the admin names it to replace.
  */
-export const MAX_FILE_BYTES = 40 * 1024 * 1024;
+export const MAX_FILE_BYTES = 256 * 1024 * 1024;
 /**
  * A published model (its textures at full resolution): players download it once per version
  * (the browser keeps it, an unchanged model answers 304), so a big one only costs loading time.
