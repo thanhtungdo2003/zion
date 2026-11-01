@@ -1,4 +1,4 @@
-import { describeLotFit, type BuildingCondition, type LotClass, type LotFit, type SettlementAreaId } from '@zion/shared';
+import { SETTLEMENT_KIND_NAMES, describeLotFit, kindAreas, type SettlementKind, type BuildingCondition, type LotClass, type LotFit, type SettlementAreaId } from '@zion/shared';
 import type { AssetKind, ModelDoc } from './doc';
 
 /**
@@ -78,19 +78,18 @@ export function classifyModel(doc: ModelDoc): Classification {
   if (!conditions.size) { conditions.add('intact'); reasons.push('nguyên vẹn'); }
 
   // Kinds of area: only where the building clearly belongs; otherwise any.
+  // By kinds of settlement (as both Studios offer them; each covers its styles and its abandoned layout).
   const areas = new Set<SettlementAreaId>();
-  const decayed = !conditions.has('intact');
-  if (lots.has('military')) areas.add('military-base');
-  if (lots.has('industrial')) { areas.add('industrial-zone'); areas.add('port'); }
-  if (has(text, WORDS.port)) areas.add('port');
-  if (has(text, WORDS.rural)) { areas.add('small-village'); areas.add('rural-town'); }
-  if (has(text, WORDS.tube)) { areas.add('vn-town'); areas.add('dense-town'); areas.add('mixed-city'); }
-  if (has(text, WORDS.city) || seen.storeys >= 4) { areas.add('small-city'); areas.add('planned-city'); areas.add('mixed-city'); }
-  if (areas.size && (lots.has('residential') || lots.has('commercial')) && !has(text, WORDS.rural) && seen.storeys < 4) areas.add('residential-district');
-  if (decayed && areas.size) {
-    if ([...areas].some((a) => a === 'small-village' || a === 'rural-town' || a === 'residential-district')) areas.add('abandoned-settlement');
-    if ([...areas].some((a) => a === 'small-city' || a === 'mixed-city' || a === 'planned-city' || a === 'vn-town')) areas.add('abandoned-city');
-  }
+  const kinds = new Set<SettlementKind>();
+  if (lots.has('military')) kinds.add('military');
+  if (lots.has('industrial')) { kinds.add('industrial'); kinds.add('port'); }
+  if (has(text, WORDS.port)) kinds.add('port');
+  if (has(text, WORDS.rural)) { kinds.add('village'); kinds.add('town'); }
+  if (has(text, WORDS.tube)) { kinds.add('town'); kinds.add('city'); }
+  if (has(text, WORDS.city) || seen.storeys >= 4) kinds.add('city');
+  if (kinds.size && (lots.has('residential') || lots.has('commercial')) && !has(text, WORDS.rural) && seen.storeys < 4) kinds.add('residential');
+  for (const k of kinds) for (const a of kindAreas(k)) areas.add(a);
+  if (kinds.size) reasons.push(`kiểu khu vực: ${[...kinds].map((k) => SETTLEMENT_KIND_NAMES[k]).join(', ')}`);
   if (!areas.size) reasons.push('hợp mọi kiểu khu vực');
   const fit: LotFit = { lots: [...lots], conditions: [...conditions], areas: [...areas] };
   return { kind, fit, reasons, summary: `Loại: công trình · ${describeLotFit(fit)}` };

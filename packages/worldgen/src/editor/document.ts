@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { mapEnvironmentSchema, warfareLayoutSchema, worldMapModesSchema, type MapEnvironment, type WarfareLayout, type WorldMapMode } from '@zion/shared';
+import { BUILDING_CONDITIONS, SETTLEMENT_KINDS, kindOfArea, type BuildingCondition, type SettlementKind, mapEnvironmentSchema, warfareLayoutSchema, worldMapModesSchema, type MapEnvironment, type WarfareLayout, type WorldMapMode } from '@zion/shared';
 
 /** The modes a map is published for: as chosen, else what its kind suggests. */
 export const publishModesOf = (meta: { kind: string; modes?: WorldMapMode[] }): WorldMapMode[] => meta.modes?.length ? meta.modes : meta.kind === 'warfare' ? ['warfare'] : ['battle-royale'];
@@ -39,6 +39,12 @@ export interface Region {
   name: string;
   polygon: Vec2[];
   preset: SettlementPresetId;
+  /**
+   * The kind of settlement and its condition (shared with the Model Studio); `preset` is then the
+   * layout they make (its style, or the abandoned layout). Absent on older maps: read from preset.
+   */
+  kind?: SettlementKind;
+  condition?: BuildingCondition;
   seed: string;
   settings: ReturnType<typeof presetSettings>;
   /** The applied result (null until the preview is accepted). */
@@ -100,6 +106,7 @@ const resultSchema = z.object({
 }).strict();
 const regionSchema = z.object({
   id: z.string().min(1).max(64), name: z.string().min(1).max(80), polygon: z.array(vec).min(3).max(128), preset: z.enum(SETTLEMENT_PRESET_IDS),
+  kind: z.enum(SETTLEMENT_KINDS).optional(), condition: z.enum(BUILDING_CONDITIONS).optional(),
   seed: z.string().min(1).max(64), settings: settingsSchema, result: resultSchema.nullable(), exclusions: z.array(obb).max(4000),
   history: z.array(z.object({ at: n, from: z.enum(['roads', 'buildings', 'props']), seed: z.string(), buildings: n, props: n, roads: n }).strict()).max(64),
 }).strict();
@@ -155,7 +162,8 @@ export function duplicateMap(doc: WorldMapDoc, name = `${doc.meta.name} (bản s
 }
 
 export function newRegion(polygon: Vec2[], preset: SettlementPresetId, index: number, seed: string): Region {
-  return { id: newId('region'), name: `Khu vực ${index + 1}`, polygon, preset, seed, settings: presetSettings(preset), result: null, exclusions: [], history: [] };
+  const condition: BuildingCondition = preset === 'abandoned-settlement' || preset === 'abandoned-city' ? 'abandoned' : 'intact';
+  return { id: newId('region'), name: `Khu vực ${index + 1}`, polygon, preset, kind: kindOfArea(preset), condition, seed, settings: presetSettings(preset), result: null, exclusions: [], history: [] };
 }
 
 export function blankTerrain(hf: Heightfield, height: number): void { hf.heights.fill(height); hf.surface.fill(0); }

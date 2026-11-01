@@ -1,6 +1,6 @@
 'use client';
 
-import { LOT_CLASS_NAMES } from '@zion/shared';
+import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, CONDITION_DECAY, LOT_CLASS_NAMES, SETTLEMENT_AREA_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, SETTLEMENT_KIND_STYLES, areaFor, kindOfArea, type BuildingCondition, type SettlementKind } from '@zion/shared';
 import { createDefaultRegistry } from '@zion/assets';
 import { SETTLEMENT_PRESETS, URBAN_PATTERNS, levelRegion, polygonArea, presetSettings, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
@@ -59,8 +59,7 @@ function RegionSection({ api, region }: { api: EditorApi; region: Region }) {
     <Section title="Khu vực" icon="pentagon">
       <TextField label="Tên" value={region.name} onChange={(name) => api.updateRegion('Đổi tên khu vực', region.id, (r) => ({ ...r, name }), `${region.id}-name`)} testId="region-name" />
       <p className={s.note}>{fmt(Math.round(area))} m² · {region.polygon.length} điểm{region.result ? ` · ${region.result.buildings.length} công trình · ${region.result.props.length} vật thể` : ' · chưa sinh'}{region.exclusions.length ? ` · ${region.exclusions.length} chỗ xóa tay` : ''}</p>
-      <div className={s.presetGrid} data-testid="presets">{SETTLEMENT_PRESETS.map((p) => <button key={p.id} type="button" className={`${s.preset} ${region.preset === p.id ? s.on : ''}`} title={p.description}
-        onClick={() => api.updateRegion(`Preset ${p.name}`, region.id, (r) => ({ ...r, preset: p.id, settings: presetSettings(p.id) }))}><strong>{p.name}</strong><small>{p.description}</small></button>)}</div>
+      <RegionKind api={api} region={region} />
       <div className={s.field}><span className={s.fieldRow}>Seed</span>
         <div style={{ display: 'flex', gap: 4 }}><input className={s.input} value={region.seed} onChange={(e) => api.updateRegion('Đổi seed', region.id, (r) => ({ ...r, seed: e.target.value.slice(0, 64) || 'seed' }), `${region.id}-seed`)} data-testid="region-seed" />
           <button className={s.iconBtn} title="Seed ngẫu nhiên" onClick={() => api.updateRegion('Seed ngẫu nhiên', region.id, (r) => ({ ...r, seed: Math.random().toString(36).slice(2, 9) }))}><Icon name="lucide:dices" /></button></div></div>
@@ -151,4 +150,30 @@ function IssueList({ api, issues }: { api: EditorApi; issues: SettlementIssue[] 
   const list = [...issues].sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 40);
   return <div className={s.list}>{list.map((i, k) => <button key={k} className={s.issue} onClick={() => { if (i.x !== undefined) api.centerOn(i.x, i.z!, 160); }}>
     <Icon name={i.severity === 'error' ? 'lucide:circle-x' : i.severity === 'warning' ? 'lucide:triangle-alert' : 'lucide:info'} className={s[`sev-${i.severity}`]} /><span>{i.message}</span></button>)}</div>;
+}
+
+/**
+ * What the region is — a kind of settlement (the same list as the Model Studio's) and its
+ * condition, plus a style where the kind has several — instead of 13 fixed presets: the layout
+ * (preset) follows from them, and the Model Studio's buildings made for that kind and condition
+ * are the ones placed.
+ */
+function RegionKind({ api, region }: { api: EditorApi; region: Region }) {
+  const kind: SettlementKind = region.kind ?? kindOfArea(region.preset);
+  const condition: BuildingCondition = region.condition ?? (region.preset === 'abandoned-settlement' || region.preset === 'abandoned-city' ? 'abandoned' : 'intact');
+  const styles = SETTLEMENT_KIND_STYLES[kind].styles;
+  const set = (label: string, k: SettlementKind, c: BuildingCondition, style?: string) => api.updateRegion(label, region.id, (r) => {
+    const preset = areaFor(k, c, style ?? (r.preset as string));
+    return { ...r, kind: k, condition: c, preset, settings: { ...presetSettings(preset), decay: CONDITION_DECAY[c] } };
+  });
+  const preset = SETTLEMENT_PRESETS.find((p) => p.id === region.preset);
+  return <>
+    <div className={s.field}><span className={s.fieldRow}>Kiểu khu vực</span>
+      <div className={s.grid3} data-testid="presets">{SETTLEMENT_KINDS.map((k) => <button key={k} type="button" className={`${s.btn} ${kind === k ? s.primary : ''}`} onClick={() => set(`Kiểu: ${SETTLEMENT_KIND_NAMES[k]}`, k, condition)}>{SETTLEMENT_KIND_NAMES[k]}</button>)}</div></div>
+    <div className={s.field}><span className={s.fieldRow}>Tình trạng</span>
+      <Seg<BuildingCondition> value={condition} options={BUILDING_CONDITIONS.map((c) => ({ id: c, name: BUILDING_CONDITION_NAMES[c] }))} onChange={(c) => set(`Tình trạng: ${BUILDING_CONDITION_NAMES[c]}`, kind, c)} /></div>
+    {condition === 'intact' && styles.length > 1 && <div className={s.field}><span className={s.fieldRow}>Phong cách</span>
+      <Seg<string> value={region.preset} options={styles.map((id) => ({ id, name: SETTLEMENT_AREA_NAMES[id] }))} onChange={(st) => set('Phong cách', kind, condition, st)} /></div>}
+    {preset && <p className={s.note}>{preset.description}</p>}
+  </>;
 }

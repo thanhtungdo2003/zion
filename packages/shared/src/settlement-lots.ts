@@ -53,5 +53,55 @@ export function lotFits(fit: LotFit, lot: LotClass, condition: BuildingCondition
 
 /** A short description in Vietnamese ("Nhà ở, Quân sự · Bỏ hoang · mọi khu vực"). */
 export function describeLotFit(fit: LotFit): string {
-  return `${fit.lots.map((l) => LOT_CLASS_NAMES[l]).join(', ')} · ${fit.conditions.map((c) => BUILDING_CONDITION_NAMES[c]).join(', ')} · ${fit.areas.length ? fit.areas.map((a) => SETTLEMENT_AREA_NAMES[a]).join(', ') : 'mọi khu vực'}`;
+  // By kinds where a kind's areas are all chosen (Thành phố, not its three styles).
+  const kinds = SETTLEMENT_KINDS.filter((k) => kindAreas(k).every((a) => fit.areas.includes(a)));
+  const covered = new Set(kinds.flatMap(kindAreas)), rest = fit.areas.filter((a) => !covered.has(a));
+  const where = [...kinds.map((k) => SETTLEMENT_KIND_NAMES[k]), ...rest.map((a) => SETTLEMENT_AREA_NAMES[a])];
+  return `${fit.lots.map((l) => LOT_CLASS_NAMES[l]).join(', ')} · ${fit.conditions.map((c) => BUILDING_CONDITION_NAMES[c]).join(', ')} · ${fit.areas.length ? where.join(', ') : 'mọi khu vực'}`;
+}
+
+/* ----------------------------------------------------------------- kinds of settlement */
+
+/**
+ * The kinds of settlement both Studios offer (Quân đội, Thành phố, Khu công nghiệp…), each with
+ * its styles — the World Studio's generator settings — and, independently, a condition. An
+ * abandoned or ruined village is the village kind in that condition (the generator lays it out
+ * as an abandoned settlement); a Model Studio building that fits a kind fits all its styles.
+ */
+export const SETTLEMENT_KINDS = ['village', 'town', 'city', 'residential', 'industrial', 'military', 'port'] as const;
+export type SettlementKind = typeof SETTLEMENT_KINDS[number];
+export const SETTLEMENT_KIND_NAMES: Readonly<Record<SettlementKind, string>> = {
+  village: 'Làng', town: 'Thị trấn', city: 'Thành phố', residential: 'Khu dân cư', industrial: 'Khu công nghiệp', military: 'Quân đội', port: 'Cảng biển',
+};
+/** The styles of each kind (intact), and the layout it takes when abandoned or ruined. */
+export const SETTLEMENT_KIND_STYLES: Readonly<Record<SettlementKind, { styles: readonly SettlementAreaId[]; decayed: SettlementAreaId | null }>> = {
+  village: { styles: ['small-village'], decayed: 'abandoned-settlement' },
+  town: { styles: ['vn-town', 'rural-town', 'dense-town'], decayed: 'abandoned-settlement' },
+  city: { styles: ['mixed-city', 'small-city', 'planned-city'], decayed: 'abandoned-city' },
+  residential: { styles: ['residential-district'], decayed: 'abandoned-settlement' },
+  industrial: { styles: ['industrial-zone'], decayed: null },
+  military: { styles: ['military-base'], decayed: null },
+  port: { styles: ['port'], decayed: null },
+};
+
+/** Every area id a kind covers (its styles and its abandoned layout). */
+export function kindAreas(kind: SettlementKind): SettlementAreaId[] {
+  const k = SETTLEMENT_KIND_STYLES[kind];
+  return k.decayed ? [...k.styles, k.decayed] : [...k.styles];
+}
+
+/** The kind an area id belongs to (an abandoned layout: the first kind using it). */
+export function kindOfArea(area: string): SettlementKind {
+  for (const k of SETTLEMENT_KINDS) if ((SETTLEMENT_KIND_STYLES[k].styles as readonly string[]).includes(area)) return k;
+  return area === 'abandoned-city' ? 'city' : 'village';
+}
+
+/** How run-down a settlement in this condition is (the generator's decay: lots vary round it). */
+export const CONDITION_DECAY: Readonly<Record<BuildingCondition, number>> = { intact: .15, abandoned: .72, ruined: 1 };
+
+/** The generator layout (area id) for a kind, a condition and a chosen style. */
+export function areaFor(kind: SettlementKind, condition: BuildingCondition, style?: string): SettlementAreaId {
+  const k = SETTLEMENT_KIND_STYLES[kind];
+  if (condition !== 'intact' && k.decayed) return k.decayed;
+  return (k.styles as readonly string[]).includes(style ?? '') ? style as SettlementAreaId : k.styles[0]!;
 }

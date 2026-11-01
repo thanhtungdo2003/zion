@@ -1,6 +1,6 @@
 'use client';
 
-import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, LOT_CLASSES, LOT_CLASS_NAMES, SETTLEMENT_AREA_IDS, SETTLEMENT_AREA_NAMES, describeLotFit, lotFitFromLegacy, type LotFit } from '@zion/shared';
+import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, LOT_CLASSES, LOT_CLASS_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, describeLotFit, kindAreas, lotFitFromLegacy, type LotFit } from '@zion/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
@@ -300,7 +300,9 @@ function LotFitChips({ fit, set }: { fit: LotFit; set: (label: string, next: Lot
     <div className={s.row}><label>Tình trạng</label><div className={s.chips}>{BUILDING_CONDITIONS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.conditions.includes(k) ? s.on : ''}`} onClick={() => set('Tình trạng', { ...fit, conditions: toggle(fit.conditions, k, true) })}>{BUILDING_CONDITION_NAMES[k]}</button>)}</div></div>
     <div className={s.row}><label>Kiểu khu vực</label><div className={s.chips}>
       <button type="button" className={`${s.chip} ${fit.areas.length ? '' : s.on}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: [] })}>Mọi khu vực</button>
-      {SETTLEMENT_AREA_IDS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.areas.includes(k) ? s.on : ''}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: toggle(fit.areas, k, false) })}>{SETTLEMENT_AREA_NAMES[k]}</button>)}
+      {/* The same kinds as the World Studio's regions (each covers its styles and its abandoned layout). */}
+      {SETTLEMENT_KINDS.map((k) => { const areas = kindAreas(k), on = areas.every((a) => fit.areas.includes(a)); return <button key={k} type="button" className={`${s.chip} ${on ? s.on : ''}`}
+        onClick={() => set('Kiểu khu vực', { ...fit, areas: on ? fit.areas.filter((a) => !areas.includes(a) || SETTLEMENT_KINDS.some((o) => o !== k && kindAreas(o).includes(a) && kindAreas(o).every((x) => fit.areas.includes(x)))) : [...new Set([...fit.areas, ...areas])] })}>{SETTLEMENT_KIND_NAMES[k]}</button>; })}
     </div></div>
   </>;
 }
