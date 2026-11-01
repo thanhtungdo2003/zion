@@ -36,6 +36,8 @@ const skyFragment = /* glsl */ `
   uniform float uNightReady;
   uniform vec3 uPole;
   uniform float uSkyTurn;
+  uniform float uOvercast;
+  uniform vec3 uOvercastColor;
   varying vec3 vDir;
 
   float hash(vec3 p) {
@@ -63,14 +65,19 @@ const skyFragment = /* glsl */ `
     float starLum = dot(nightPhoto, vec3(0.2126, 0.7152, 0.0722));
     vec3 night = uTop * 0.55 + min(nightPhoto, vec3(0.5)) * vec3(0.07, 0.085, 0.13) + vec3(0.85, 0.9, 1.0) * smoothstep(0.55, 0.9, starLum) * 0.7;
     col = mix(col, night, uNight * uNightReady * smoothstep(0.04, 0.22, h) * 0.92);
+    // Overcast: one even grey-white deck from horizon to zenith (a little brighter overhead and
+    // where the sun is behind it), no blue, no sun disc, no stars.
     float sd = max(dot(d, uSunDir), 0.0);
-    col += uSunColor * (pow(sd, 6.0) * 0.25 + pow(sd, 64.0) * 0.35);
-    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0;
+    vec3 deck = uOvercastColor * (0.88 + 0.12 * smoothstep(-0.05, 0.6, h)) * (1.0 + pow(sd, 4.0) * 0.18 * (1.0 - uNight));
+    col = mix(col, mix(deck, uHorizon * 0.55, smoothstep(0.0, -0.25, h)), uOvercast);
+    float clear = 1.0 - uOvercast;
+    col += uSunColor * (pow(sd, 6.0) * 0.25 + pow(sd, 64.0) * 0.35) * clear;
+    col += uSunColor * smoothstep(0.9993, 0.9997, sd) * 4.0 * clear * clear;
     vec3 moonDir = -uSunDir;
     float md = max(dot(d, moonDir), 0.0);
-    col += vec3(0.75, 0.8, 0.95) * smoothstep(0.9990, 0.9994, md) * uNight * 1.5;
-    col += vec3(0.2, 0.25, 0.4) * pow(md, 24.0) * uNight * 0.3;
-    if (uNight > 0.01 && h > 0.0 && uNightReady < 0.5) {
+    col += vec3(0.75, 0.8, 0.95) * smoothstep(0.9990, 0.9994, md) * uNight * 1.5 * clear;
+    col += vec3(0.2, 0.25, 0.4) * pow(md, 24.0) * uNight * 0.3 * clear;
+    if (uNight > 0.01 && h > 0.0 && uNightReady < 0.5 && uOvercast < 0.5) {
       vec3 cell = floor(d * 380.0);
       float s = hash(cell);
       float twinkle = 0.6 + 0.4 * sin(uTime * 3.0 + s * 50.0);
@@ -221,6 +228,8 @@ export class SkySystem {
         uTime: { value: 0 },
         uNightImage: { value: null },
         uNightReady: { value: 0 },
+        uOvercast: { value: 0 },
+        uOvercastColor: { value: new Color(0xbfc3c8) },
       },
       vertexShader: skyVertex,
       fragmentShader: skyFragment,
@@ -331,7 +340,19 @@ export class SkySystem {
       const far = 560 / (1 + 1.8 * Math.max(0, w.fog - .15));
       this.fog.far = far; this.fog.near = Math.max(3, 35 * far / 560);
       this.cloudMaterial.uniforms.uCover!.value = .78 - w.cloud * .62;
-    } else { this.fog.far = 560; this.fog.near = 35; this.cloudMaterial.uniforms.uCover!.value = .52; }
+      // A covered sky is a grey-white deck (darker the heavier the weather), not blue with clouds.
+      const overcast = Math.max(0, Math.min(1, (w.cloud - .55) / .4));
+      const deck = (.55 + .6 * Math.min(1, w.sun * 2.2)) * (.25 + .75 * this.lightLevel) * (1 - .75 * this.night);
+      this.material.uniforms.uOvercast!.value = overcast * overcast * (3 - 2 * overcast);
+      (this.material.uniforms.uOvercastColor!.value as Color).setRGB(.74 * deck, .76 * deck, .79 * deck).lerp(FLASH, w.flash * .6);
+      // Under the deck the haze is the deck's own grey.
+      this.fog.color.lerp(TMP.setRGB(.74 * deck, .76 * deck, .79 * deck).multiplyScalar(.92), this.material.uniforms.uOvercast!.value as number);
+      this.top.lerp(TMP.setRGB(.74 * deck, .76 * deck, .79 * deck), (this.material.uniforms.uOvercast!.value as number) * .8);
+      this.horizon.lerp(TMP.setRGB(.74 * deck, .76 * deck, .79 * deck), (this.material.uniforms.uOvercast!.value as number) * .8);
+      // The sky's fill light loses its blue too.
+      this.hemi.color.lerp(TMP.setRGB(.86, .88, .9), (this.material.uniforms.uOvercast!.value as number) * .7);
+    } else {
+      this.material.uniforms.uOvercast!.value = 0; this.fog.far = 560; this.fog.near = 35; this.cloudMaterial.uniforms.uCover!.value = .52; }
     this.material.uniforms.uNight!.value = this.night;
     // Turned with the sun: as authored at midnight.
     this.material.uniforms.uSkyTurn!.value = -(angle + Math.PI / 2);
