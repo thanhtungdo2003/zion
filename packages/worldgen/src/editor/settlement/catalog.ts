@@ -1,4 +1,5 @@
 import type { AssetRegistry } from '@zion/assets';
+import { lotFitFromLegacy, type LotFit } from '@zion/shared';
 import type { LotClass } from './presets';
 
 /** A model the generator can place, with its footprint measured from the asset's colliders. */
@@ -57,7 +58,10 @@ const PROPS: Record<PropKind, number[]> = {
 };
 
 export interface Catalog {
+  /** The built-in houses by lot class ('abandoned': run-down houses for abandoned residential lots). */
   buildings: Record<LotClass | 'abandoned', CatalogItem[]>;
+  /** Houses from the Model Studio, each with where it fits (lot classes, conditions, kinds of area). */
+  studio?: Array<CatalogItem & { fit: LotFit }>;
   /** No brick / concrete kit buildings: whole models only (built-in houses and the Model Studio's). */
   noKits?: boolean;
   props: Record<PropKind, CatalogItem[]>;
@@ -95,13 +99,17 @@ export function buildCatalog(registry: AssetRegistry, opts: { noKits?: boolean }
     byAsset.set(id, item);
     return [item];
   });
-  // Models published from the Model Studio fill the lot class they were published for.
-  // A house published without a lot class lives on the residential and commercial lots (and the
-  // abandoned ones); vehicles and other structures from the Studio are not houses.
+  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take(ids).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
+  // Houses from the Model Studio with where they fit. Older ones: their single lot class tag; none
+  // at all: an intact house on residential and commercial lots. Vehicles and other structures
+  // from the Studio are not houses.
   const house = (a: { tags: string[] }) => !a.tags.some((t) => t.startsWith('kind:')) || a.tags.includes('kind:building');
-  const studio = (k: string) => registry.all().filter((a) => a.tags.includes('model-studio') && a.category === 'structure' && house(a)
-    && (a.tags.includes(`lot:${k}`) || (!a.tags.some((t) => t.startsWith('lot:')) && (k === 'residential' || k === 'commercial' || k === 'abandoned')))).map((a) => a.numericId);
-  const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take([...ids, ...studio(k)]).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
+  const studio = registry.all().filter((a) => a.tags.includes('model-studio') && a.category === 'structure' && house(a)).flatMap((a) => {
+    const item = take([a.numericId])[0];
+    if (!item) return [];
+    const fit: LotFit = a.fit ?? lotFitFromLegacy(a.tags.find((t) => t.startsWith('lot:'))?.slice(4)) ?? { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
+    return [{ ...item, fit }];
+  });
   const props = Object.fromEntries(Object.entries(PROPS).map(([k, ids]) => [k, take(ids)])) as Catalog['props'];
-  return { buildings, props, byAsset, ...(opts.noKits ? { noKits: true } : {}) };
+  return { buildings, studio, props, byAsset, ...(opts.noKits ? { noKits: true } : {}) };
 }

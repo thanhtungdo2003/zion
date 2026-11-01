@@ -1,3 +1,4 @@
+import { lotFitSchema } from '@zion/shared';
 import { z } from 'zod';
 import { BIOME_COUNT } from '@zion/shared';
 
@@ -138,6 +139,8 @@ export const assetDefinitionSchema = z
      * Door leaves that open and close in game (a Model Studio house's; left out of its mesh): the
      * hinge at the foot of the leaf, the closed leaf running along local +x turned by `yaw`.
      */
+    /** Where it fits on a map's lots (Model Studio houses; settlement-lots.ts). */
+    fit: lotFitSchema.optional(),
     doors: z.array(z.object({ x: z.number().finite(), y: z.number().finite(), z: z.number().finite(), yaw: z.number().finite(), w: z.number().min(.2).max(6), h: z.number().min(.5).max(8), color: z.string().regex(/^#[0-9a-f]{6}$/i).optional() }).strict()).max(64).optional(),
   })
   .strict();

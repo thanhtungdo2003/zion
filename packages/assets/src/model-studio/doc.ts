@@ -1,3 +1,4 @@
+import { lotFitSchema } from '@zion/shared';
 import { z } from 'zod';
 
 /**
@@ -256,7 +257,10 @@ export const modelDocSchema = z.object({
   nodes: z.array(nodeSchema).max(4000),
   materials: z.array(materialSchema).max(128),
   /** Settlement lot class a published building fills (World Studio, map generation). */
+  /** Older single lot class ('abandoned' meant an abandoned house); `fit` replaces it. */
   lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(),
+  /** Where the published building may stand on a map: lot classes, conditions, kinds of area (shared with the World Studio). */
+  fit: lotFitSchema.optional(),
   /** Storeys the building is designed with (above ground): the agent is not done before all are built. */
   storeys: z.number().int().min(1).max(40).optional(),
   /** The request the model was designed from: a later "go on" run reads it instead of starting over. */

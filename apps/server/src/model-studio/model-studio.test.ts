@@ -52,7 +52,7 @@ describe('model studio agent', () => {
     expect(tools.map((s) => s.tool)).toEqual(expect.arrayContaining(['research', 'create_geometry', 'validate_asset', 'auto_fix']));
     expect(tools.every((s) => s.ok)).toBe(true);
     expect(done.doc.kind).toBe('building');
-    expect(done.doc.lotClass).toBe('abandoned');
+    expect(done.doc.fit).toEqual({ lots: ['residential'], conditions: ['abandoned', 'ruined'], areas: [] });
     expect(done.doc.nodes.filter((n) => n.tags?.includes('room')).length).toBeGreaterThanOrEqual(7);
     expect(done.doc.nodes.some((n) => n.kind === 'stairs')).toBe(true);
     expect(saves).toHaveLength(1);

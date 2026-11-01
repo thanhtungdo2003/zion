@@ -1,5 +1,6 @@
 'use client';
 
+import { LOT_CLASS_NAMES } from '@zion/shared';
 import { createDefaultRegistry } from '@zion/assets';
 import { SETTLEMENT_PRESETS, URBAN_PATTERNS, levelRegion, polygonArea, presetSettings, type Region, type SettlementIssue, type SettlementResult, type SettlementSettings } from '@zion/worldgen/editor';
 import { Icon } from '../Icon';
@@ -9,7 +10,8 @@ import s from './world-studio.module.css';
 
 let names: Map<number, string> | null = null;
 const assetName = (id: number) => { names ??= new Map(); if (!names.has(id)) names.set(id, createDefaultRegistry().byNumericId(id)?.name ?? `#${id}`); return names.get(id)!; };
-const CLASS_NAME: Record<string, string> = { residential: 'Dân cư', commercial: 'Thương mại', industrial: 'Công nghiệp', military: 'Quân sự' };
+// Lot class names shared with the Model Studio.
+const CLASS_NAME: Record<string, string> = LOT_CLASS_NAMES;
 const LAYER_NAME = { roads: 'Toàn bộ', buildings: 'Công trình + vật thể', props: 'Cây & vật thể' } as const;
 
 export function SettlementPanel({ api }: { api: EditorApi }) {

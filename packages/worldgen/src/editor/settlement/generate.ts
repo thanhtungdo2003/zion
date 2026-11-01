@@ -1,3 +1,4 @@
+import { lotFits } from '@zion/shared';
 import { smoothstep, type Rng } from '@zion/shared';
 import { Simplex2 } from '../../noise';
 import {
@@ -633,7 +634,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   if (!keepBuildings) {
     const rng = stream(seed, 'buildings');
     const order = lots.filter((l) => l.cls !== 'empty' && l.cls !== 'green').sort((a, b) => b.obb.hx * b.obb.hz - a.obb.hx * a.obb.hz);
-    if (catalog.noKits && !Object.values(catalog.buildings).some((list) => list.length)) issues.push({ severity: 'warning', code: 'no-houses', message: 'Không có model nhà nào để đặt: khu vực không có nhà.' });
+    if (catalog.noKits && !Object.values(catalog.buildings).some((list) => list.length) && !catalog.studio?.length) issues.push({ severity: 'warning', code: 'no-houses', message: 'Không có model nhà nào để đặt: khu vực không có nhà.' });
     const taken = new Set(keptBuildings.map((b) => b.lot));
     let done = 0;
     for (const lot of order) {
@@ -643,8 +644,10 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const cls = lot.cls as LotClass;
       const condition = decayAt(lot.obb.x, lot.obb.z).condition;
       // Whole models only: every plot (tube house, school, market…) takes a house model.
-      const pool = !catalog.noKits && lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
+      const builtIn = !catalog.noKits && lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
         : catalog.buildings[(st.decay > .7 || condition !== 'intact') && cls === 'residential' ? 'abandoned' : cls];
+      // Model Studio houses made for this lot class, in this condition, in this kind of area.
+      const pool = [...builtIn, ...(catalog.studio ?? []).filter((item) => lotFits(item.fit, cls, condition, st.preset))];
       // Lot frame: width along the front, depth inward.
       const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], width = Math.hypot(fx, fz);
       const tx = fx / width, tz = fz / width, inward: Vec2 = [-lot.dir[0], -lot.dir[1]];

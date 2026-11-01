@@ -1,3 +1,4 @@
+import { lotFitFromLegacy, type LotFit } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -284,7 +285,7 @@ export class ModelStudioStore {
    * project's own published models (the admin confirmed replacing it). Refused when the model
    * does not validate.
    */
-  async publish(projectId: string, opts: { replaceAsset?: number; lotClass?: string; version?: number }): Promise<PublishedModel & { warnings: string[] }> {
+  async publish(projectId: string, opts: { replaceAsset?: number; lotClass?: string; fit?: LotFit; version?: number }): Promise<PublishedModel & { warnings: string[] }> {
     const project = await this.get(projectId);
     if (!project) throw Object.assign(new Error('Dự án không tồn tại.'), { statusCode: 404 });
     const doc = opts.version ? await this.versionDoc(projectId, opts.version) : project.doc;
@@ -316,7 +317,9 @@ export class ModelStudioStore {
       max[1] = Math.max(max[1], r.y + b.height * r.scale); min[1] = Math.min(min[1], r.y);
     }
     if (!Number.isFinite(min[0])) throw new Error('Model không có hình học.');
-    const def = studioModelAsset({ asset, name: doc.name, kind: doc.kind, solid: tris.length > 0, ...(opts.lotClass ?? doc.lotClass ? { lotClass: opts.lotClass ?? doc.lotClass } : {}), min, max, ...solid, refs: out.refs, ...(out.doors ? { doors: out.doors } : {}) });
+    // Where it fits on map lots: what the admin chose now, else the model's own setting.
+    const fit = opts.fit ?? lotFitFromLegacy(opts.lotClass) ?? doc.fit ?? lotFitFromLegacy(doc.lotClass);
+    const def = studioModelAsset({ asset, name: doc.name, kind: doc.kind, solid: tris.length > 0, ...(fit ? { fit } : {}), min, max, ...solid, refs: out.refs, ...(out.doors ? { doors: out.doors } : {}) });
     // Checked the way every server and client will register it.
     createDefaultRegistry().registerUploaded(def);
     const summary = { triangles: out.triangles, materials: out.materials, bytes: out.glb.length, refs: out.refs.length, warnings: out.warnings, stats: report.stats };

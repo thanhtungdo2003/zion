@@ -1,3 +1,4 @@
+import { lotFitSchema } from '@zion/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { HttpDeps } from '../app';
@@ -142,8 +143,8 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   app.get('/api/studio/models/published', pre, async (_req, reply) => { reply.header('cache-control', 'no-store'); return store.publishedList(); });
   app.post<{ Params: { id: string } }>('/api/studio/models/projects/:id/publish', { ...pre, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     try {
-      const body = z.object({ confirm: z.literal(true), replaceAsset: z.number().int().optional(), lotClass: LOT.optional(), version: z.number().int().optional() }).strict().parse(req.body);
-      const r = await store.publish(id.parse(req.params.id), { ...(body.replaceAsset !== undefined ? { replaceAsset: body.replaceAsset } : {}), ...(body.lotClass ? { lotClass: body.lotClass } : {}), ...(body.version ? { version: body.version } : {}) });
+      const body = z.object({ confirm: z.literal(true), replaceAsset: z.number().int().optional(), lotClass: LOT.optional(), fit: lotFitSchema.optional(), version: z.number().int().optional() }).strict().parse(req.body);
+      const r = await store.publish(id.parse(req.params.id), { ...(body.replaceAsset !== undefined ? { replaceAsset: body.replaceAsset } : {}), ...(body.lotClass ? { lotClass: body.lotClass } : {}), ...(body.fit ? { fit: body.fit } : {}), ...(body.version ? { version: body.version } : {}) });
       req.log.info({ asset: r.asset, project: req.params.id }, 'model studio: published');
       return r;
     } catch (err) { return fail(reply, err); }

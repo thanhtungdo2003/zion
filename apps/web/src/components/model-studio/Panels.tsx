@@ -1,5 +1,6 @@
 'use client';
 
+import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, LOT_CLASSES, LOT_CLASS_NAMES, SETTLEMENT_AREA_IDS, SETTLEMENT_AREA_NAMES, describeLotFit, lotFitFromLegacy, type LotFit } from '@zion/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
@@ -286,15 +287,34 @@ export function Inspector({ doc, nodes, mutate }: { doc: ModelDoc; nodes: ModelN
   );
 }
 
+/**
+ * Where the building stands on maps — the same lot classes, conditions and kinds of area (and
+ * names) as the World Studio's settlements; several of each may be chosen.
+ */
+function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
+  const fit: LotFit = doc.fit ?? lotFitFromLegacy(doc.lotClass) ?? { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
+  const set = (label: string, next: LotFit) => mutate(label, (d) => { d.fit = next; delete d.lotClass; });
+  const toggle = <T extends string>(list: readonly T[], v: T, keep1: boolean): T[] => list.includes(v) ? (keep1 && list.length === 1 ? [...list] : list.filter((x) => x !== v)) : [...list, v];
+  return <div className={s.section}>
+    <h3>Đặt trên bản đồ</h3>
+    <p className={s.muted}>Dùng chung với World Studio: khi sinh khu vực, công trình được đặt vào những lô hợp với cả ba lựa chọn dưới đây.</p>
+    <div className={s.row}><label>Loại lô</label><div className={s.chips}>{LOT_CLASSES.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.lots.includes(k) ? s.on : ''}`} onClick={() => set('Loại lô', { ...fit, lots: toggle(fit.lots, k, true) })}>{LOT_CLASS_NAMES[k]}</button>)}</div></div>
+    <div className={s.row}><label>Tình trạng</label><div className={s.chips}>{BUILDING_CONDITIONS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.conditions.includes(k) ? s.on : ''}`} onClick={() => set('Tình trạng', { ...fit, conditions: toggle(fit.conditions, k, true) })}>{BUILDING_CONDITION_NAMES[k]}</button>)}</div></div>
+    <div className={s.row}><label>Kiểu khu vực</label><div className={s.chips}>
+      <button type="button" className={`${s.chip} ${fit.areas.length ? '' : s.on}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: [] })}>Mọi khu vực</button>
+      {SETTLEMENT_AREA_IDS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.areas.includes(k) ? s.on : ''}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: toggle(fit.areas, k, false) })}>{SETTLEMENT_AREA_NAMES[k]}</button>)}
+    </div></div>
+    <p className={s.muted}>{describeLotFit(fit)}{doc.fit ? '' : ' (mặc định)'}</p>
+  </div>;
+}
+
 function ModelInfo({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
   return (
     <div className={s.section}>
       <h3>Model</h3>
       <div className={s.row}><label>Tên</label><input className={s.text} value={doc.name} maxLength={80} onChange={(e) => mutate('Tên model', (d) => { d.name = e.target.value || d.name; })} /></div>
       <div className={s.row}><label>Loại</label><select className={s.select} value={doc.kind} onChange={(e) => mutate('Loại model', (d) => { d.kind = e.target.value as typeof d.kind; })}>{ASSET_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
-      <div className={s.row}><label>Lô đất (map)</label><select className={s.select} value={doc.lotClass ?? ''} onChange={(e) => mutate('Lô đất', (d) => { if (e.target.value) d.lotClass = e.target.value as 'residential'; else delete d.lotClass; })}>
-        <option value="">—</option>{['residential', 'commercial', 'industrial', 'military', 'abandoned'].map((k) => <option key={k} value={k}>{k}</option>)}
-      </select></div>
+      {(doc.kind === 'building' || doc.fit || doc.lotClass) && <LotFitEditor doc={doc} mutate={mutate} />}
       <div className={s.row}><label>Ghi chú</label><textarea className={s.text} rows={3} value={doc.notes ?? ''} onChange={(e) => mutate('Ghi chú', (d) => { d.notes = e.target.value.slice(0, 4000); })} /></div>
       <p className={s.muted}>Chọn một phần trong khung 3D hoặc tab Cảnh để sửa nó.</p>
       {!!doc.plans?.length && (
@@ -480,7 +500,6 @@ export function VersionsPanel(p: {
 }) {
   const [note, setNote] = useState('');
   const mine = p.published.filter((x) => x.projectId === p.projectId);
-  const [lot, setLot] = useState('');
   return (
     <div className={s.pane}>
       <div className={s.section}>
@@ -492,18 +511,16 @@ export function VersionsPanel(p: {
       </div>
       <div className={s.section}>
         <h3><Icon name="lucide:rocket" /> Xuất bản vào game</h3>
-        <div className={s.row}><label>Lô đất (map)</label><select className={s.select} value={lot} onChange={(e) => setLot(e.target.value)}>
-          <option value="">theo model</option>{['residential', 'commercial', 'industrial', 'military', 'abandoned'].map((k) => <option key={k} value={k}>{k}</option>)}
-        </select></div>
+        <p className={s.muted}>Nơi đặt trên bản đồ (loại lô, tình trạng, kiểu khu vực): chỉnh ở tab Model khi không chọn phần nào.</p>
         <div className={s.row}>
-          <button className={`${s.tbtn} ${s.primary}`} disabled={p.busy} onClick={() => { if (confirm('Xuất bản model này thành model MỚI trong game? Nó sẽ có trong thư viện của World Studio và các bản đồ; bản đồ đang chạy không đổi cho tới khi dựng lại.')) p.publish({ ...(lot ? { lotClass: lot } : {}) }); }}>Xuất bản mới</button>
+          <button className={`${s.tbtn} ${s.primary}`} disabled={p.busy} onClick={() => { if (confirm('Xuất bản model này thành model MỚI trong game? Nó sẽ có trong thư viện của World Studio và các bản đồ; bản đồ đang chạy không đổi cho tới khi dựng lại.')) p.publish({}); }}>Xuất bản mới</button>
         </div>
         {mine.map((x) => (
           <div key={x.asset} className={s.card}>
             <div className={s.row}><b>#{x.asset}</b><span className={s.grow}>{x.name}</span><small className={s.muted}>bản dự án v{x.projectVersion}</small></div>
             <div className={s.muted}>{x.report.triangles?.toLocaleString('vi-VN')} tam giác · {x.report.materials} vật liệu · {((x.report.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB · {x.report.refs ?? 0} model kèm</div>
             <div className={s.row} style={{ marginTop: 6 }}>
-              <button className={s.tbtn} disabled={p.busy} onClick={() => { if (confirm(`Ghi đè model #${x.asset} trong game bằng phiên bản hiện tại? Mọi bản đồ dùng nó sẽ nhận bản mới khi dựng lại.`)) p.publish({ replaceAsset: x.asset, ...(lot ? { lotClass: lot } : {}) }); }}>Cập nhật</button>
+              <button className={s.tbtn} disabled={p.busy} onClick={() => { if (confirm(`Ghi đè model #${x.asset} trong game bằng phiên bản hiện tại? Mọi bản đồ dùng nó sẽ nhận bản mới khi dựng lại.`)) p.publish({ replaceAsset: x.asset }); }}>Cập nhật</button>
               {x.def.category === 'structure' && p.trial && <button className={`${s.tbtn} ${p.trial.saved.includes(x.asset) ? s.on : ''}`} disabled={p.busy} onClick={() => {
                 const on = p.trial!.saved.includes(x.asset);
                 if (confirm(on ? `Bỏ thử nghiệm #${x.asset} trên đảo Hắc Sơn (áp dụng khi khởi động lại server)?` : `Thử nghiệm #${x.asset} trên đảo Hắc Sơn: thay một nửa số nhà ven đường để so sánh (áp dụng khi khởi động lại server)?`)) p.setTrial(on ? p.trial!.saved.filter((a) => a !== x.asset) : [...p.trial!.saved, x.asset]);

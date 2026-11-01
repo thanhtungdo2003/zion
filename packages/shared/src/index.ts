@@ -3,6 +3,7 @@ export * from './random';
 export * from './binary';
 export * from './world';
 export * from './environment';
+export * from './settlement-lots';
 export * from './chunk';
 export * from './constants';
 export * from './protocol/client';

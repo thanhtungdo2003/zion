@@ -1,3 +1,4 @@
+import { BUILDING_CONDITIONS, LOT_CLASSES, SETTLEMENT_AREA_IDS, describeLotFit, lotFitFromLegacy } from '@zion/shared';
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
 import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type FloorPlan, type ModelDoc, type ModelNode } from './doc';
@@ -766,10 +767,21 @@ export const TOOLS: ToolDefinition<never>[] = [
   }),
   defineTool({
     name: 'set_model_info', permission: 'edit',
-    description: 'Đặt tên, loại (building|prop|rock|vegetation|furniture|vehicle|other), số tầng thiết kế (storeys — công trình chưa xong khi chưa dựng đủ số tầng này), lô đất khi dùng trong map (residential|commercial|industrial|military|abandoned) và ghi chú của model.',
-    params: { name: 'string', kind: 'string', storeys: 'number', lotClass: 'string', notes: 'string' },
-    schema: z.object({ name: z.string().min(1).max(80).optional(), kind: z.enum(ASSET_KINDS).optional(), storeys: z.number().int().min(1).max(40).optional(), lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(), notes: z.string().max(4000).optional() }).strict(),
-    run: (a, s) => { Object.assign(s.doc, Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined))); s.changed = true; return { name: s.doc.name, kind: s.doc.kind, storeys: s.doc.storeys ?? null, lotClass: s.doc.lotClass ?? null }; },
+    description: 'Đặt tên, loại (building|prop|rock|vegetation|furniture|vehicle|other), số tầng thiết kế (storeys — công trình chưa xong khi chưa dựng đủ số tầng này), nơi công trình được đặt trên map và ghi chú. Nơi đặt (chung với World Studio): lots = loại lô (residential nhà ở | commercial thương mại – dịch vụ | industrial công nghiệp – kho bãi | military quân sự, chọn nhiều), conditions = tình trạng (intact nguyên vẹn | abandoned bỏ hoang | ruined đổ nát, chọn nhiều), areas = kiểu khu vực (small-village, rural-town, dense-town, small-city, industrial-zone, military-base, residential-district, abandoned-settlement, port, vn-town, planned-city, mixed-city, abandoned-city; bỏ trống = mọi khu vực). lotClass là cách cũ (một loại).',
+    params: { name: 'string', kind: 'string', storeys: 'number', lots: 'string[]', conditions: 'string[]', areas: 'string[]', lotClass: 'string', notes: 'string' },
+    schema: z.object({ name: z.string().min(1).max(80).optional(), kind: z.enum(ASSET_KINDS).optional(), storeys: z.number().int().min(1).max(40).optional(), lots: z.array(z.enum(LOT_CLASSES)).min(1).max(4).optional(), conditions: z.array(z.enum(BUILDING_CONDITIONS)).min(1).max(3).optional(), areas: z.array(z.enum(SETTLEMENT_AREA_IDS)).max(13).optional(), lotClass: z.enum(['residential', 'commercial', 'industrial', 'military', 'abandoned']).optional(), notes: z.string().max(4000).optional() }).strict(),
+    run: (a, s) => {
+      const { lots, conditions, areas, lotClass, ...rest } = a;
+      Object.assign(s.doc, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+      const was = s.doc.fit ?? lotFitFromLegacy(s.doc.lotClass);
+      const legacy = lotFitFromLegacy(lotClass);
+      if (lots || conditions || areas || legacy) {
+        s.doc.fit = { lots: lots ?? legacy?.lots ?? was?.lots ?? ['residential'], conditions: conditions ?? legacy?.conditions ?? was?.conditions ?? ['intact'], areas: areas ?? was?.areas ?? [] };
+        delete s.doc.lotClass;
+      }
+      s.changed = true;
+      return { name: s.doc.name, kind: s.doc.kind, storeys: s.doc.storeys ?? null, fit: s.doc.fit ? describeLotFit(s.doc.fit) : null };
+    },
   }),
   defineTool({
     name: 'research', permission: 'read',

@@ -1,3 +1,4 @@
+import { lotFitFromLegacy, type LotFit } from '@zion/shared';
 import type { AssetDefinitionInput, ColliderDefinition } from '../schema';
 import type { AssetKind } from './doc';
 import type { AssetPlacement } from './export';
@@ -23,7 +24,10 @@ export interface StudioAssetInput {
   asset: number;
   name: string;
   kind: AssetKind;
+  /** Older single lot class (see lotFitFromLegacy); `fit` replaces it. */
   lotClass?: string;
+  /** Where it fits on a map's lots: classes, conditions, kinds of area. */
+  fit?: LotFit;
   /** Bounds of what collides and draws (model space, the model stands on y = 0). */
   min: [number, number, number];
   max: [number, number, number];
@@ -55,7 +59,8 @@ export function studioModelAsset(input: StudioAssetInput): AssetDefinitionInput 
     ...(input.solid === false ? { colliders: [], collisionLayer: 'none' } : { colliders, collisionLayer: 'static' }),
     bounds: { radius: r3(radius), height: r3(Math.max(.05, input.max[1])) },
     render: { maxDistance: big ? 700 : input.kind === 'rock' ? 450 : 220 },
-    tags: ['model-studio', `kind:${input.kind}`, ...(input.lotClass ? [`lot:${input.lotClass}`] : [])],
+    tags: ['model-studio', `kind:${input.kind}`],
+    ...((input.fit ?? lotFitFromLegacy(input.lotClass)) ? { fit: input.fit ?? lotFitFromLegacy(input.lotClass) } : {}),
     ...(input.refs.length ? { composite: input.refs.slice(0, 512) } : {}),
     ...(input.doors?.length ? { doors: input.doors.slice(0, 64).map((d) => ({ ...d, w: Math.min(6, Math.max(.2, d.w)), h: Math.min(8, Math.max(.5, d.h)) })) } : {}),
   } as AssetDefinitionInput;
