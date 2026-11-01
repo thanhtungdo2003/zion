@@ -243,7 +243,8 @@ export class VegetationRenderer {
         const x = ox + lx, z = oz + lz;
         const patch = (size: number, salt: number) => vegetationPatch(x, z, size, this.cosmeticSeed ^ salt);
         const slope = slopeAt(lx, lz, y);
-        if (slope > 1.25) continue;
+        // Grass does not hold on rough slopes (the ground there is earth and rock: ground-textures.ts).
+        if (slope > .45) continue;
         // Terrain outcrops have no prop footprint: find their damp, sheltered feet from the
         // heightfield itself. Keep the same per-cover caps and instanced draw-call budget.
         const rockyFoot = (surface === Surface.Rock || GRASSY.has(surface)) && wet > .55 && warm > .25

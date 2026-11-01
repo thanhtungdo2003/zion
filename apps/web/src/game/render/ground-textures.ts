@@ -63,7 +63,12 @@ export function surfaceLayers(surface: Surface, temperature: number, humidity: n
 /** Steep natural ground shows its rock (roads and paving keep their own surface). */
 export function slopeToRock(surface: Surface, upness: number, w: Float32Array): void {
   if (surface >= Surface.DirtRoad || surface === Surface.Snow || surface === Surface.Seabed) return;
-  const rock = Math.max(0, Math.min(1, (0.86 - upness) / 0.2));
+  // Grass does not hold on rough slopes: from ~15° the vegetated layers give way to bare earth,
+  // from ~22° to rock (all rock by ~40°); sand, gravel and the like keep their place.
+  const soft = [L.forest, L.meadow, L.dry];
+  const earth = Math.max(0, Math.min(1, (0.965 - upness) / 0.04));
+  if (earth > 0) for (const k of soft) { const moved = w[k]! * earth; w[k]! -= moved; w[L.dirt]! += moved; }
+  const rock = Math.max(0, Math.min(1, (0.925 - upness) / 0.16));
   if (rock <= 0) return;
   for (let k = 0; k < w.length; k++) w[k]! *= 1 - rock;
   w[L.rock]! += rock;
