@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, SETTLEMENT_AREA_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, SETTLEMENT_KIND_STYLES,
+  BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, BUILDING_TYPE_INFO, settlementFacilities, SETTLEMENT_AREA_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, SETTLEMENT_KIND_STYLES,
   areaFor, describeLotFit, lotFitFromLegacy, lotFits, type BuildingCondition, type LotFit, type SettlementKind,
 } from '@zion/shared';
 import { parseJsonObject, type LlmClient } from './llm';
@@ -28,6 +28,8 @@ export interface RegionPlan {
   kind: SettlementKind; condition: BuildingCondition; style: string; preset: string; name: string; reason: string;
   /** The published buildings that fit it (id, name, where they fit). */
   buildings: Array<{ asset: number; name: string; fit: string }>;
+  /** The public buildings the region will have (school, clinic, market…), and those no published model is made for yet. */
+  facilities: Array<{ type: string; name: string; count: number; models: number }>;
   source: 'ai' | 'rules';
 }
 
@@ -52,7 +54,7 @@ export function buildingsFor(published: readonly Published[], condition: Buildin
 const has = (t: string, ...w: string[]) => w.some((x) => t.includes(x));
 
 /** Rules of thumb: the words of the request first, then the size and the ground. */
-export function planByRules(req: RegionRequest): Omit<RegionPlan, 'buildings' | 'source'> {
+export function planByRules(req: RegionRequest): Omit<RegionPlan, 'buildings' | 'source' | 'facilities'> {
   const t = req.prompt.toLowerCase(), r = req.region;
   let kind: SettlementKind =
     has(t, 'quân', 'căn cứ', 'doanh trại', 'military', 'base', 'army') ? 'military'
@@ -99,5 +101,9 @@ export async function planRegion(req: RegionRequest, published: readonly Publish
       }
     } catch { /* the AI did not answer: the rules' answer stands */ }
   }
-  return { ...plan, buildings: buildingsFor(published, plan.condition, plan.preset), source };
+  const counts = new Map<string, number>();
+  for (const t of settlementFacilities(plan.kind, req.region.area)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const facilities = [...counts].map(([type, count]) => ({ type, name: BUILDING_TYPE_INFO[type as keyof typeof BUILDING_TYPE_INFO].name, count,
+    models: published.filter((m) => { const f = fitOf(m); return !!f?.types?.includes(type as never) && f.conditions.includes(plan.condition); }).length }));
+  return { ...plan, buildings: buildingsFor(published, plan.condition, plan.preset), facilities, source };
 }

@@ -27,7 +27,11 @@ describe('model studio: the model sorts itself out', () => {
     expect(ruin.conditions).toContain('ruined');
     expect(ruin.areas).toEqual(expect.arrayContaining(['industrial-zone']));
     // A plain house: intact, a home, anywhere.
-    expect(classifyModel(doc('Ngôi nhà', 'building')).fit).toEqual({ lots: ['residential'], conditions: ['intact'], areas: [] });
+    expect(classifyModel(doc('Ngôi nhà', 'building')).fit).toEqual({ lots: ['residential'], conditions: ['intact'], areas: [], types: ['house'] });
+    // What it is: the building types the World Studio asks for.
+    expect(classifyModel(doc('Trường tiểu học 2 tầng', 'building')).fit!.types).toEqual(['school']);
+    expect(classifyModel(doc('Bệnh viện đa khoa', 'building')).fit!.types).toEqual(['hospital']);
+    expect(classifyModel(doc('Trường đại học', 'building')).fit!.types).toEqual(['university']);
     // The request in the notes counts too.
     expect(classifyModel(doc('Công trình 1', 'building', 'nhà gỗ ở làng quê, bỏ hoang 50 năm')).fit).toMatchObject({ conditions: ['abandoned'], areas: expect.arrayContaining(['small-village', 'abandoned-settlement']) });
   });

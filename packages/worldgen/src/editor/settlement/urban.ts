@@ -1,4 +1,4 @@
-import { smoothstep, type Rng } from '@zion/shared';
+import { BUILDING_TYPE_INFO, isFacility, kindOfArea, settlementFacilities, smoothstep, type BuildingType, type Rng } from '@zion/shared';
 import { Simplex2 } from '../../noise';
 import { SpatialGrid, convexHull, densify, distanceToPolyline, obbOverlap, obbRadius, pointInPolygon, type Obb, type Vec2 } from '../geometry';
 import { seedNumber, stream } from '../heightfield';
@@ -30,7 +30,7 @@ export const URBAN_PATTERNS: Array<{ id: UrbanPattern; name: string }> = [
   { id: 'vietnamese', name: 'Phố Việt tự phát' }, { id: 'planned', name: 'Quy hoạch bài bản' }, { id: 'mixed', name: 'Hỗn hợp' },
 ];
 /** What a parcel is used for, beyond its district class. */
-export type LotUse = 'shophouse' | 'tube' | 'school' | 'clinic' | 'market' | 'temple' | 'office' | 'park';
+export type LotUse = 'park' | BuildingType;
 export type BuildingCondition = 'intact' | 'abandoned' | 'ruined';
 export interface District { id: string; cls: LotClass | 'green'; x: number; z: number }
 
@@ -356,7 +356,7 @@ export function frontageParcels(input: ParcelInput): { lots: UrbanLot[]; blocks:
 
 export interface DistrictInput {
   lots: UrbanLot[]; roads: Road[]; polygon: Vec2[]; ground: UrbanGround; pattern: UrbanPattern; seed: string; center: Vec2; radius: number; area: number;
-  settings: Pick<SettlementSettings, 'zoning' | 'density' | 'concentration' | 'decay'>;
+  settings: Pick<SettlementSettings, 'zoning' | 'density' | 'concentration' | 'decay' | 'preset'>;
   externalRoads: Array<{ points: Vec2[] }>;
 }
 
@@ -421,23 +421,8 @@ export function planDistricts(input: DistrictInput): District[] {
     l.cls = roll < p ? (shop ? 'commercial' : c) : roll < p + (1 - st.density) * .2 && c !== 'industrial' ? 'green' : 'empty';
     if (shop && l.cls === 'commercial') l.use = 'shophouse';
   }
-  // Public services on wide plots: schools, a clinic, a market, a temple or pagoda, offices; spaced apart.
-  const wide = lots.filter((l) => l.wide && l.cls !== 'industrial' && l.cls !== 'military').sort((a, b) => Math.hypot(a.obb.x - cx, a.obb.z - cz) - Math.hypot(b.obb.x - cx, b.obb.z - cz));
-  const placed: Array<{ use: LotUse; x: number; z: number }> = [];
-  const schools = Math.max(1, Math.round(input.area / 300_000));
-  const plan: LotUse[] = ['market', 'clinic', ...Array.from({ length: schools }, () => 'school' as const), pattern === 'planned' ? 'office' : 'temple', ...(input.area > 250_000 ? ['office' as const] : [])];
-  for (const use of plan) {
-    const spacing = use === 'school' ? 260 : 120;
-    const ok = (l: UrbanLot) => !l.use?.match(/school|clinic|market|temple|office|park/) && placed.every((p) => Math.hypot(p.x - l.obb.x, p.z - l.obb.z) > (p.use === use ? spacing : 40));
-    // Wide plots first; otherwise the largest plot on a street near the centre.
-    const fallback = () => lots.filter((l) => l.cls !== 'industrial' && l.cls !== 'military' && l.road !== 'alley' && l.obb.hx * l.obb.hz * 4 >= 320 && ok(l) && Math.hypot(l.obb.x - cx, l.obb.z - cz) < R * .8)
-      .sort((a, b) => b.obb.hx * b.obb.hz - a.obb.hx * a.obb.hz)[0];
-    const fit = wide.find((l) => !l.use?.match(/school|clinic|market|temple|office/) && placed.every((p) => Math.hypot(p.x - l.obb.x, p.z - l.obb.z) > (p.use === use ? spacing : 40)) &&
-      (use === 'market' ? l.road === 'main' || l.road === 'secondary' : use === 'school' ? Math.hypot(l.obb.x - cx, l.obb.z - cz) < R * .85 : true)) ?? fallback();
-    if (!fit) continue;
-    fit.use = use; fit.cls = use === 'market' || use === 'office' ? 'commercial' : 'residential';
-    placed.push({ use, x: fit.obb.x, z: fit.obb.z });
-  }
+  // Public buildings (schools, a clinic, a market, a hospital, a stadium…) on wide plots, spaced apart.
+  assignFacilities(lots, settlementFacilities(kindOfArea(st.preset), input.area), cx, cz, R, rng, (l) => l.wide === true, (l) => l.road === 'main' || l.road === 'secondary');
   return districts;
 }
 
@@ -477,6 +462,7 @@ export function urbanBuildingOptions(use: LotUse | undefined, rng: Rng, availW: 
     case 'office': for (const w of [24, 18]) add('concrete', w, 12, 4 + Math.floor(rng.next() * 4), 'gray'); break;
     case 'market': for (const w of [30, 24, 18]) add('concrete', w, 12, 1, rng.next() < .5 ? 'gray' : 'ivory'); break;
     case 'temple': add('brick', 12, 10, 1); add('brick', 10, 8, 1); break;
+    case 'hospital': case 'hotel': case 'university': for (const w of [30, 24]) add('concrete', w, 14, 4 + Math.floor(rng.next() * 3), 'ivory'); break;
     case 'tube': case 'shophouse': {
       // Brick widths are multiples of 2 m; depth fills the plot behind a small yard.
       for (const w of [8, 6, 4]) {
@@ -485,9 +471,45 @@ export function urbanBuildingOptions(use: LotUse | undefined, rng: Rng, availW: 
       }
       break;
     }
-    default: break;
+    default: if (isFacility(use)) { add('concrete', 18, 12, 2, 'ivory'); add('concrete', 12, 10, 2, 'gray'); } break;
   }
   return out;
 }
 
-export const isPublicUse = (use?: LotUse) => use === 'school' || use === 'clinic' || use === 'market' || use === 'temple' || use === 'office';
+export const isPublicUse = (use?: LotUse) => use === 'office' || isFacility(use);
+
+type FacilityLot = { obb: Obb; cls: LotClass | 'green' | 'empty'; use?: LotUse; road?: RoadKind };
+/**
+ * Sets plots aside for a settlement's public buildings: each on the free plot that suits it
+ * best — big enough for it (a stadium needs a field), the core for the town hall, the market on
+ * a through street, the big grounds (stadium, university, hospital) further out where the plots
+ * are larger — and the same buildings spaced apart (two schools serve two quarters).
+ */
+export function assignFacilities<L extends FacilityLot>(lots: L[], plan: readonly BuildingType[], cx: number, cz: number, R: number, rng: Rng, preferred: (l: L) => boolean = () => false, onStreet: (l: L) => boolean = () => true): void {
+  const placed: Array<{ use: LotUse; x: number; z: number }> = [];
+  // The biggest first: they need the rare large plots.
+  const order = [...plan].sort((a, b) => (BUILDING_TYPE_INFO[b].plot ?? 0) - (BUILDING_TYPE_INFO[a].plot ?? 0));
+  for (const use of order) {
+    const info = BUILDING_TYPE_INFO[use], need = info.plot ?? 300, big = need >= 1500;
+    const spacing = use === 'school' || use === 'kindergarten' ? 240 : 120;
+    let best: L | undefined, bs = Infinity;
+    for (const l of lots) {
+      if (l.use && l.use !== 'tube' && l.use !== 'shophouse') continue;
+      if (l.cls === 'military' || (l.cls === 'industrial' && !info.lots.includes('industrial'))) continue;
+      const a = l.obb.hx * l.obb.hz * 4;
+      if (a < Math.min(250, need) || !placed.every((p) => Math.hypot(p.x - l.obb.x, p.z - l.obb.z) > (p.use === use ? spacing : 30))) continue;
+      const rc = Math.hypot(l.obb.x - cx, l.obb.z - cz) / R;
+      if (rc > 1.05) continue;
+      // Civic buildings near the core, big grounds where there is room; wide plots and through streets first.
+      const score = (big ? Math.abs(rc - .6) - Math.min(1, a / (need * 3)) * .4 : use === 'town-hall' || use === 'market' || use === 'post-office' || use === 'bank' ? rc : rc * .6)
+        // A plot smaller than it wants only when no plot is big enough (the generator then fits a smaller model).
+        + (a < need * .8 ? 2 - a / need : 0)
+        - (preferred(l) ? .3 : 0) - (use === 'market' || use === 'gas-station' ? (onStreet(l) ? .3 : 0) : 0) + rng.next() * .15;
+      if (score < bs) { bs = score; best = l; }
+    }
+    if (!best) continue;
+    best.use = use;
+    best.cls = info.lots[0]!;
+    placed.push({ use, x: best.obb.x, z: best.obb.z });
+  }
+}

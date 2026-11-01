@@ -1,6 +1,6 @@
 'use client';
 
-import { BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, LOT_CLASSES, LOT_CLASS_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, describeLotFit, kindAreas, lotFitFromLegacy, type LotFit } from '@zion/shared';
+import { BUILDING_TYPES, BUILDING_TYPE_INFO, BUILDING_CONDITIONS, BUILDING_CONDITION_NAMES, LOT_CLASSES, LOT_CLASS_NAMES, SETTLEMENT_KINDS, SETTLEMENT_KIND_NAMES, describeLotFit, kindAreas, lotFitFromLegacy, type LotFit } from '@zion/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
@@ -295,7 +295,13 @@ export function Inspector({ doc, nodes, mutate }: { doc: ModelDoc; nodes: ModelN
 /** The three rows of lot choices (classes, conditions, kinds of area). */
 function LotFitChips({ fit, set }: { fit: LotFit; set: (label: string, next: LotFit) => void }) {
   const toggle = <T extends string>(list: readonly T[], v: T, keep1: boolean): T[] => list.includes(v) ? (keep1 && list.length === 1 ? [...list] : list.filter((x) => x !== v)) : [...list, v];
+  const types = fit.types ?? [];
   return <>
+    {/* What the building is (the same ids the World Studio asks for lot by lot); several allowed. */}
+    <div className={s.row}><label>Loại công trình</label><div className={s.chips}>
+      {BUILDING_TYPES.map((t) => { const on = types.includes(t), info = BUILDING_TYPE_INFO[t]; return <button key={t} type="button" title={`${t}${info.facility ? ' · công trình công cộng: chỉ đặt vào lô dành riêng cho nó' : ''}`} className={`${s.chip} ${on ? s.on : ''}`}
+        onClick={() => { const next = on ? types.filter((x) => x !== t) : [...types, t]; set('Loại công trình', { ...fit, lots: on ? fit.lots : [...new Set([...fit.lots, ...info.lots])], types: next.length ? next : undefined }); }}>{info.facility ? '★ ' : ''}{info.name}</button>; })}
+    </div></div>
     <div className={s.row}><label>Loại lô</label><div className={s.chips}>{LOT_CLASSES.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.lots.includes(k) ? s.on : ''}`} onClick={() => set('Loại lô', { ...fit, lots: toggle(fit.lots, k, true) })}>{LOT_CLASS_NAMES[k]}</button>)}</div></div>
     <div className={s.row}><label>Tình trạng</label><div className={s.chips}>{BUILDING_CONDITIONS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.conditions.includes(k) ? s.on : ''}`} onClick={() => set('Tình trạng', { ...fit, conditions: toggle(fit.conditions, k, true) })}>{BUILDING_CONDITION_NAMES[k]}</button>)}</div></div>
     <div className={s.row}><label>Kiểu khu vực</label><div className={s.chips}>

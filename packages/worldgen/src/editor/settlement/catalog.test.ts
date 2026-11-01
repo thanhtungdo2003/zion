@@ -61,4 +61,20 @@ describe('settlement catalogue: whole house models, no kit buildings', () => {
     const most = Math.max(...studio.map(([, n]) => n)), least = Math.min(...studio.map(([, n]) => n));
     expect(most - least).toBeLessThanOrEqual(Math.max(2, Math.ceil(most * .5)));
   });
+
+  it('sets plots aside for the school and clinic and puts the models of that type there only', () => {
+    const registry = createDefaultRegistry();
+    studioHouse(registry, 3020, { fit: { lots: ['residential'], conditions: ['intact'], areas: [], types: ['school'] } });
+    studioHouse(registry, 3021, { fit: { lots: ['residential'], conditions: ['intact'], areas: [], types: ['school'] } });
+    for (let k = 0; k < 3; k++) studioHouse(registry, 3022 + k, { fit: { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [], types: ['house'] } });
+    const result = town(buildCatalog(registry, { noKits: true }), 'rural-town');
+    const schoolLots = new Set(result.lots.filter((l) => l.use === 'school').map((l) => l.id));
+    expect(schoolLots.size).toBeGreaterThan(0);
+    expect(result.lots.some((l) => l.use === 'clinic') && result.lots.some((l) => l.use === 'market')).toBe(true);
+    const schools = result.buildings.filter((b) => b.asset === 3020 || b.asset === 3021);
+    expect(schools.length).toBeGreaterThan(0);
+    expect(schools.every((b) => schoolLots.has(b.lot!))).toBe(true);
+    // No model made for this town's hospital or police: said so.
+    expect(result.issues.some((i) => i.code === 'missing-types')).toBe(true);
+  });
 });

@@ -1,4 +1,4 @@
-import { lotFits } from '@zion/shared';
+import { BUILDING_TYPE_INFO, isFacility, kindOfArea, lotFits, settlementFacilities, type BuildingType, type LotFit, type SettlementKind } from '@zion/shared';
 import { smoothstep, type Rng } from '@zion/shared';
 import { Simplex2 } from '../../noise';
 import {
@@ -11,12 +11,15 @@ import { riverLevels, waterLevelAt, type WaterData } from '../water';
 import type { Catalog, CatalogItem, PropKind } from './catalog';
 import type { LotClass, SettlementSettings } from './presets';
 import { compositeOptions, type CompositeRecipe } from './composite';
-import { blockClass, conditionField, frontageParcels, isPublicUse, planDistricts, traceStreets, urbanBuildingOptions, urbanField, type BuildingCondition, type District, type LotUse } from './urban';
+import { assignFacilities, blockClass, conditionField, frontageParcels, isPublicUse, planDistricts, traceStreets, urbanBuildingOptions, urbanField, type BuildingCondition, type District, type LotUse } from './urban';
 
 export type RoadKind = 'main' | 'secondary' | 'alley' | 'connector';
 export interface SettlementRoad { id: string; kind: RoadKind; width: number; points: Vec2[] }
 export interface Block { id: string; polygon: Vec2[]; cls: LotClass | 'green' }
 export type ParcelKind = 'rect' | 'skew' | 'L' | 'U' | 'wide';
+/** How much a kind of place builds up towards its centre (tall buildings in the core). */
+const URBANITY: Record<SettlementKind, number> = { city: 1, town: .6, residential: .45, port: .3, industrial: .2, military: .2, village: .1 };
+
 /** How a parcel is used and dressed: each one has its own character. */
 export type LotStyle = 'yard' | 'full' | 'garden' | 'orchard' | 'farm' | 'walled' | 'overgrown' | 'vacant' | 'work';
 export type FenceKind = 'none' | 'wood' | 'iron' | 'wall' | 'hedge' | 'wire';
@@ -592,6 +595,8 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         l.cls = r < p ? cls : r < p + (1 - st.density) * .2 && cls !== 'industrial' ? 'green' : 'empty';
       }
     }
+    // Plots for the public buildings (schools, a clinic, a market…) in villages and towns laid out by hand rules.
+    if (st.layout !== 'urban') assignFacilities(lots, settlementFacilities(kindOfArea(st.preset), area), frame.cx, frame.cz, Math.max(1, analysis.radius), zoningRng);
     // Every parcel gets its own character: how it is used, fenced and planted.
     const styleRng = stream(seed, 'lot-style');
     const weighted = <T extends string>(list: Array<[T, number]>): T => { let r = styleRng.next() * list.reduce((a, [, w]) => a + w, 0); for (const [k, w] of list) if ((r -= w) <= 0) return k; return list[0]![0]; };
@@ -612,7 +617,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       // Urban plots: tube houses fill their frontage, public services stand in walled grounds, parks are gardens.
       if (l.use === 'tube' || l.use === 'shophouse') { if (l.cls !== 'empty' && l.cls !== 'green') { l.style = 'full'; l.fence = 'none'; } else delete l.use; }
       else if (l.use === 'park') { l.style = 'garden'; l.fence = 'hedge'; }
-      else if (isPublicUse(l.use)) { l.style = l.use === 'market' ? 'full' : 'walled'; l.fence = l.use === 'market' ? 'none' : l.use === 'temple' ? 'wall' : 'iron'; }
+      else if (isPublicUse(l.use)) { l.style = l.use === 'market' || l.use === 'gas-station' ? 'full' : 'walled'; l.fence = l.use === 'market' || l.use === 'gas-station' ? 'none' : l.use === 'temple' ? 'wall' : 'iron'; }
       // Whole streets gone to seed where the place has decayed.
       if (st.layout === 'urban' && l.style !== 'full' && decayAt(l.obb.x, l.obb.z).value > .55 && styleRng.next() < .7) l.style = 'overgrown';
     }
@@ -631,6 +636,8 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
   const buildings: PlacedBuilding[] = [...keptBuildings];
   const corridors: Obb[] = [];
   const doorCorridor = (door: Vec2, dir: Vec2, len: number): Obb => ({ x: door[0] + dir[0] * len / 2, z: door[1] + dir[1] * len / 2, hx: 1.3, hz: len / 2 + .3, yaw: Math.atan2(dir[0], dir[1]) });
+  /** Public buildings asked for that no published model of that type fits. */
+  const missingTypes = new Set<BuildingType>();
   if (!keepBuildings) {
     const rng = stream(seed, 'buildings');
     const order = lots.filter((l) => l.cls !== 'empty' && l.cls !== 'green').sort((a, b) => b.obb.hx * b.obb.hz - a.obb.hx * a.obb.hz);
@@ -646,11 +653,19 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       if (taken.has(lot.id)) continue;
       const cls = lot.cls as LotClass;
       const condition = decayAt(lot.obb.x, lot.obb.z).condition;
+      // What the plot asks for: a public building of its type, a tube house, or any building of its class.
+      const want = isFacility(lot.use) ? lot.use : undefined;
+      const street = lot.use === 'tube' || lot.use === 'shophouse';
       // Whole models only: every plot (tube house, school, market…) takes a house model.
-      const builtIn = !catalog.noKits && lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse') ? []
+      const builtIn = !catalog.noKits && lot.use && (isPublicUse(lot.use) || street) ? []
         : catalog.buildings[(st.decay > .7 || condition !== 'intact') && cls === 'residential' ? 'abandoned' : cls];
-      // Model Studio houses made for this lot class, in this condition, in this kind of area.
-      const pool = [...builtIn, ...(catalog.studio ?? []).filter((item) => lotFits(item.fit, cls, condition, st.preset))];
+      // Model Studio buildings for this lot class, in this condition, in this kind of area; a
+      // public building only on a plot set aside for its type.
+      const inArea = (fit: LotFit) => !fit.areas.length || (fit.areas as readonly string[]).includes(st.preset);
+      const studio = catalog.studio ?? [];
+      const typed = want ? studio.filter((item) => item.fit.types?.includes(want) && item.fit.conditions.includes(condition) && inArea(item.fit)) : [];
+      const ordinary = studio.filter((item) => lotFits(item.fit, cls, condition, st.preset) && !(item.fit.types?.length && item.fit.types.every((t) => isFacility(t))));
+      const streetTyped = street ? ordinary.filter((item) => item.fit.types?.some((t) => t === 'tube' || t === 'shophouse')) : [];
       // Lot frame: width along the front, depth inward.
       const fx = lot.front[1][0] - lot.front[0][0], fz = lot.front[1][1] - lot.front[0][1], width = Math.hypot(fx, fz);
       const tx = fx / width, tz = fz / width, inward: Vec2 = [-lot.dir[0], -lot.dir[1]];
@@ -659,30 +674,45 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       const setback = lot.style === 'full' ? Math.min(1, st.setback) : lot.style === 'farm' ? st.setback + 3 : st.setback;
       const availW = width - (lot.style === 'full' ? 1 : 3), availD = depth - setback - (lot.style === 'full' ? .5 : 1.5);
       type Candidate = { item: CatalogItem; turned: boolean; recipe?: CompositeRecipe };
-      const fits: Candidate[] = pool.flatMap((item) => [
+      const fitting = (pool: CatalogItem[]): Candidate[] => pool.flatMap((item) => [
         ...(item.w <= availW && item.d <= availD ? [{ item, turned: false }] : []),
         ...(item.d <= availW && item.w <= availD && Math.abs(item.w - item.d) > 1 ? [{ item, turned: true }] : []),
       ]);
+      // The plot's own type first (a school on the school plot), else any building of its class.
+      let fits = fitting(typed);
+      if (want && !fits.length) missingTypes.add(want);
+      if (!fits.length) fits = fitting(streetTyped);
+      if (!fits.length) fits = fitting([...builtIn, ...ordinary]);
       // Storeyed buildings from the brick / concrete / modular kits: the city core, offices,
       // barracks and flats. How often depends on the place (a village rarely, a city mostly).
       const tall = cls === 'military' ? .8 : st.preset === 'small-city' || st.preset === 'planned-city' ? .95 : st.preset === 'dense-town' ? .65 : st.sizeBias * .6;
       const kitShare = cls === 'commercial' ? .55 + tall * .4 : cls === 'military' ? .75 : cls === 'industrial' ? .45 : tall * .7;
       const asCandidate = (o: ReturnType<typeof compositeOptions>[number]): Candidate => ({ item: { asset: o.recipe.kind === 'brick' ? 2050 : 2051, name: o.recipe.kind, w: o.w, d: o.d, ox: 0, oz: 0, height: o.height }, turned: false, recipe: o.recipe });
+      const kits: Candidate[] = [];
       // (No kit buildings of brick / concrete panels: whole models only.)
       if (catalog.noKits) { /* whole models only */ }
-      else if (lot.use && (isPublicUse(lot.use) || lot.use === 'tube' || lot.use === 'shophouse')) fits.unshift(...urbanBuildingOptions(lot.use, rng, availW, availD).map(asCandidate));
-      else if (lot.style !== 'farm' && rng.next() < kitShare) fits.unshift(...compositeOptions(cls, rng, tall, availW, availD).map(asCandidate));
-      fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
-      if (!fits.length) continue;
-      // Variety: the models used least so far come first (a street is not one house repeated),
-      // bigger ones a little ahead where the place favours size; kit buildings keep their place.
-      const biggest = fits[0]!.item.w * fits[0]!.item.d;
-      const byUse = (list: Candidate[]) => list.map((f) => ({ f, k: (f.recipe ? -1 : (houseUses.get(f.item.asset) ?? 0)) + rng.next() * .9 - (f.item.w * f.item.d / biggest) * st.sizeBias * .6 })).sort((a, b) => a.k - b.k).map((x) => x.f);
-      let tries = byUse(fits).slice(0, 4);
+      else if (lot.use && (isPublicUse(lot.use) || street)) { if (!typed.length) kits.push(...urbanBuildingOptions(lot.use, rng, availW, availD).map(asCandidate)); }
+      else if (lot.style !== 'farm' && rng.next() < kitShare) kits.push(...compositeOptions(cls, rng, tall, availW, availD).map(asCandidate));
+      if (!fits.length && !kits.length) continue;
+      // Which model: at random among all that fit, weighted — the ones used least here so far
+      // (a street is not one house repeated), the tall ones towards the centre of a town or city
+      // and the low ones out at its edge, bigger ones a little ahead where the place favours size.
+      const lc = Math.min(1, Math.hypot(lot.obb.x - frame.cx, lot.obb.z - frame.cz) / Math.max(1, analysis.radius));
+      const centre = URBANITY[kindOfArea(st.preset)] * (1 - lc) ** 1.5;
+      const tallest = Math.max(6, ...fits.map((f) => f.item.height)), biggest = Math.max(1, ...fits.map((f) => f.item.w * f.item.d));
+      const weight = (f: Candidate) => {
+        const types = (f.item as { fit?: LotFit }).fit?.types;
+        const t = Math.min(1, Math.max(0, f.item.height - 4) / Math.max(1, tallest - 4) + (types?.some((x) => BUILDING_TYPE_INFO[x].tall) ? .4 : 0));
+        const height = Math.max(.06, 1 + 4 * centre * t - 1.8 * (1 - centre) * t * (centre < .2 ? 1 : .5));
+        return height / (1 + (houseUses.get(f.item.asset) ?? 0)) ** 1.6 * (1 + (f.item.w * f.item.d / biggest) * st.sizeBias * .5);
+      };
+      // Weighted order without repeats (Efraimidis–Spirakis: key = ln(u) / w, largest first).
+      const shuffled = (list: Candidate[]) => list.map((f) => ({ f, k: Math.log(Math.max(1e-9, rng.next())) / weight(f) })).sort((a, b) => b.k - a.k).map((x) => x.f);
+      let tries = [...kits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d).slice(0, 2), ...shuffled(fits)].slice(0, 6);
       // Houses made in the Model Studio come first wherever one fits (most lots), the built-in
       // ones fill the rest: otherwise a few new models drowned among the many built-in.
       const studioFits = fits.filter((f) => f.item.studio);
-      if (studioFits.length && rng.next() < .85) tries = [...byUse(studioFits), ...byUse(fits.filter((f) => !f.item.studio))].slice(0, 5);
+      if (studioFits.length && (typed.length || rng.next() < .85)) tries = [...shuffled(studioFits), ...tries.filter((f) => !f.item.studio)].slice(0, 6);
       const facing = Math.atan2(lot.dir[0], lot.dir[1]);
       for (const { item, turned, recipe } of tries) {
         const w = turned ? item.d : item.w, d = turned ? item.w : item.d;
@@ -711,6 +741,7 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       }
     }
   }
+  if (!keepBuildings && missingTypes.size) issues.push({ severity: 'info', code: 'missing-types', message: `Chưa có model vừa lô cho: ${[...missingTypes].map((t) => BUILDING_TYPE_INFO[t].name).join(', ')} — các lô đó dùng công trình thường. Gán loại công trình này cho model ở Model Studio.` });
   if (!keepBuildings && catalog.studio) {
     const placed = buildings.filter((b) => catalog.byAsset.get(b.asset)?.studio).length;
     const studioHere = catalog.studio.filter((item) => item.fit.areas.length === 0 || (item.fit.areas as readonly string[]).includes(st.preset)).length;

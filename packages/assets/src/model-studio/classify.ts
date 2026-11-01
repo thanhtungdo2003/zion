@@ -1,4 +1,4 @@
-import { SETTLEMENT_KIND_NAMES, describeLotFit, kindAreas, type SettlementKind, type BuildingCondition, type LotClass, type LotFit, type SettlementAreaId } from '@zion/shared';
+import { BUILDING_TYPE_INFO, SETTLEMENT_KIND_NAMES, describeLotFit, type BuildingType, kindAreas, type SettlementKind, type BuildingCondition, type LotClass, type LotFit, type SettlementAreaId } from '@zion/shared';
 import type { AssetKind, ModelDoc } from './doc';
 
 /**
@@ -36,6 +36,52 @@ const WORDS = {
   tube: ['nhà ống', 'nhà phố', 'shophouse', 'tube house', 'mặt phố'],
   city: ['chung cư', 'cao tầng', 'tòa', 'văn phòng', 'khách sạn', 'apartment', 'tower', 'office', 'hotel', 'đô thị'],
 } as const;
+
+/** The words that name each building type (whole words, Vietnamese and English). */
+const TYPE_WORDS: Partial<Record<BuildingType, readonly string[]>> = {
+  house: ['nhà ở', 'nhà dân', 'nhà cấp 4', 'house', 'home', 'dwelling'],
+  villa: ['biệt thự', 'villa', 'mansion'],
+  tube: ['nhà ống', 'tube house', 'townhouse'],
+  apartment: ['chung cư', 'căn hộ', 'tập thể', 'apartment', 'flats', 'condo'],
+  farmhouse: ['nhà sàn', 'nhà gỗ', 'nhà nông thôn', 'trang trại', 'nông trại', 'farmhouse', 'cottage', 'cabin'],
+  shophouse: ['nhà phố', 'shophouse', 'mặt phố'],
+  shop: ['cửa hàng', 'tiệm', 'tạp hóa', 'shop', 'store', 'kiosk'],
+  restaurant: ['nhà hàng', 'quán ăn', 'quán', 'cafe', 'cà phê', 'restaurant', 'diner', 'bar'],
+  office: ['văn phòng', 'tòa nhà văn phòng', 'office'],
+  hotel: ['khách sạn', 'nhà nghỉ', 'hotel', 'motel', 'hostel'],
+  market: ['chợ', 'market'],
+  supermarket: ['siêu thị', 'trung tâm thương mại', 'supermarket', 'mall'],
+  bank: ['ngân hàng', 'bank'],
+  'gas-station': ['trạm xăng', 'cây xăng', 'gas station', 'petrol station', 'fuel station'],
+  kindergarten: ['mầm non', 'nhà trẻ', 'mẫu giáo', 'kindergarten', 'nursery'],
+  school: ['trường học', 'trường tiểu học', 'trường cấp', 'trường thcs', 'trường thpt', 'trường', 'school'],
+  university: ['đại học', 'cao đẳng', 'học viện', 'university', 'college', 'campus'],
+  clinic: ['phòng khám', 'trạm y tế', 'clinic'],
+  hospital: ['bệnh viện', 'hospital'],
+  police: ['công an', 'cảnh sát', 'đồn', 'police'],
+  'fire-station': ['cứu hỏa', 'phòng cháy', 'fire station'],
+  'town-hall': ['ủy ban', 'uỷ ban', 'trụ sở', 'tòa thị chính', 'town hall', 'city hall'],
+  'post-office': ['bưu điện', 'post office'],
+  temple: ['chùa', 'đình', 'đền', 'miếu', 'temple', 'pagoda', 'shrine'],
+  church: ['nhà thờ', 'church', 'chapel', 'cathedral'],
+  stadium: ['sân vận động', 'nhà thi đấu', 'stadium', 'arena'],
+  cinema: ['rạp', 'nhà văn hóa', 'cinema', 'theater', 'theatre'],
+  library: ['thư viện', 'library'],
+  warehouse: ['nhà kho', 'kho hàng', 'kho bãi', 'kho', 'warehouse', 'storage'],
+  factory: ['nhà máy', 'factory', 'plant', 'mill'],
+  workshop: ['xưởng', 'gara', 'garage', 'workshop'],
+  barn: ['chuồng', 'kho thóc', 'barn', 'silo', 'stable'],
+  barracks: ['doanh trại', 'barrack', 'barracks'],
+  bunker: ['boong ke', 'hầm', 'bunker'],
+  watchtower: ['tháp canh', 'chòi canh', 'watchtower', 'guard tower'],
+  hangar: ['nhà chứa máy bay', 'hangar'],
+  'port-warehouse': ['kho cảng', 'port warehouse', 'dock warehouse'],
+};
+/** The rooms that give a building's use away. */
+const ROOM_TYPES: Partial<Record<BuildingType, readonly string[]>> = {
+  school: ['classroom', 'lớp học'], hospital: ['ward', 'operating', 'phòng mổ', 'phòng bệnh'], shop: ['shop', 'cửa hàng'], office: ['office', 'văn phòng'],
+  barracks: ['barrack', 'doanh trại'], warehouse: ['storage', 'kho'], workshop: ['workshop', 'xưởng'],
+};
 
 /** What the model's own parts say: storeys, room types, worn-out materials. */
 function inspect(doc: ModelDoc): { storeys: number; rooms: string[]; worn: number; ruined: boolean; hasStructure: boolean } {
@@ -91,6 +137,18 @@ export function classifyModel(doc: ModelDoc): Classification {
   for (const k of kinds) for (const a of kindAreas(k)) areas.add(a);
   if (kinds.size) reasons.push(`kiểu khu vực: ${[...kinds].map((k) => SETTLEMENT_KIND_NAMES[k]).join(', ')}`);
   if (!areas.size) reasons.push('hợp mọi kiểu khu vực');
-  const fit: LotFit = { lots: [...lots], conditions: [...conditions], areas: [...areas] };
+  // Building types: what the name and rooms call it; a high-rise home is a block of flats.
+  const types = new Set<BuildingType>();
+  for (const [t, words] of Object.entries(TYPE_WORDS) as Array<[BuildingType, readonly string[]]>) if (has(text, words)) types.add(t);
+  for (const [t, words] of Object.entries(ROOM_TYPES) as Array<[BuildingType, readonly string[]]>) if (has(roomText, words)) types.add(t);
+  // "Trường đại học" is a university, not also a school; "nhà ống" is not also a plain house.
+  if (types.has('university') || types.has('kindergarten')) types.delete('school');
+  if (types.has('tube') || types.has('villa') || types.has('apartment')) types.delete('house');
+  if (types.has('hospital')) types.delete('clinic');
+  if (!types.size && lots.has('residential')) types.add(seen.storeys >= 5 ? 'apartment' : 'house');
+  // The lot classes of what it is (a school stands on the plots set aside for schools).
+  for (const t of types) for (const l of BUILDING_TYPE_INFO[t].lots) if (!lots.has(l) && l !== 'military') lots.add(l);
+  if (types.size) reasons.push(`loại công trình: ${[...types].map((t) => BUILDING_TYPE_INFO[t].name).join(', ')}`);
+  const fit: LotFit = { lots: [...lots], conditions: [...conditions], areas: [...areas], ...(types.size ? { types: [...types] } : {}) };
   return { kind, fit, reasons, summary: `Loại: công trình · ${describeLotFit(fit)}` };
 }
