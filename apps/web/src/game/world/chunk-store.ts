@@ -1,5 +1,6 @@
 import { UPLOADED_MAP_ASSET_MAX, UPLOADED_MAP_ASSET_MIN, isStudioModelAsset, uploadedMapHitMesh, uploadedModelUrl } from '@zion/assets';
 import { API_URL } from '@/lib/api';
+import { modelBytes } from '@/lib/model-cache';
 import {
   BIOME_NAMES,
   CHUNK_SIZE,
@@ -46,8 +47,8 @@ export class ChunkStore {
     const model = this.registry.byNumericId(asset)?.model;
     const offset = (model && 'offset' in model ? model.offset : undefined) ?? [0, 0, 0];
     const url = model && model.kind === 'glb' ? uploadedModelUrl(asset, model.path) : null;
-    void fetch(`${API_URL}${url ?? `/api/infection-maps/models/${asset}.glb`}`)
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+    // The same download as the renderer's (kept on this machine between matches).
+    void modelBytes(`${API_URL}${url ?? `/api/infection-maps/models/${asset}.glb`}`)
       .then((buf) => this.collision.addHitMesh(asset, uploadedMapHitMesh(new Uint8Array(buf), offset as [number, number, number])))
       .catch(() => this.mapModels.delete(asset));
   }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { MAX_MAP_MODEL_BYTES } from '../../world/infection-maps';
 import { MAX_MAP_BOXES } from '@zion/assets';
 import { existsSync } from 'node:fs';
@@ -341,10 +341,16 @@ export function registerStudioRoutes(app: FastifyInstance, deps: HttpDeps): void
         return await models.upload(body.name, file, body.fit);
       } catch (err) { return fail(reply, err); }
     });
+    const tags = new WeakMap<Buffer, string>();
+    const fileTag = (b: Buffer) => { let t = tags.get(b); if (!t) tags.set(b, t = createHash('sha1').update(b).digest('hex').slice(0, 16)); return t; };
     app.get<{ Params: { file: string } }>('/api/infection-maps/models/:file', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
       const m = /^(\d{4})\.glb$/.exec(req.params.file);
       const file = m ? await models.file(Number(m[1])) : null;
       if (!file) return reply.code(404).send({ error: 'not_found' });
+      // A copy the game already keeps (its model cache asks with the ETag): not sent again.
+      const etag = `"${m![1]}-${fileTag(file)}"`;
+      reply.header('etag', etag);
+      if (req.headers['if-none-match'] === etag) return reply.code(304).send();
       // Versioned URLs (?v=): a file never changes under its version.
       reply.header('content-type', 'model/gltf-binary').header('cache-control', (req.query as { v?: string }).v ? 'public, max-age=31536000, immutable' : 'public, max-age=60');
       return reply.send(file);

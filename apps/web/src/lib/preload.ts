@@ -1,6 +1,7 @@
 'use client';
 
 import { SOUND_FILES } from '@/game/audio';
+import { immutableUrl, modelBytes } from './model-cache';
 
 /**
  * Asset preloading for the main menu's loading screen. Core models and sounds are downloaded once
@@ -12,8 +13,8 @@ const cache = new Map<string, Promise<ArrayBuffer | null>>();
 function download(url: string): Promise<ArrayBuffer | null> {
   let p = cache.get(url);
   if (!p) {
-    p = fetch(url)
-      .then((r) => (r.ok ? r.arrayBuffer() : null))
+    // Content-named files: from the copy kept on this machine after the first session.
+    p = (immutableUrl(url) ? modelBytes(url) : fetch(url).then((r) => (r.ok ? r.arrayBuffer() : null)))
       .catch(() => null);
     cache.set(url, p);
   }

@@ -24,6 +24,7 @@ import { applyOcclusionFade } from './occlusion-fade';
 import { preserveAlphaCoverage } from './alpha-coverage';
 import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
+import { modelBytes } from '@/lib/model-cache';
 import { gltfLoader } from './gltf-loader';
 import { API_URL } from '@/lib/api';
 import { uploadedModelUrl } from '@zion/assets';
@@ -242,7 +243,9 @@ export class AssetLibrary {
         const uploaded = uploadedModelUrl(def.numericId, model.path);
         const entry = uploaded ? { url: `${API_URL}${uploaded}` } : (await this.getManifest()).files[model.path];
         if (!entry) throw new Error(`model ${model.path} missing from manifest`);
-        const gltf = await this.gltf.loadAsync(entry.url);
+        // From this machine when it already has this version (kept between matches).
+        const url = new URL(entry.url, typeof location !== 'undefined' ? location.href : 'http://localhost/').href;
+        const gltf = await this.gltf.parseAsync(await modelBytes(url), url.slice(0, url.lastIndexOf('/') + 1));
         const parts = flattenScene(gltf.scene, model.scale, model.offset);
         // Lamps saved in the model (glowing blocks): lit in game like the camp's.
         collectAssetLights(def.numericId, gltf.scene, model.scale, model.offset);

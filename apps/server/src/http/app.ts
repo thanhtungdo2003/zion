@@ -108,7 +108,9 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['content-type', 'authorization', 'x-zion-csrf', 'x-studio-token'],
+    allowedHeaders: ['content-type', 'authorization', 'x-zion-csrf', 'x-studio-token', 'if-none-match'],
+    // The game's model cache reads a file's version to ask for it again only when it changed.
+    exposedHeaders: ['etag'],
     maxAge: 600,
   });
 
