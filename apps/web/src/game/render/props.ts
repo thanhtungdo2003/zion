@@ -171,7 +171,8 @@ export class PropRenderer {
           if (d <= lod - HANDOVER - REBUILD_MARGIN) { if (++scanned % 128 === 0) yield; continue; }
           key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + p.asset;
         } else {
-          if (d2 > max * max) continue;
+          // Trees and big plants are never dropped for distance (no impostor yet: their simplified form).
+          if (d2 > max * max && !leafy) continue;
           // Distant models keep their place and shape, drawn simplified and flat (negative key).
           key = v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset;
         }
@@ -298,8 +299,8 @@ export class PropRenderer {
 
   /**
    * See-through occluders. A prop fades only when it really hides the player: a ray from the
-   * camera to the player's head, chest or feet must hit the prop's collision box (or, for trees,
-   * its canopy) before reaching them — standing in front of a wall never fades it. Every piece of
+   * camera to the player's head, chest or feet must hit the prop's collision box before reaching
+   * them (trees and plants never fade) — standing in front of a wall never fades it. Every piece of
    * the same group (a whole wall or building) fades together.
    */
   updateOcclusion(px: number, py: number, pz: number, cx: number, cy: number, cz: number, dt: number): void {
@@ -309,8 +310,9 @@ export class PropRenderer {
     for (const [asset, b] of this.batches) {
       b.hidden.fill(0, 0, b.count);
       const v = this.library.get(asset);
-      // A whole map model (Infection's Warehouse) never fades out around the player.
-      if (!v || v.def.tags.includes('infection-map')) continue;
+      // A whole map model (Infection's Warehouse) never fades out around the player, and neither
+      // do trees and plants: they always stay drawn, however close, even in front of the camera.
+      if (!v || v.def.tags.includes('infection-map') || v.def.category === 'tree' || v.def.category === 'vegetation') continue;
       for (let i = 0; i < b.count; i++) {
         const o = i * INFO;
         const ox = b.spheres[o]!;
