@@ -103,10 +103,14 @@ export function buildCatalog(registry: AssetRegistry, opts: { noKits?: boolean }
   // Houses from the Model Studio with where they fit. Older ones: their single lot class tag; none
   // at all: an intact house on residential and commercial lots. Vehicles and other structures
   // from the Studio are not houses.
-  const house = (a: { tags: string[] }) => !a.tags.some((t) => t.startsWith('kind:')) || a.tags.includes('kind:building');
-  const studio = registry.all().filter((a) => a.tags.includes('model-studio') && a.category === 'structure' && house(a)).flatMap((a) => {
+  // A house is what was published as a building or given a place on lots — or, whatever kind it
+  // was left as (new projects start as "prop"), anything with doors, or the size of a house.
+  const NOT_HOUSE = ['kind:vehicle', 'kind:furniture', 'kind:vegetation', 'kind:rock', 'kind:weapon'];
+  const studio = registry.all().filter((a) => a.tags.includes('model-studio') && (a.fit || !a.tags.some((t) => NOT_HOUSE.includes(t)))).flatMap((a) => {
     const item = take([a.numericId])[0];
     if (!item) return [];
+    const building = a.fit || a.tags.includes('kind:building') || (a.category === 'structure' && !a.tags.some((t) => t.startsWith('kind:'))) || a.doors?.length || (a.bounds.height >= 2.4 && item.w >= 3.5 && item.d >= 3.5);
+    if (!building) return [];
     const fit: LotFit = a.fit ?? lotFitFromLegacy(a.tags.find((t) => t.startsWith('lot:'))?.slice(4)) ?? { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
     return [{ ...item, fit }];
   });

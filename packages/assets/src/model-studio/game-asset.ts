@@ -54,7 +54,8 @@ export function studioModelAsset(input: StudioAssetInput): AssetDefinitionInput 
   const big = input.kind === 'building' || input.kind === 'vehicle';
   return {
     id: `studio.model_${input.asset}`, numericId: input.asset, name: input.name.slice(0, 64) || `Model ${input.asset}`,
-    category: CATEGORY[input.kind],
+    // Given a place on map lots, it is a building whatever kind it was left as.
+    category: input.fit ? 'structure' : CATEGORY[input.kind],
     model: { kind: 'glb', path: studioModelPath(input.asset), scale: 1, offset: [0, 0, 0] },
     ...(input.solid === false ? { colliders: [], collisionLayer: 'none' } : { colliders, collisionLayer: 'static' }),
     bounds: { radius: r3(radius), height: r3(Math.max(.05, input.max[1])) },

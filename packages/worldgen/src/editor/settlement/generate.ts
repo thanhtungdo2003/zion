@@ -636,6 +636,9 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
     const order = lots.filter((l) => l.cls !== 'empty' && l.cls !== 'green').sort((a, b) => b.obb.hx * b.obb.hz - a.obb.hx * a.obb.hz);
     if (catalog.noKits && !Object.values(catalog.buildings).some((list) => list.length) && !catalog.studio?.length) issues.push({ severity: 'warning', code: 'no-houses', message: 'Không có model nhà nào để đặt: khu vực không có nhà.' });
     const taken = new Set(keptBuildings.map((b) => b.lot));
+    /** How many times each house model was placed here so far. */
+    const houseUses = new Map<number, number>();
+    for (const b of keptBuildings) houseUses.set(b.asset, (houseUses.get(b.asset) ?? 0) + 1);
     let done = 0;
     for (const lot of order) {
       if (++done % 50 === 0) yield progress(7, done / order.length);
@@ -671,15 +674,15 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       else if (lot.style !== 'farm' && rng.next() < kitShare) fits.unshift(...compositeOptions(cls, rng, tall, availW, availD).map(asCandidate));
       fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
       if (!fits.length) continue;
-      const first = lot.style === 'full' || rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
-      let tries = [...fits.slice(first), ...fits.slice(0, first)].slice(0, 4);
+      // Variety: the models used least so far come first (a street is not one house repeated),
+      // bigger ones a little ahead where the place favours size; kit buildings keep their place.
+      const biggest = fits[0]!.item.w * fits[0]!.item.d;
+      const byUse = (list: Candidate[]) => list.map((f) => ({ f, k: (f.recipe ? -1 : (houseUses.get(f.item.asset) ?? 0)) + rng.next() * .9 - (f.item.w * f.item.d / biggest) * st.sizeBias * .6 })).sort((a, b) => a.k - b.k).map((x) => x.f);
+      let tries = byUse(fits).slice(0, 4);
       // Houses made in the Model Studio come first wherever one fits (most lots), the built-in
       // ones fill the rest: otherwise a few new models drowned among the many built-in.
       const studioFits = fits.filter((f) => f.item.studio);
-      if (studioFits.length && rng.next() < .8) {
-        const k = Math.floor(rng.next() * studioFits.length);
-        tries = [...studioFits.slice(k), ...studioFits.slice(0, k), ...tries.filter((f) => !f.item.studio)].slice(0, 5);
-      }
+      if (studioFits.length && rng.next() < .85) tries = [...byUse(studioFits), ...byUse(fits.filter((f) => !f.item.studio))].slice(0, 5);
       const facing = Math.atan2(lot.dir[0], lot.dir[1]);
       for (const { item, turned, recipe } of tries) {
         const w = turned ? item.d : item.w, d = turned ? item.w : item.d;
@@ -700,12 +703,21 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
         const built = recipe && condition === 'ruined' && recipe.kind !== 'modular' ? { ...recipe, ruin: true } : recipe;
         const b: PlacedBuilding = { id: `h${buildings.length}-${lot.id}`, asset: item.asset, x, z, y: Math.min(...hs), yaw, obb: box, door, lot: lot.id, cls, ...(built ? { recipe: built } : {}), ...(condition !== 'intact' ? { condition } : {}) };
         buildings.push(b);
+        houseUses.set(item.asset, (houseUses.get(item.asset) ?? 0) + 1);
         solids.insert({ ...box, tag: `b:${b.id}` });
         const corridor = doorCorridor(door, lot.dir, setback + 1);
         corridors.push(corridor); solids.insert({ ...corridor, tag: 'corridor' });
         break;
       }
     }
+  }
+  if (!keepBuildings && catalog.studio) {
+    const placed = buildings.filter((b) => catalog.byAsset.get(b.asset)?.studio).length;
+    const studioHere = catalog.studio.filter((item) => item.fit.areas.length === 0 || (item.fit.areas as readonly string[]).includes(st.preset)).length;
+    const kinds = new Set(buildings.filter((b) => catalog.byAsset.get(b.asset)?.studio).map((b) => b.asset)).size;
+    issues.push({ severity: 'info', code: 'studio-houses', message: catalog.studio.length
+      ? `Nhà Model Studio: ${placed}/${buildings.length} công trình (${kinds} mẫu) — ${studioHere} mẫu hợp kiểu khu vực này trong ${catalog.studio.length} mẫu đã xuất bản.`
+      : 'Chưa nhận được model nhà nào từ Model Studio (chưa xuất bản, hoặc không tải được danh sách từ máy chủ).' });
   }
   // Kept buildings keep their way in clear too.
   for (const b of keptBuildings) {

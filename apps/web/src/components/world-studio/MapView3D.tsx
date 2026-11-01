@@ -44,6 +44,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
   const live = useRef({ tool, brush, onBrush, terrain, doc });
   live.current = { tool, brush, onBrush, terrain, doc };
   const [status, setStatus] = useState('');
+  const [modelsReady, setModelsReady] = useState(0);
   const envRef = useRef<EnvironmentSystem | null>(null);
 
   // One-time scene setup.
@@ -76,7 +77,8 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     const cursor = new Line(new BufferGeometry(), new LineBasicMaterial({ color: '#ffb000', depthTest: false }));
     cursor.renderOrder = 10; cursor.visible = false; sc.add(cursor);
     const registry = createDefaultRegistry();
-    void registerStudioModels(registry);
+    // The Model Studio's houses: drawn once their definitions are in (the buildings are redrawn then).
+    void registerStudioModels(registry).then(() => setModelsReady((n) => n + 1));
     const library = new AssetLibrary(registry);
     scene.current = { renderer, scene: sc, camera, controls, ground, step, n, objects, water, cursor, library, dirty: true };
     const resize = () => { const r = el.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); };
@@ -274,7 +276,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
       setStatus(placed.length >= MAX_INSTANCES ? `Hiển thị ${MAX_INSTANCES} đối tượng đầu tiên.` : '');
     })();
     return () => { cancelled = true; };
-  }, [doc.regions, doc.base.structures, doc.flora, doc.terrain.climate, preview, terrain]);
+  }, [doc.regions, doc.base.structures, doc.flora, doc.terrain.climate, preview, terrain, modelsReady]);
 
   // Brush strokes on the 3D ground; orbit with the right button while a brush is active.
   useEffect(() => {

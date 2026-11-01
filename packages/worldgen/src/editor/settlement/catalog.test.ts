@@ -29,11 +29,14 @@ describe('settlement catalogue: whole house models, no kit buildings', () => {
     studioHouse(registry, 3002, { tags: ['kind:building', 'lot:abandoned'] });
     studioHouse(registry, 3003, { tags: ['kind:vehicle'] });
     studioHouse(registry, 3004, { tags: [] });
+    // Left as "prop" (new projects start so) but the size of a house: still a house.
+    studioHouse(registry, 3006, { tags: ['kind:prop'] });
     const c = buildCatalog(registry, { noKits: true }), fit = (a: number) => c.studio!.find((s) => s.asset === a)?.fit;
     expect(fit(3001)).toEqual({ lots: ['military', 'industrial'], conditions: ['abandoned', 'ruined'], areas: ['military-base'] });
     expect(fit(3002)).toEqual({ lots: ['residential'], conditions: ['abandoned', 'ruined'], areas: [] });
     expect(fit(3003)).toBeUndefined();
     expect(fit(3004)).toEqual({ lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] });
+    expect(fit(3006)).toEqual({ lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] });
   });
 
   it('places Studio houses where they fit and ahead of the built-in ones, never elsewhere', () => {
@@ -43,5 +46,19 @@ describe('settlement catalogue: whole house models, no kit buildings', () => {
     const village = town(c, 'small-village');
     expect(village.buildings.filter((b) => b.asset === 3005).length).toBeGreaterThan(village.buildings.length * .3);
     expect(town(c, 'military-base').buildings.some((b) => b.asset === 3005)).toBe(false);
+    // And it says so.
+    expect(village.issues.some((i) => i.code === 'studio-houses' && /Nhà Model Studio/.test(i.message))).toBe(true);
+  });
+
+  it('varies the houses of a street: no model repeated while others fit', () => {
+    const registry = createDefaultRegistry();
+    for (let k = 0; k < 6; k++) studioHouse(registry, 3010 + k, {});
+    const result = town(buildCatalog(registry, { noKits: true }), 'residential-district');
+    const counts = new Map<number, number>();
+    for (const b of result.buildings) counts.set(b.asset, (counts.get(b.asset) ?? 0) + 1);
+    const studio = [...counts].filter(([a]) => a >= 3010 && a < 3016);
+    expect(studio.length).toBe(6);
+    const most = Math.max(...studio.map(([, n]) => n)), least = Math.min(...studio.map(([, n]) => n));
+    expect(most - least).toBeLessThanOrEqual(Math.max(2, Math.ceil(most * .5)));
   });
 });
