@@ -96,7 +96,10 @@ export class ModelStudioStore {
     if (hit) { this.fileCache.delete(key); this.fileCache.set(key, hit); return hit; }
     let pending = this.fileReads.get(key);
     if (!pending) {
-      pending = this.db.query<{ glb: Buffer }>('SELECT glb FROM model_assets WHERE asset = $1', [asset]).then(({ rows }) => {
+      // One big read at a time: a view asking for every model at once (the World Studio's 3D
+      // view, a map with dozens of Model Studio buildings) would otherwise pull them all out of
+      // the database together (each as hex text twice its size) and run the server out of memory.
+      pending = this.readGate.then(() => this.db.query<{ glb: Buffer }>('SELECT glb FROM model_assets WHERE asset = $1', [asset])).then(({ rows }) => {
         const glb = rows[0]?.glb ?? null;
         if (glb) {
           for (const k of this.fileCache.keys()) if (k.startsWith(`${asset}:`)) this.fileCache.delete(k);
@@ -108,11 +111,13 @@ export class ModelStudioStore {
         return glb;
       }).finally(() => this.fileReads.delete(key));
       this.fileReads.set(key, pending);
+      this.readGate = pending.then(() => undefined, () => undefined);
     }
     return pending;
   }
   private readonly fileCache = new Map<string, Buffer>();
   private readonly fileReads = new Map<string, Promise<Buffer | null>>();
+  private readGate: Promise<void> = Promise.resolve();
 
   /* ------------------------------------------------------------------ projects */
 

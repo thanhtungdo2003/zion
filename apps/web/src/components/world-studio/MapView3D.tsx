@@ -189,9 +189,12 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     for (const c of [...st.water.children]) { st.water.remove(c); (c as Mesh).geometry.dispose(); }
     const mat = new MeshLambertMaterial({ color: '#2f7896', transparent: true, opacity: .85, side: DoubleSide });
     for (const lake of doc.water.lakes) {
-      const shape = new Shape(lake.polygon.map(([x, z]) => new Vector2(x, z)));
-      const m = new Mesh(new ShapeGeometry(shape), mat);
-      m.rotation.x = Math.PI / 2; m.position.y = lake.level; st.water.add(m);
+      // (A shore that cannot be triangulated is left out rather than taking the view down.)
+      try {
+        const shape = new Shape(lake.polygon.map(([x, z]) => new Vector2(x, z)));
+        const m = new Mesh(new ShapeGeometry(shape), mat);
+        m.rotation.x = Math.PI / 2; m.position.y = lake.level; st.water.add(m);
+      } catch { /* skipped */ }
     }
     for (const river of doc.water.rivers) {
       const lv = river.levels ?? riverLevels(terrain, river), p = river.points, pos: number[] = [], idx: number[] = [];
@@ -226,8 +229,18 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     setStatus(placed.length ? `Đang nạp ${new Set(placed.map((p) => p.asset)).size} model…` : '');
     void (async () => {
       const assets = [...new Set(placed.map((p) => p.asset))];
-      const visuals = new Map(await Promise.all(assets.map(async (a) => [a, await st.library.load(a)?.catch(() => undefined)] as const)));
-      if (cancelled) return;
+      // A few at a time: Model Studio buildings can be tens of megabytes each, and asking for
+      // dozens at once exhausted the tab's memory (and the server's reading them).
+      const visuals = new Map<number, Awaited<ReturnType<AssetLibrary['load']>>>();
+      let next = 0;
+      await Promise.all(Array.from({ length: 3 }, async () => {
+        while (!cancelled && next < assets.length) {
+          const a = assets[next++]!;
+          visuals.set(a, await st.library.load(a)?.catch(() => undefined));
+          if (!cancelled) setStatus(`Đang nạp model ${visuals.size}/${assets.length}…`);
+        }
+      }));
+      if (cancelled || scene.current !== st) return;
       clear();
       // Base structures of an imported map: plain blocks.
       if (doc.base.structures.length) {

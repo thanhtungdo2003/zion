@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BIOMES, DEFAULT_FLORA, climateTint, FLORA_SPECIES, eraseFlora, floraGrid, paintFlora, type FloraBrush, type FloraItem,
   DEFAULT_BRUSH, EditHistory, Heightfield, SETTLEMENT_PRESETS, Simplex2, StrokeRecorder, applyBrush, carveLake, carveRiver, checkSettlement, lakeSpillLevel, newId, newRegion, obbCorners, seedNumber,
@@ -28,6 +28,19 @@ import { SettingsPanel } from './SettingsPanel';
 import { drawShape, isBrush, isDraw, isEnvTool, isFlora, isWarfareTool, type DrawTool, type EditorTab, type Layers, type Overlay, type Selection, type Tool } from './types';
 import s from './world-studio.module.css';
 
+/**
+ * A failure inside the 3D view (WebGL out of memory, a model that will not load) stays in the
+ * view: the message and a way back to 2D, instead of the whole Studio page going down.
+ */
+class View3DGuard extends Component<{ onExit: () => void; children: ReactNode }, { error: string | null }> {
+  override state = { error: null as string | null };
+  static getDerivedStateFromError(err: unknown) { return { error: err instanceof Error ? err.message : String(err) }; }
+  override componentDidCatch(err: unknown) { console.error('World Studio 3D view failed', err); }
+  override render() {
+    if (!this.state.error) return this.props.children;
+    return <div className={s.empty3d}><div><p>Chế độ 3D gặp lỗi: {this.state.error}</p><button className={s.btn} onClick={this.props.onExit}>Về 2D</button></div></div>;
+  }
+}
 const MapView3D = dynamic(() => import('./MapView3D'), { ssr: false, loading: () => <div className={s.empty3d}>Đang tải chế độ 3D…</div> });
 
 const TABS: Array<{ id: EditorTab; name: string; icon: string }> = [
@@ -689,7 +702,7 @@ export default function MapEditor({ initial, onExit }: { initial: { doc: WorldMa
 
     <main className={s.view}>
       {view3d
-        ? <MapView3D terrain={terrainRef.current} doc={doc} version={version} tool={tool} brush={brush} onBrush={onBrush} preview={preview?.result} envPreview={envPreview} />
+        ? <View3DGuard onExit={() => setView3d(false)}><MapView3D terrain={terrainRef.current} doc={doc} version={version} tool={tool} brush={brush} onBrush={onBrush} preview={preview?.result} envPreview={envPreview} /></View3DGuard>
         : <MapCanvas ref={canvasRef} terrain={terrainRef.current} raster={rasterRef.current} version={version} doc={doc} gameplay={gameplay} overlay={overlay} layers={layers} tool={tool} selection={selection} warfareEdit={tab === 'warfare'} envEdit={tab === 'environment'}
           onBrush={onBrush} onPlace={onPlace} onDraft={(points) => draft && setDraft({ ...draft, points })} onDraftFinish={finishDraft} onSelect={setSelection} onMove={onMove} onHover={onHover} />}
       {hint && <div className={s.hint}>{hint}</div>}
