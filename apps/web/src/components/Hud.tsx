@@ -162,7 +162,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
         <>
           <canvas ref={compass} className="hud-compass" aria-label="La bàn" />
           <div className="hud-panel hud-minimap">
-            <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={128} height={128} /><i className="hud-minimap-me" aria-hidden /></button>
+            <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={192} height={192} /><i className="hud-minimap-me" aria-hidden /></button>
             {state.mode === 'survival' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
               <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
             </button>}

@@ -2624,7 +2624,7 @@ kbd {
 .battle-drop-strip span { display: inline-flex; align-items: center; gap: 6px; }
 .battle-drop-strip small { color: var(--muted); font-size: 11px; }
 @media (max-width: 720px) { .battle-drop-strip { flex-wrap: wrap; justify-content: center; white-space: normal; } .battle-altimeter { width: 76px; } }
-.battle-zone-info { position: absolute; top: 186px; right: 16px; z-index: 15; display: grid; gap: 3px; width: 162px; box-sizing: border-box; padding: 6px 8px; font: 11px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid #ff263d; pointer-events: none; }
+.battle-zone-info { position: absolute; top: 210px; right: 16px; z-index: 15; display: grid; gap: 3px; width: 184px; box-sizing: border-box; padding: 6px 8px; font: 11px var(--mono); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-top: 2px solid #ff263d; pointer-events: none; }
 .touch-mode .battle-zone-info { top: calc(26px + clamp(64px, 18dvh, 88px)); }
 .battle-zone-info > div { display: flex; justify-content: space-between; gap: 6px; }
 .battle-zone-info span { font: 600 10px var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
@@ -3497,9 +3497,12 @@ kbd {
 .hud .hud-panel.chat { background: transparent; }
 .hud-minimap { overflow: visible; }
 .hud .hud-minimap canvas { border: 0; transform-origin: 50% 50%; will-change: transform; }
-.hud-minimap-open { width: 160px; height: 160px; overflow: hidden; border-radius: 50%;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 55%, rgba(0, 0, 0, .55) 64%, transparent 71%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 55%, rgba(0, 0, 0, .55) 64%, transparent 71%); }
+.hud-minimap-open { width: 184px; height: 184px; overflow: hidden; border-radius: 50%;
+  -webkit-mask-image: radial-gradient(circle closest-side at 50% 50%, #000 93%, transparent 100%);
+  mask-image: radial-gradient(circle closest-side at 50% 50%, #000 93%, transparent 100%); }
+.hud .hud-minimap canvas { width: 184px; height: 184px; }
+.touch-mode .hud .hud-minimap canvas { width: 100%; height: clamp(64px, 18dvh, 88px); }
+.hud-minimap::after { content: ''; position: absolute; inset: 0; border: 1px solid rgba(255, 255, 255, .22); border-radius: 50%; pointer-events: none; }
 .hud-minimap-open > span { display: none; }
 .hud-minimap-me { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: translate(-50%, -60%);
   border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 14px solid #fff; filter: drop-shadow(0 0 1.5px #000); pointer-events: none; }
@@ -3889,47 +3892,59 @@ kbd {
 .tank-sight-zoomtag { position: absolute; left: calc(50% - 36vmin); bottom: calc(50% - 38vmin); color: #f4f1de; font-size: 13px; }
 
 /* Contextual vehicle HUD (components/VehicleHud.tsx): replaces the personal kit while aboard. */
-.vhud { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 22px; width: 300px; display: grid; gap: 8px; padding: 12px 14px; background: rgba(9, 12, 11, .86); border: 1px solid #4e5a46; border-radius: 6px; color: #eef0e2; font-size: 12px; pointer-events: auto; }
-.vhud-head { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 8px; }
-.vhud-head small { grid-column: 1 / -1; color: #9fb08a; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
-.vhud-head strong { font-size: 15px; }
-.vhud-head span { color: #b9c0ad; font-size: 11px; text-align: right; }
-.vhud-flight { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
-.vhud-flight > div { display: grid; }
-.vhud-flight b { font: 700 22px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-.vhud-flight small { color: #9fb08a; }
-.vhud-flight .warn b { color: #ff6a55; }
-.vhud-bars { flex: 1; gap: 4px; }
-.vhud-bars label { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 6px; color: #b9c0ad; }
-.vhud meter { width: 100%; height: 7px; }
-.vhud-weapons { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.vhud-weapons li { display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto auto; gap: 2px 8px; align-items: center; padding: 6px 8px; background: rgba(255, 255, 255, .04); border-left: 3px solid #4e5a46; }
-.vhud-weapons li.primary { border-left-color: #f6c445; }
-.vhud-weapons li.jammed { opacity: .6; }
-.vhud-weapons kbd { grid-row: 1 / 3; }
-.vhud-weapon-name { display: grid; }
-.vhud-weapon-name small { color: #9fb08a; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
-.vhud-ammo b { font: 700 18px ui-monospace, monospace; }
-.vhud-ammo span { color: #b9c0ad; margin-left: 3px; font-variant-numeric: tabular-nums; }
-.vhud-reload { grid-column: 2 / 4; position: relative; height: 14px; display: flex; align-items: center; }
-.vhud-reload i { position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; background: #f6c445; transform-origin: left; }
-.vhud-reload em { font-style: normal; font-size: 11px; color: #f6c445; }
-.vhud-reload em.ready { color: #7be08a; }
-.vhud-cm { display: flex; gap: 8px; align-items: center; }
-.vhud-cm span { margin-left: auto; color: #b9c0ad; }
-.vhud-cm.on b { color: #7be08a; }
-.vhud-parts { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
-.vhud-parts li { display: grid; grid-template-columns: 96px 1fr 48px; gap: 6px; align-items: center; }
-.vhud-parts em { font-style: normal; text-align: right; font-size: 11px; }
-.vhud-parts .ok em { color: #7be08a; }
-.vhud-parts .hurt em { color: #f6c445; }
-.vhud-parts .bad em, .vhud-parts .out em { color: #ff5a4a; }
-.vhud-parts .out span { text-decoration: line-through; color: #ff8a7a; }
-.vhud-exploding { color: #ff4939; }
-.vhud-exit, .vhud-prompt button { justify-self: start; padding: 4px 9px; color: inherit; background: #2e352b; border: 1px solid #66724f; cursor: pointer; font-size: 12px; }
+/* Aboard a vehicle: see-through like the rest of the HUD; icons and numbers, hard edges, one accent. */
+.vhud { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 22px; width: 240px; display: grid; gap: 8px; color: var(--text); font-size: 12px; pointer-events: auto; text-shadow: 0 1px 2px rgba(0, 0, 0, .9); }
+.vhud svg { width: 16px; height: 16px; flex: none; filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .9)); }
+.vhud kbd { min-width: 22px; padding: 1px 4px; border: 1px solid rgba(255, 255, 255, .35); border-radius: var(--radius); background: rgba(0, 0, 0, .35); font: 700 10px var(--mono); text-align: center; text-shadow: none; }
+.vhud-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, .18); }
+.vhud-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.vhud-head .vhud-class { width: 26px; height: 26px; color: var(--accent); }
+.vhud-head .vhud-seat { color: var(--muted); }
+.vhud-gauges { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; }
+.vhud-gauges > div { display: flex; align-items: baseline; gap: 4px; }
+.vhud-gauges > div > svg { align-self: center; color: var(--muted); }
+.vhud-gauges b { font: 700 18px var(--mono); font-variant-numeric: tabular-nums; }
+.vhud-gauges small { color: var(--muted); font-size: 10px; }
+.vhud-speed b { font-size: 34px; line-height: 1; }
+.vhud-gauges .warn b, .vhud-gauges .warn svg { color: var(--danger); }
+.vhud-bar { flex: 1 1 100%; align-items: center !important; }
+.vhud-bar i, .vhud-parts i { position: relative; flex: 1; height: 4px; background: var(--text); transform-origin: left; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); }
+.vhud-bar.warn i { background: var(--danger); }
+.vhud-weapons { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.vhud-weapons li { position: relative; display: flex; align-items: center; gap: 8px; padding: 3px 0 5px 8px; border-left: 2px solid rgba(255, 255, 255, .3); }
+.vhud-weapons li.primary { border-left-color: var(--accent); }
+.vhud-weapons li.jammed { opacity: .55; }
+.vhud-weapon { width: 22px !important; height: 22px !important; }
+.vhud-ammo { flex: 1; display: flex; align-items: baseline; gap: 4px; }
+.vhud-ammo b { font: 700 20px var(--mono); font-variant-numeric: tabular-nums; }
+.vhud-ammo span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.vhud-ammo span::before { content: '/ '; }
+.vhud-state { display: flex; align-items: center; gap: 3px; font: 700 12px var(--mono); font-style: normal; color: var(--accent); }
+.vhud-state svg { width: 13px; height: 13px; }
+svg.vhud-state.ok { color: var(--ok); }
+svg.vhud-state.bad { color: var(--danger); }
+.vhud-reload { position: absolute; left: 8px; right: 0; bottom: 0; height: 2px; background: var(--accent); transform-origin: left; }
+.vhud-cm { display: flex; align-items: center; gap: 8px; }
+.vhud-cm b { margin-left: auto; font: 700 14px var(--mono); }
+.vhud-cm.on svg { color: var(--ok); }
+.vhud-parts { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.vhud-parts li { display: grid; justify-items: center; gap: 4px; }
+.vhud-parts li svg { width: 20px; height: 20px; }
+.vhud-parts i { width: 100%; flex: none; }
+.vhud-parts .hurt i { background: var(--accent); }
+.vhud-parts .hurt svg { color: var(--accent); }
+.vhud-parts .bad i { background: var(--danger); }
+.vhud-parts .bad svg { color: var(--danger); }
+.vhud-parts .out svg { color: var(--danger); opacity: .45; }
+.vhud-exploding { display: flex; align-items: center; gap: 6px; color: var(--danger); animation: vhud-blink .5s steps(2) infinite; }
+.vhud-exploding svg { width: 22px; height: 22px; }
+@keyframes vhud-blink { 50% { opacity: .35; } }
+.vhud-exit, .vhud-prompt button { justify-self: end; display: flex; align-items: center; gap: 6px; padding: 3px 6px; color: inherit; background: transparent; border: 0; cursor: pointer; font-size: 12px; text-shadow: inherit; }
 .vhud-prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); pointer-events: auto; }
-.vhud-prompt button { padding: 8px 14px; font-size: 13px; color: #eef0e2; background: rgba(9, 12, 11, .86); }
-.touch-mode .vhud { bottom: auto; top: max(80px, env(safe-area-inset-top)); width: 260px; }
+.vhud-prompt button { gap: 8px; padding: 6px 10px; font-size: 13px; color: var(--text); text-shadow: 0 1px 2px rgba(0, 0, 0, .9); }
+.vhud-prompt svg { width: 16px; height: 16px; }
+.vhud-prompt kbd { min-width: 22px; padding: 1px 5px; border: 1px solid rgba(255, 255, 255, .45); border-radius: var(--radius); background: rgba(0, 0, 0, .35); font: 700 11px var(--mono); }
+.touch-mode .vhud { bottom: auto; top: max(80px, env(safe-area-inset-top)); width: 220px; }
 
 /* Vehicle Studio (components/VehicleStudio.tsx): vehicle and seat lists. */
 .vs-item { width: 100%; justify-content: flex-start; text-align: left; }
