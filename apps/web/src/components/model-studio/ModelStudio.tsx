@@ -538,7 +538,7 @@ export default function ModelStudio() {
         {doc && right === 'checks' && <ChecksPanel report={report} server={serverReport} select={(id) => setSelected([id])}
           fix={() => { if (!report) return; let done: string[] = []; mutate('Tự sửa', (d) => { done = autoFix(d, validateDoc(d)); }); setServerReport(null); flash(done.length ? done.join(' ') : 'Không có gì để tự sửa.'); }}
           runServer={() => void withBusy(async () => setServerReport(await msApi.validate(doc, project?.id)))} />}
-        {doc && right === 'versions' && project && <VersionsPanel versions={versions} published={published} projectId={project.id} trial={trial} busy={busy}
+        {doc && right === 'versions' && project && <VersionsPanel doc={doc} mutate={mutate} versions={versions} published={published} projectId={project.id} trial={trial} busy={busy}
           snapshot={snapshot} preview={previewVersion} restore={restoreVersion} exportGlb={exportGlb} publish={publish} unpublish={unpublish} setTrial={setTrialAssets} />}
       </aside>
 

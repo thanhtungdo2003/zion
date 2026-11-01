@@ -291,7 +291,7 @@ export function Inspector({ doc, nodes, mutate }: { doc: ModelDoc; nodes: ModelN
  * Where the building stands on maps — the same lot classes, conditions and kinds of area (and
  * names) as the World Studio's settlements; several of each may be chosen.
  */
-function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
+export function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
   const fit: LotFit = doc.fit ?? lotFitFromLegacy(doc.lotClass) ?? { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
   const set = (label: string, next: LotFit) => mutate(label, (d) => { d.fit = next; delete d.lotClass; });
   const toggle = <T extends string>(list: readonly T[], v: T, keep1: boolean): T[] => list.includes(v) ? (keep1 && list.length === 1 ? [...list] : list.filter((x) => x !== v)) : [...list, v];
@@ -314,7 +314,7 @@ function ModelInfo({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
       <h3>Model</h3>
       <div className={s.row}><label>Tên</label><input className={s.text} value={doc.name} maxLength={80} onChange={(e) => mutate('Tên model', (d) => { d.name = e.target.value || d.name; })} /></div>
       <div className={s.row}><label>Loại</label><select className={s.select} value={doc.kind} onChange={(e) => mutate('Loại model', (d) => { d.kind = e.target.value as typeof d.kind; })}>{ASSET_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}</select></div>
-      {(doc.kind === 'building' || doc.fit || doc.lotClass) && <LotFitEditor doc={doc} mutate={mutate} />}
+      <LotFitEditor doc={doc} mutate={mutate} />
       <div className={s.row}><label>Ghi chú</label><textarea className={s.text} rows={3} value={doc.notes ?? ''} onChange={(e) => mutate('Ghi chú', (d) => { d.notes = e.target.value.slice(0, 4000); })} /></div>
       <p className={s.muted}>Chọn một phần trong khung 3D hoặc tab Cảnh để sửa nó.</p>
       {!!doc.plans?.length && (
@@ -497,6 +497,8 @@ export function VersionsPanel(p: {
   versions: VersionInfo[]; published: PublishedModel[]; projectId: string; trial: { active: number[]; saved: number[] } | null; busy: boolean;
   snapshot(note: string): void; preview(v: number): void; restore(v: number): void; exportGlb(mode: 'game' | 'editable'): void;
   publish(opts: { lotClass?: string; replaceAsset?: number }): void; unpublish(asset: number): void; setTrial(assets: number[]): void;
+  /** The model (its placement on maps is chosen right before publishing). */
+  doc: ModelDoc; mutate: Mutate;
 }) {
   const [note, setNote] = useState('');
   const mine = p.published.filter((x) => x.projectId === p.projectId);
@@ -511,7 +513,7 @@ export function VersionsPanel(p: {
       </div>
       <div className={s.section}>
         <h3><Icon name="lucide:rocket" /> Xuất bản vào game</h3>
-        <p className={s.muted}>Nơi đặt trên bản đồ (loại lô, tình trạng, kiểu khu vực): chỉnh ở tab Model khi không chọn phần nào.</p>
+        <LotFitEditor doc={p.doc} mutate={p.mutate} />
         <div className={s.row}>
           <button className={`${s.tbtn} ${s.primary}`} disabled={p.busy} onClick={() => { if (confirm('Xuất bản model này thành model MỚI trong game? Nó sẽ có trong thư viện của World Studio và các bản đồ; bản đồ đang chạy không đổi cho tới khi dựng lại.')) p.publish({}); }}>Xuất bản mới</button>
         </div>
