@@ -226,7 +226,7 @@ export default function MainMenu() {
       window.history.replaceState(null, '', window.location.pathname);
       setAuthOpen(true);
       if (authError) setError(authError === 'identity_taken' ? 'Tài khoản mạng xã hội này đã liên kết với nhân vật khác hoặc bạn đã liên kết nhà cung cấp này.' : 'Đăng nhập chưa hoàn tất. Vui lòng thử lại.');
-      else setAccountNotice('Đăng nhập thành công. Nhân vật của bạn đã sẵn sàng.');
+      else setAccountNotice('Đăng nhập thành công.');
     }
     void authProviders().then(info => { if (alive) { setProviders(info.providers); setGuestAllowed(info.guest); } }).catch(() => { if (alive) setError('Không tải được các phương thức đăng nhập. Vui lòng tải lại trang.'); });
     void refreshSession(returned).then((ok) => {
@@ -341,7 +341,7 @@ export default function MainMenu() {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError(null);
-    void login(username, password).then(() => { setSession(true); setLegacyLogin(false); setPassword(''); setAccountNotice('Đã đăng nhập tài khoản cũ. Bạn có thể liên kết Google/Facebook để giữ tiến độ.'); }).catch(err => { setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false));
+    void login(username, password).then(() => { setSession(true); setLegacyLogin(false); setPassword(''); setAccountNotice('Đã đăng nhập.'); }).catch(err => { setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false));
   };
 
   const social = async (provider: SocialProvider) => {
@@ -362,7 +362,7 @@ export default function MainMenu() {
       try {
         const acc = await pollDesktopSignIn(desktopReq);
         if (!alive) return;
-        if (acc) { setDesktopReq(null); setBusy(false); setSession(true); setAccountNotice('Đăng nhập thành công. Nhân vật của bạn đã sẵn sàng.'); return; }
+        if (acc) { setDesktopReq(null); setBusy(false); setSession(true); setAccountNotice('Đăng nhập thành công.'); return; }
       } catch (err) { if (!alive) return; if (err instanceof ApiError && err.status !== 0) { setDesktopReq(null); setBusy(false); setError(err.message); return; } }
       setTimeout(() => { void tick(); }, 2000);
     };
@@ -400,12 +400,12 @@ export default function MainMenu() {
 
       <header className="menu-top">
         <div className="menu-brand">
-          ZI<span>O</span>N<small>The Last Light</small>
+          ZI<span>O</span>N
         </div>
         <div className="menu-top-actions">
           <InstallAppButton />
           <LibraryNav />
-          <button className="menu-account menu-leaderboard" aria-label="Phòng tập" title="Phòng tập: tập bắn với mọi loại súng" onClick={() => router.push('/range')}><Icon name="lucide:crosshair" /><span>Phòng tập</span></button>
+          <button className="menu-account menu-leaderboard" aria-label="Phòng tập" title="Phòng tập" onClick={() => router.push('/range')}><Icon name="lucide:crosshair" /><span>Phòng tập</span></button>
           <button className="menu-account menu-leaderboard" aria-label="Bảng xếp hạng" title="Bảng xếp hạng" onClick={() => setLeaderboardOpen(true)}><Icon name="lucide:trophy" /><span>Bảng xếp hạng</span></button>
           <button className="menu-account icon" onClick={() => setSettingsOpen(true)} aria-label={t('menu.settings')} title={t('menu.settings')}>
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden focusable="false">
@@ -424,7 +424,7 @@ export default function MainMenu() {
       {!wavesMode && <button className="menu-team-toggle" aria-expanded={teamOpen} aria-controls="team-lobby-panel" disabled={!sessionReady || busy} onClick={() => {
         if (!session) { setEntryIntent('team'); setAuthOpen(true); }
         else setTeamOpen(!teamOpen);
-      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : warfareMode ? 4 : TEAM_LIMIT} · ${team.name}` : battleMode ? 'Tạo tiểu đội BR · tối đa 3' : warfareMode ? 'Lập đội Chiến trường · tối đa 4' : 'Đội nhóm'}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>}
+      }}><Icon name="lucide:users" /><span>{team ? `${team.members.length}/${battleMode ? SQUAD_LIMIT : warfareMode ? 4 : TEAM_LIMIT} · ${team.name}` : `Đội · 0/${battleMode ? SQUAD_LIMIT : warfareMode ? 4 : TEAM_LIMIT}`}</span><Icon name={teamOpen ? 'lucide:x' : 'lucide:chevron-right'} /></button>}
 
       {authOpen && (
         <section className="menu-auth" aria-label={session ? 'Liên kết tài khoản' : 'Đăng nhập và đăng ký'}>
@@ -451,18 +451,17 @@ export default function MainMenu() {
           </form>}
           {session && nameNotice && <p className="menu-auth-notice" role="status">{nameNotice}</p>}
           {!session && <h2>Đăng nhập / Đăng ký</h2>}
-          <p>{IS_DESKTOP ? session ? 'Tài khoản của bạn đã đăng nhập. Liên kết Google/Facebook hoặc quản lý tài khoản trên trang web.' : 'Đăng nhập trên trang web (Google, Facebook hoặc mật khẩu), ứng dụng sẽ tự nhận tài khoản.' : session ? linked.length ? 'Tiến độ đã gắn với tài khoản của bạn. Bạn có thể liên kết thêm một phương thức đăng nhập.' : 'Liên kết Google hoặc Facebook để giữ nhân vật, đồ đạc và tiến độ khi đổi thiết bị hoặc mất phiên trình duyệt.' : 'Dùng Google hoặc Facebook để tạo tài khoản mới và lưu tiến độ.'}</p>
           {accountNotice && <p className="menu-auth-notice" role="status">{accountNotice}</p>}
           {approval && <div className="menu-desktop-approve" role="alertdialog" aria-label="Đăng nhập ứng dụng">
             <b><Icon name="lucide:monitor" /> Ứng dụng ZION trên máy tính xin đăng nhập</b>
-            <p>Mã xác nhận: <code>{approval.code}</code>. Chỉ xác nhận nếu bạn vừa bấm đăng nhập trên ứng dụng của mình và mã trùng với mã hiện trong ứng dụng.</p>
+            <p title="Chỉ xác nhận nếu mã trùng với mã trong ứng dụng"><Icon name="lucide:key-round" /> <code>{approval.code}</code></p>
             {session
               ? <div className="menu-profile-actions"><button className="btn btn-primary" type="button" disabled={busy} onClick={() => { void answerDesktop(true); }}>Xác nhận đăng nhập</button><button className="btn" type="button" disabled={busy} onClick={() => { void answerDesktop(false); }}>Từ chối</button></div>
-              : <small>Đăng nhập bên dưới trước, rồi xác nhận.</small>}
+              : <small><Icon name="lucide:log-in" /> Đăng nhập trước</small>}
           </div>}
           {IS_DESKTOP && !session && <div className="menu-desktop-signin">
             <button className="btn btn-primary" type="button" disabled={busy} onClick={() => { void desktopSignIn(); }}><Icon name="lucide:globe" /> Đăng nhập qua trình duyệt</button>
-            {desktopReq && <p role="status">Đã mở trang đăng nhập trên trình duyệt. Mã xác nhận: <code>{desktopReq.code}</code> — đăng nhập rồi bấm “Xác nhận đăng nhập” trên web. <button className="menu-auth-legacy" type="button" onClick={() => { setDesktopReq(null); setBusy(false); }}>Huỷ</button> <button className="menu-auth-legacy" type="button" onClick={() => window.open(desktopReq.url, '_blank')}>Mở lại trang</button></p>}
+            {desktopReq && <p role="status" title="Đăng nhập trên web rồi bấm “Xác nhận đăng nhập”"><Icon name="lucide:key-round" /> <code>{desktopReq.code}</code> <button className="menu-auth-legacy" type="button" onClick={() => { setDesktopReq(null); setBusy(false); }}>Huỷ</button> <button className="menu-auth-legacy" type="button" onClick={() => window.open(desktopReq.url, '_blank')}>Mở lại trang</button></p>}
           </div>}
           {!IS_DESKTOP && <div className="menu-social-buttons">
             {(['google', 'facebook'] as const).map(provider => <button type="button" className={`btn menu-social ${provider}`} key={provider} disabled={busy || !providers[provider] || (session && (!linkedReady || linked.includes(provider)))} onClick={() => { void social(provider); }}>
@@ -470,10 +469,9 @@ export default function MainMenu() {
               {linked.includes(provider) ? 'Đã liên kết' : session ? 'Liên kết' : 'Tiếp tục với'} {provider === 'google' ? 'Google' : 'Facebook'}
             </button>)}
           </div>}
-          {!IS_DESKTOP && (!providers.google || !providers.facebook) && <small>Phương thức bị mờ hiện chưa khả dụng.</small>}
           {!session && <>
-            <button className="btn" type="button" disabled={busy || !guestAllowed} onClick={guest}><Icon name="lucide:user" /> Tham gia bằng tài khoản khách</button>
-            {!IS_DESKTOP && <button className="menu-auth-legacy" type="button" disabled={busy} aria-expanded={legacyLogin} onClick={() => setLegacyLogin(v => !v)}>Đăng nhập tài khoản cũ bằng mật khẩu</button>}
+            <button className="btn" type="button" disabled={busy || !guestAllowed} onClick={guest}><Icon name="lucide:user" /> Khách</button>
+            {!IS_DESKTOP && <button className="menu-auth-legacy" type="button" disabled={busy} aria-expanded={legacyLogin} onClick={() => setLegacyLogin(v => !v)}><Icon name="lucide:key-round" /> Mật khẩu</button>}
           </>}
           {session && <button className="menu-auth-legacy" type="button" disabled={busy || !linkedReady} onClick={() => { setBusy(true); void logout().then(() => { setSession(false); setAccountNotice(null); setLobby(null); setTeamOpen(false); }).catch(err => { setSession(false); setError(err instanceof Error ? err.message : t('menu.server_error')); }).finally(() => setBusy(false)); }}>Đăng xuất</button>}
           {!session && legacyLogin && <form onSubmit={onSubmit}>
@@ -494,7 +492,7 @@ export default function MainMenu() {
             />
           </label>
           <button className="btn" type="submit" disabled={busy}>
-            {busy ? <Spinner /> : 'Đăng nhập tài khoản cũ'}
+            {busy ? <Spinner /> : t('menu.signin')}
           </button>
           </form>}
           {error && <p className="error" role="alert">{error}</p>}
@@ -558,21 +556,18 @@ export default function MainMenu() {
         </div> : <button className="menu-play" disabled={busy || !sessionReady} onClick={play}>
           {busy ? <><Spinner /> {t('menu.deploying')}</> : t('menu.play')}
         </button>}
-        {battleMode && session && !team && <p className="menu-squad-hint"><Icon name="lucide:users" /> Tạo hoặc vào tiểu đội để chơi theo đội (2–3 người)</p>}
         {teamError && !teamOpen && <p className="error">{teamError}</p>}
         {error && <p className="error">{error}</p>}
       </div>
 
       {nameOpen && <div className="overlay menu-name-overlay" role="dialog" aria-modal="true" aria-labelledby="player-name-title">
         <form ref={nameDialog} className="overlay-card menu-name-card" onSubmit={(e) => { void submitName(e); }}>
-          <h2 id="player-name-title">Tham gia bằng tài khoản khách</h2>
-          <p>Chọn tên để vào chơi. Bạn có thể liên kết Google hoặc Facebook sau để giữ tiến độ khi đổi thiết bị.</p>
+          <h2 id="player-name-title">{t('menu.player_name')}</h2>
           <label className="field">
-            <span>{t('menu.player_name')}</span>
-            <input autoFocus value={playerName} onChange={(e) => { setPlayerName(e.target.value); setNameError(null); }}
+            <input autoFocus aria-label={t('menu.player_name')} value={playerName} onChange={(e) => { setPlayerName(e.target.value); setNameError(null); }}
               maxLength={20} required disabled={busy} autoComplete="nickname" aria-describedby="player-name-rules" aria-invalid={!!nameError} />
           </label>
-          <button className="btn" type="button" disabled={busy} onClick={() => { setPlayerName(randomGuestName()); setNameError(null); }}><Icon name="lucide:shuffle" /> Chọn tên ngẫu nhiên khác</button>
+          <button className="btn" type="button" disabled={busy} onClick={() => { setPlayerName(randomGuestName()); setNameError(null); }}><Icon name="lucide:shuffle" /> Ngẫu nhiên</button>
           <small id="player-name-rules">{t('menu.name_rules')}</small>
           {nameError && <p className="error" role="alert">{nameError}</p>}
           <div className="overlay-row">

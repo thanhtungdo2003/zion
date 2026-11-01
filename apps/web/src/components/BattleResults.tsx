@@ -1,6 +1,7 @@
 'use client';
 import { BATTLE_MAP } from '@zion/shared';
 import type { HudState } from '@/game/hud-store';
+import { Icon } from './Icon';
 
 type Row = HudState['scorePlayers'][number] & { place: number | null };
 
@@ -37,16 +38,16 @@ export function BattleResults({ hud, onLeave, onSpectate }: { hud: HudState; onL
             <span>/ {battle.total}</span>
           </div>
           <div className="br-results-title">
-            <small>{BATTLE_MAP.name} · Battle Royale</small>
+            <small>{BATTLE_MAP.name}</small>
             <h2>{title}</h2>
             <p>{line}</p>
           </div>
         </header>
         <div className="br-results-stats">
-          <div><small>Hạ gục</small><b>{me?.kills ?? 0}</b></div>
-          <div><small>Hạng</small><b>{place ? `#${place}` : '—'}</b></div>
-          <div><small>Còn sống</small><b>{finished ? (won ? battle.alive : 0) : battle.alive}</b></div>
-          <div><small>Người tham gia</small><b>{battle.total}</b></div>
+          <div title="Hạ gục"><small><Icon name="game-icons:skull-crossed-bones" /> Hạ gục</small><b>{me?.kills ?? 0}</b></div>
+          <div title="Hạng"><small><Icon name="lucide:trophy" /> Hạng</small><b>{place ? `#${place}` : '—'}</b></div>
+          <div title="Còn sống"><small><Icon name="lucide:heart-pulse" /> Còn sống</small><b>{finished ? (won ? battle.alive : 0) : battle.alive}</b></div>
+          <div title="Người tham gia"><small><Icon name="lucide:users" /> Tổng</small><b>{battle.total}</b></div>
         </div>
         <div className="br-results-table" role="table" aria-label="Bảng xếp hạng">
           <div className="br-row br-row-head" role="row"><span>Hạng</span><span>Người chơi</span><span>Hạ gục</span><span>Trạng thái</span></div>
@@ -62,9 +63,9 @@ export function BattleResults({ hud, onLeave, onSpectate }: { hud: HudState; onL
           </div>
         </div>
         <footer className="br-results-actions">
-          {!finished && onSpectate && <button className="btn" onClick={onSpectate}>Tiếp tục theo dõi</button>}
+          {!finished && onSpectate && <button className="btn" onClick={onSpectate}><Icon name="lucide:eye" /> Theo dõi</button>}
           <button className="btn btn-primary" onClick={onLeave}>Về sảnh</button>
-          {finished && <small>Tự đóng trận sau {seconds}s</small>}
+          {finished && <small title="Tự đóng trận"><Icon name="lucide:timer" /> {seconds}s</small>}
         </footer>
       </div>
     </div>

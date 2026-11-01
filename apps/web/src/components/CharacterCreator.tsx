@@ -296,9 +296,7 @@ export function CharacterCreator({ mode, initial, onSave, onClose }: Props) {
       </div>
       <section className="cc-panel">
         <header className="cc-head">
-          <span className="overlay-kicker">ZION // Hồ sơ nhân vật</span>
           <h2 id="cc-title">{mode === 'first' ? 'Tạo nhân vật' : 'Chỉnh sửa nhân vật'}</h2>
-          <p>{mode === 'first' ? 'Chọn diện mạo người sống sót của bạn. Bạn có thể chỉnh lại bất cứ lúc nào trong hồ sơ.' : 'Thay đổi áp dụng từ trận tiếp theo và mọi người chơi khác đều thấy.'}</p>
         </header>
         <div className="tabs cc-tabs" role="tablist">
           {TABS.map((t) => (

@@ -69,10 +69,8 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
       <div className="set-panel" onClick={(e) => e.stopPropagation()}>
         <header className="set-head">
           <div>
-            <small>ZION // {t('settings.system')}</small>
             <h2>{t('settings.title')}</h2>
           </div>
-          <span className="set-badge">v1.0</span>
         </header>
 
         <div className="set-tabs" role="tablist" aria-label={t('settings.title')}>
@@ -172,7 +170,7 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
               </button>
             ))}
           </div>
-          {!preset && <p className="set-camera-hint">Đang dùng thiết lập riêng bên dưới.</p>}
+          {!preset && <p className="set-camera-hint">Tùy chỉnh</p>}
         </section>
         <section className="set-section">
           <h3><span>02</span> {t('settings.display')}</h3>
@@ -198,7 +196,7 @@ export function SettingsModal({ open, onClose, onCameraChange, children }: Props
           <h3><span>04</span> Hiệu ứng</h3>
           <div className="set-rows">
             <Choice label="Shader ánh sáng" value={shaders} onChange={(on) => settingsStore.set({ shaders: on })} options={[
-              { id: false, label: 'Tắt', hint: 'Hình ảnh thường, nhẹ máy' }, { id: true, label: 'Bật', hint: 'Bóng mềm, ánh sáng toả, tia nắng, AO · nặng GPU' }]} />
+              { id: false, label: 'Tắt', hint: 'Hình ảnh thường, nhẹ máy' }, { id: true, label: 'Bật', hint: 'Đẹp hơn · nặng GPU' }]} />
             <Choice label="Mờ vật gần mắt" value={nearBlur} onChange={(on) => settingsStore.set({ nearBlur: on })} options={[
               { id: false, label: 'Tắt', hint: 'Mọi thứ đều nét' }, { id: true, label: 'Bật', hint: 'Súng, tay sát mắt hơi nhoè' }]} />
           </div>

@@ -71,7 +71,7 @@ export function AttachmentPanel({ state, store }: { state: InventoryState; store
                   {misfits.map((i) => <button key={i.uid} type="button" role="menuitem" disabled className="misfit" title="Không vừa súng này">
                     <span className="att-art"><ItemArt def={ITEMS[i.itemId]!} /></span>{item(i.itemId)}<Icon name="lucide:ban" />
                   </button>)}
-                  {!fits.length && !misfits.length && <p>Không có phụ kiện phù hợp trong túi.<br /><small>Lắp được: {allowed.map((id) => item(id)).join(', ')}</small></p>}
+                  {!fits.length && !misfits.length && <p><Icon name="lucide:backpack" /> 0<br /><small>{allowed.map((id) => item(id)).join(', ')}</small></p>}
                 </div>
               )}
               {slot === 'optic' && opticOf(mounted)?.nightVision && open !== slot && <div className="att-nv"><NightVisionGuide /></div>}

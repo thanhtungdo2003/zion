@@ -65,12 +65,12 @@ export function WorldChat({ session }: { session: boolean }) {
       )}
       {open && (
         <section className="world-chat-panel" aria-label="Kênh thế giới">
-          <header><b>KÊNH THẾ GIỚI</b><small>Mọi người trên máy chủ</small><button type="button" onClick={() => setOpen(false)} aria-label="Thu gọn"><Icon name="lucide:chevron-down" /></button></header>
+          <header><b>THẾ GIỚI</b><button type="button" onClick={() => setOpen(false)} aria-label="Thu gọn"><Icon name="lucide:chevron-down" /></button></header>
           <div className="world-chat-list" ref={list}>
             {lines.map((l) => (
               <p key={l.id} className={l.name === me ? 'mine' : ''}><time>{time(l.at)}</time><b>{l.name}</b><span>{l.text}</span></p>
             ))}
-            {!lines.length && <p className="muted">Hãy là người đầu tiên lên tiếng.</p>}
+            {!lines.length && <p className="muted">—</p>}
           </div>
           {session
             ? <form onSubmit={(e) => { void send(e); }}><input value={text} onChange={(e) => setText(e.target.value)} maxLength={160} placeholder="Nhắn với cả máy chủ…" aria-label="Tin nhắn" /><button type="submit" className="btn btn-primary" disabled={!text.trim()}><Icon name="lucide:send" /></button></form>

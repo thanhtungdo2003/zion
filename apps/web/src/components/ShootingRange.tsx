@@ -362,14 +362,14 @@ export function ShootingRange() {
         <b>Phòng tập</b>
         <span>{ITEMS[weapon]?.name ?? weapon}</span>
         <button className="btn range-reset" onClick={() => game.current?.reset()} title="Dựng lại mọi bia, gỡ lỗ đạn, tính điểm lại"><Icon name="lucide:rotate-ccw" /> Reset</button>
-        <span>Điểm <b>{hud.score}</b> · {hud.hits}/{hud.shots} trúng ({accuracy}%){hud.last !== null ? ` · phát vừa rồi ${hud.last}` : ''}</span>
+        <span><span title="Điểm"><Icon name="lucide:target" /> <b>{hud.score}</b></span> · <span title="Trúng / bắn"><Icon name="lucide:crosshair" /> {hud.hits}/{hud.shots} ({accuracy}%)</span>{hud.last !== null && <span title="Phát vừa rồi"> · +{hud.last}</span>}</span>
       </div>
       <div className="range-ammo"><b>{hud.mag}</b> / {hud.max}{hud.reloading ? ' · đang thay đạn' : hud.mag === 0 ? ' · R thay đạn' : ''}</div>
       {status && <div className="range-status">{status.startsWith('Đang') ? <Spinner /> : null} {status}</div>}
-      {ready && !locked && !menu && <div className="range-hint">Bấm vào màn hình để bắt đầu · WASD đi · chuột trái bắn · chuột phải ngắm · R thay đạn · <b>E</b> chọn súng và bia</div>}
+      {ready && !locked && !menu && <div className="range-hint"><Icon name="lucide:mouse-pointer-click" /> Bấm để bắt đầu · <b>E</b> súng / bia</div>}
       {menu && (
         <div className="range-menu" role="dialog" aria-label="Phòng tập">
-          <header><b>Phòng tập</b><small>Bấm để cầm · chuột phải để chọn phụ kiện</small><button className="btn" onClick={() => setMenu(false)}>Đóng (E)</button></header>
+          <header title="Bấm để cầm · chuột phải để chọn phụ kiện"><b>Phòng tập</b><button className="btn" onClick={() => setMenu(false)}>Đóng (E)</button></header>
           <div className="range-menu-body">
             <section className="range-guns">
               {byClass.map(([cat, ids]) => (
@@ -406,9 +406,8 @@ export function ShootingRange() {
                 <div className="range-motions">{MOTIONS.map((m) => <button key={m.id} className={`btn${motion === m.id ? ' btn-primary' : ''}`} onClick={() => setMotion(m.id)}>{m.label}</button>)}</div>
                 <label className="set-slider"><span>Tốc độ bia <b>{speed.toFixed(1)}×</b></span><input type="range" min={.1} max={4} step={.1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /></label>
                 <label className="set-slider"><span>Khoảng cách <b>{Math.round(NEAR_Z + (FAR_Z - NEAR_Z) * distance + 6.3)} m</b></span><input type="range" min={0} max={1} step={.01} value={distance} onChange={(e) => setDistance(Number(e.target.value))} /></label>
-                <button className="btn" onClick={() => game.current?.reset()}><Icon name="lucide:rotate-ccw" /> Reset: dựng lại bia, gỡ lỗ đạn, tính điểm lại</button>
-                <p className="range-note">Một bia trúng {BREAK_AT} phát sẽ vỡ và rơi xuống.</p>
-                <p className="range-note">Ảnh trên bia: đặt file <code>public/range/target.png</code> (dọc, tỉ lệ khoảng 1 : 2) rồi tải lại trang.</p>
+                <button className="btn" title="Dựng lại mọi bia, gỡ lỗ đạn, tính điểm lại" onClick={() => game.current?.reset()}><Icon name="lucide:rotate-ccw" /> Reset</button>
+                <p className="range-note" title="Số phát trúng làm vỡ bia"><Icon name="lucide:target" /> {BREAK_AT} × <Icon name="lucide:zap" /></p>
               </>}
             </aside>
           </div>

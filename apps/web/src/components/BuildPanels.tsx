@@ -55,7 +55,6 @@ export function BlueprintPanel({ state, store }: { state: InventoryState; store:
     <section className="inv-box tech-panel bp-panel" onMouseDown={(e) => e.stopPropagation()}>
       <header className="tech-head">
         <span><Icon name="lucide:drafting-compass" /> {ARCHITECT_NAME}</span>
-        <small>XƯỞNG BẢN VẼ · ĐỔI VẬT LIỆU LẤY BẢN VẼ</small>
       </header>
       <nav className="bp-tabs">
         {BLUEPRINTS.map((b) => {
@@ -81,7 +80,6 @@ export function BlueprintPanel({ state, store }: { state: InventoryState; store:
           <ul className="bp-specs">
             <li><span>Vật liệu</span><b style={{ color: MATERIAL_COLOR[def.material] }}>{MATERIAL_LABEL[def.material]}</b></li>
             <li><span>Kích thước</span><b>{def.w} × {def.d} × {def.h} m</b></li>
-            <li><span>Năng lượng</span><b className="bp-core">Lõi pin hạt nhân</b></li>
           </ul>
         </div>
       </div>
@@ -92,7 +90,7 @@ export function BlueprintPanel({ state, store }: { state: InventoryState; store:
           return (
             <div key={id} className={`bp-cost${got >= need ? ' full' : ''}`}>
               <span className="bp-art" style={{ background: def2.color }}><ItemArt def={def2} /></span>
-              <span className="bp-name">{item(id)}<small>Đang mang: {have}</small></span>
+              <span className="bp-name">{item(id)}<small title="Đang mang"><Icon name="lucide:backpack" /> {have}</small></span>
               <span className="bp-meter"><i className="tech-bar"><span style={{ width: `${(got / need) * 100}%` }} /></i><small>{got} / {need}</small></span>
               <button className="btn tech-btn" disabled={got >= need || have <= 0} onClick={() => store.onDeposit?.(def.id, id)}>{got >= need ? <Icon name="lucide:check" /> : 'Giao'}</button>
             </div>
@@ -100,10 +98,10 @@ export function BlueprintPanel({ state, store }: { state: InventoryState; store:
         })}
       </div>
       <footer className="bp-foot">
-        <span className="bp-total"><i className="tech-bar big"><span style={{ width: `${(done / total) * 100}%` }} /></i><small>{Math.round((done / total) * 100)}% vật liệu</small></span>
+        <span className="bp-total"><i className="tech-bar big"><span style={{ width: `${(done / total) * 100}%` }} /></i><small>{Math.round((done / total) * 100)}%</small></span>
         <button className={`btn tech-btn claim${complete ? ' ready' : ''}`} disabled={!complete} onClick={() => store.onClaim?.(def.id)}><Icon name="lucide:scroll" /> Nhận bản vẽ</button>
       </footer>
-      <p className="tech-note">Chuột phải vào bản vẽ trong túi để đặt công trình · lăn chuột xoay · chuột trái xây · không xây trong 100 m quanh căn cứ chính.</p>
+      <p className="tech-note" title="Chuột phải vào bản vẽ trong túi để đặt công trình · lăn chuột xoay · chuột trái xây · không xây trong 100 m quanh căn cứ chính"><kbd>RMB</kbd> đặt · <Icon name="lucide:mouse" /> xoay · <kbd>LMB</kbd> xây · <Icon name="lucide:ban" /> 100 m căn cứ</p>
     </section>
   );
 }
@@ -121,7 +119,7 @@ export function SupplyPanel({ coins, store }: { coins: number; store: InventoryS
   return (
     <section className="inv-box tech-panel supply-panel" onMouseDown={(e) => e.stopPropagation()}>
       <header className="tech-head">
-        <span><Icon name="game-icons:radio-tower" /> GỌI TIẾP TẾ · VỆ TINH</span>
+        <span><Icon name="game-icons:radio-tower" /> TIẾP TẾ</span>
         <Coins n={coins} />
       </header>
       <nav className="bp-tabs supply-tabs">
@@ -134,7 +132,7 @@ export function SupplyPanel({ coins, store }: { coins: number; store: InventoryS
           {picked.items ? picked.items.map(([id, n]) => {
             const d = ITEMS[id];
             return d ? <span key={id} className="supply-item"><span className="bp-art" style={{ background: d.color }}><ItemArt def={d} /></span>{n}× {item(id)}</span> : null;
-          }) : <small>Thả riêng bằng dù · lái được ngay khi chạm đất</small>}
+          }) : <small title="Thả riêng bằng dù · lái được ngay khi chạm đất"><Icon name="game-icons:parachute" /> Thả dù</small>}
         </div>
       </div>
       <div className="supply-list">
@@ -143,14 +141,14 @@ export function SupplyPanel({ coins, store }: { coins: number; store: InventoryS
             <span className="supply-icon"><Icon name={e.icon} /></span>
             <span className="supply-name">
               <b>{e.name}</b>
-              <small>{e.vehicle ? 'Thả riêng bằng dù · lái được ngay khi chạm đất' : e.items?.map(([id, n]) => `${n}× ${item(id)}`).join(' · ')}</small>
+              <small>{e.vehicle ? <><Icon name="game-icons:parachute" /> Thả dù</> : e.items?.map(([id, n]) => `${n}× ${item(id)}`).join(' · ')}</small>
             </span>
             <Coins n={e.price} className={coins >= e.price ? '' : 'short'} />
             <button className="btn tech-btn" disabled={coins < e.price} onClick={() => store.onOrder?.(e.id)}><Icon name="lucide:plane" /> Đặt</button>
           </div>
         ))}
       </div>
-      <p className="tech-note warn"><Icon name="lucide:triangle-alert" /> Hàng được thả bằng dù xuống ngay chỗ bạn đứng lúc gọi (đánh dấu <b>X đỏ</b>). Điểm thả không được bảo vệ: zombie và người chơi khác có thể tới trước bạn.</p>
+      <p className="tech-note warn" title="Hàng được thả xuống chỗ bạn đứng lúc gọi; zombie và người chơi khác có thể tới trước bạn"><Icon name="lucide:triangle-alert" /> Thả tại <b>X đỏ</b> · không được bảo vệ</p>
     </section>
   );
 }

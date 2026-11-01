@@ -50,19 +50,18 @@ export function InstallAppButton() {
     {open && <dialog ref={dialog} className="pwa-dialog download-dialog" data-no-fullscreen aria-labelledby="pwa-title" onCancel={close} onClick={e => { if (e.target === e.currentTarget) { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close(); } }}>
       <header className="set-head"><h2 id="pwa-title"><Icon name="lucide:download" />{t('pwa.download')}</h2><button type="button" className="btn" aria-label={t('pwa.close')} onClick={close}><Icon name="lucide:x" /></button></header>
       {help ? <>
-        <p>{t('pwa.intro')}</p>
         <p>{t(!secure ? 'pwa.https' : ios ? 'pwa.ios' : 'pwa.browser')}</p>
         <p className="pwa-note">{t('pwa.online')}</p>
         <footer>{ready && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void webApp()}>{t('pwa.install')}</button>}<button type="button" className="btn" onClick={() => setHelp(false)}>{t('pwa.back')}</button></footer>
       </> : <div className="download-choices">
         <button type="button" className="download-choice" disabled={busy || installed} onClick={() => void webApp()}>
           <Icon name="lucide:app-window" />
-          <span><b>{t('pwa.web_app')}</b><small>{installed ? t('pwa.installed') : t('pwa.web_app_sub')}</small></span>
+          <span><b>{t('pwa.web_app')}</b>{installed && <small><Icon name="lucide:check" /> {t('pwa.installed')}</small>}</span>
         </button>
         {zip
           ? <a className="download-choice" href={ZIP_DOWNLOAD_URL} {...(ZIP_LOCAL ? { download: 'ZION.zip' } : { target: '_blank', rel: 'noopener noreferrer' })} onClick={close}>
             <Icon name="lucide:file-archive" />
-            <span><b>{t('pwa.zip')}</b><small>{t('pwa.zip_sub')}</small></span>
+            <span><b>{t('pwa.zip')}</b></span>
           </a>
           : <button type="button" className="download-choice" disabled>
             <Icon name="lucide:file-archive" />

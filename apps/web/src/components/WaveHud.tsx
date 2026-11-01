@@ -20,14 +20,14 @@ function useCountdown(state: WaveStateMessage): number {
  */
 export function WaveHud({ state, selfId, dead, onLeave }: { state: WaveStateMessage; selfId: number | null; dead: boolean; onLeave(): void }) {
   const left = useCountdown(state);
-  const line = state.phase === 'lobby' ? 'Đang chờ đồng đội vào trận…'
-    : state.phase === 'countdown' ? `Đợt đầu tiên sau ${Math.ceil(left / 1000)} giây · chuẩn bị vũ khí`
-      : state.phase === 'break' ? `Cửa hàng mở · B để mở/đóng · tự bắt đầu sau ${Math.ceil(left / 1000)} giây`
-        : state.phase === 'fighting' ? `Còn ${state.remaining} xác sống` : 'Cả đội đã gục';
+  const line = state.phase === 'lobby' ? <><Icon name="lucide:users" /> …</>
+    : state.phase === 'countdown' ? <><Icon name="lucide:timer" /> {Math.ceil(left / 1000)}s</>
+      : state.phase === 'break' ? <><kbd>B</kbd> <Icon name="lucide:shopping-cart" /> · <Icon name="lucide:timer" /> {Math.ceil(left / 1000)}s</>
+        : state.phase === 'fighting' ? <span title="Xác sống còn lại"><Icon name="game-icons:shambling-zombie" /> {state.remaining}</span> : <><Icon name="lucide:skull" /> Cả đội đã gục</>;
   return (
     <>
       <div className={`wave-hud phase-${state.phase}`} role="status" aria-live="polite">
-        <small>{state.map.name} · {state.playMode === 'bots' ? 'Chơi cùng bot' : 'Chơi cùng bạn bè'}</small>
+        <small>{state.map.name} · <Icon name={state.playMode === 'bots' ? 'lucide:bot' : 'lucide:users'} /></small>
         <b>{state.phase === 'break' ? `SẮP TỚI ĐỢT ${state.wave}` : state.phase === 'over' ? `ĐÃ QUA ${state.cleared} ĐỢT` : `ĐỢT ${state.wave}`}</b>
         <span>{line}</span>
         {state.phase === 'fighting' && <i className="wave-hud-bar" aria-hidden><em style={{ width: `${Math.min(100, state.alive / Math.max(1, state.remaining) * 100)}%` }} /></i>}
@@ -42,7 +42,7 @@ export function WaveHud({ state, selfId, dead, onLeave }: { state: WaveStateMess
           </li>
         ))}
       </ul>
-      {dead && state.phase !== 'over' && <div className="hud-spectate" role="status"><span>Bạn đã gục · đồng đội vẫn đang chiến đấu</span><button className="btn" onClick={onLeave}>Về sảnh</button></div>}
+      {dead && state.phase !== 'over' && <div className="hud-spectate" role="status"><span><Icon name="lucide:skull" /> Bạn đã gục</span><button className="btn" onClick={onLeave}>Về sảnh</button></div>}
       {state.phase === 'over' && <WaveResults state={state} selfId={selfId} onLeave={onLeave} />}
     </>
   );
@@ -63,18 +63,18 @@ function WaveResults({ state, selfId, onLeave }: { state: WaveStateMessage; self
     <div className="br-results wave-results" role="dialog" aria-label="Kết quả sinh tồn">
       <div className="br-results-card">
         <header className="br-results-head">
-          <div className="br-results-place"><small>ĐỢT</small><b>{result?.cleared ?? state.cleared}</b><span>đã vượt qua</span></div>
+          <div className="br-results-place"><small>ĐỢT</small><b>{result?.cleared ?? state.cleared}</b></div>
           <div className="br-results-title">
-            <small>{state.map.name} · Sinh tồn theo đợt</small>
+            <small>{state.map.name}</small>
             <h2>CẢ ĐỘI ĐÃ GỤC</h2>
-            <p>{board ? result?.rank ? `Hạng #${result.rank} trên bảng ${board.name}.` : `Đã ghi vào bảng ${board.name}.` : (result?.cleared ?? 0) > 0 ? 'Đội hình này không thuộc bảng xếp hạng nào.' : 'Chưa vượt qua đợt nào: kết quả không được ghi.'}</p>
+            {board && <p><Icon name="lucide:trophy" /> {result?.rank ? `#${result.rank} · ` : ''}{board.name}</p>}
           </div>
         </header>
         <div className="br-results-stats">
-          <div><small>Đợt vượt qua</small><b>{result?.cleared ?? state.cleared}</b></div>
-          <div><small>Thời gian sống sót</small><b>{clock(result?.survivedMs ?? 0)}</b></div>
-          <div><small>Xác sống bị hạ</small><b>{kills}</b></div>
-          <div><small>Bảng</small><b>{board?.name ?? '—'}</b></div>
+          <div title="Đợt vượt qua"><small><Icon name="lucide:waves" /> Đợt</small><b>{result?.cleared ?? state.cleared}</b></div>
+          <div title="Thời gian sống sót"><small><Icon name="lucide:timer" /> Thời gian</small><b>{clock(result?.survivedMs ?? 0)}</b></div>
+          <div title="Xác sống bị hạ"><small><Icon name="game-icons:skull-crossed-bones" /> Hạ gục</small><b>{kills}</b></div>
+          <div><small><Icon name="lucide:trophy" /> Bảng</small><b>{board?.name ?? '—'}</b></div>
         </div>
         <div className="br-results-table" role="table" aria-label="Đội hình">
           <div className="br-row br-row-head" role="row"><span>#</span><span>Thành viên</span><span>Hạ gục</span><span>Trạng thái</span></div>

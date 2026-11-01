@@ -31,14 +31,13 @@ export function ModeModal({ modes, current, onPick, onClose }: { modes: readonly
           {modes.map((m, i) => (
             <button key={m.id} type="button" role="radio" aria-checked={m.id === current}
               className={`mode-tile mode-tile-${i}${m.id === current ? ' on' : ''}`}
-              style={{ backgroundImage: `url(${m.image})` }}
+              style={{ backgroundImage: `url(${m.image})` }} title={t(m.sub)}
               onClick={() => { onPick(m.id); onClose(); }}>
               {m.isNew && <span className="mode-tile-new">{t('mode.new')}</span>}
               {m.id === current && <span className="mode-tile-check"><Icon name="lucide:check" /></span>}
               <span className="mode-tile-text">
                 <Icon name={m.icon} className="mode-tile-icon" />
                 <b>{t(m.name)}</b>
-                <small>{t(m.sub)}</small>
               </span>
             </button>
           ))}

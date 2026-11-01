@@ -29,16 +29,16 @@ export function MapPicker({ current, fallbackImage, onPick, onClose, load = list
           <h2 id="map-picker-title">Chọn bản đồ</h2>
           <button type="button" className="inv-close" aria-label="Đóng" onClick={onClose}><Icon name="lucide:x" /></button>
         </header>
-        {error && <p className="map-picker-note">Không tải được danh sách bản đồ: {error}</p>}
-        {!maps && !error && <p className="map-picker-note">Đang tải…</p>}
+        {error && <p className="map-picker-note"><Icon name="lucide:wifi-off" /> {error}</p>}
+        {!maps && !error && <p className="map-picker-note" aria-label="Đang tải"><Icon name="lucide:loader" /></p>}
         <div className="map-grid" role="radiogroup" aria-labelledby="map-picker-title">
           {shown.map((m) => (
             <button key={m.id} type="button" role="radio" aria-checked={m.id === current} className={`map-tile${m.id === current ? ' on' : ''}`}
               style={{ backgroundImage: `url(${m.thumbnail ?? fallbackImage})` }}
               onClick={() => { onPick(m.id, m.name); onClose(); }}>
               {m.id === current && <span className="mode-tile-check"><Icon name="lucide:check" /></span>}
-              <span className="map-tile-players"><Icon name="lucide:users" />{m.players} đang chơi</span>
-              <span className="map-tile-text"><b>{m.name}</b><small>{m.builtin ? 'Mặc định' : `${m.matches} trận đang mở`}</small></span>
+              <span className="map-tile-players" title={`${m.players} đang chơi`}><Icon name="lucide:users" />{m.players}</span>
+              <span className="map-tile-text"><b>{m.name}</b>{!m.builtin && <small title={`${m.matches} trận đang mở`}><Icon name="lucide:swords" /> {m.matches}</small>}</span>
             </button>
           ))}
           {Array.from({ length: Math.max(0, 9 - shown.length) }, (_, i) => <span key={`empty-${i}`} className="map-tile empty" aria-hidden="true" />)}

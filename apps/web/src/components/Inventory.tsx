@@ -532,9 +532,8 @@ export function InventoryPanel({ state, store, coins: shownCoins, side, ground =
               +
             </button>
           )}
-          <div className="keys" hidden={state.station === 'shop' && merchantTab === 'shop'}>
-            <kbd>{t('inv.drag')}</kbd> {t('inv.move')} · <kbd>R</kbd> {t('inv.rotate')} · <kbd>{t('inv.dblclick')}</kbd> {t('inv.swap')} · {t('inv.drop_hint')} · {t('inv.use')} ·{' '}
-            {t('inv.rotate_melee')} · <kbd>E</kbd> {t('inv.close')}
+          <div className="keys" hidden={state.station === 'shop' && merchantTab === 'shop'} title={`${t('inv.drop_hint')} · ${t('inv.rotate_melee')}`}>
+            <span title={t('inv.move')}><kbd>{t('inv.drag')}</kbd> <Icon name="lucide:move" /></span> · <span title={t('inv.rotate')}><kbd>R</kbd> <Icon name="lucide:rotate-cw" /></span> · <span title={t('inv.swap')}><kbd>{t('inv.dblclick')}</kbd> <Icon name="lucide:arrow-left-right" /></span> · <span title={t('inv.use')}><kbd>RMB</kbd> <Icon name="lucide:hand" /></span> · <span title={t('inv.close')}><kbd>E</kbd> <Icon name="lucide:x" /></span>
           </div>
         </div>
         {state.station === 'shop' && <nav className="merchant-tabs" aria-label="Cửa hàng và túi đồ">
@@ -817,7 +816,7 @@ function ShopPanel({ state, store, coins, wave }: { state: InventoryState; store
       <button className={mode === 'sell' ? 'on' : ''} onClick={() => { setMode('sell'); setSelected(''); }}>{t('shop.sell')}</button>
     </div><Coins n={coins} /></header>}
     {mode === 'buy' && <div className="shop-tabs">{(wave ? WAVE_SHOP_CATEGORIES : SHOP_TABS).map(c => <button key={c} className={tab === c ? 'on' : ''} onClick={() => { setTab(c); setSelected(''); setFitFor(null); }}>{t(`shop.cat.${c}`)}</button>)}{tab === 'attachments' && <div className="shop-attach-guide"><AttachGuide /></div>}</div>}
-    {mode === 'buy' && tab === 'attachments' && fitFor && <div className="shop-fit-filter"><Icon name="lucide:filter" /> Phụ kiện lắp được cho <b>{item(fitFor)}</b><button type="button" aria-label="Bỏ lọc" onClick={() => setFitFor(null)}><Icon name="lucide:x" /></button></div>}
+    {mode === 'buy' && tab === 'attachments' && fitFor && <div className="shop-fit-filter"><Icon name="lucide:filter" /> <b>{item(fitFor)}</b><button type="button" aria-label="Bỏ lọc" onClick={() => setFitFor(null)}><Icon name="lucide:x" /></button></div>}
     <div className="shop-browser"><div className="shop-catalog">
       {!products.length && <div className="shop-empty">{t('shop.nothing')}</div>}
       {products.map(p => {
@@ -834,14 +833,14 @@ function ShopPanel({ state, store, coins, wave }: { state: InventoryState; store
     </div>{def && <aside className="shop-detail">
       <h3>{item(def.id)}</h3>
       {gun ? <ModelPreview key={def.id} model={{ item: def.id }} title={item(def.id)} />
-        : def.category === 'attachment' && mountedOn ? <><ModelPreview key={`${def.id}@${mountedOn.itemId}`} model={{ item: mountedOn.itemId }} attachments={{ ...mountedOn.attachments, [ATTACHMENTS[def.id]!.slot]: def.id }} title={item(def.id)} /><p className="shop-mount-note">Xem trước trên {mountedOn.owned ? 'khẩu' : 'mẫu'} <b>{item(mountedOn.itemId)}</b>{mountedOn.owned ? ' của bạn' : ''}</p></>
+        : def.category === 'attachment' && mountedOn ? <><ModelPreview key={`${def.id}@${mountedOn.itemId}`} model={{ item: mountedOn.itemId }} attachments={{ ...mountedOn.attachments, [ATTACHMENTS[def.id]!.slot]: def.id }} title={item(def.id)} /><p className="shop-mount-note"><Icon name={mountedOn.owned ? 'lucide:user' : 'lucide:eye'} /> <b>{item(mountedOn.itemId)}</b></p></>
         : <div className="shop-detail-art"><ItemArt def={def} /></div>}
       <p>{itemInfo(tr, def)}</p>
-      {def.category === 'attachment' && <><h4>Lắp được cho</h4><div className="shop-compatible">{gunsFor(def.id).map(g => <button key={g} onClick={() => { setMode('buy'); setTab(SHOP_STOCK.find(e => e.item === g)?.category ?? 'guns'); setSelected(g); setFitFor(null); }}><span className="shop-ammo-art"><ItemArt def={ITEMS[g]!} /></span><span>{item(g)}</span><Icon name="lucide:arrow-right" /></button>)}</div></>}
-      {spec && <dl className="shop-stats"><div><dt>{t('tip.weight')}</dt><dd>{spec.weight} kg</dd></div><div><dt>Tốc độ khi cầm</dt><dd>{Math.round(weaponSpeedFactor(WEAPON_BY_ITEM[def.id] ?? 0) * 100)}%</dd></div><div><dt>Hao thể lực vũ khí</dt><dd>+{Math.round((weaponStaminaFactor(WEAPON_BY_ITEM[def.id] ?? 0) - 1) * 100)}%</dd></div>{spec.kind === 'melee' && !!spec.decapitationChance && <div><dt>{t('tip.decapitation')}</dt><dd>{Math.round(spec.decapitationChance * 100)}%</dd></div>}{gun?.scope && <div><dt>Ống ngắm</dt><dd>{gun.scope}×</dd></div>}</dl>}
+      {def.category === 'attachment' && <><h4><Icon name="game-icons:pistol-gun" /> Lắp được cho</h4><div className="shop-compatible">{gunsFor(def.id).map(g => <button key={g} onClick={() => { setMode('buy'); setTab(SHOP_STOCK.find(e => e.item === g)?.category ?? 'guns'); setSelected(g); setFitFor(null); }}><span className="shop-ammo-art"><ItemArt def={ITEMS[g]!} /></span><span>{item(g)}</span><Icon name="lucide:arrow-right" /></button>)}</div></>}
+      {spec && <dl className="shop-stats"><div><dt>{t('tip.weight')}</dt><dd>{spec.weight} kg</dd></div><div><dt>Tốc độ</dt><dd>{Math.round(weaponSpeedFactor(WEAPON_BY_ITEM[def.id] ?? 0) * 100)}%</dd></div><div><dt>Thể lực</dt><dd>+{Math.round((weaponStaminaFactor(WEAPON_BY_ITEM[def.id] ?? 0) - 1) * 100)}%</dd></div>{spec.kind === 'melee' && !!spec.decapitationChance && <div><dt>{t('tip.decapitation')}</dt><dd>{Math.round(spec.decapitationChance * 100)}%</dd></div>}{gun?.scope && <div><dt>Ống ngắm</dt><dd>{gun.scope}×</dd></div>}</dl>}
       {gun && <><dl className="shop-stats"><div><dt>Sát thương</dt><dd>{gun.damage}{gun.pellets > 1 ? ` × ${gun.pellets}` : ''}</dd></div><div><dt>Băng đạn</dt><dd>{gun.magazine} viên</dd></div><div><dt>Tầm bắn</dt><dd>{gun.range} m</dd></div><div><dt>Nạp đạn</dt><dd>{gun.reloadMs / 1000} s</dd></div></dl>
-        {WEAPON_ATTACHMENTS[def.id] && <button type="button" className="btn shop-view-attachments" onClick={() => { setMode('buy'); setTab('attachments'); setFitFor(def.id); setSelected(''); }}><Icon name="lucide:scan-eye" /> Xem phụ kiện lắp được</button>}
-        <h4>Đạn tương thích</h4><div className="shop-compatible">{ammo.map(d => <button key={d.id} onClick={() => { setMode('buy'); setTab('ammo'); setSelected(d.id); }}><span className="shop-ammo-art"><ItemArt def={d} /></span><span>{item(d.id)}<small>{d.ammo!.capacity} viên / hộp</small></span><Icon name="lucide:arrow-right" /></button>)}{!ammo.length && <p>Chưa có hộp đạn tương thích.</p>}</div>
+        {WEAPON_ATTACHMENTS[def.id] && <button type="button" className="btn shop-view-attachments" onClick={() => { setMode('buy'); setTab('attachments'); setFitFor(def.id); setSelected(''); }}><Icon name="lucide:scan-eye" /> Phụ kiện</button>}
+        <h4><Icon name="game-icons:bullets" /> Đạn</h4><div className="shop-compatible">{ammo.map(d => <button key={d.id} onClick={() => { setMode('buy'); setTab('ammo'); setSelected(d.id); }}><span className="shop-ammo-art"><ItemArt def={d} /></span><span>{item(d.id)}<small>×{d.ammo!.capacity}</small></span><Icon name="lucide:arrow-right" /></button>)}{!ammo.length && <p>—</p>}</div>
       </>}
     </aside>}</div>
   </section>;
@@ -864,9 +863,9 @@ export function WaveShopPanel({ state, store, waves, selfId, onBuy, onReady, onC
   return <div className="wave-shop-backdrop" role="dialog" aria-modal="true" aria-label="Cửa hàng">
     <div className="wave-shop">
       <header className="wave-shop-head">
-        <div><small>Đã qua đợt {waves.cleared}</small><h2>Cửa hàng</h2></div>
+        <div><small title="Đợt đã qua"><Icon name="lucide:check" /> {waves.cleared}</small><h2>Cửa hàng</h2></div>
         <Cash n={me?.cash ?? 0} className="wave-shop-cash" />
-        <span className="wave-shop-timer" title="Đợt sau tự bắt đầu khi hết giờ">Đợt {waves.wave} sau {Math.ceil(left / 1000)} giây</span>
+        <span className="wave-shop-timer" title={`Đợt ${waves.wave} tự bắt đầu khi hết giờ`}><Icon name="lucide:timer" /> {Math.ceil(left / 1000)}s</span>
         <button className="inv-close" aria-label="Đóng cửa hàng (B để mở lại)" onClick={onClose}><Icon name="lucide:x" /></button>
       </header>
       <div className="wave-shop-body"><ShopPanel state={state} store={store} coins={0} wave={{ stock, cash: me?.cash ?? 0, onBuy }} /></div>
@@ -878,7 +877,7 @@ export function WaveShopPanel({ state, store, waves, selfId, onBuy, onReady, onC
           </li>)}
         </ul>
         <button className={`btn btn-primary wave-shop-ready${me?.ready ? ' on' : ''}`} onClick={() => onReady(!me?.ready)}>
-          {me?.ready ? 'Đã sẵn sàng · bấm để huỷ' : 'Sẵn sàng'}
+          {me?.ready ? 'Đã sẵn sàng' : 'Sẵn sàng'}
         </button>
       </footer>
     </div>

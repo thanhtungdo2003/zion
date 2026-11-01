@@ -24,7 +24,7 @@ export function InfectionHud({ state, health, onLeave, sniffUntil = 0, sniffRead
       {state.infected && (
         <div className={`ifx-skill${now < sniffUntil ? ' on' : now < sniffReadyAt ? ' wait' : ''}`} role="status" aria-label="Kỹ năng đánh hơi">
           <kbd>Q</kbd><b>Đánh hơi</b>
-          <small>{now < sniffUntil ? `${Math.ceil((sniffUntil - now) / 1000)} s` : now < sniffReadyAt ? `hồi ${Math.ceil((sniffReadyAt - now) / 1000)} s` : 'sẵn sàng · 10 m'}</small>
+          <small>{now < sniffUntil ? `${Math.ceil((sniffUntil - now) / 1000)} s` : now < sniffReadyAt ? <><Icon name="lucide:timer" /> {Math.ceil((sniffReadyAt - now) / 1000)} s</> : <><Icon name="lucide:check" /> 10 m</>}</small>
         </div>
       )}
       <div className={`ifx-score${state.infected ? ' zombie' : ''}`} role="status" aria-label={`${state.humans} người, ${state.zombies} zombie`}>
@@ -39,30 +39,29 @@ export function InfectionHud({ state, health, onLeave, sniffUntil = 0, sniffRead
       {state.phase === 'waiting' && (
         <div className="ifx-banner" role="status">
           <Icon name="lucide:users" />
-          <span>Đang ghép trận · {state.players}/{Math.max(2, state.rules.minPlayers)} người</span>
-          <b>…</b>
-          <small>Trận bắt đầu khi đủ {Math.max(2, state.rules.minPlayers)} người chơi</small>
+          <span>Đang ghép trận</span>
+          <b>{state.players}/{Math.max(2, state.rules.minPlayers)}</b>
         </div>
       )}
       {state.phase === 'countdown' && (
         <div className="ifx-banner" role="status">
           <Icon name="game-icons:biohazard" />
-          <span>Mầm bệnh bùng phát sau khi trận bắt đầu</span>
+          <span>Bùng phát sau</span>
           <b>{Math.ceil(left / 1000)}</b>
           <small><kbd>E</kbd> chọn vũ khí</small>
         </div>
       )}
       {state.phase === 'running' && state.infected && respawn === null && health > 0 && (
-        <div className="ifx-tag" role="status"><Icon name="game-icons:shambling-zombie" /> Bạn là zombie · một nhát rìu là lây nhiễm</div>
+        <div className="ifx-tag" role="status" title="Một nhát rìu là lây nhiễm"><Icon name="game-icons:shambling-zombie" /> Bạn là zombie</div>
       )}
       {respawn !== null && (
-        <div className="ifx-banner dead" role="status"><Icon name="lucide:skull" /><span>Zombie sẽ trỗi dậy sau</span><b>{Math.ceil(respawn / 1000)}</b></div>
+        <div className="ifx-banner dead" role="status"><Icon name="lucide:skull" /><span>Trỗi dậy sau</span><b>{Math.ceil(respawn / 1000)}</b></div>
       )}
       {state.phase === 'finished' && state.winner && (
         <div className={`ifx-result ${state.winner}`} role="status">
           <Icon name={state.winner === 'humans' ? 'lucide:shield' : 'game-icons:shambling-zombie'} />
           <h2>{state.winner === 'humans' ? 'Con người chiến thắng' : 'Zombie chiến thắng'}</h2>
-          <p>{state.over ? 'Trận đấu kết thúc' : `Vòng ${state.round + 1}/${state.rounds} bắt đầu sau ${Math.ceil(left / 1000)} giây`}</p>
+          <p>{state.over ? 'Hết trận' : <>Vòng {state.round + 1}/{state.rounds} · <Icon name="lucide:timer" /> {Math.ceil(left / 1000)}s</>}</p>
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>
       )}

@@ -35,20 +35,20 @@ export function LeaderboardModal({ onClose }: { onClose: () => void }) {
       if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }}>
-      <header className="set-head"><div><small>ZION // TOP 50</small><h2 id="leaderboard-title"><Icon name="lucide:trophy" /> Bảng xếp hạng</h2></div><button className="btn" aria-label="Đóng bảng xếp hạng" onClick={onClose}><Icon name="lucide:x" /></button></header>
+      <header className="set-head"><div><h2 id="leaderboard-title"><Icon name="lucide:trophy" /> Bảng xếp hạng</h2></div><button className="btn" aria-label="Đóng bảng xếp hạng" onClick={onClose}><Icon name="lucide:x" /></button></header>
       <div className="set-tabs" aria-label="Loại bảng xếp hạng">
         <button aria-pressed={tab === 'individuals'} onClick={() => setTab('individuals')}>Cá nhân</button>
         <button aria-pressed={tab === 'teams'} onClick={() => setTab('teams')}>Đội nhóm</button>
       </div>
-      <p className="leaderboard-note">{tab === 'individuals' ? 'Xếp theo điểm tiến trình tích lũy của từng người chơi. Hoàn thành nhiệm vụ để thăng hạng; tử vong làm giảm điểm.' : 'Xếp theo tổng điểm tiến trình của các thành viên hiện tại trong đội, tại thế giới này.'}</p>
+      <p className="leaderboard-note" title={tab === 'individuals' ? 'Điểm tiến trình: nhiệm vụ cộng, tử vong trừ' : 'Tổng điểm tiến trình của các thành viên'}>{tab === 'individuals' ? <><Icon name="lucide:scroll-text" /> + · <Icon name="lucide:skull" /> −</> : <><Icon name="lucide:users" /> Σ</>}</p>
       <div className="leaderboard-content" aria-live="polite" aria-busy={!data && !error}>
-        {error ? <div className="shop-empty"><p role="alert">{error}</p><button className="btn" onClick={() => setAttempt(n => n + 1)}>Thử lại</button></div> : !data ? <Spinner /> : !data[tab].length ? <p className="shop-empty">{tab === 'teams' ? 'Chưa có đội nhóm nào.' : 'Chưa có người chơi được xếp hạng.'}</p> : <table className="leaderboard-table">
+        {error ? <div className="shop-empty"><p role="alert">{error}</p><button className="btn" onClick={() => setAttempt(n => n + 1)}>Thử lại</button></div> : !data ? <Spinner /> : !data[tab].length ? <p className="shop-empty">—</p> : <table className="leaderboard-table">
           <caption className="leaderboard-note">{tab === 'individuals' ? 'Top 50 người chơi' : 'Top 50 đội nhóm'}</caption>
           <thead><tr><th scope="col">Hạng</th><th scope="col">{tab === 'individuals' ? 'Người chơi' : 'Đội nhóm'}</th><th scope="col">{tab === 'individuals' ? 'Quân hàm' : 'Thành viên'}</th></tr></thead>
           <tbody>{tab === 'individuals' ? data.individuals.map(r => <tr key={r.position} data-top={r.position <= 3}><td>#{r.position}</td><th scope="row">{r.name}</th><td><RankBadge rank={r.rank} /> {r.rank.title}</td></tr>) : data.teams.map(r => <tr key={r.position} data-top={r.position <= 3}><td>#{r.position}</td><th scope="row">{r.name}</th><td>{r.members}/5</td></tr>)}</tbody>
         </table>}
       </div>
-      <footer className="leaderboard-footer"><small>Dữ liệu cập nhật mỗi lần mở bảng.</small><button className="btn" onClick={() => setAttempt(n => n + 1)} disabled={!data && !error}>Làm mới</button></footer>
+      <footer className="leaderboard-footer"><button className="btn" onClick={() => setAttempt(n => n + 1)} disabled={!data && !error}><Icon name="lucide:refresh-cw" /> Làm mới</button></footer>
     </div>
   </div>;
 }

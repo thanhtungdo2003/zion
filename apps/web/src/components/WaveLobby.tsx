@@ -57,8 +57,8 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
 
   const others = team?.members.filter((m) => m.accountId !== team.leaderId) ?? [];
   const waiting = others.filter((m) => !m.ready || !m.online);
-  const reason = !maps ? 'Đang tải bản đồ…' : !maps.length ? 'Chưa có bản đồ nào hỗ trợ chế độ này.' : !map ? (mode === 'friends' && team ? 'Đội trưởng cần chọn bản đồ.' : 'Chọn một bản đồ.')
-    : mode === 'friends' && !team ? 'Tạo phòng hoặc nhập mã để vào phòng của bạn bè.'
+  const reason = !maps ? 'Đang tải…' : !maps.length ? 'Chưa có bản đồ.' : !map ? (mode === 'friends' && team ? 'Chờ chủ phòng chọn bản đồ.' : 'Chọn bản đồ.')
+    : mode === 'friends' && !team ? 'Tạo phòng hoặc nhập mã.'
       : mode === 'friends' && !leader ? null
         : mode === 'friends' && waiting.length ? `Chờ ${waiting.map((m) => m.name).join(', ')} sẵn sàng.` : null;
 
@@ -80,7 +80,6 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
         <header>
           <Icon name="game-icons:shambling-zombie" />
           <h2 id="wave-lobby-title">Sinh tồn theo đợt</h2>
-          <span className="wave-lobby-sub">Cầm cự qua những đợt xác sống ngày càng đông</span>
           <button className="btn wave-lobby-board-btn" onClick={() => setBoardOpen(true)}><Icon name="lucide:trophy" /> Bảng xếp hạng</button>
           <button className="inv-close" aria-label="Đóng" onClick={onClose}><Icon name="lucide:x" /></button>
         </header>
@@ -89,8 +88,8 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
           {(['friends', 'bots'] as const).map((m) => (
             <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} disabled={starting} onClick={() => setMode(m)}>
               <Icon name={m === 'friends' ? 'lucide:users' : 'lucide:bot'} />
-              <b>{m === 'friends' ? 'Chơi cùng bạn bè' : 'Chơi cùng bot'}</b>
-              <small>{m === 'friends' ? 'Tối đa 4 người chơi thật' : 'Một mình, thêm 0–3 bot'}</small>
+              <b>{m === 'friends' ? 'Bạn bè' : 'Bot'}</b>
+              <small>{m === 'friends' ? `1–${WAVE_TEAM_LIMIT}` : `0–${WAVE_MAX_BOTS}`}</small>
             </button>
           ))}
           <i className={`wave-switch-thumb ${mode}`} aria-hidden />
@@ -101,7 +100,7 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
             if (mode === 'bots') {
               if (i === 0) return <Slot key={i} kind="leader" name={self} status="Sẵn sàng" self />;
               if (i <= bots) return <Slot key={i} kind="bot" name={BOT_NAMES[i - 1]!} status="Bot · sẵn sàng" onRemove={i === bots ? () => setBots(bots - 1) : undefined} />;
-              return <Slot key={i} kind="empty" name="Thêm bot" status={i === bots + 1 ? 'Bấm để thêm' : 'Trống'} onClick={i === bots + 1 ? () => setBots(bots + 1) : undefined} />;
+              return <Slot key={i} kind="empty" name="Thêm bot" status={i === bots + 1 ? '+' : 'Trống'} onClick={i === bots + 1 ? () => setBots(bots + 1) : undefined} />;
             }
             const member = team ? [team.members.find((m) => m.accountId === team.leaderId)!, ...others][i] : i === 0 ? { accountId: me ?? '', name: self, ready: true, online: true } : undefined;
             if (member) {
@@ -111,7 +110,7 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
                 ready={isLeader || member.ready} offline={'online' in member && !member.online}
                 onRemove={leader && !isLeader ? () => { void onAction({ op: 'kick', accountId: member.accountId }); } : undefined} />;
             }
-            return <Slot key={i} kind="empty" name={team ? 'Mời bạn bè' : 'Trống'} status={team ? `Mã phòng ${team.code}` : 'Tạo phòng để mời'}
+            return <Slot key={i} kind="empty" name={team ? 'Mời' : 'Trống'} status={team ? team.code : ''}
               onClick={team ? () => { void navigator.clipboard?.writeText(team.code).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }); } : undefined} />;
           })}
         </div>
@@ -120,26 +119,25 @@ export function WaveLobby({ lobby, busy, error, onAction, onPlay, onClose }: {
           {!team ? <>
             <button className="btn btn-primary" disabled={busy} onClick={() => { void onAction({ op: 'create', name: `Đội của ${self}`.slice(0, 24), public: false }); }}><Icon name="lucide:plus" /> Tạo phòng</button>
             <form onSubmit={(e) => { e.preventDefault(); if (/^[A-Fa-f0-9]{8}$/.test(code)) void onAction({ op: 'join', code }); }}>
-              <input value={code} onChange={(e) => setCode(e.target.value.trim().toUpperCase())} maxLength={8} placeholder="Mã phòng (8 ký tự)" aria-label="Mã phòng" />
+              <input value={code} onChange={(e) => setCode(e.target.value.trim().toUpperCase())} maxLength={8} placeholder="Mã phòng" aria-label="Mã phòng" />
               <button className="btn" type="submit" disabled={busy || !/^[A-F0-9]{8}$/.test(code)}>Vào phòng</button>
             </form>
           </> : <>
             <span>Mã phòng <code>{team.code}</code> {copied && <em>đã chép</em>}</span>
-            <small>Gửi mã cho bạn bè để họ vào phòng ở sảnh này.</small>
             <VoiceControls kind="waves" />
             <button className="btn" disabled={busy} onClick={() => { void onAction({ op: 'leave' }); }}><Icon name="lucide:log-out" /> Rời phòng</button>
           </>}
         </div>}
 
         <div className="wave-maps" aria-label="Bản đồ">
-          <h3>Bản đồ {mode === 'friends' && team && !leader && <small>· do chủ phòng chọn</small>}</h3>
-          {mapError ? <p className="error">{mapError}</p> : !maps ? <p className="wave-maps-empty"><Spinner /> Đang tải…</p> : !maps.length ? <p className="wave-maps-empty">Chưa có bản đồ nào được phát hành cho chế độ này.</p> : (
+          <h3>Bản đồ {mode === 'friends' && team && !leader && <small title="Chủ phòng chọn"><Icon name="lucide:crown" /></small>}</h3>
+          {mapError ? <p className="error">{mapError}</p> : !maps ? <p className="wave-maps-empty"><Spinner /> Đang tải…</p> : !maps.length ? <p className="wave-maps-empty"><Icon name="lucide:map" /> 0</p> : (
             <div className="wave-map-row">
               {maps.map((m) => (
                 <button key={m.id} className={`wave-map${m.id === map ? ' on' : ''}`} aria-pressed={m.id === map} disabled={starting || (mode === 'friends' && !!team && !leader)} onClick={() => pickMap(m.id)}>
                   <span style={{ backgroundImage: `url(${m.thumbnail ?? FALLBACK_IMAGE})` }} />
                   <b>{m.name}</b>
-                  <small>{m.players ? `${m.players} người đang chơi` : 'Thị trấn có tường bao'}</small>
+                  <small title={`${m.players} đang chơi`}><Icon name="lucide:users" /> {m.players}</small>
                 </button>
               ))}
             </div>
@@ -203,7 +201,7 @@ export function WaveBoards({ maps, initialMap, onClose }: { maps: BattleMapInfo[
       <section className="mode-modal wave-boards" role="dialog" aria-modal="true" aria-labelledby="wave-boards-title">
         <header>
           <Icon name="lucide:trophy" />
-          <h2 id="wave-boards-title">Bảng xếp hạng sinh tồn</h2>
+          <h2 id="wave-boards-title">Bảng xếp hạng</h2>
           <select value={map} onChange={(e) => setMap(e.target.value)} aria-label="Bản đồ">
             {maps.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
@@ -222,7 +220,7 @@ export function WaveBoards({ maps, initialMap, onClose }: { maps: BattleMapInfo[
         <div className="wave-board-table" role="table" aria-label="Kết quả">
           <div className="br-row br-row-head" role="row"><span>Hạng</span><span>Đội</span><span>Đợt</span><span>Thời gian</span></div>
           {!map ? <p className="wave-maps-empty">Chưa có bản đồ.</p> : error ? <p className="error">{error}</p> : !data ? <p className="wave-maps-empty"><Spinner /> Đang tải…</p>
-            : !data.rows.length ? <p className="wave-maps-empty">Chưa có thành tích nào trên bảng này. Hãy là người đầu tiên!</p>
+            : !data.rows.length ? <p className="wave-maps-empty">—</p>
               : data.rows.map((r) => (
                 <div key={r.position} role="row" className={`br-row${r.position <= 3 ? ' top' : ''}`}>
                   <span className="br-place">#{r.position}</span>

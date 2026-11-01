@@ -163,8 +163,8 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
           <canvas ref={compass} className="hud-compass" aria-label="La bàn" />
           <div className="hud-panel hud-minimap">
             <button className="hud-minimap-open" onClick={onOpenMap} title="Bản đồ lớn (M)" aria-label="Mở bản đồ lớn"><canvas ref={minimap} width={192} height={192} /><i className="hud-minimap-me" aria-hidden /></button>
-            {state.mode === 'survival' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title="Chỉ gây sát thương cho người chơi khác đội khi bật đồ sát">
-              <Icon name="lucide:swords" /> {state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} <small>{state.pvpRemaining}s</small>
+            {state.mode === 'survival' && state.pvpRemaining > 0 && state.status === 'playing' && <button data-guide="pvp" className={`hud-pvp ${state.pvpEnabled ? 'active' : ''}`} aria-pressed={state.pvpEnabled} disabled={state.downed !== null} onClick={() => onPvp(!state.pvpEnabled)} title={state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'} aria-label={state.pvpEnabled ? 'Tắt đồ sát' : 'Bật đồ sát'}>
+              <Icon name="lucide:swords" /> <small>{state.pvpRemaining}s</small>
             </button>}
             {state.mode === 'survival' && <div className="hud-clock">
               <b>{clock(state.timeOfDay)}</b>
@@ -205,8 +205,8 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
               if (!exhausted && !starving && !hungry) return null;
               return (
                 <div className="hud-alerts">
-                  {exhausted && <div className="hud-alert danger"><b>Hết thể lực</b> Không thể chạy và lộn — đứng nghỉ để hồi.</div>}
-                  {(hungry || starving) && <div className={`hud-alert ${starving ? 'danger' : ''}`}><b>{starving ? 'Rất đói' : 'Đang đói'}</b> Ăn đồ chín để bổ sung năng lượng (chuột phải vào thức ăn).</div>}
+                  {exhausted && <div className="hud-alert danger" title="Đứng nghỉ để hồi"><Icon name="lucide:battery-low" /><b>Hết thể lực</b></div>}
+                  {(hungry || starving) && <div className={`hud-alert ${starving ? 'danger' : ''}`} title="Chuột phải vào thức ăn để ăn"><Icon name="lucide:utensils" /><b>{starving ? 'Rất đói' : 'Đang đói'}</b></div>}
                 </div>
               );
             })()}
@@ -302,11 +302,10 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
       {state.status === 'playing' && !state.pointerLocked && !chatOpen && !inventoryOpen && (
         <div className="overlay" onClick={onResume}>
           <div className="overlay-card pause-card">
-            <span className="overlay-kicker">ZION // {t('pause.title')}</span>
-            <h2>{t('pause.title')}</h2>
+                        <h2>{t('pause.title')}</h2>
             <div className="keys">
               <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> {t('keys.move')} · <kbd>Shift</kbd> {t('keys.sprint')} · <kbd>Space</kbd>{' '}
-              {t('keys.jump')} · <kbd>{rollKeyLabel(rollKey)}</kbd> {t('keys.roll')} · <kbd>{rollKeyLabel(proneKey)}</kbd> {t('keys.prone')} · <kbd>X</kbd> ngồi · Chuột phải ở mép tường: tự nghiêng người · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Tab</kbd> đổi súng · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
+              {t('keys.jump')} · <kbd>{rollKeyLabel(rollKey)}</kbd> {t('keys.roll')} · <kbd>{rollKeyLabel(proneKey)}</kbd> {t('keys.prone')} · <kbd>X</kbd> ngồi · <kbd>E</kbd> {t('keys.inventory')} · <kbd>Tab</kbd> đổi súng · <kbd>Wheel</kbd>/<kbd>1</kbd>-<kbd>9</kbd>{' '}
               {t('keys.weapon')}
               <br />
               <kbd>Mouse</kbd> {t('keys.aim')} · <kbd>LMB</kbd> {t('keys.shoot')} · <kbd>RMB</kbd> {t('keys.scope')} · <kbd>R</kbd>{' '}
@@ -379,7 +378,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
         <div className={`hud-ammo${state.ammo.mag === 0 ? ' empty' : state.ammo.mag <= Math.ceil(state.ammo.max * .25) ? ' low' : ''}`} role="status" aria-label={`Đạn ${state.ammo.mag} trên ${state.ammo.reserve}`}>
           <div className="hud-ammo-count"><b>{state.ammo.mag}</b><span>/ {state.ammo.reserve}</span></div>
           <div className="hud-ammo-pips" aria-hidden>{Array.from({ length: Math.min(state.ammo.max, 40) }, (_, i) => <i key={i} className={i < state.ammo!.mag ? 'on' : undefined} />)}</div>
-          {state.ammo.reload !== null ? <div className="hud-ammo-reload"><span style={{ transform: `scaleX(${state.ammo.reload})` }} /><small>Đang thay đạn</small></div>
+          {state.ammo.reload !== null ? <div className="hud-ammo-reload"><span style={{ transform: `scaleX(${state.ammo.reload})` }} /><small aria-label="Đang thay đạn"><Icon name="lucide:refresh-cw" /></small></div>
             : state.ammo.mag === 0 ? <small className="hud-ammo-hint">{state.ammo.reserve > 0 ? <><kbd>R</kbd> Thay đạn</> : 'Hết đạn'}</small> : null}
         </div>
       )}
@@ -390,7 +389,7 @@ export function Hud({ state, onMinimap, onCompass, onOpenMap, onChatOpen, onChat
       )}
       {state.status === 'dead' && state.mode === 'battle-royale' && state.spectating && resultsClosed && (
         <div className="hud-spectate" role="status">
-          <span>Bạn đã bị loại · {state.spectatingKiller ? 'Đang theo dõi người hạ bạn' : 'Đang theo dõi đồng đội'}</span>
+          <span title={state.spectatingKiller ? 'Đang theo dõi người hạ bạn' : 'Đang theo dõi đồng đội'}><Icon name="lucide:eye" /> <Icon name={state.spectatingKiller ? 'lucide:skull' : 'lucide:users'} /></span>
           <b>{state.spectating}</b>
           <button className="btn" onClick={onLeave}>Về sảnh</button>
         </div>

@@ -104,7 +104,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
   const sel = list.find((q) => q.id === selId) ?? list.find((q) => q.status !== 'claimed') ?? null;
   const busy = usePending();
   const qBusy = !!sel && busy(`quest:${sel.id}`);
-  const line = !sel ? tab === 'team' ? 'Tập hợp đội của các cậu ở sảnh. Ta có những chuyến đi cần cả đội phối hợp; đội trưởng hãy đến nhận lệnh.' : 'Hiện ta chưa có việc gì cho cậu. Quay lại sau nhé.'
+  const line = !sel ? tab === 'team' ? 'Đội trưởng hãy đến nhận lệnh.' : 'Hiện ta chưa có việc gì cho cậu.'
     : sel.status === 'ready' ? sel.dialogue.complete
     : sel.status === 'active' ? sel.dialogue.progress
     : sel.status === 'claimed' ? sel.dialogue.complete : sel.dialogue.offer;
@@ -116,7 +116,6 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
       <div className="q-dialog">
         <header className="q-head">
           <div>
-            <span className="q-kicker">Zion // Liên lạc</span>
             <h2>{name}</h2>
           </div>
           <div className="q-tabs" data-guide="npc-tabs">
@@ -131,7 +130,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
           <div className="q-body">
             <nav className="q-list">
               {tab === 'team' && <div className="team-quest-tabs"><button className={teamKind === 'daily' ? 'on' : ''} onClick={() => setTeamKind('daily')}>Hằng ngày</button><button className={teamKind === 'long' ? 'on' : ''} onClick={() => setTeamKind('long')}>Dài hạn</button></div>}
-              {tab === 'team' && !quests.some((q) => q.team) && <div className="q-empty">Tham gia đội ở sảnh chính để mở nhiệm vụ chung. Đội cần ít nhất 2 thành viên.</div>}
+              {tab === 'team' && !quests.some((q) => q.team) && <div className="q-empty" title="Lập đội ở sảnh chính (ít nhất 2 người)"><Icon name="lucide:users" /> 2+</div>}
               {list.length === 0 && <div className="q-empty">Không có nhiệm vụ</div>}
               {list.map((q) => (
                 <button key={q.id} className={`q-entry ${q.status} ${sel?.id === q.id ? 'sel' : ''}`} onClick={() => setSelId(q.id)}>
@@ -152,7 +151,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                     <span className={`q-tag ${sel.kind}`}>{sel.kind === 'daily' ? 'Hằng ngày' : 'Dài hạn'}</span>
                   </div>
                   <p className="q-desc">{sel.description}</p>
-                  {sel.team && <p className="q-desc">Đội trưởng nhận nhiệm vụ khi có ít nhất 2 thành viên. Tiến độ dùng chung; mỗi người tham gia nhận thưởng riêng.{sel.kind === 'daily' ? ' Làm mới lúc 07:00 mỗi ngày (giờ Việt Nam).' : ' Không hết hạn theo ngày.'}</p>}
+                  {sel.team && <p className="q-desc" title="Đội trưởng nhận khi đội có ít nhất 2 người · tiến độ chung · mỗi người nhận thưởng riêng"><Icon name="lucide:users" /> 2+ · <Icon name="lucide:crown" /> Đội trưởng nhận · <Icon name="lucide:refresh-cw" /> {sel.kind === 'daily' ? '07:00' : '∞'}</p>}
                   {sel.status !== 'claimed' && (
                     <div className="q-objective">
                       <span className="q-label">Mục tiêu{sel.stages > 1 ? ` · bước ${Math.min(sel.stage + 1, sel.stages)}/${sel.stages}` : ''}</span>
@@ -182,7 +181,7 @@ export function NpcDialogue({ npc, name, quests, onOp, onClose, trades, owned, c
                 <ItemIcon id={t.item} />
                 <div className="q-trade-name">
                   <b>{itemName(t.item)}</b>
-                  <small>Có {owned(t.item)} · tối đa {t.quota} lần / đợt</small>
+                  <small title={`Có ${owned(t.item)} · tối đa ${t.quota} lần / đợt`}><Icon name="lucide:backpack" /> {owned(t.item)} · <Icon name="lucide:repeat" /> {t.quota}</small>
                 </div>
                 {t.buy > 0 && <button className="btn btn-primary" disabled={coins < t.buy || busy(`trade:${t.id}:buy`)} data-nosound onClick={() => onTrade('buy', t.id)}>{busy(`trade:${t.id}:buy`) ? <Spinner /> : `Mua ${t.buy}`}</button>}
                 {t.sell > 0 && <button className="btn" disabled={owned(t.item) < 1 || busy(`trade:${t.id}:sell`)} onClick={() => onTrade('sell', t.id)}>{busy(`trade:${t.id}:sell`) ? <Spinner /> : `Bán ${t.sell}`}</button>}
@@ -209,8 +208,8 @@ export function StaminaBar({ life }: { life: NonNullable<HudState['life']> }) {
   const total = action.ms || 1;
   const done = Math.max(0, Math.min(1, 1 - (action.end - now) / total));
   return (
-    <div className="q-action">
-      <span>{action.kind === 'plant' ? 'Đang trồng' : action.kind === 'harvest' ? 'Đang thu hoạch' : 'Đang nấu'}</span> <small>di chuyển để hủy</small>
+    <div className="q-action" title="Di chuyển để hủy">
+      <span>{action.kind === 'plant' ? 'Đang trồng' : action.kind === 'harvest' ? 'Đang thu hoạch' : 'Đang nấu'}</span>
       <div className="q-action-bar"><div style={{ width: `${done * 100}%` }} /></div>
     </div>
   );
@@ -236,9 +235,9 @@ export function PlantPanel({ life, items, onPlant }: { life: NonNullable<HudStat
           ))}
         </div>
       ) : (
-        <div className="plant-empty">Không có hạt giống. Mua khoai tây ở Bác Ba.</div>
+        <div className="plant-empty" title="Mua khoai tây ở Bác Ba"><Icon name="lucide:sprout" /> 0</div>
       )}
-      <small>Đứng yên {Math.round(life.config.plantingMs / 1000)} giây để trồng</small>
+      <small title="Đứng yên để trồng"><Icon name="lucide:timer" /> {Math.round(life.config.plantingMs / 1000)}s</small>
     </div>
   );
 }
@@ -273,15 +272,14 @@ export function DownedPanel({ bleed, onHelp, onGiveUp }: { bleed: number; onHelp
     <div className="downed-overlay">
       <div className="downed-card">
         <h2>Đang hấp hối</h2>
-        <p>Chờ đồng đội tới cấp cứu trước khi mất hết máu.</p>
         <div className="downed-bar"><div style={{ width: `${Math.max(0, Math.min(100, bleed))}%` }} /></div>
-        <small>Máu cấp cứu {Math.round(bleed)} · còn khoảng {Math.ceil((bleed / 100) * 60)} giây</small>
+        <small><Icon name="lucide:heart-pulse" /> {Math.round(bleed)} · <Icon name="lucide:timer" /> {Math.ceil((bleed / 100) * 60)}s</small>
         <div className="downed-actions">
           <button className="btn btn-primary" disabled={wait > 0} onClick={() => { setCalledAt(Date.now()); onHelp(); }}>{wait > 0 ? `Đã gọi (${wait}s)` : 'Gọi cấp cứu'}</button>
           <button className="btn q-btn-danger" onClick={() => setAsking(true)}>Tự sát</button>
         </div>
       </div>
-      {asking && <ConfirmDialog title="Tự sát?" message="Bạn sẽ chết ngay, không chờ đồng đội cấp cứu nữa. Mọi nhiệm vụ đang làm sẽ bị hủy và mất vật phẩm nhiệm vụ."
+      {asking && <ConfirmDialog title="Tự sát?" message="Chết ngay. Nhiệm vụ đang làm bị hủy, mất vật phẩm nhiệm vụ."
         confirmLabel="Tự sát" onCancel={() => setAsking(false)} onConfirm={() => { setAsking(false); onGiveUp(); }} />}
     </div>
   );
@@ -297,7 +295,7 @@ export function ReviveBar({ start, end }: { start: number; end: number }) {
   const done = Math.max(0, Math.min(1, (now - start) / Math.max(1, end - start)));
   return (
     <div className="revive-bar">
-      Đang cấp cứu <small>(đứng yên)</small>
+      Đang cấp cứu
       <div><i style={{ width: `${done * 100}%` }} /></div>
     </div>
   );

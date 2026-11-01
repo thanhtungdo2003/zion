@@ -10,14 +10,14 @@ export function Scoreboard({ hud }: { hud: HudState }) {
   const mode = hud.mode, rows = [...hud.scorePlayers];
   const order = (a: typeof rows[number], b: typeof rows[number]) => Number(a.dead) - Number(b.dead) || b.kills - a.kills || a.deaths - b.deaths || a.name.localeCompare(b.name);
   const title = mode === 'battle-royale' ? 'BATTLE ROYALE' : mode === 'infection' ? 'LÂY NHIỄM' : 'SINH TỒN';
-  const sub = mode === 'battle-royale' && hud.battle ? `${hud.battle.alive} còn sống · vòng ${hud.battle.stage}` : `${rows.length} người chơi`;
+  const sub = mode === 'battle-royale' && hud.battle ? `Bo ${hud.battle.stage}` : '';
   const groups = mode === 'infection'
     ? [{ key: 'h', label: 'NGƯỜI SỐNG SÓT', tone: 'human', list: rows.filter((r) => !r.zombie).sort(order) }, { key: 'z', label: 'NGƯỜI BỊ NHIỄM', tone: 'zombie', list: rows.filter((r) => r.zombie).sort(order) }]
     : [{ key: 'all', label: '', tone: '', list: rows.sort(order) }];
   return (
     <div className="scoreboard" role="dialog" aria-label="Bảng người chơi">
       <header>
-        <div><b>{title}</b><small>{sub}</small></div>
+        <div><b>{title}</b>{sub && <small>{sub}</small>}</div>
         <span><Icon name="lucide:users" /> {rows.filter((r) => !r.dead).length}/{rows.length}</span>
       </header>
       {groups.map((g) => (
@@ -37,7 +37,7 @@ export function Scoreboard({ hud }: { hud: HudState }) {
           ))}
         </section>
       ))}
-      <footer>Giữ <kbd>Tab</kbd> để xem</footer>
+      <footer><kbd>Tab</kbd></footer>
     </div>
   );
 }

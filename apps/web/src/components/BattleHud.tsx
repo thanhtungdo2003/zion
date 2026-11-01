@@ -2,6 +2,7 @@
 import { BATTLE_FLIGHT, BATTLE_MAP, type BattleState } from '@zion/shared';
 import type { HudState } from '@/game/hud-store';
 import { BattleResults } from './BattleResults';
+import { Icon } from './Icon';
 
 export function BattleHud({ hud, state, position, onLeave }: { hud: HudState; state: BattleState; position: readonly number[]; onLeave(): void }) {
   const outside = Math.hypot(position[0]! - state.circle.x, position[2]! - state.circle.z) >= state.circle.radius;
@@ -9,16 +10,16 @@ export function BattleHud({ hud, state, position, onLeave }: { hud: HudState; st
   return <>
     {state.phase === 'running' && !state.placement && state.drop && state.drop.phase !== 'landed' && <DropHud state={state} drop={state.drop} />}
     <div className="battle-zone-info" role="status">
-      {state.phase === 'waiting' && <><b>Chờ người chơi</b><span>{state.total}/{BATTLE_MAP.maxPlayers} · cần {BATTLE_MAP.minPlayers} người{state.remainingMs > 0 ? ` · tự bắt đầu sau ${Math.ceil(state.remainingMs / 1000)}s` : ''}</span></>}
-      {state.phase === 'countdown' && <><b>Bắt đầu sau</b><span>{seconds}s · {state.total} người</span></>}
+      {state.phase === 'waiting' && <><b title={`Cần ${BATTLE_MAP.minPlayers} người`}><Icon name="lucide:users" /> {state.total}/{BATTLE_MAP.maxPlayers}</b>{state.remainingMs > 0 && <span><Icon name="lucide:timer" /> {Math.ceil(state.remainingMs / 1000)}s</span>}</>}
+      {state.phase === 'countdown' && <><b><Icon name="lucide:timer" /> {seconds}s</b><span><Icon name="lucide:users" /> {state.total}</span></>}
       {(state.phase === 'waiting' || state.phase === 'countdown') && !!state.lobbyNames?.length && <ul className="battle-lobby-names" aria-label="Người trong sảnh chờ">
         {state.lobbyNames.map((name, i) => <li key={`${name}-${i}`}>{name}</li>)}
       </ul>}
       {state.phase === 'running' && <>
-        <div><span>Còn sống</span><b>{state.alive}/{state.total}</b></div>
-        <div><span>Bo {state.stage}</span><b className={state.shrinking ? 'shrinking' : undefined}>{state.shrinking ? 'Đang thu' : 'Thu sau'} {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</b></div>
-        {outside && !state.placement && <strong>Ngoài bo · −{state.damagePerSecond} máu/s</strong>}
-        {state.placement && state.phase === 'running' && <span>Đã bị loại · #{state.placement}</span>}
+        <div title="Còn sống"><span><Icon name="lucide:users" /></span><b>{state.alive}/{state.total}</b></div>
+        <div title={state.shrinking ? 'Bo đang thu' : 'Bo thu sau'}><span>Bo {state.stage}</span><b className={state.shrinking ? 'shrinking' : undefined}><Icon name={state.shrinking ? 'lucide:shrink' : 'lucide:timer'} /> {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</b></div>
+        {outside && !state.placement && <strong title="Ngoài bo"><Icon name="lucide:triangle-alert" /> −{state.damagePerSecond}/s</strong>}
+        {state.placement && state.phase === 'running' && <span title="Đã bị loại"><Icon name="lucide:skull" /> #{state.placement}</span>}
       </>}
     </div>
     {state.phase === 'finished' && <BattleResults hud={hud} onLeave={onLeave} />}
@@ -48,9 +49,9 @@ function DropHud({ state, drop }: { state: BattleState; drop: NonNullable<Battle
     </div>
     <div className="battle-drop-strip" role="note">
       <b>{label}</b>
-      {drop.phase === 'boarding' && <><span><kbd>Space</kbd> Nhảy</span><span><kbd>M</kbd> Chọn điểm nhảy</span><small>Tự nhảy sau {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</small></>}
-      {drop.phase === 'falling' && <><span><kbd>WASD</kbd> Lướt</span><span><kbd>Shift</kbd> Lao nhanh</span>{(drop.deployIn ?? 0) > 0 ? <span className="battle-drop-wait">Bung dù sau {Math.ceil(drop.deployIn!)}s</span> : <span><kbd>Space</kbd> Bung dù</span>}<small>Tự bung ở {BATTLE_FLIGHT.autoDeployHeight} m</small></>}
-      {drop.phase === 'parachute' && <><span><kbd>WASD</kbd> Lượn dù</span><small>Tự thu dù khi chạm đất</small></>}
+      {drop.phase === 'boarding' && <><span><kbd>Space</kbd> Nhảy</span><span><kbd>M</kbd> Điểm nhảy</span><small><Icon name="lucide:timer" /> {Math.ceil((state.plane?.remainingMs ?? 0) / 1000)}s</small></>}
+      {drop.phase === 'falling' && <><span><kbd>WASD</kbd> Lướt</span><span><kbd>Shift</kbd> Lao nhanh</span>{(drop.deployIn ?? 0) > 0 ? <span className="battle-drop-wait"><Icon name="lucide:timer" /> {Math.ceil(drop.deployIn!)}s</span> : <span><kbd>Space</kbd> Bung dù</span>}<small title="Tự bung dù"><Icon name="game-icons:parachute" /> {BATTLE_FLIGHT.autoDeployHeight} m</small></>}
+      {drop.phase === 'parachute' && <span><kbd>WASD</kbd> Lượn dù</span>}
     </div>
   </>;
 }

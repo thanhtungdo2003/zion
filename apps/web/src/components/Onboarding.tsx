@@ -69,22 +69,22 @@ type Target = 'quest' | 'shop' | 'gate';
 interface Step { title: string; text: string; focus?: string; walk?: Target; wait?: 'quest' }
 
 const steps: Step[] = [
-  { title: 'Chào mừng đến ZION', text: 'Mình là Cattail, người đồng hành của bạn. Bạn có 100 coin, GL18, hai lựu đạn, năm củ khoai chín, một củ khoai sống và một kit cứu thương. Cùng làm quen nơi trú ẩn nhé!' },
-  { title: 'Sức khỏe và thể lực', text: 'Đây là máu và thể lực. Máu về 0 sẽ khiến bạn gục ngã. Shift để chạy, Q để lướt, C để nằm hoặc đứng dậy; đứng nghỉ hồi thể lực. Khi nằm, bảng tên được ẩn và zombie khó phát hiện hơn. Ăn khoai chín trong túi để bổ sung năng lượng, H để dùng kit cứu thương.', focus: '.hud-health' },
-  { title: 'Vũ khí của bạn', text: 'Đây là vùng vũ khí và số đạn. Dùng các phím số để đổi vũ khí, chuột trái để bắn và R để nạp đạn. Bạn cần mua thêm hộp đạn đúng loại sau khi dùng hết băng GL18.', focus: '.hotbar' },
-  { title: 'Giáp bảo vệ', text: 'Mũ, áo giáp, quần và giày nằm ở đây. Trang bị giáp từ túi đồ để giảm sát thương; kiểm tra độ bền thường xuyên.', focus: '.armor-hud' },
-  { title: 'Đến gặp người giao nhiệm vụ', text: 'Dùng W A S D di chuyển theo mũi tên chỉ hướng. Đến gần người giao nhiệm vụ rồi nhấn E để nói chuyện.', walk: 'quest' },
-  { title: 'Nhận nhiệm vụ đầu tiên', text: 'Trong cuộc hội thoại, chọn một nhiệm vụ đang mở và bấm Nhận nhiệm vụ. Mục tiêu sẽ xuất hiện trên màn hình; hoàn thành rồi quay lại NPC nhận thưởng.', focus: '.q-dialog', wait: 'quest' },
-  { title: 'Ghé cửa hàng vũ khí', text: 'Tiếp tục theo mũi tên đến người bán súng. Đứng gần rồi nhấn E: bạn có thể mua súng, đạn và bán vật phẩm ở đây.', walk: 'shop' },
-  { title: 'Cổng ra ngoài', text: 'Đi đến cổng phía nam theo mũi tên. Đây là lối ra khỏi khu trú ẩn. Bên ngoài có zombie: chuẩn bị đạn, thức ăn và thuốc trước khi rời trại.', walk: 'gate' },
-  { title: 'Bạn đã sẵn sàng', text: 'Bạn đã biết cách nhận nhiệm vụ, mua vũ khí và tìm lối ra. Rương gỗ ngoài bản đồ có thể lục soát để tìm đồ. Chúc bạn sống sót, người bạn mới!' },
+  { title: 'ZION', text: '100 coin · GL18 · 2 lựu đạn · 5 khoai chín · 1 khoai sống · 1 kit cứu thương.' },
+  { title: 'Máu · thể lực', text: 'Shift chạy · Q lướt · C nằm/đứng · H kit cứu thương · ăn để hồi năng lượng.', focus: '.hud-health' },
+  { title: 'Vũ khí', text: '1–4 đổi súng · chuột trái bắn · R nạp đạn.', focus: '.hotbar' },
+  { title: 'Giáp', text: 'Mũ · áo · quần · giày: giảm sát thương, xem độ bền.', focus: '.armor-hud' },
+  { title: 'Nhiệm vụ', text: 'WASD theo mũi tên · E để nói chuyện.', walk: 'quest' },
+  { title: 'Nhận nhiệm vụ', text: 'Chọn nhiệm vụ · Nhận nhiệm vụ · xong quay lại nhận thưởng.', focus: '.q-dialog', wait: 'quest' },
+  { title: 'Kho vũ khí', text: 'Theo mũi tên · E: mua súng, đạn, bán đồ.', walk: 'shop' },
+  { title: 'Cổng nam', text: 'Bên ngoài có zombie: mang đạn, thức ăn, thuốc.', walk: 'gate' },
+  { title: 'Sẵn sàng', text: 'Lục rương gỗ ngoài bản đồ để tìm đồ.' },
 ];
 
 /** Shown as a banner when the player reaches each guided location. */
-const ZONES: Record<Target, { code: string; name: string; text: string; reach: number }> = {
-  quest: { code: 'SEC-01', name: 'Trạm nhiệm vụ', text: 'Nơi người sống sót giao việc. Hoàn thành nhiệm vụ để nhận coin, vật phẩm và kinh nghiệm.', reach: 3 },
-  shop: { code: 'SEC-02', name: 'Kho vũ khí', text: 'Mua súng, đạn và bán chiến lợi phẩm. Kiểm tra đúng loại đạn trước khi rời trại.', reach: 3 },
-  gate: { code: 'SEC-03', name: 'Cổng nam', text: 'Ranh giới an toàn cuối cùng. Phía ngoài là vùng nhiễm: zombie, rương tiếp tế và nguy hiểm.', reach: 5 },
+const ZONES: Record<Target, { icon: string; name: string; reach: number }> = {
+  quest: { icon: 'lucide:scroll-text', name: 'Trạm nhiệm vụ', reach: 3 },
+  shop: { icon: 'game-icons:ammo-box', name: 'Kho vũ khí', reach: 3 },
+  gate: { icon: 'lucide:door-open', name: 'Cổng nam', reach: 5 },
 };
 
 /** Hard-edged chevron stack pointing "down" in its own frame; the wrapper rotates it at the target. */
@@ -177,20 +177,18 @@ export function Onboarding({ hud, inventory, onBlock, onGuide }: { hud: HudState
       <span style={{ transform: `rotate(${-target.angle}rad)` }}><b>{Math.ceil(target.distance)}</b>M</span>
     </div>}
     {zoneInfo && <div className="tutorial-zone" key={zone} role="status">
-      <small><Icon name="game-icons:compass" /> {zoneInfo.code} // KHU VỰC</small>
-      <h3>{zoneInfo.name}</h3>
-      <p>{zoneInfo.text}</p>
+      <h3><Icon name={zoneInfo.icon} /> {zoneInfo.name}</h3>
     </div>}
     <section className="tutorial-dialog" style={rect && rect.top > window.innerHeight / 2 && !passive ? { top: '6%', bottom: 'auto' } : undefined} aria-label="Hướng dẫn tân thủ" aria-live="polite">
       <GuidePortrait />
       <div className="tutorial-body">
-        <header><small>CATTAIL // NGƯỜI ĐỒNG HÀNH</small><span>{String(currentIndex + 1).padStart(2, '0')}/{String(currentSteps.length).padStart(2, '0')}</span></header>
+        <header><small>CATTAIL</small><span>{String(currentIndex + 1).padStart(2, '0')}/{String(currentSteps.length).padStart(2, '0')}</span></header>
         <div className="tutorial-progress">{currentSteps.map((_, i) => <i key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'on' : ''} />)}</div>
-        <h2>{cur.title}</h2><p>{cur.text.replace('Q để lướt', `${rollKeyLabel(rollKey)} để lướt`).replace('C để nằm', `${rollKeyLabel(proneKey)} để nằm`)}</p>
+        <h2>{cur.title}</h2><p>{cur.text.replace('Q lướt', `${rollKeyLabel(rollKey)} lướt`).replace('C nằm', `${rollKeyLabel(proneKey)} nằm`)}</p>
         <footer>
           {passive
-            ? <strong><Icon name="game-icons:compass" /> {cur.wait ? 'Đang chờ bạn nhận nhiệm vụ' : 'Di chuyển đến vị trí được chỉ dẫn'}</strong>
-            : <button className="btn btn-primary" onClick={next}>{currentIndex === currentSteps.length - 1 ? lesson ? 'Đã hiểu' : 'Bắt đầu sinh tồn' : 'Tiếp tục'} <Icon name="lucide:arrow-right" /></button>}
+            ? <strong><Icon name="game-icons:compass" /> {cur.wait ? 'Nhận nhiệm vụ' : 'Đi theo mũi tên'}</strong>
+            : <button className="btn btn-primary" onClick={next}>{currentIndex === currentSteps.length - 1 ? lesson ? 'Đã hiểu' : 'Bắt đầu' : 'Tiếp tục'} <Icon name="lucide:arrow-right" /></button>}
           <button type="button" className="tutorial-skip" onClick={() => { if (lesson) { setLesson(null); return; } setDone(true); try { localStorage.setItem(key, 'done'); } catch { /* storage unavailable */ } }}>Bỏ qua</button>
         </footer>
       </div>

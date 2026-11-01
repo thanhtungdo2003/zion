@@ -41,7 +41,7 @@ describe('discovery guidance', () => {
     const lesson = discoveryLesson(hud, inv, seen)!;
     expect(lesson.id).toBe('chest');
     expect(lesson.steps.some((s) => s.focus === '.chest-search button')).toBe(true);
-    expect(lesson.steps.some((s) => s.text.includes('Mỗi ngày trong game'))).toBe(true);
+    expect(lesson.steps.some((s) => s.text.includes('làm mới mỗi ngày'))).toBe(true);
     seen.add('chest');
     expect(discoveryLesson(hud, inv, seen)?.id).toBe('zombie');
     inv.chest.field = false;

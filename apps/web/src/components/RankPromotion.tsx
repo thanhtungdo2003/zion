@@ -18,6 +18,6 @@ export function RankPromotion({ promotion }: { promotion: HudState['promotion'] 
   if (!promotion || dismissed === promotion.at) return null;
   return <div className="rank-promotion" aria-live="polite">
     {titleVisible && <div className="rank-promotion-title"><small>THĂNG QUÂN HÀM</small><RankBadge rank={promotion.rank} title /><span>{'★'.repeat(promotion.rank.stars)}</span></div>}
-    <div className="rank-guide"><GuidePortrait /><div><span className="q-kicker">HƯỚNG DẪN QUÂN VỤ</span><h3>{promotion.rank.title}</h3><p>{promotion.introduction}</p><button className="btn btn-primary" onClick={() => setDismissed(promotion.at)}>Đã rõ</button></div></div>
+    <div className="rank-guide"><GuidePortrait /><div><h3>{promotion.rank.title}</h3><p>{promotion.introduction}</p><button className="btn btn-primary" onClick={() => setDismissed(promotion.at)}>Đã rõ</button></div></div>
   </div>;
 }
