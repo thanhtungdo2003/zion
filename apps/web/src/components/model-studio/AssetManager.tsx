@@ -87,7 +87,7 @@ export function AssetManager({ flash }: { flash: (text: string) => void }) {
     const ids = [def.numericId, ...variants.map((o) => VARIANT_ID + o.id)];
     void (async () => {
       await v.library.overridesReady;
-      const visuals = await Promise.all(ids.map((id) => v.library.load(id)?.catch(() => undefined)));
+      const visuals = await Promise.all(ids.map((id) => v.library.load(id)?.catch(() => undefined) ?? Promise.resolve(undefined)));
       if (cancelled) return;
       for (const c of [...v.stage.children]) { v.stage.remove(c); if (c instanceof InstancedMesh) c.dispose(); }
       const r = Math.max(.4, def.bounds.radius), gap = r * 2.4 + 1;
