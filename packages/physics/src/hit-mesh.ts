@@ -65,6 +65,12 @@ export class HitMesh {
     return node;
   }
 
+  /** The model's bounding box (local space), or null for an empty mesh. */
+  bounds(): { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number } | null {
+    const r = this.root;
+    return r ? { minX: r.minX, minY: r.minY, minZ: r.minZ, maxX: r.maxX, maxY: r.maxY, maxZ: r.maxZ } : null;
+  }
+
   /** Is the texture opaque at barycentric (u, w) of triangle `t`? Faces without a mask are solid. */
   private solidAt(t: number, u: number, w: number): boolean {
     const m = this.src.maskOf?.[t] ?? -1;

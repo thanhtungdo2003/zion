@@ -1478,7 +1478,7 @@ export class GameServer {
     else if (this.warfare) { /* wfJoin sent the state */ }
     else if (!this.battle) player.session.sendJson({ t: 'tutorialState', ...tutorialProgress(player) });
     else player.session.sendJson(this.battle.state(this.serverTime, player.id));
-    session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => ({ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z })) });
+    session.sendJson({ t: 'ground', items: [...this.groundItems].map(([id, g]) => this.groundView(id, g)) });
     if (this.battle || this.deathCrates.size) session.sendJson({ t: 'lootCrates', crates: [...this.deathCrates.values()] });
     this.building?.welcome(player);
     if (this.knock) player.session.sendJson(this.knock.message());
@@ -2000,7 +2000,7 @@ export class GameServer {
     const spots = world.lootSpots();
     for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spots[i], spots[j]] = [spots[j]!, spots[i]!]; }
     // Every building of the map (the Model Studio's too): a few spots on its floors and tables.
-    const inBuildings = buildingLootSpots(this.deps.registry, world.structures(), 6, Math.random, (x, z) => world.levelled(x, z));
+    const inBuildings = buildingLootSpots(this.deps.registry, world.structures(), 6, Math.random, (x, z) => world.levelled(x, z), (asset) => this.collision.hitMesh(asset));
     for (const spot of [...spots.slice(0, Math.min(320, Math.floor(spots.length * .35))), ...inBuildings].slice(0, 2500)) {
       // A gun with its ammunition beside it, ammunition, a medkit, armour, a backpack… never cleared away.
       for (const item of battleFloorLoot()) {
@@ -5216,7 +5216,12 @@ export class GameServer {
     const y = Number.isFinite(ground) && Math.abs(ground - p.state.y) < 1.5 ? ground : p.state.y;
     const g = { itemId: it.itemId, count: it.count, mag: it.mag, issued: it.issued, quest: it.quest, ...(it.attachments ? { attachments: { ...it.attachments } } : {}), ...(it.contents?.length ? { contents: it.contents } : {}), x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS };
     this.groundItems.set(id, g);
-    this.broadcast({ t: 'ground', items: [{ id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z }] });
+    this.broadcast({ t: 'ground', items: [this.groundView(id, g)] });
+  }
+
+  /** How a ground item is sent: its time left when it vanishes (none: it stays). */
+  private groundView(id: number, g: { itemId: string; count?: number; x: number; y: number; z: number; expiresAt: number }) {
+    return { id, itemId: g.itemId, count: g.count, x: g.x, y: g.y, z: g.z, ...(Number.isFinite(g.expiresAt) ? { ttl: Math.max(0, Math.round(g.expiresAt - this.serverTime)) } : {}) };
   }
 
   /** An item lying at an exact spot (mined ore, planks that did not fit). */
@@ -5225,7 +5230,7 @@ export class GameServer {
     // Battle royale: whatever lies on the ground stays there for the whole match.
     const g = { itemId, count, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS * 3 };
     this.groundItems.set(id, g);
-    this.broadcast({ t: 'ground', items: [{ id, itemId, count, x: g.x, y: g.y, z: g.z }] });
+    this.broadcast({ t: 'ground', items: [this.groundView(id, g)] });
   }
 
   /** A supply crate touched down: a chest anyone may open (the drop zone is not protected). */
@@ -5268,7 +5273,7 @@ export class GameServer {
   private dropAnimalLoot(animal: Livestock): void {
     const n = animal.record.loot;
     animal.record.loot = 0;
-    const items: Array<{ id: number; itemId: string; x: number; y: number; z: number }> = [];
+    const items: Array<ReturnType<GameServer['groundView']>> = [];
     for (let i = 0; i < n; i++) {
       const id = this.nextGroundId++;
       const a = (i / Math.max(1, n)) * Math.PI * 2 + Math.random() * 0.6;
@@ -5279,7 +5284,7 @@ export class GameServer {
       const y = Number.isFinite(ground) && Math.abs(ground - animal.state.y) < 1.5 ? ground : animal.state.y;
       const g = { itemId: animal.lootItem, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS, livestock: true };
       this.groundItems.set(id, g);
-      items.push({ id, itemId: g.itemId, x: g.x, y: g.y, z: g.z });
+      items.push(this.groundView(id, g));
     }
     if (items.length) this.broadcast({ t: 'ground', items });
   }

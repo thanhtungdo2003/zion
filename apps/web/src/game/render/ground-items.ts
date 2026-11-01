@@ -1,4 +1,4 @@
-import { AdditiveBlending, BackSide, Group, Mesh, MeshBasicMaterial, type Scene } from 'three';
+import { AdditiveBlending, BackSide, BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, type Scene } from 'three';
 import type { WeaponLibrary } from './weapons';
 
 /** Dropped items lie on the ground this long before they vanish. */
@@ -36,9 +36,13 @@ transformed += normalize(normal) * (0.012 + uGlow * 0.006) / max(0.001, length(m
 }
 const glowUniform = { value: 0 };
 
+const CRATE = new BoxGeometry(.32, .22, .24);
+const CRATE_MATERIAL = new MeshStandardMaterial({ color: 0x5d6b3c, roughness: .8 });
+
 /**
  * Items thrown out of the inventory: the item's real model lying on the ground with a yellow glow
- * hugging its outline, blinking during its last seconds, removed after a minute. Local to this client.
+ * hugging its outline, blinking during its last seconds, removed when the server's time for it is up
+ * (battle royale loot: never).
  */
 export class GroundItems {
   readonly items: GroundItem[] = [];
@@ -46,7 +50,8 @@ export class GroundItems {
 
   constructor(private readonly scene: Scene, private readonly weapons: WeaponLibrary | null) {}
 
-  add(id: number, itemId: string, count: number | undefined, x: number, y: number, z: number, now: number): void {
+  /** `ttl`: ms until it vanishes (the server says); absent, it lies there until picked up. */
+  add(id: number, itemId: string, count: number | undefined, x: number, y: number, z: number, now: number, ttl?: number): void {
     if (this.items.some((i) => i.id === id)) return;
     const object = new Group();
     const model = this.weapons?.get(itemId)?.display.clone(true);
@@ -64,11 +69,18 @@ export class GroundItems {
       });
       for (const [o, shell] of shells) o.add(shell);
       object.add(model);
+    } else {
+      // No model for it (or the models are still loading): a small glowing crate, so it is seen.
+      const crate = new Mesh(CRATE, CRATE_MATERIAL);
+      crate.position.y = .11;
+      crate.castShadow = true;
+      crate.add(new Mesh(CRATE, this.glow));
+      object.add(crate);
     }
     object.position.set(x, y, z);
     object.rotation.y = Math.random() * Math.PI * 2;
     this.scene.add(object);
-    this.items.push({ id, itemId, count, x, y, z, expiresAt: now + GROUND_ITEM_LIFETIME_MS, object });
+    this.items.push({ id, itemId, count, x, y, z, expiresAt: ttl === undefined ? Infinity : now + ttl, object });
   }
 
   /** Nearest item within reach of (x, z), or null. */

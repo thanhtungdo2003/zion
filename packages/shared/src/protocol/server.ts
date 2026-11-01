@@ -229,7 +229,8 @@ export interface InventoryEvent {
 /** Items lying on the ground (dropped by players); `items` adds or refreshes. */
 export interface GroundItemsEvent {
   t: 'ground';
-  items: Array<{ id: number; itemId: string; count?: number; x: number; y: number; z: number }>;
+  /** `ttl`: ms until the item vanishes; absent, it stays until picked up (battle royale loot). */
+  items: Array<{ id: number; itemId: string; count?: number; x: number; y: number; z: number; ttl?: number }>;
 }
 
 export interface GroundGoneEvent {

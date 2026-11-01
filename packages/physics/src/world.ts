@@ -409,7 +409,8 @@ export class CollisionWorld {
   /** One model's triangles (an uploaded map model, known once its file is read). */
   addHitMesh(id: number, tris: HitMeshSource): void { this.added.add(id); this.hitSources.set(id, tris); this.hitMeshes.delete(id); }
   hasHitMesh(id: number): boolean { return this.hitSources.has(id); }
-  private hitMesh(id: number): HitMesh | undefined {
+  /** A model's own triangles (built when first asked for), if it has them. */
+  hitMesh(id: number): HitMesh | undefined {
     let m = this.hitMeshes.get(id);
     if (!m) { const src = this.hitSources.get(id); if (!src) return undefined; this.hitMeshes.set(id, m = new HitMesh(src)); }
     return m;

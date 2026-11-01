@@ -18,8 +18,8 @@ import { vegetationPatch } from './vegetation-pattern';
  * split into its kinds so they can be placed where they belong.
  */
 export const COVER_ASSETS = {
-  /** Short grass carpet: lush tufts most often (they replaced the thin blades and stylized clumps), low patches. */
-  carpet: [2647, 2647, 2647, 2647, 2645, 2644],
+  /** Short grass carpet: meadow grass sheets most often (they replaced the lush tufts), low patches. */
+  carpet: [2650, 2650, 2650, 2650, 2645, 2644],
   /** Fuller grass patches on lush meadows. */
   patch: [2644, 2646],
   /** Taller meadow grass sheets on lush open ground. */
@@ -27,9 +27,9 @@ export const COVER_ASSETS = {
   /** Wildflowers mixed into the meadow sheets. */
   flowers: [2651],
   /** Full, detailed tufts: at the feet of trees, rocks and buildings. */
-  lush: [2647],
+  lush: [2650],
   /** The odd big tuft standing out of a carpet. */
-  tuft: [2647],
+  tuft: [2650],
   /** Dry, straw-coloured tufts on dry grassland. */
   dry: [2648],
   /** Reeds along water, in mud and on wet ground. */
@@ -52,7 +52,10 @@ const CARPET: Partial<Record<Surface, number>> = {
 const GRASSY = new Set<Surface>([Surface.Grass, Surface.DryGrass, Surface.JungleFloor, Surface.RoadVerge, Surface.ForestFloor]);
 const CELL = .9;
 /** The kinds a grass patch may be made of (one per patch). */
-const PATCH_SPECIES = [2647, 2647, 2647, 2647, 2645, 2644];
+const PATCH_SPECIES = [2650, 2650, 2650, 2650, 2645, 2644];
+/** meadow_grass: one sheet ~5 m across, so where it grows in a carpet (sown like ~0.5 m tufts) one in this many is kept. */
+const SHEET = 2650;
+const SHEET_KEEP = 1 / 24;
 const VEG_RADIUS = 2;
 const MEADOW_MIN_CAMP_DISTANCE = 300;
 const MEADOW_FULL_CAMP_DISTANCE = 400;
@@ -223,6 +226,7 @@ export class VegetationRenderer {
       const cap = CAP[cover];
       if (cap !== undefined) { const n = used.get(cover) ?? 0; if (n >= cap) return; used.set(cover, n + 1); }
       const list = COVER_ASSETS[cover], chosen = only ?? list[Math.floor(rng.next() * list.length)]!;
+      if (chosen === SHEET && cover === 'carpet' && rng.next() > SHEET_KEEP) return;
       const x = ox + lx, z = oz + lz, y = chunkHeightAtLocal(chunk, lx, lz) - .03;
       // The Model Studio's changes: a grass model hidden, or another mixed in among it.
       const asset = this.models?.pick ? this.models.pick(chosen, x, z) : chosen;

@@ -2123,7 +2123,7 @@ export class GameEngine {
         this.lastStationScan = 0;
         break;
       case 'ground':
-        for (const g of m.items) this.groundItems?.add(g.id, g.itemId, g.count, g.x, g.y, g.z, performance.now());
+        for (const g of m.items) this.groundItems?.add(g.id, g.itemId, g.count, g.x, g.y, g.z, performance.now(), g.ttl);
         this.lastStationScan = 0;
         break;
       case 'groundGone':

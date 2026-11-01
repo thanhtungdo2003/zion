@@ -73,8 +73,27 @@ describe('settlement catalogue: whole house models, no kit buildings', () => {
     expect(result.lots.some((l) => l.use === 'clinic') && result.lots.some((l) => l.use === 'market')).toBe(true);
     const schools = result.buildings.filter((b) => b.asset === 3020 || b.asset === 3021);
     expect(schools.length).toBeGreaterThan(0);
-    expect(schools.every((b) => schoolLots.has(b.lot!))).toBe(true);
+    // On a school plot, or the town's one school placed first on free ground by a road (no plot).
+    expect(schools.every((b) => !b.lot || schoolLots.has(b.lot))).toBe(true);
+    expect(schools.some((b) => !b.lot)).toBe(true);
     // No model made for this town's hospital or police: said so.
     expect(result.issues.some((i) => i.code === 'missing-types')).toBe(true);
+  });
+  it('gives a town a school and a hospital and every area two to four petrol stations by its roads; a petrol station is never an ordinary shop', () => {
+    const registry = createDefaultRegistry();
+    studioHouse(registry, 3030, { fit: { lots: ['residential'], conditions: ['intact'], areas: [], types: ['school'] } });
+    studioHouse(registry, 3031, { fit: { lots: ['commercial'], conditions: ['intact'], areas: [], types: ['hospital'] } });
+    studioHouse(registry, 3032, { fit: { lots: ['commercial'], conditions: ['intact'], areas: [], types: ['gas-station', 'shop'] } });
+    const c = buildCatalog(registry, { noKits: true });
+    for (const preset of ['rural-town', 'small-city'] as const) {
+      const result = town(c, preset), count = (a: number) => result.buildings.filter((b) => b.asset === a).length;
+      expect(count(3030)).toBeGreaterThan(0);
+      expect(count(3031)).toBeGreaterThan(0);
+      expect(count(3032)).toBeGreaterThanOrEqual(2);
+      expect(count(3032)).toBeLessThanOrEqual(4);
+    }
+    const village = town(c, 'small-village'), gas = village.buildings.filter((b) => b.asset === 3032).length;
+    expect(gas).toBeGreaterThanOrEqual(2);
+    expect(gas).toBeLessThanOrEqual(4);
   });
 });
