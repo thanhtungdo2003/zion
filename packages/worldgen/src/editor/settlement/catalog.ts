@@ -12,6 +12,8 @@ export interface CatalogItem {
   ox: number;
   oz: number;
   height: number;
+  /** Published from the Model Studio (the generator prefers these where they fit). */
+  studio?: boolean;
 }
 
 export type PropKind = 'sign' | 'trafficLight' | 'quay' | 'pier' | 'pile' | 'breakwater' | 'crane' | 'container' | 'bollard' | 'hedge' | 'crop' | 'wall' | 'tree' | 'deadTree' | 'bush' | 'fence' | 'perimeter' | 'lamp' | 'vehicle' | 'militaryVehicle' | 'clutter' | 'industrialClutter' | 'militaryClutter' | 'bench' | 'debris';
@@ -77,7 +79,7 @@ export function measure(registry: AssetRegistry, asset: number): CatalogItem | n
   }
   // Trees and bushes have no box: a square inside their crown radius keeps the trunks apart.
   if (!Number.isFinite(x0)) { const r = a.bounds.radius * .45; x0 = z0 = -r; x1 = z1 = r; }
-  return { asset, name: a.name, w: x1 - x0, d: z1 - z0, ox: (x0 + x1) / 2, oz: (z0 + z1) / 2, height: a.bounds.height };
+  return { asset, name: a.name, w: x1 - x0, d: z1 - z0, ox: (x0 + x1) / 2, oz: (z0 + z1) / 2, height: a.bounds.height, ...(a.tags.includes('model-studio') ? { studio: true } : {}) };
 }
 
 /**
@@ -94,7 +96,11 @@ export function buildCatalog(registry: AssetRegistry, opts: { noKits?: boolean }
     return [item];
   });
   // Models published from the Model Studio fill the lot class they were published for.
-  const studio = (k: string) => registry.all().filter((a) => a.tags.includes('model-studio') && a.tags.includes(`lot:${k}`) && a.category === 'structure').map((a) => a.numericId);
+  // A house published without a lot class lives on the residential and commercial lots (and the
+  // abandoned ones); vehicles and other structures from the Studio are not houses.
+  const house = (a: { tags: string[] }) => !a.tags.some((t) => t.startsWith('kind:')) || a.tags.includes('kind:building');
+  const studio = (k: string) => registry.all().filter((a) => a.tags.includes('model-studio') && a.category === 'structure' && house(a)
+    && (a.tags.includes(`lot:${k}`) || (!a.tags.some((t) => t.startsWith('lot:')) && (k === 'residential' || k === 'commercial' || k === 'abandoned')))).map((a) => a.numericId);
   const buildings = Object.fromEntries(Object.entries(BUILDINGS).map(([k, ids]) => [k, take([...ids, ...studio(k)]).sort((a, b) => b.w * b.d - a.w * a.d)])) as Catalog['buildings'];
   const props = Object.fromEntries(Object.entries(PROPS).map(([k, ids]) => [k, take(ids)])) as Catalog['props'];
   return { buildings, props, byAsset, ...(opts.noKits ? { noKits: true } : {}) };

@@ -57,6 +57,16 @@ export class ModelStudioStore {
     const { rows } = await this.db.query<{ asset: number; name: string; project_id: string | null; project_version: number; def: AssetDefinitionInput; report: unknown; updated_at: Date; glb: Buffer }>(
       'SELECT asset, name, project_id, project_version, def, report, updated_at, glb FROM model_assets ORDER BY asset');
     for (const r of rows) {
+      // Published before models knew their kind and footprint: the box they collide through
+      // covered their yard's trees and furniture too, too big for any map lot (never placed).
+      // Upgraded once from the file itself.
+      if (!r.def.tags?.some((t) => t.startsWith('kind:'))) {
+        try {
+          const def = upgradeDef(r.def, r.glb);
+          await this.db.query('UPDATE model_assets SET def = $2::jsonb WHERE asset = $1', [r.asset, JSON.stringify(def)]);
+          r.def = def;
+        } catch (err) { onInvalid?.(r.asset, err); }
+      }
       try { this.register({ asset: r.asset, name: r.name, projectId: r.project_id, projectVersion: r.project_version, version: new Date(r.updated_at).getTime(), def: r.def, report: r.report }, r.glb); }
       catch (err) { onInvalid?.(r.asset, err); }
     }
@@ -297,6 +307,8 @@ export class ModelStudioStore {
     const tris = glbTriangles(out.glb, false);
     const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     for (const t of tris) for (const p of t) for (let c = 0; c < 3; c++) { min[c] = Math.min(min[c]!, p[c]!); max[c] = Math.max(max[c]!, p[c]!); }
+    // The house itself (its footprint on a map lot), before its yard's placed models widen it.
+    const solid = Number.isFinite(min[0]) ? { solidMin: [...min] as [number, number, number], solidMax: [...max] as [number, number, number] } : {};
     for (const r of out.refs) {
       const b = this.registry.byNumericId(r.asset)?.bounds ?? { radius: .5, height: 1 };
       min[0] = Math.min(min[0], r.x - b.radius * r.scale); max[0] = Math.max(max[0], r.x + b.radius * r.scale);
@@ -304,7 +316,7 @@ export class ModelStudioStore {
       max[1] = Math.max(max[1], r.y + b.height * r.scale); min[1] = Math.min(min[1], r.y);
     }
     if (!Number.isFinite(min[0])) throw new Error('Model không có hình học.');
-    const def = studioModelAsset({ asset, name: doc.name, kind: doc.kind, solid: tris.length > 0, ...(opts.lotClass ?? doc.lotClass ? { lotClass: opts.lotClass ?? doc.lotClass } : {}), min, max, refs: out.refs, ...(out.doors ? { doors: out.doors } : {}) });
+    const def = studioModelAsset({ asset, name: doc.name, kind: doc.kind, solid: tris.length > 0, ...(opts.lotClass ?? doc.lotClass ? { lotClass: opts.lotClass ?? doc.lotClass } : {}), min, max, ...solid, refs: out.refs, ...(out.doors ? { doors: out.doors } : {}) });
     // Checked the way every server and client will register it.
     createDefaultRegistry().registerUploaded(def);
     const summary = { triangles: out.triangles, materials: out.materials, bytes: out.glb.length, refs: out.refs.length, warnings: out.warnings, stats: report.stats };
@@ -333,4 +345,20 @@ function sniff(b: Buffer, name: string): string | null {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
   if (/\.gltf$/i.test(name) && b.subarray(0, 200).toString('utf8').trimStart().startsWith('{')) return 'model/gltf+json';
   return null;
+}
+
+/** A model published before kinds and footprints: its kind tag, its box around its own triangles. */
+function upgradeDef(def: AssetDefinitionInput, glb: Buffer): AssetDefinitionInput {
+  const tris = glbTriangles(new Uint8Array(glb.buffer, glb.byteOffset, glb.byteLength), false);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const t of tris) for (const p of t) for (let c = 0; c < 3; c++) { min[c] = Math.min(min[c]!, p[c]!); max[c] = Math.max(max[c]!, p[c]!); }
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  const out = { ...def, tags: [...(def.tags ?? []), def.category === 'structure' ? 'kind:building' : 'kind:other'].slice(0, 16) } as AssetDefinitionInput;
+  const box = def.colliders?.[0];
+  if (Number.isFinite(min[0]) && box?.type === 'box') {
+    const half = [Math.max(.05, (max[0]! - min[0]!) / 2), Math.max(.05, (max[1]! - Math.min(0, min[1]!)) / 2), Math.max(.05, (max[2]! - min[2]!) / 2)];
+    const center = [(min[0]! + max[0]!) / 2, Math.min(0, min[1]!) + half[1]!, (min[2]! + max[2]!) / 2];
+    (out as { colliders: unknown[] }).colliders = [{ ...box, center: center.map(r3), halfExtents: half.map((v) => r3(v + .05)) }, ...def.colliders!.slice(1)];
+  }
+  return out;
 }

@@ -669,7 +669,14 @@ export function* generateSettlement(input: SettlementInput): Generator<Settlemen
       fits.sort((a, b) => b.item.w * b.item.d - a.item.w * a.item.d);
       if (!fits.length) continue;
       const first = lot.style === 'full' || rng.next() < st.sizeBias ? 0 : Math.floor(rng.next() * fits.length);
-      const tries = [...fits.slice(first), ...fits.slice(0, first)].slice(0, 4);
+      let tries = [...fits.slice(first), ...fits.slice(0, first)].slice(0, 4);
+      // Houses made in the Model Studio come first wherever one fits (most lots), the built-in
+      // ones fill the rest: otherwise a few new models drowned among the many built-in.
+      const studioFits = fits.filter((f) => f.item.studio);
+      if (studioFits.length && rng.next() < .8) {
+        const k = Math.floor(rng.next() * studioFits.length);
+        tries = [...studioFits.slice(k), ...studioFits.slice(0, k), ...tries.filter((f) => !f.item.studio)].slice(0, 5);
+      }
       const facing = Math.atan2(lot.dir[0], lot.dir[1]);
       for (const { item, turned, recipe } of tries) {
         const w = turned ? item.d : item.w, d = turned ? item.w : item.d;
