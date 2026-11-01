@@ -10,6 +10,7 @@ import { CHUNK_SIZE, Rng, Surface, chunkKey, dequantizeHeight, lodStep, propTran
 import { grassTint } from './palette';
 import { chunkHeightAtLocal } from './terrain';
 import { windUniforms, type AssetVisual } from './asset-library';
+import { ALPHA_COVERAGE } from './alpha-coverage';
 import { vegetationPatch } from './vegetation-pattern';
 
 /**
@@ -77,6 +78,8 @@ function windMaterial(base: Material): Material {
   const compile = mat.onBeforeCompile.bind(mat);
   mat.onBeforeCompile = (shader, renderer) => {
     compile(shader, renderer);
+    // Grass blades keep their coverage at a distance (alpha-coverage.ts).
+    shader.fragmentShader = shader.fragmentShader.replace('#include <alphatest_fragment>', ALPHA_COVERAGE);
     shader.uniforms.uTime = windUniforms.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;')
@@ -93,7 +96,7 @@ function windMaterial(base: Material): Material {
         transformed.x += w * sway * 0.35;
         transformed.z += w * sway * 0.14;`);
   };
-  mat.customProgramCacheKey = () => `ground-cover-${base.uuid}`;
+  mat.customProgramCacheKey = () => `ground-cover-acov-${base.uuid}`;
   return mat;
 }
 

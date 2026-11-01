@@ -21,6 +21,7 @@ import {
 } from '@zion/assets';
 import { loadBBModel, type ModelPart } from './bbmodel-loader';
 import { applyOcclusionFade } from './occlusion-fade';
+import { preserveAlphaCoverage } from './alpha-coverage';
 import { buildProceduralGeometry } from './procedural-models';
 import { cachedFetch } from '@/lib/preload';
 import { gltfLoader } from './gltf-loader';
@@ -161,7 +162,8 @@ export class AssetLibrary {
       })
       .then((v) => {
         if (this.disposed) { this.releaseVisual(v); return v; }
-        for (const part of v.parts) applyOcclusionFade(part.material);
+        // Cut-out leaves keep their coverage at a distance (alpha-coverage.ts).
+        for (const part of v.parts) applyOcclusionFade(preserveAlphaCoverage(part.material));
         this.visuals.set(numericId, v);
         return v;
       });
