@@ -16,5 +16,6 @@ export * from './export';
 export * from './game-asset';
 export * from './knowledge';
 export * from './tools';
+export * from './classify';
 export * from './procedural';
 export * from './render';

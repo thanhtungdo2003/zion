@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import type { Logger } from 'pino';
-import { TOOLS, checkPlan, encodePng, planHash, runTool, summarizeReport, validateDoc, verifyBuilt, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
+import { TOOLS, checkPlan, classifyModel, encodePng, planHash, runTool, summarizeReport, validateDoc, verifyBuilt, type CatalogAsset, type ModelDoc, type ToolHost, type ToolState } from '@zion/assets/model-studio';
 import { LlmError, parseJsonObject, type ChatMessage, type LlmClient, type WireMessage } from './llm';
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
@@ -57,6 +57,7 @@ Quy trình: (1) phân tích yêu cầu: loại asset, kích thước, phong các
 
 CÔNG TRÌNH (nhà, chung cư, trường học, xưởng, cửa hàng…): BẠN là kiến trúc sư — tự phân tích yêu cầu (công năng, số người, luồng đi lại, khí hậu, phong cách, trạng thái), tự lập phương án và tự quyết bố cục; không có mẫu dựng sẵn, hệ thống KHÔNG áp một kiểu cầu thang, hành lang, ban công hay cách chia phòng nào. Cùng một loại công trình có thể có nhiều phương án đúng (thang thẳng/L/U/xoắn, sát tường hay đứng tự do, hành lang trong hay hành lang hở một bên, ban công đua hay lô gia…) — chọn theo yêu cầu và khu đất, nói rõ lý do trong basis.
 (a) NGHIÊN CỨU (bắt buộc trước khi vẽ — draw_floor_plan bị từ chối khi chưa research): tra cứu mặt bằng, mặt cắt, tiêu chuẩn kích thước của đúng loại công trình để có căn cứ; dùng làm tham khảo, không phải khuôn. Trạng thái "bỏ hoang" = xây xong, đủ bộ phận, lâu không dùng (bụi, ố, bong sơn), không phải đổ nát.
+PHÂN LOẠI (bắt buộc, không hỏi admin): dựng xong mỗi model, gọi classify_model để tự gán loại model và — với công trình — nơi đặt trên bản đồ (loại lô, tình trạng, kiểu khu vực, chung với World Studio); xem reasons, rồi nếu yêu cầu cho biết rõ hơn (vd "trạm gác ở cảng", "nhà ống bỏ hoang ở thị trấn") thì chỉnh bằng set_model_info {lots, conditions, areas}. Một công trình có thể hợp nhiều loại lô và nhiều kiểu khu vực; "bỏ hoang" là tình trạng, loại lô nào cũng có thể bỏ hoang; chỉ giới hạn kiểu khu vực khi công trình rõ ràng chỉ hợp vài nơi.
 Ghi số tầng thiết kế bằng set_model_info {storeys} — chưa được kết thúc khi chưa dựng đủ số tầng đó và mái. (b) LẬP BẢNG VẬT LIỆU (define_materials) TRƯỚC khi vẽ: mọi vật liệu và nơi dùng, đúng thực tế từng khu vực; mỗi mục có texture_query để tải texture thật.
 (c) LUẬT BẮT BUỘC (chỉ những điều này được kiểm tra; còn lại là quyết định thiết kế của bạn):
  • Đơn vị: mét, trục x/z mặt bằng, y lên; lưới 5 cm; cao độ tầng = tầng dưới + chiều cao + sàn.
@@ -265,6 +266,17 @@ export class ModelAgent {
       catch (err) { job.saveError = (err as Error).message; }
     }
     if (stopped) return;
+    // A building the AI left unsorted: sorted by the rules of thumb (the admin may change it).
+    if (!state.doc.fit && !state.doc.lotClass) {
+      const c = classifyModel(state.doc);
+      if (c.kind === 'building' && c.fit) {
+        state.doc.kind = c.kind; state.doc.fit = c.fit;
+        try { const r = await this.store.save(job.projectId, state.doc, job.savedVersion ?? version.current, { snapshot: true, note: `AI: tự phân loại — ${c.summary}`.slice(0, 200), author: 'agent' }); job.savedVersion = r.version; }
+        catch (err) { job.saveError = (err as Error).message; }
+        job.doc = state.doc;
+        this.step(job, 'tool', `Tự phân loại: ${c.summary}`);
+      }
+    }
     job.summary ??= offlineSummary(state.doc, final);
     job.status = 'done';
     this.step(job, 'done', job.summary);

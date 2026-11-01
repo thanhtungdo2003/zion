@@ -6,6 +6,7 @@ import type { AssetRegistry } from '@zion/assets';
 import {
   ASSET_KINDS, MATERIAL_PRESETS, buildRoof, checkPlan, openLinks, OPENING_KINDS, placeWindows, planHash, roofCovers, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
   type Issue, type ModelDoc, type ModelMaterial, type ModelNode, type ValidationReport,
+  classifyModel,
 } from '@zion/assets/model-studio';
 import { Icon } from '@/components/Icon';
 import { msApi, type ProjectFile, type ProjectSummary, type PublishedModel, type TextureHit, type TextureSet, type VersionInfo } from '@/lib/model-studio-api';
@@ -305,6 +306,10 @@ export function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate })
       {SETTLEMENT_AREA_IDS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.areas.includes(k) ? s.on : ''}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: toggle(fit.areas, k, false) })}>{SETTLEMENT_AREA_NAMES[k]}</button>)}
     </div></div>
     <p className={s.muted}>{describeLotFit(fit)}{doc.fit ? '' : ' (mặc định)'}</p>
+    <button type="button" className={s.tbtn} title="Suy ra từ tên, ghi chú, phòng, số tầng, vật liệu" onClick={() => {
+      const c = classifyModel(doc);
+      mutate('Tự phân loại', (d) => { d.kind = c.kind; if (c.fit) { d.fit = c.fit; delete d.lotClass; } });
+    }}>Tự phân loại</button>
   </div>;
 }
 

@@ -49,10 +49,12 @@ describe('model studio agent', () => {
     expect(done.status).toBe('done');
     expect(done.mode).toBe('offline');
     const tools = done.steps.filter((s) => s.kind === 'tool');
-    expect(tools.map((s) => s.tool)).toEqual(expect.arrayContaining(['research', 'create_geometry', 'validate_asset', 'auto_fix']));
+    expect(tools.map((s) => s.tool)).toEqual(expect.arrayContaining(['research', 'create_geometry', 'classify_model', 'validate_asset', 'auto_fix']));
     expect(tools.every((s) => s.ok)).toBe(true);
     expect(done.doc.kind).toBe('building');
-    expect(done.doc.fit).toEqual({ lots: ['residential'], conditions: ['abandoned', 'ruined'], areas: [] });
+    // Sorted out by itself: a home, abandoned (from the request it was built from).
+    expect(done.doc.fit?.lots).toEqual(['residential']);
+    expect(done.doc.fit?.conditions).toContain('abandoned');
     expect(done.doc.nodes.filter((n) => n.tags?.includes('room')).length).toBeGreaterThanOrEqual(7);
     expect(done.doc.nodes.some((n) => n.kind === 'stairs')).toBe(true);
     expect(saves).toHaveLength(1);

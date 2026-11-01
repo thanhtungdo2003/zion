@@ -1,3 +1,4 @@
+import { classifyModel } from './classify';
 import { BUILDING_CONDITIONS, LOT_CLASSES, SETTLEMENT_AREA_IDS, describeLotFit, lotFitFromLegacy } from '@zion/shared';
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
@@ -781,6 +782,21 @@ export const TOOLS: ToolDefinition<never>[] = [
       }
       s.changed = true;
       return { name: s.doc.name, kind: s.doc.kind, storeys: s.doc.storeys ?? null, fit: s.doc.fit ? describeLotFit(s.doc.fit) : null };
+    },
+  }),
+  defineTool({
+    name: 'classify_model', permission: 'edit',
+    description: 'Tự phân loại model: loại (building/vehicle/furniture…) và — với công trình — nơi đặt trên bản đồ: loại lô (nhà ở, thương mại – dịch vụ, công nghiệp – kho bãi, quân sự), tình trạng (nguyên vẹn, bỏ hoang, đổ nát), kiểu khu vực (13 kiểu của World Studio). Suy ra từ tên, ghi chú (yêu cầu), phòng, số tầng, vật liệu (rêu, gỉ, nứt = bỏ hoang). apply=true ghi luôn vào model; sau đó có thể chỉnh lại bằng set_model_info {lots, conditions, areas} nếu hiểu yêu cầu rõ hơn. Gọi khi dựng xong mỗi model.',
+    params: { apply: 'boolean (mặc định true)' },
+    schema: z.object({ apply: z.boolean().optional() }).strict(),
+    run: (a, s) => {
+      const c = classifyModel(s.doc);
+      if (a.apply !== false) {
+        s.doc.kind = c.kind;
+        if (c.fit) { s.doc.fit = c.fit; delete s.doc.lotClass; } else delete s.doc.fit;
+        s.changed = true;
+      }
+      return { kind: c.kind, fit: c.fit, summary: c.summary, reasons: c.reasons, applied: a.apply !== false };
     },
   }),
   defineTool({
