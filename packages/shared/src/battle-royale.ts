@@ -4,7 +4,7 @@ export interface BattleCircle { x: number; z: number; radius: number }
 
 // Long enough to land, loot a house or two and move before the first circle closes.
 /** A lobby short of players starts anyway this long after its first player arrived. */
-export const BATTLE_LOBBY_WAIT_MS = 60_000;
+export const BATTLE_LOBBY_WAIT_MS = 20_000;
 
 /**
  * Zone stages: how far it shrinks (share of the island), the wait before it moves, how long it
@@ -21,7 +21,7 @@ export const BATTLE_STAGES = [
 /** Share of the map edge the first safe circle covers (radius). */
 export const BATTLE_INITIAL_RADIUS = .68;
 /** The pre-drop countdown once a lobby has enough players. */
-export const BATTLE_COUNTDOWN_MS = 30_000;
+export const BATTLE_COUNTDOWN_MS = 10_000;
 /** Fixed battle royale clock (14:00) as a fraction of the day. */
 export const BATTLE_TIME_OF_DAY = 14 / 24;
 export const BATTLE_FLIGHT = { altitude: 650, durationMs: 55_000, autoDeployHeight: 120, deployDelayMs: 10_000 } as const;
