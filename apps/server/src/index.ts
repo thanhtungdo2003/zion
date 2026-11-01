@@ -42,6 +42,7 @@ import { AuthService } from './security/auth-service';
 import { TokenService } from './security/tokens';
 import { WorldService } from './world/world-service';
 import { ModelStudioStore } from './model-studio/store';
+import { AssetOverrideStore } from './model-studio/asset-overrides';
 import { ModelAgent } from './model-studio/agent';
 import { AiSettings } from './model-studio/ai-settings';
 import { TextureLibrary } from './model-studio/textures';
@@ -127,6 +128,9 @@ async function main(): Promise<void> {
 
   // Model Studio: published models join the registry (and their collision) before any world.
   const modelStudio = new ModelStudioStore(db, registry);
+  // The game's own models replaced, mixed with others or hidden from the Studio.
+  const assetOverrides = new AssetOverrideStore(db, registry);
+  await assetOverrides.load().catch((err: unknown) => logger.warn({ err }, 'asset overrides not loaded'));
   await modelStudio.load((asset, err) => logger.warn({ asset, err }, 'model studio asset skipped (invalid)')).catch((err: unknown) => logger.warn({ err }, 'model studio not loaded'));
   // Every fixed map has a world (and a chunk cache) of its own, some 38 KB a chunk: at the
   // survival world's 12 000 entries each one could take ~450 MB, and with bots spread over a few
@@ -264,7 +268,7 @@ async function main(): Promise<void> {
 
   const app = await buildHttpApp({
     modelStudio: {
-      store: modelStudio, agent: modelAgent, ai: aiSettings, textures: textureLibrary,
+      store: modelStudio, agent: modelAgent, ai: aiSettings, textures: textureLibrary, overrides: assetOverrides,
     },
     appearances: accounts,
     news: new NewsRepository(db),

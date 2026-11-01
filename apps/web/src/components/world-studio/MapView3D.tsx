@@ -80,7 +80,7 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
     const registry = createDefaultRegistry();
     // The Model Studio's houses: drawn once their definitions are in (the buildings are redrawn then).
     void registerStudioModels(registry).then(() => setModelsReady((n) => n + 1));
-    const library = new AssetLibrary(registry);
+    const library = new AssetLibrary(registry, { overrides: true });
     scene.current = { renderer, scene: sc, camera, controls, ground, step, n, objects, water, cursor, library, dirty: true };
     const resize = () => { const r = el.getBoundingClientRect(); renderer.setSize(r.width, r.height); camera.aspect = r.width / Math.max(1, r.height); camera.updateProjectionMatrix(); };
     const ro = new ResizeObserver(resize); ro.observe(el); resize();

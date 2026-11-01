@@ -1,11 +1,13 @@
 import { collectAssetLights } from './asset-lights';
 import {
+  Box3,
   BoxGeometry,
   DoubleSide,
   Euler,
   Matrix4,
   Mesh,
   MeshLambertMaterial,
+  Vector3,
   type BufferGeometry,
   type Color,
   type Material,
@@ -101,16 +103,26 @@ function flattenScene(root: Object3D, scale: number, offset: readonly [number, n
  * or GLB files (looked up through the content-hashed asset manifest). Failures degrade to a
  * collider-sized placeholder box and are reported, never thrown into the render loop.
  */
+/** A change made in the Model Studio to one of the game's own models (server asset-overrides.ts). */
+export interface AssetOverride { id: number; base: number; kind: 'replace' | 'variant' | 'hide'; name: string; weight: number; version: number; bytes: number }
+/** Visual ids of the models mixed in among a game model's instances: VARIANT_ID + override id. */
+export const VARIANT_ID = 900_000;
+
+export async function fetchAssetOverrides(): Promise<AssetOverride[]> {
+  const res = await fetch(`${API_URL}/api/asset-overrides`, { cache: 'no-store' });
+  return res.ok ? await res.json() as AssetOverride[] : [];
+}
+
 export class AssetLibrary {
   private glbActive = 0;
   private readonly glbWaiters: Array<() => void> = [];
   /** A tree or big plant: drawn as a depth impostor beyond its model's range (render/impostor.ts). */
   hasImpostor(numericId: number): boolean {
-    const def = this.registry.byNumericId(numericId);
+    const def = this.registry.byNumericId(this.baseOf(numericId));
     return !!def && (def.category === 'tree' || def.category === 'vegetation') && def.bounds.radius > 1.2;
   }
   inRange(numericId: number, distanceSquared: number): boolean {
-    const def = this.registry.byNumericId(numericId);
+    const def = this.registry.byNumericId(this.baseOf(numericId));
     return !!def && distanceSquared <= def.render.maxDistance ** 2;
   }
   private async acquireGlb(): Promise<() => void> {
@@ -131,8 +143,89 @@ export class AssetLibrary {
   private readonly resources = new ResourceDisposer();
   readonly errors: string[] = [];
 
-  /** `game`: the game itself (editor-only markers such as light sources are not drawn). */
-  constructor(private readonly registry: AssetRegistry, private readonly options: { game?: boolean } = {}) {}
+  /**
+   * `game`: the game itself (editor-only markers such as light sources are not drawn).
+   * `overrides`: apply the Model Studio's changes to the game's models (on by default in game).
+   */
+  constructor(private readonly registry: AssetRegistry, private readonly options: { game?: boolean; overrides?: boolean } = {}) {
+    this.overridesReady = options.overrides ?? options.game ? this.refreshOverrides() : Promise.resolve();
+  }
+
+  /* -------------------------------------------- the Model Studio's changes to game models */
+
+  private byBase = new Map<number, { replace?: AssetOverride; hide?: AssetOverride; variants: AssetOverride[] }>();
+  private overrideById = new Map<number, AssetOverride>();
+  /** Settled once the changes are known (models wait for it before they are built). */
+  overridesReady: Promise<void>;
+
+  /** Applies a list of changes; models they touch are built again the next time they are asked for. */
+  setOverrides(list: readonly AssetOverride[]): void {
+    const touched = new Set<number>([...this.overrideById.values()].flatMap((o) => [o.base, VARIANT_ID + o.id]));
+    this.byBase.clear(); this.overrideById.clear();
+    for (const o of list) {
+      this.overrideById.set(o.id, o);
+      let e = this.byBase.get(o.base);
+      if (!e) this.byBase.set(o.base, e = { variants: [] });
+      if (o.kind === 'variant') e.variants.push(o); else e[o.kind] = o;
+      touched.add(o.base); touched.add(VARIANT_ID + o.id);
+    }
+    for (const id of touched) {
+      const v = this.visuals.get(id);
+      if (v) this.releaseVisual(v);
+      this.visuals.delete(id); this.loading.delete(id);
+    }
+  }
+
+  /** Fetches the changes from the server again (the Studio after an edit). */
+  refreshOverrides(): Promise<void> {
+    return fetchAssetOverrides().then((list) => this.setOverrides(list)).catch(() => undefined);
+  }
+
+  /**
+   * The model to draw for an instance of `asset` at (x, z): the asset itself, one of the models
+   * mixed in among it (chosen by position and weight, the same every time), or −1: hidden.
+   */
+  pick(asset: number, x: number, z: number): number {
+    const e = this.byBase.get(asset);
+    if (!e) return asset;
+    if (e.hide) return -1;
+    if (!e.variants.length) return asset;
+    let h = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; h -= Math.floor(h);
+    let total = 1;
+    for (const v of e.variants) total += v.weight;
+    let at = h * total - 1;
+    if (at < 0) return asset;
+    for (const v of e.variants) { if ((at -= v.weight) < 0) return VARIANT_ID + v.id; }
+    return asset;
+  }
+
+  /** The game model a visual id stands for (a mixed-in model: the one it is mixed among). */
+  baseOf(id: number): number {
+    return id >= VARIANT_ID ? this.overrideById.get(id - VARIANT_ID)?.base ?? id : id;
+  }
+
+  /** Builds a model from a Studio file, fitted to the game model's size and footing. */
+  private async buildOverride(def: AssetDefinition, o: AssetOverride): Promise<AssetVisual> {
+    const release = await this.acquireGlb();
+    try {
+      const url = new URL(`${API_URL}/api/asset-overrides/${o.id}.glb?v=${o.version}`, typeof location !== 'undefined' ? location.href : 'http://localhost/').href;
+      const gltf = await this.gltf.parseAsync(await modelBytes(url), url.slice(0, url.lastIndexOf('/') + 1));
+      const parts = flattenScene(gltf.scene, 1, [0, 0, 0]);
+      const box = new Box3();
+      for (const part of parts) { part.geometry.computeBoundingBox(); box.union(part.geometry.boundingBox!); }
+      const size = box.getSize(new Vector3());
+      const k = size.y > 1e-4 ? def.bounds.height / size.y : 1;
+      const fit = new Matrix4().makeScale(k, k, k).premultiply(new Matrix4().makeTranslation(-(box.min.x + box.max.x) / 2 * k, -box.min.y * k, -(box.min.z + box.max.z) / 2 * k));
+      for (const part of parts) { part.geometry.applyMatrix4(fit); part.geometry.computeBoundingSphere(); }
+      if (def.category === 'rock' || def.category === 'tree' || def.category === 'vegetation') for (const part of parts) {
+        const m = part.material as { roughness?: number; metalness?: number; needsUpdate: boolean };
+        if (m.roughness !== undefined) { m.roughness = Math.max(m.roughness, .9); m.metalness = 0; m.needsUpdate = true; }
+        if (!part.geometry.getAttribute('normal')) part.geometry.computeVertexNormals();
+      }
+      gltf.scene.traverse((node) => { if (node instanceof Mesh) this.resources.release(node.geometry); });
+      return { def, parts };
+    } finally { release(); }
+  }
 
   private async getManifest(): Promise<AssetManifest> {
     if (this.manifest) return this.manifest;
@@ -153,9 +246,16 @@ export class AssetLibrary {
     if (this.disposed) return undefined;
     const existing = this.loading.get(numericId);
     if (existing) return existing;
-    const def = this.registry.byNumericId(numericId);
+    const def = this.registry.byNumericId(this.baseOf(numericId));
     if (!def) return undefined;
-    const p = this.buildWithRetry(def)
+    const p = this.overridesReady.then(() => {
+      // Hidden in the Studio: nothing to draw. Replaced or mixed in: the Studio's file.
+      const e = this.byBase.get(def.numericId);
+      if (numericId >= VARIANT_ID) { const o = this.overrideById.get(numericId - VARIANT_ID); return o ? this.buildOverride(def, o) : Promise.resolve({ def, parts: [] }); }
+      if (e?.hide) return Promise.resolve({ def, parts: [] } as AssetVisual);
+      if (e?.replace) return this.buildOverride(def, e.replace);
+      return this.buildWithRetry(def);
+    })
       .catch((err: unknown) => {
         const msg = `${def.id}: ${(err as Error).message}`;
         this.errors.push(msg);

@@ -10,6 +10,7 @@ import type { ModelAgent } from '../../model-studio/agent';
 import type { AiSettings } from '../../model-studio/ai-settings';
 import type { TextureLibrary } from '../../model-studio/textures';
 import { MAX_FILE_BYTES, type ModelStudioStore } from '../../model-studio/store';
+import type { AssetOverrideStore } from '../../model-studio/asset-overrides';
 
 /** What the Model Studio routes need. */
 export interface ModelStudioDeps {
@@ -21,6 +22,8 @@ export interface ModelStudioDeps {
   textures?: TextureLibrary;
   /** Model Studio houses on trial on the built-in battle royale island (applied at server start). */
   trial?: { get(): { active: number[]; saved: number[] }; set(assets: number[]): Promise<{ active: number[]; saved: number[]; restartRequired: boolean }> };
+  /** The game's own models replaced, mixed with others or hidden ("Tài nguyên game"). */
+  overrides?: AssetOverrideStore;
 }
 
 const id = z.string().uuid();
@@ -62,6 +65,38 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
     reply.header('etag', etag).header('cache-control', 'no-cache').type('model/gltf-binary');
     return reply.send(glb);
   });
+
+  // --- The game's own models ("Tài nguyên game"): public list and files, Studio-only changes.
+  const ov = ms.overrides;
+  if (ov) {
+    app.get('/api/asset-overrides', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_req, reply) => { reply.header('cache-control', 'no-store'); return ov.all(); });
+    app.get<{ Params: { file: string } }>('/api/asset-overrides/:file', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const m = /^(\d{1,9})\.glb$/.exec(req.params.file), o = m ? ov.all().find((x) => x.id === Number(m[1])) : undefined;
+      if (!o) return reply.code(404).send({ error: 'not_found', message: 'model not found' });
+      const etag = `"ov-${o.id}-${o.version}"`;
+      if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+      const glb = await ov.file(o.id);
+      if (!glb) return reply.code(404).send({ error: 'not_found', message: 'model not found' });
+      reply.header('etag', etag).header('cache-control', 'no-cache').type('model/gltf-binary');
+      return reply.send(glb);
+    });
+    app.post<{ Querystring: { base?: string; kind?: string; name?: string; weight?: string } }>('/api/studio/models/overrides', { ...pre, bodyLimit: MAX_FILE_BYTES + 1024 }, async (req, reply) => {
+      try {
+        const q = z.object({ base: z.coerce.number().int().min(1), kind: z.enum(['replace', 'variant', 'hide']), name: z.string().max(200).default(''), weight: z.coerce.number().min(.05).max(10).default(1) }).parse(req.query);
+        const body = Buffer.isBuffer(req.body) ? req.body : null;
+        return await ov.add(q.base, q.kind, q.name, body, q.weight);
+      } catch (err) { return fail(reply, err); }
+    });
+    app.put<{ Params: { id: string } }>('/api/studio/models/overrides/:id', pre, async (req, reply) => {
+      try {
+        const body = z.object({ name: z.string().max(80).optional(), weight: z.number().min(.05).max(10).optional() }).strict().parse(req.body);
+        await ov.update(Number(req.params.id), body); return { ok: true };
+      } catch (err) { return fail(reply, err); }
+    });
+    app.delete<{ Params: { id: string } }>('/api/studio/models/overrides/:id', pre, async (req, reply) => {
+      try { await ov.remove(Number(req.params.id)); return { ok: true }; } catch (err) { return fail(reply, err); }
+    });
+  }
 
   // --- Projects.
   app.get('/api/studio/models/status', pre, async () => ({ ai: agent.configured, model: agent.model, published: store.publishedList().length }));

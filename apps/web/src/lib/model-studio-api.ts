@@ -26,7 +26,17 @@ export interface TextureSet { maps: { albedo: string; normal?: string; orm?: str
 const P = '/api/studio/models';
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: JSON.stringify(body) });
 
+export interface AssetOverrideInfo { id: number; base: number; kind: 'replace' | 'variant' | 'hide'; name: string; weight: number; version: number; bytes: number }
+
 export const msApi = {
+  /** The game's own models: replace one, mix another in among it, hide it, undo a change. */
+  overrides: () => studioJson<AssetOverrideInfo[]>('/api/asset-overrides'),
+  addOverride: async (base: number, kind: AssetOverrideInfo['kind'], file?: File, weight = 1): Promise<AssetOverrideInfo> => {
+    const res = await studioFetch(`${P}/overrides?base=${base}&kind=${kind}&weight=${weight}&name=${encodeURIComponent(file?.name ?? '')}`, { method: 'POST', headers: { 'content-type': 'application/x-model-file' }, body: file ?? new Blob([]) });
+    return res.json() as Promise<AssetOverrideInfo>;
+  },
+  updateOverride: (id: number, patch: { name?: string; weight?: number }) => studioJson<{ ok: true }>(`${P}/overrides/${id}`, json(patch, 'PUT')),
+  removeOverride: (id: number) => studioJson<{ ok: true }>(`${P}/overrides/${id}`, { method: 'DELETE' }),
   /** The AI sorts a model out: what it is, its building types and where it fits (rules without AI). */
   classify: (doc: unknown) => studioJson<{ kind: string; fit: LotFit | null; summary: string; reasons: string[]; source: 'ai' | 'rules' }>(`${P}/classify`, json({ doc }, 'POST')),
   status: () => studioJson<{ ai: boolean; model: string | null; published: number }>(`${P}/status`),

@@ -115,6 +115,8 @@ export class VegetationRenderer {
   private readonly meshes = new Map<string, InstancedMesh>();
   private readonly materials = new Map<Material, Material>();
   private readonly visuals = new Map<number, AssetVisual>();
+  /** Models mixed in from the Model Studio, asked for once. */
+  private readonly requested = new Set<number>();
   private nextFireAt = 0;
   private readonly c = new Color();
   private readonly white = new Color(1, 1, 1);
@@ -130,7 +132,7 @@ export class VegetationRenderer {
     private readonly cosmeticSeed = 0,
     private readonly camp: WorldInfo['camp'] = null,
     /** The grass models (loaded by the asset library). */
-    private readonly models: { get(id: number): AssetVisual | undefined; load(id: number): Promise<AssetVisual> | undefined } | null = null,
+    private readonly models: { get(id: number): AssetVisual | undefined; load(id: number): Promise<AssetVisual> | undefined; pick?(asset: number, x: number, z: number): number } | null = null,
     /** Footprint radius of a placed prop (m, at scale 1): grass gathers around it. */
     private readonly propRadius: (asset: number) => number = () => 0,
   ) {
@@ -220,8 +222,15 @@ export class VegetationRenderer {
     const add = (cover: Cover, lx: number, lz: number, k: number, scale: number, detail: boolean, only?: number) => {
       const cap = CAP[cover];
       if (cap !== undefined) { const n = used.get(cover) ?? 0; if (n >= cap) return; used.set(cover, n + 1); }
-      const list = COVER_ASSETS[cover], asset = only ?? list[Math.floor(rng.next() * list.length)]!;
+      const list = COVER_ASSETS[cover], chosen = only ?? list[Math.floor(rng.next() * list.length)]!;
       const x = ox + lx, z = oz + lz, y = chunkHeightAtLocal(chunk, lx, lz) - .03;
+      // The Model Studio's changes: a grass model hidden, or another mixed in among it.
+      const asset = this.models?.pick ? this.models.pick(chosen, x, z) : chosen;
+      if (asset < 0) return;
+      if (!this.visuals.has(asset) && !this.requested.has(asset)) {
+        this.requested.add(asset);
+        void this.models?.load(asset)?.then((v) => { this.visuals.set(asset, v); this.centerX = Number.NaN; this.dirty = true; });
+      }
       const a = rng.next() * Math.PI * 2, c = Math.cos(a) * scale, s = Math.sin(a) * scale;
       // Tint: the local climate over the model's own colours (dry and cold grass yellows).
       if (cover === 'flowers' || cover === 'dry') this.c.copy(this.white);

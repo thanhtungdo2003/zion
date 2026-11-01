@@ -125,3 +125,26 @@
 @media (max-width: 1100px) {
   .studio { grid-template-columns: 240px minmax(0, 1fr) 290px; }
 }
+
+/* "Tài nguyên game": the game's own models (AssetManager.tsx). */
+.assetManager { position: absolute; inset: 0; z-index: 5; display: grid; grid-template-columns: minmax(220px, 300px) 1fr; background: var(--bg); }
+.assetList { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-right: 1px solid var(--line); min-height: 0; }
+.assetGroups { display: flex; flex-wrap: wrap; gap: 4px; }
+.assetItems { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.assetItem { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 6px 8px; background: transparent; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; color: var(--text); }
+.assetItem small { color: var(--muted); font-size: 11px; }
+.assetItem:hover { background: #1a1d20; }
+.assetItem.on { border-color: var(--accent); background: #1a1d20; }
+.assetMain { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.assetPreview { flex: 1; min-height: 240px; position: relative; }
+.assetEmpty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
+.assetPanel { padding: 10px; border-top: 1px solid var(--line); background: var(--panel-solid); display: flex; flex-direction: column; gap: 6px; max-height: 45%; overflow: auto; }
+.assetHead { display: flex; flex-direction: column; }
+.assetHead small { color: var(--muted); }
+.assetChanges { display: flex; flex-direction: column; gap: 4px; }
+.assetChange { display: flex; align-items: center; gap: 8px; }
+.assetChange span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btnRow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.input { background: #121417; border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; color: var(--text); }
+.danger { color: #ff7b72; }
+@media (max-width: 760px) { .assetManager { grid-template-columns: 1fr; grid-template-rows: 40% 60%; } .assetList { border-right: 0; border-bottom: 1px solid var(--line); } }

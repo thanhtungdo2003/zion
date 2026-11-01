@@ -10,6 +10,7 @@ import { Icon } from '@/components/Icon';
 import { ApiError, studioLogin } from '@/lib/api';
 import { msApi, type AiStatus, type AgentJob, type AgentStep, type Project, type ProjectSummary, type PublishedModel, type VersionInfo } from '@/lib/model-studio-api';
 import { ModelViewport, type DisplayMode, type GizmoMode } from '@/studio/model-studio/viewport';
+import { AssetManager } from './AssetManager';
 import { ChecksPanel, HierarchyPanel, Inspector, LibraryPanel, MaterialPanel, ProjectsPanel, VersionsPanel, type Mutate } from './Panels';
 import s from './model-studio.module.css';
 
@@ -30,7 +31,7 @@ const MAX_UNDO = 80;
 /** Parts copied with Ctrl+C (kept in this browser, so they paste into another project too). */
 const CLIPBOARD_KEY = 'zion.model-studio.clipboard.v1';
 interface Clip { roots: string[]; nodes: ModelNode[]; materials: ModelDoc['materials'] }
-type LeftTab = 'projects' | 'library' | 'scene';
+type LeftTab = 'projects' | 'library' | 'scene' | 'assets';
 type RightTab = 'props' | 'material' | 'checks' | 'versions';
 
 export default function ModelStudio() {
@@ -442,7 +443,7 @@ export default function ModelStudio() {
 
       <aside className={s.left}>
         <div className={s.tabs}>
-          {([['projects', 'lucide:folder', 'Dự án'], ['library', 'lucide:library', 'Thư viện'], ['scene', 'lucide:list-tree', 'Cảnh']] as const).map(([k, icon, n]) => <button key={k} className={`${s.tab} ${left === k ? s.on : ''}`} onClick={() => setLeft(k)}><Icon name={icon} /> {n}</button>)}
+          {([['projects', 'lucide:folder', 'Dự án'], ['library', 'lucide:library', 'Thư viện'], ['scene', 'lucide:list-tree', 'Cảnh'], ['assets', 'lucide:trees', 'Tài nguyên']] as const).map(([k, icon, n]) => <button key={k} className={`${s.tab} ${left === k ? s.on : ''}`} onClick={() => setLeft(k)}><Icon name={icon} /> {n}</button>)}
         </div>
         {left === 'projects' && <ProjectsPanel projects={projects} deleted={deleted} current={project?.id ?? null} open={(id) => void open(id)}
           create={(name) => void withBusy(async () => { const p = await msApi.create(name, emptyDoc(name)); await refreshList(); await open(p.id); })}
@@ -459,10 +460,12 @@ export default function ModelStudio() {
           useImage={(f) => { setRight('material'); flash(`Chọn vật liệu rồi đặt "Ảnh màu nền" = ${f.name}.`); }} />}
         {left === 'scene' && doc && <HierarchyPanel doc={doc} selected={selected} select={(id, additive) => setSelected((cur) => (additive ? (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]) : [id]))} mutate={mutate} />}
         {!doc && left === 'scene' && <div className={s.pane}><p className={s.muted}>Mở hoặc tạo một dự án.</p></div>}
+        {left === 'assets' && <div className={s.pane}><p className={s.muted}>Các model đang có trong game: cây, bụi cỏ, đá, đồ vật, công trình. Chọn một model để xem như trong game, thay bằng file khác, thêm biến thể xen vào, hoặc xóa khỏi game.</p></div>}
       </aside>
 
       <main className={s.view}>
         <div ref={host} className={s.canvas} />
+        {left === 'assets' && <AssetManager flash={flash} />}
         {doc && (
           <div className={s.toolbar}>
             <div className={s.group}>

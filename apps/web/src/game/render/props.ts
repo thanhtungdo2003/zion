@@ -129,22 +129,25 @@ export class PropRenderer {
       for (const p of chunk.props) {
         if (p.asset === 2202) continue;
         const location = propTransform(chunk, p);
-        if (!this.library.inRange(p.asset, (location.x - camX) ** 2 + (location.z - camZ) ** 2) && !(this.impostors && this.farMode === 'impostor' && this.library.hasImpostor(p.asset))) continue;
+        // The Model Studio's changes: hidden, or one of the models mixed in among this one.
+        const asset = this.library.pick?.(p.asset, location.x, location.z) ?? p.asset;
+        if (asset < 0) continue;
+        if (!this.library.inRange(asset, (location.x - camX) ** 2 + (location.z - camZ) ** 2) && !(this.impostors && this.farMode === 'impostor' && this.library.hasImpostor(asset))) continue;
         if (++scanned % 128 === 0) yield;
-        let v = visuals.get(p.asset);
+        let v = visuals.get(asset);
         if (!v) {
-          v = this.library.get(p.asset);
+          v = this.library.get(asset);
           if (!v) {
-            if (!this.pending.has(p.asset)) {
-              this.pending.add(p.asset);
-              void this.library.load(p.asset)?.then(() => {
-                this.pending.delete(p.asset);
+            if (!this.pending.has(asset)) {
+              this.pending.add(asset);
+              void this.library.load(asset)?.then(() => {
+                this.pending.delete(asset);
                 if (!this.disposed) this.markDirty();
               });
             }
             continue;
           }
-          visuals.set(p.asset, v);
+          visuals.set(asset, v);
         }
         const t = propTransform(chunk, p);
         // Max draw distance (high preset): full detail much further out, models drawn as far as streamed.
@@ -154,7 +157,7 @@ export class PropRenderer {
         // Trees and big plants far off: depth impostors, as far as the world is streamed (never
         // hidden for being far); the full model dissolves into its impostor over a short band.
         const leafy = (v.def.category === 'tree' || v.def.category === 'vegetation') && v.def.bounds.radius > 1.2;
-        const impostor = leafy && this.farMode === 'impostor' && this.impostors ? this.impostors.ready(p.asset, v) : false;
+        const impostor = leafy && this.farMode === 'impostor' && this.impostors ? this.impostors.ready(asset, v) : false;
         let key: number;
         if (impostor) {
           const d = Math.sqrt(d2);
@@ -164,17 +167,17 @@ export class PropRenderer {
           // metres walked: each keeps a margin past its band, or a tree walked towards (or away
           // from) had neither form and vanished.
           if (d < lod + HANDOVER + REBUILD_MARGIN) {
-            const full = this.batch(p.asset);
+            const full = this.batch(asset);
             full.band = [lod, HANDOVER];
             this.place(full, t, p.group);
           }
           if (d <= lod - HANDOVER - REBUILD_MARGIN) { if (++scanned % 128 === 0) yield; continue; }
-          key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + p.asset;
+          key = (d > IMPOSTOR_FLAT_DISTANCE ? IMPOSTOR_FAR_KEY : IMPOSTOR_KEY) + asset;
         } else {
           // Trees and big plants are never dropped for distance (no impostor yet: their simplified form).
           if (d2 > max * max && !leafy) continue;
           // Distant models keep their place and shape, drawn simplified and flat (negative key).
-          key = v.def.bounds.radius > 1.2 && d2 > lod * lod ? -p.asset : p.asset;
+          key = v.def.bounds.radius > 1.2 && d2 > lod * lod ? -asset : asset;
         }
         this.place(this.batch(key), t, p.group);
         if (key >= IMPOSTOR_KEY) this.impostorLod = lod;

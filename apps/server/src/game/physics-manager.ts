@@ -3,6 +3,7 @@ import { buildChunkCollision, type AssetRegistry } from '@zion/assets';
 import type { CollisionWorld } from '@zion/physics';
 import type { Logger } from '../logger';
 import { ChunkPriority, type WorldService } from '../world/world-service';
+import { HIDDEN_ASSETS } from '../model-studio/asset-overrides';
 
 /** Chunks within this radius of a player must be loaded before the player may move. */
 export const PHYSICS_REQUIRED_RADIUS = 1;
@@ -93,8 +94,7 @@ export class PhysicsChunkManager {
     const p = this.world
       .getChunk(cx, cz, 0, priority)
       .then((rec) => {
-        const filter = this.propFilter;
-        const col = buildChunkCollision(filter ? { ...rec.data, props: rec.data.props.filter((p) => filter(cx, cz, p)) } : rec.data, this.registry);
+        const col = buildChunkCollision(this.collidingProps(cx, cz, rec.data), this.registry);
         if (col.unknownAssets > 0) this.logger.warn({ cx, cz, unknown: col.unknownAssets }, 'chunk has unknown assets');
         this.collision.addChunk(cx, cz, col.heightfield, col.colliders);
         this.loaded.add(key);
@@ -105,6 +105,13 @@ export class PhysicsChunkManager {
     return p;
   }
 
+  /** A chunk with the props that collide: not felled or knocked over, not taken out of the game in the Studio. */
+  private collidingProps(cx: number, cz: number, data: ChunkData): ChunkData {
+    const filter = this.propFilter;
+    if (!filter && !HIDDEN_ASSETS.size) return data;
+    return { ...data, props: data.props.filter((p) => !HIDDEN_ASSETS.has(p.asset) && (!filter || filter(cx, cz, p))) };
+  }
+
   /** Drops and reloads a chunk's colliders (its props changed). */
   reload(cx: number, cz: number): void {
     const key = chunkKey(cx, cz);
@@ -112,8 +119,7 @@ export class PhysicsChunkManager {
     // Rebuilt in place from the cached chunk when possible (no window without colliders).
     const rec = this.world.peek(cx, cz, 0);
     if (rec) {
-      const filter = this.propFilter;
-      const col = buildChunkCollision(filter ? { ...rec.data, props: rec.data.props.filter((p) => filter(cx, cz, p)) } : rec.data, this.registry);
+      const col = buildChunkCollision(this.collidingProps(cx, cz, rec.data), this.registry);
       this.collision.removeChunk(cx, cz);
       this.collision.addChunk(cx, cz, col.heightfield, col.colliders);
       return;
