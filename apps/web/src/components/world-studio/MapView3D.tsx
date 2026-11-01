@@ -13,6 +13,7 @@ import { climateTint, compositeParts, floraGroup, riverLevels, type FloraItem, t
 import { AssetLibrary } from '@/game/render/asset-library';
 import { SkySystem } from '@/game/render/sky';
 import { EnvironmentSystem } from '@/game/render/environment';
+import { assetProfile, layerMaterial } from '@/game/render/surface-layers';
 import { emptySample, readEnvironment, sampleEnvironment, zonesInOrder, resolveWeather } from '@zion/shared';
 import { isBrush, type Tool } from './types';
 import s from './world-studio.module.css';
@@ -277,7 +278,8 @@ export default function MapView3D({ terrain, doc, version, tool, brush, onBrush,
         const vis = visuals.get(asset);
         if (!vis) continue;
         for (const part of vis.parts) {
-          const inst = new InstancedMesh(part.geometry, tinted(part.material), list.length);
+          // (The tinted copy loses the shader hooks: its wear and weathering are laid again.)
+          const inst = new InstancedMesh(part.geometry, layerMaterial(tinted(part.material), assetProfile(vis.def), vis.def.bounds.height, part.geometry), list.length);
           list.forEach((p, i) => { m.compose(v.set(p.x, p.y, p.z), q.setFromAxisAngle(up, p.yaw), sc.set(p.scale * (p.sx ?? 1), p.scale, p.scale)); inst.setMatrixAt(i, m); });
           inst.computeBoundingSphere();
           st.objects.add(inst);

@@ -13,6 +13,7 @@ import { Avatar } from './avatars';
 import type { StrikeAxes } from './melee-edge';
 import type { HandPreset, HandShapeCurl } from './human-rig';
 import { BB_UNITS_PER_METER, buildBBModel, fetchWithProgress, type CharacterTemplate, type RawModel } from './character-model';
+import { layerObject } from './surface-layers';
 
 type Vec3 = [number, number, number];
 
@@ -345,9 +346,14 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
     onProgress?.(1);
     piece.scale.setScalar(1 / BB_UNITS_PER_METER);
     root.add(piece);
+    layerObject(root, 'weapon');
     return { root, boneNames: [], clips: new Map() };
   }
-  if ((format ?? (url.split('?')[0]!.endsWith('.glb') ? 'glb' : 'bbmodel')) !== 'glb') return buildBBModel(JSON.parse(await fetchWithProgress(url, onProgress)) as RawModel);
+  if ((format ?? (url.split('?')[0]!.endsWith('.glb') ? 'glb' : 'bbmodel')) !== 'glb') {
+    const template = await buildBBModel(JSON.parse(await fetchWithProgress(url, onProgress)) as RawModel);
+    layerObject(template.root, 'weapon');
+    return template;
+  }
   const res = await cachedFetch(url);
   if (!res.ok) throw new Error(`weapon model unavailable (${res.status})`);
   const gltf = await new GLTFLoader().parseAsync(await res.arrayBuffer(), '');
@@ -358,6 +364,7 @@ export async function loadWeaponModel(url: string, onProgress?: (p: number) => v
   gltf.scene.scale.setScalar(1 / BB_UNITS_PER_METER);
   root.add(gltf.scene);
   const weapon = gltf.parser.json.extras?.zion_weapon ?? gltf.scene.userData.zion_weapon;
+  layerObject(root, 'weapon');
   return { root, boneNames: [], clips: new Map(), ...(weapon ? { weapon } : {}) };
 }
 

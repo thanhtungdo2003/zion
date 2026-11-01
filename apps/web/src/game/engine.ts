@@ -28,6 +28,7 @@ import { reloadScriptOf, type PartSound } from './reload-scripts';
 import { Compass, type CompassMark } from './render/compass';
 import { NearBlur } from './render/near-blur';
 import { ROCK_MOSS } from './render/natural-material';
+import { LAYER_DUST } from './render/surface-layers';
 import { CHUNK_SIZE as MOSS_CHUNK, chunkKey as mossChunkKey, lodStep } from '@zion/shared';
 import { handAnimationFor } from './hand-studio';
 import { GunRecoil, weaponRecoil } from './first-person-recoil';
@@ -1052,6 +1053,9 @@ export class GameEngine {
     const hum = chunk.humidity[j * n + i]! / 255, temp = chunk.temperature[j * n + i]! / 255;
     const want = Math.max(0, Math.min(1, (hum - .4) / .35)) * Math.max(0, Math.min(1, (temp - .12) / .15)) * Math.max(0, Math.min(1, (.88 - temp) / .12));
     ROCK_MOSS.value += (want - ROCK_MOSS.value) * .3;
+    // Dust settles where it is dry and warm (surface-layers.ts).
+    const dry = Math.max(0, Math.min(1, (.45 - hum) / .3)) * Math.max(0, Math.min(1, (temp - .2) / .3));
+    LAYER_DUST.value += (dry - LAYER_DUST.value) * .3;
   }
 
   attachMinimap(canvas: HTMLCanvasElement | null): void {
