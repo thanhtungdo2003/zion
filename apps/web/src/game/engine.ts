@@ -2090,7 +2090,8 @@ export class GameEngine {
         if (m.kind !== 'flash' && this.local && !this.local.dead) {
           const p = this.local.state, d = Math.hypot(p.x - m.x, p.y + 1.5 - m.y, p.z - m.z);
           const ring = Math.min(.85, Math.max(0, 1 - d / Math.max(8, m.radius * 3)) * 1.1);
-          if (ring > .05) this.sounds?.stun(ring, 1600 + 2600 * ring);
+          // The whine sets in about a second after the bang (heard first), not with it.
+          if (ring > .05) window.setTimeout(() => this.sounds?.stun(ring, 1600 + 2600 * ring), 1000);
         }
         break;
       case 'stagger':
