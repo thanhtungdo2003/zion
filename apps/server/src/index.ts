@@ -4,7 +4,7 @@ import { WaveRooms } from './game/wave-rooms';
 import { WarfareRooms } from './game/warfare-rooms';
 import { WaveScoreRepository } from './repositories/wave-scores';
 import type { LifeWorld } from './game/base-life';
-import { BATTLE_MAP, SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent, seatTuning, seatTuningSchema, setSeatTuning, type SeatTuning } from '@zion/shared';
+import { SQUAD_LIMIT, STARTING_ZCOIN, WAVE_TEAM_LIMIT, validateContent, seatTuning, seatTuningSchema, setSeatTuning, type SeatTuning } from '@zion/shared';
 import { randomInt } from 'node:crypto';
 import { createDefaultRegistry, type UploadedMapFit } from '@zion/assets';
 import { GENERATOR_VERSION, normalizeSeed, type WorldConfig } from '@zion/worldgen';
@@ -14,7 +14,7 @@ import { createPool } from './db/pool';
 import { GameGateway } from './game/gateway';
 import { MatchPool } from './game/match-pool';
 import { InfectionMapService } from './world/infection-maps';
-import { BattleMapService, DEFAULT_BATTLE_MAP_ID } from './world/battle-maps';
+import { BattleMapService } from './world/battle-maps';
 import { GameServer } from './game/game-server';
 import { TeamService } from './game/teams';
 import { CustomWeaponStore } from './repositories/custom-weapons';
@@ -128,30 +128,17 @@ async function main(): Promise<void> {
   // Model Studio: published models join the registry (and their collision) before any world.
   const modelStudio = new ModelStudioStore(db, registry);
   await modelStudio.load((asset, err) => logger.warn({ asset, err }, 'model studio asset skipped (invalid)')).catch((err: unknown) => logger.warn({ err }, 'model studio not loaded'));
-  // Trial of Model Studio houses on the built-in island (Studio setting; applied at start).
-  const trialRow = await db.query<{ value: { assets?: number[] } }>(`SELECT value FROM server_settings WHERE key = 'model_studio_trial'`).catch(() => ({ rows: [] as Array<{ value: { assets?: number[] } }> }));
-  const trialAssets = (trialRow.rows[0]?.value.assets ?? []).filter((a) => modelStudio.publishedModel(a)).slice(0, 16);
-  const studioHouses = trialAssets.map((asset) => ({ asset, radius: (modelStudio.publishedModel(asset)!.def as { bounds: { radius: number } }).bounds.radius }));
-  const battleWorldId = studioHouses.length ? `${BATTLE_MAP.id}-trial-${trialAssets.join('-')}` : BATTLE_MAP.id;
-  if (studioHouses.length) logger.info({ assets: trialAssets }, 'battle royale island: Model Studio houses on trial');
   // Every fixed map has a world (and a chunk cache) of its own, some 38 KB a chunk: at the
   // survival world's 12 000 entries each one could take ~450 MB, and with bots spread over a few
   // big battlefields the server ran out of memory. Baked chunks come back cheaply from disk.
   const mapCache = Math.min(config.CHUNK_CACHE_SIZE, 4000);
-  const battleWorld = new WorldService({ seed: normalizeSeed(BATTLE_MAP.seed), sizeChunks: BATTLE_MAP.sizeChunks, seaLevel: 20, generatorVersion: GENERATOR_VERSION, mode: 'battle-royale', ...(studioHouses.length ? { studioHouses } : {}) }, registry, Math.min(1, config.WORLDGEN_WORKERS), mapCache, logger, modelStudio.definitions());
-  await battleWorld.start();
-  if (config.CHUNK_BAKE_DIR) { battleWorld.bakeTo(config.CHUNK_BAKE_DIR); void battleWorld.bake(); }
   // Battle royale squads are separate from survival teams: three players, kept in memory.
   const battleTeams = new TeamService([], async () => {}, { limit: SQUAD_LIMIT, squad: true });
   // Battle royale and infection run many matches at once over one shared world each; every
   // "Play" is matched into a match still gathering players (see MatchPool).
   let vehicleJolt: boolean | null = null;
-  const battlePool = new MatchPool(() => {
-    const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: battleWorld, registry, playerStates, worlds, worldId: battleWorldId, initialWorldTimeMs: 0, mode: 'battle-royale' });
-    if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
-    return match;
-  }, logger.child({ module: 'battle-matches' }));
-  // Battle royale maps published from the World Studio: one world and match pool each.
+  // Battle royale is played on the maps published from the World Studio (there is no built-in
+  // island any more): one world and match pool each; without a map chosen, the busiest one.
   const battleMaps = new BattleMapService(db, registry, mapCache, logger.child({ module: 'battle-maps' }), (mapWorld, mapWorldId, environment) => {
     const match = new GameServer({ appearances: accounts, teams: battleTeams, config, logger, metrics: new Metrics(), audit, world: mapWorld, registry, playerStates, worlds, worldId: mapWorldId, initialWorldTimeMs: 0, mode: 'battle-royale', environment });
     if (vehicleJolt !== null) match.vehicleJolt = vehicleJolt;
@@ -219,9 +206,7 @@ async function main(): Promise<void> {
     void infectionMaps.sweep(new Set([infectionPool, ...infectionPools.values()].flatMap((p) => p.matches.map((m) => m.worldService))));
   }, 60_000).unref();
   const survivalAtlas = atlasProvider(world.generator, config.WORLD_ID, () => world.campLayout);
-  const battleAtlas = atlasProvider(battleWorld.generator, battleWorldId);
   const survivalTiles = atlasTileProvider(world.generator, config.WORLD_ID);
-  const battleTiles = atlasTileProvider(battleWorld.generator, battleWorldId);
 
   const savedLife = await db.query<{ state: LifeWorld }>('SELECT state FROM world_base_life WHERE world_id = $1', [config.WORLD_ID]);
   if (savedLife.rows[0]) game.lifeWorld = savedLife.rows[0].state;
@@ -280,13 +265,6 @@ async function main(): Promise<void> {
   const app = await buildHttpApp({
     modelStudio: {
       store: modelStudio, agent: modelAgent, ai: aiSettings, textures: textureLibrary,
-      trial: {
-        get: () => ({ active: trialAssets, saved: trialAssets }),
-        set: async (assets: number[]) => {
-          await db.query(`INSERT INTO server_settings (key, value) VALUES ('model_studio_trial', $1::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ assets })]);
-          return { active: trialAssets, saved: assets, restartRequired: JSON.stringify(assets) !== JSON.stringify(trialAssets) };
-        },
-      },
     },
     appearances: accounts,
     news: new NewsRepository(db),
@@ -294,8 +272,8 @@ async function main(): Promise<void> {
     gearFit,
     handStudio,
     progression,
-    atlas: (mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.atlas() || battleAtlas()) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.atlas() : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.atlas(map) : survivalAtlas(),
-    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? (map && battleMaps.entry(map)?.tiles(x, z) || battleTiles(x, z)) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.tiles(x, z) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
+    atlas: (mode, map) => mode === 'battle-royale' ? ((map && battleMaps.entry(map)) || battleMaps.defaultEntry())?.atlas() ?? Promise.reject(new Error('no battle royale map published')) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.atlas() : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.atlas(map) : survivalAtlas(),
+    atlasTile: (x, z, mode, map) => mode === 'battle-royale' ? ((map && battleMaps.entry(map)) || battleMaps.defaultEntry())?.tiles(x, z) ?? Promise.reject(new Error('no battle royale map published')) : mode === 'warfare' && map && battleMaps.entry(map)?.warfare ? battleMaps.entry(map)!.tiles(x, z) : mode === 'infection' || mode === 'waves' || mode === 'warfare' ? infectionMaps.tile(x, z, map) : survivalTiles(x, z),
     infectionModels: {
       list: () => infectionMaps.modelList(),
       upload: (name, glb, fit) => infectionMaps.uploadModel(name, glb, fit as UploadedMapFit | undefined),
@@ -307,7 +285,7 @@ async function main(): Promise<void> {
       return { ...m, players: matches.reduce((n, g) => n + g.playerCount, 0) };
     }),
     battleMaps: {
-      list: () => [{ id: DEFAULT_BATTLE_MAP_ID, name: 'Đảo Hắc Sơn', thumbnail: null, builtin: true, players: battlePool.matches.reduce((n, m) => n + m.playerCount, 0), matches: battlePool.matches.length }, ...battleMaps.list()],
+      list: () => battleMaps.list(),
       publish: (input) => battleMaps.publish(input),
       remove: (id) => battleMaps.remove(id),
       catalog: () => battleMaps.catalog(),
@@ -374,7 +352,7 @@ async function main(): Promise<void> {
       vehiclePhysics: () => ({ jolt: game.vehicleJolt }),
       setVehiclePhysics: async (jolt) => {
         game.vehicleJolt = jolt; vehicleJolt = jolt;
-        for (const match of battlePool.matches) match.vehicleJolt = jolt;
+        for (const match of battleMaps.matches()) match.vehicleJolt = jolt;
         await db.query(`INSERT INTO server_settings (key, value) VALUES ('vehicle_physics', $1::jsonb)
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [JSON.stringify({ jolt })]);
         audit.record({ event: 'studio.vehicle_physics', details: { jolt } });
@@ -456,8 +434,8 @@ async function main(): Promise<void> {
     },
   });
 
-  gateway = new GameGateway(config, logger, metrics, auth, game, audit, { 'battle-royale': battlePool, infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
-  gateway.battleMaps = (id) => battleMaps.pool(id);
+  gateway = new GameGateway(config, logger, metrics, auth, game, audit, { infection: infectionPool }, (accountId) => battleTeams.forAccount(accountId)?.id);
+  gateway.battleMaps = (id) => (id ? battleMaps.pool(id) : battleMaps.defaultEntry()?.pool ?? undefined);
   gateway.infectionMaps = infectionPoolFor;
   gateway.waves = (map, party, bots) => waveRooms.source(map, party, bots);
   gateway.warfare = (map) => warfareRooms.source(map);
@@ -470,7 +448,6 @@ async function main(): Promise<void> {
   gateway.voice = voice;
   gateway.attach(app.server);
   game.start();
-  battlePool.start();
   infectionPool.start();
   waveRooms.start();
   warfareRooms.start();
@@ -506,7 +483,6 @@ async function main(): Promise<void> {
     try {
       gateway?.stopAccepting();
       await game.stop();
-      await battlePool.stop();
       await battleMaps.close();
       await infectionPool.stop();
       await waveRooms.stop();
@@ -514,7 +490,6 @@ async function main(): Promise<void> {
       await gateway?.close();
       await app.close();
       await world.close();
-      await battleWorld.close();
       await infectionMaps.close();
       await audit.close();
       await kv.close();

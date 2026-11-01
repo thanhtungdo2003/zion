@@ -15,7 +15,7 @@ import { activeMatch } from '@/lib/rejoin';
 import { ApiError, login, playAsGuest, refreshSession, authProviders, linkedProviders, startSocialAuth, currentAccount, logout, renameAccount, IS_DESKTOP, startDesktopSignIn, pollDesktopSignIn, approveDesktopSignIn, type DesktopSignIn, type SocialProvider } from '@/lib/api';
 import { randomGuestName } from '@/lib/guest-name';
 import { useSettings } from '@/lib/settings';
-import { getTeamLobby, listInfectionMaps, listWarfareMaps, teamAction } from '@/lib/api';
+import { getTeamLobby, listBattleMaps, listInfectionMaps, listWarfareMaps, teamAction } from '@/lib/api';
 import { TeamLobby } from '@/components/TeamLobby';
 import { CareerPanel } from '@/components/CareerPanel';
 import { LibraryNav } from '@/components/LibraryNav';
@@ -42,14 +42,15 @@ const GAME_MODES = [
 const BR_MAP_KEY = 'zion.br.map';
 /** Remembers the wave match URL (map, bots or party) so a dropped tab finds its room again. */
 const waveUrl = (url: string) => { try { sessionStorage.setItem('zion.waves.url', url); } catch { /* storage blocked */ } return url; };
-const chosenMap = () => { try { return localStorage.getItem(BR_MAP_KEY) ?? 'hac-son'; } catch { return 'hac-son'; } };
+// Battle royale is played on published maps only ('hac-son' was the old built-in island).
+const chosenMap = () => { try { const id = localStorage.getItem(BR_MAP_KEY) ?? ''; return id === 'hac-son' ? '' : id; } catch { return ''; } };
 const INF_MAP_KEY = 'zion.inf.map';
 const chosenInfectionMap = () => { try { return localStorage.getItem(INF_MAP_KEY) ?? ''; } catch { return ''; } };
 const WF_MAP_KEY = 'zion.wf.map';
 const chosenWarfareMap = () => { try { return localStorage.getItem(WF_MAP_KEY) ?? ''; } catch { return ''; } };
 /** Remembers the Warfare match URL so a dropped tab finds its room again. */
 const warfareUrl = () => { const url = `/play?mode=warfare&map=${encodeURIComponent(chosenWarfareMap())}`; try { sessionStorage.setItem('zion.warfare.url', url); } catch { /* storage blocked */ } return url; };
-const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : mode === 'waves' ? '/play?mode=waves' : mode === 'warfare' ? warfareUrl() : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() !== 'hac-son' ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
+const playUrl = (mode: (typeof GAME_MODES)[number]['id'], squad = false) => mode === 'survival' ? '/play' : mode === 'waves' ? '/play?mode=waves' : mode === 'warfare' ? warfareUrl() : `/play?mode=${mode}${squad && mode === 'battle-royale' ? '&squad=1' : ''}${mode === 'battle-royale' && chosenMap() ? `&map=${encodeURIComponent(chosenMap())}` : ''}${mode === 'infection' && chosenInfectionMap() ? `&map=${encodeURIComponent(chosenInfectionMap())}` : ''}`;
 
 export default function MainMenu() {
   const router = useRouter();
@@ -67,7 +68,7 @@ export default function MainMenu() {
   const [error, setError] = useState<string | null>(null);
   const [modeOpen, setModeOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
-  const [brMap, setBrMap] = useState<{ id: string; name: string }>({ id: 'hac-son', name: 'Đảo Hắc Sơn' });
+  const [brMap, setBrMap] = useState<{ id: string; name: string }>({ id: '', name: 'Chọn bản đồ' });
   // Infection: '' = the map set active in the Studio.
   const [infMap, setInfMap] = useState<{ id: string; name: string }>({ id: '', name: 'Bản đồ mặc định' });
   const [infMapOpen, setInfMapOpen] = useState(false);
@@ -77,7 +78,17 @@ export default function MainMenu() {
   const closeWfMaps = useCallback(() => setWfMapOpen(false), []);
   useEffect(() => { try { const id = localStorage.getItem(WF_MAP_KEY); const name = localStorage.getItem(`${WF_MAP_KEY}.name`); if (id) setWfMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
   useEffect(() => { try { const id = localStorage.getItem(INF_MAP_KEY); const name = localStorage.getItem(`${INF_MAP_KEY}.name`); if (id) setInfMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
-  useEffect(() => { try { const id = localStorage.getItem(BR_MAP_KEY); const name = localStorage.getItem(`${BR_MAP_KEY}.name`); if (id) setBrMap({ id, name: name ?? id }); } catch { /* storage blocked */ } }, []);
+  // The remembered map if it is still published; else the one most people are playing.
+  useEffect(() => {
+    let id = '', name = '';
+    try { id = chosenMap(); name = localStorage.getItem(`${BR_MAP_KEY}.name`) ?? id; } catch { /* storage blocked */ }
+    void listBattleMaps().then((maps) => {
+      const pick = maps.find((m) => m.id === id) ?? [...maps].sort((a, b) => b.players - a.players)[0];
+      if (!pick) { setBrMap({ id: '', name: 'Chưa có bản đồ' }); return; }
+      setBrMap({ id: pick.id, name: pick.name });
+      try { localStorage.setItem(BR_MAP_KEY, pick.id); localStorage.setItem(`${BR_MAP_KEY}.name`, pick.name); } catch { /* storage blocked */ }
+    }).catch(() => { if (id) setBrMap({ id, name }); });
+  }, []);
   const closeMaps = useCallback(() => setMapOpen(false), []);
   const closeInfMaps = useCallback(() => setInfMapOpen(false), []);
   const closeModes = useCallback(() => setModeOpen(false), []);

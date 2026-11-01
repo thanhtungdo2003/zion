@@ -16,15 +16,12 @@ import s from './world-studio.module.css';
 
 const TEMPLATES: Array<{ id: MapTemplate; name: string; description: string; icon: string }> = [
   { id: 'auto', name: 'Tự động — bản đồ đầy đủ', description: 'Chỉnh tham số, hệ thống tự sinh địa hình, núi đồi, sông hồ, thành phố, thị trấn, làng, khu công nghiệp, căn cứ, cảng, đường nối, rừng và cấu hình trận.', icon: 'wand' },
-  { id: 'hac-son', name: 'Đảo Hắc Sơn — bản đồ BR hiện tại', description: 'Lấy địa hình, bề mặt, 14 tuyến đường, công trình, địa danh và luật bo từ bộ sinh map của game (4096 m).', icon: 'island' },
+  { id: 'hac-son', name: 'Mẫu Đảo Hắc Sơn', description: 'Lấy địa hình, bề mặt, 14 tuyến đường, công trình, địa danh và luật bo của đảo Hắc Sơn cũ từ bộ sinh map (4096 m).', icon: 'island' },
   { id: 'procedural', name: 'Sinh từ seed', description: 'Đồng bằng, đồi, núi, thung lũng, đảo hoặc hỗn hợp — nhiều lớp noise, cùng seed cho cùng kết quả.', icon: 'dices' },
   { id: 'blank', name: 'Bản đồ trống', description: 'Mặt đất phẳng để tự nặn từ đầu.', icon: 'square' },
 ];
 const kindName = (k: string) => MAP_KINDS.find((m) => m.id === k)?.name ?? k;
 type Sort = 'updated' | 'name' | 'size' | 'created';
-/** The battle royale island's editable copy in the library (added once, kept if renamed). */
-const DEFAULT_ISLAND_ID = 'map-hac-son-default';
-const DEFAULT_ISLAND_ADDED = 'zion.studio.hac-son-added.v1';
 
 /**
  * Rebuilds the houses of every region of a map with the current catalogue (whole house models,
@@ -80,29 +77,6 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
     catch (err) { setServerError(err instanceof Error ? err.message : String(err)); }
   }, []);
   useEffect(() => { void refresh(); void refreshServer(); }, [refresh, refreshServer]);
-
-  /** The battle royale island (Đảo Hắc Sơn), as an editable map, in the library: built once. */
-  const addDefaultIsland = useCallback(async (open: boolean) => {
-    setBusy('Đang lấy Đảo Hắc Sơn (bản đồ Battle Royale mặc định) từ bộ sinh map…');
-    try {
-      const req: NewMapRequest = { template: 'hac-son', name: 'Đảo Hắc Sơn (bản đồ BR mặc định)', kind: 'battle-royale', size: BATTLE_MAP.sizeChunks * 32, seed: BATTLE_MAP.seed, preset: 'island', maxHeight: 120, roughness: .5, detail: 5, seaEdge: true, climate: 'temperate', erosion: .3 };
-      const r = await runJob<'map'>({ kind: 'new-map', req }, (label, value) => setBusy(`Đảo Hắc Sơn: ${label} ${Math.round(value * 100)}%`)).promise;
-      r.doc.meta = { ...r.doc.meta, id: DEFAULT_ISLAND_ID };
-      await saveMap(r.doc, new Heightfield(r.doc.terrain.size, r.doc.terrain.cell, new Float32Array(r.heights), new Uint8Array(r.surface)));
-      try { localStorage.setItem(DEFAULT_ISLAND_ADDED, '1'); } catch { /* the island is in the library either way */ }
-      await refresh();
-      if (open) onOpen(DEFAULT_ISLAND_ID);
-    } catch (err) { setError(`Không lấy được Đảo Hắc Sơn: ${err instanceof Error ? err.message : String(err)}`); }
-    finally { setBusy(null); }
-  }, [onOpen, refresh]);
-  useEffect(() => {
-    if (!maps) return;
-    let added = false;
-    try { added = localStorage.getItem(DEFAULT_ISLAND_ADDED) === '1'; } catch { /* no storage: offer it every time */ }
-    if (!added && !maps.some((m) => m.id === DEFAULT_ISLAND_ID)) void addDefaultIsland(false);
-  // Once, when the library is first listed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maps === null]);
 
   /** Every map in the library: houses rebuilt from whole models (no kit buildings). */
   const rebuildAll = async () => {
@@ -177,7 +151,6 @@ export function MapManager({ onOpen }: { onOpen: (id: string) => void }) {
       <Link className={s.back} href="/studio" title="Về Zion Studio"><Icon name="lucide:arrow-left" /></Link>
       <h1>ZION <span>World Studio</span></h1>
       <div className={s.spacer} />
-      <button className={s.tbtn} onClick={() => { if ((maps ?? []).some((m) => m.id === DEFAULT_ISLAND_ID)) onOpen(DEFAULT_ISLAND_ID); else void addDefaultIsland(true); }} disabled={!!busy} title="Bản đồ Battle Royale mặc định của game, chỉnh sửa được" data-testid="default-island"><Icon name="lucide:palmtree" /><span>Đảo Hắc Sơn</span></button>
       <button className={s.tbtn} onClick={() => setRebuilding(true)} disabled={!!busy || !maps?.length} title="Sinh lại nhà ở mọi khu vực của mọi bản đồ bằng các model nhà nguyên khối (có sẵn và từ Model Studio), bỏ nhà ghép từ mảng tường" data-testid="rebuild-houses"><Icon name="lucide:house" /><span>Xây lại nhà cửa</span></button>
       <button className={s.tbtn} onClick={importFile} data-testid="import-map"><Icon name="lucide:upload" /><span>Nhập file</span></button>
       <button className={`${s.tbtn} ${s.primary}`} onClick={() => setCreating(true)} data-testid="new-map"><Icon name="lucide:plus" /><span>Bản đồ mới</span></button>

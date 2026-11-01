@@ -127,11 +127,13 @@ export class GameGateway {
       pool = this.warfare?.(query.get('map') ?? '') ?? undefined;
       if (!pool) return this.reject(socket, 404, 'map');
     }
-    // A battle royale map chosen in the mode menu (the built-in island when absent).
+    // A battle royale map chosen in the mode menu (none, or the old built-in island's id: the
+    // published map most people are on).
     const mapId = mode === 'battle-royale' || mode === 'infection' ? query.get('map') : null;
-    if (mode === 'battle-royale' && mapId && mapId !== 'hac-son') {
-      pool = this.battleMaps?.(mapId);
-      if (!pool) return this.reject(socket, 404, 'map');
+    if (mode === 'battle-royale') {
+      const chosen = mapId && mapId !== 'hac-son' ? mapId : '';
+      pool = this.battleMaps?.(chosen);
+      if (!pool) return this.reject(socket, chosen ? 404 : 503, chosen ? 'map' : 'mode_unavailable');
     }
     // An Infection map picked in the menu (the active map when absent).
     if (mode === 'infection' && mapId) {

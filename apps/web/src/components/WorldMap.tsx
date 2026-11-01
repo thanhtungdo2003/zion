@@ -304,7 +304,7 @@ export function WorldMap({ store, hud, onClose }: { store: WorldMapStore; hud: H
     }
   }}>
     <section className="atlas-panel">
-      <header className="atlas-header"><div><span className="q-kicker">ZION // BẢN ĐỒ THỰC ĐỊA</span><h2 id="atlas-title"><Icon name="lucide:map" /> {battle ? 'Bản đồ Battle Royale' : warfare ? 'Chiến trường' : 'Bản đồ sinh tồn'}</h2></div>{!warfare && <span className="atlas-status"><i /> {battle ? 'Đảo Hắc Sơn' : 'Vùng căn cứ · R 1 KM'}</span>}<button ref={close} className="atlas-close" onClick={onClose} aria-label="Đóng bản đồ (M / Esc)"><Icon name="lucide:x" /><kbd>M</kbd></button></header>
+      <header className="atlas-header"><div><span className="q-kicker">ZION // BẢN ĐỒ THỰC ĐỊA</span><h2 id="atlas-title"><Icon name="lucide:map" /> {battle ? 'Bản đồ Battle Royale' : warfare ? 'Chiến trường' : 'Bản đồ sinh tồn'}</h2></div>{!warfare && <span className="atlas-status"><i /> {battle ? 'Battle Royale' : 'Vùng căn cứ · R 1 KM'}</span>}<button ref={close} className="atlas-close" onClick={onClose} aria-label="Đóng bản đồ (M / Esc)"><Icon name="lucide:x" /><kbd>M</kbd></button></header>
       <div className="atlas-body">
         <div className="atlas-viewport" ref={host}
           onPointerDown={(e) => {

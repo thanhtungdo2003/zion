@@ -207,6 +207,15 @@ export class BattleMapService {
     if (e) await (e.pool?.stop() ?? Promise.resolve()).then(() => e.world.close()).catch(() => {});
   }
 
+  /** The map a battle royale player goes to when they chose none: the busiest, then the newest. */
+  defaultEntry(): Entry | undefined {
+    const live = [...this.maps.values()].filter((e) => e.pool);
+    const players = (e: Entry) => e.pool!.matches.reduce((n, m) => n + m.playerCount, 0);
+    return live.sort((a, b) => players(b) - players(a) || b.updatedAt.localeCompare(a.updatedAt))[0];
+  }
+  /** Every battle royale match running on the published maps. */
+  matches(): GameServer[] { return [...this.maps.values()].flatMap((e) => e.pool?.matches ?? []); }
+
   /** Battle royale matches on a map (only one published for battle royale). */
   pool(id: string): MatchPool | undefined { return this.maps.get(id)?.pool ?? undefined; }
   entry(id: string): Entry | undefined { return this.maps.get(id); }

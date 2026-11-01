@@ -523,15 +523,10 @@ export function VersionsPanel(p: {
             <div className={s.muted}>{x.report.triangles?.toLocaleString('vi-VN')} tam giác · {x.report.materials} vật liệu · {((x.report.bytes ?? 0) / 1024 / 1024).toFixed(1)} MB · {x.report.refs ?? 0} model kèm</div>
             <div className={s.row} style={{ marginTop: 6 }}>
               <button className={s.tbtn} disabled={p.busy} onClick={() => { if (confirm(`Ghi đè model #${x.asset} trong game bằng phiên bản hiện tại? Mọi bản đồ dùng nó sẽ nhận bản mới khi dựng lại.`)) p.publish({ replaceAsset: x.asset }); }}>Cập nhật</button>
-              {x.def.category === 'structure' && p.trial && <button className={`${s.tbtn} ${p.trial.saved.includes(x.asset) ? s.on : ''}`} disabled={p.busy} onClick={() => {
-                const on = p.trial!.saved.includes(x.asset);
-                if (confirm(on ? `Bỏ thử nghiệm #${x.asset} trên đảo Hắc Sơn (áp dụng khi khởi động lại server)?` : `Thử nghiệm #${x.asset} trên đảo Hắc Sơn: thay một nửa số nhà ven đường để so sánh (áp dụng khi khởi động lại server)?`)) p.setTrial(on ? p.trial!.saved.filter((a) => a !== x.asset) : [...p.trial!.saved, x.asset]);
-              }}>{p.trial.saved.includes(x.asset) ? 'Đang thử trên đảo' : 'Thử trên đảo BR'}</button>}
               <button className={`${s.tbtn} ${s.danger}`} disabled={p.busy} onClick={() => { if (confirm(`Gỡ model #${x.asset} khỏi game? Bản đồ đặt nó sẽ mất nó ở lần dựng sau.`)) p.unpublish(x.asset); }}>Gỡ</button>
             </div>
           </div>
         ))}
-        {p.trial && p.trial.saved.join() !== p.trial.active.join() && <p className={s.muted}>Thử nghiệm trên đảo đã lưu, có hiệu lực khi khởi động lại server.</p>}
       </div>
       <div className={s.section}>
         <h3><Icon name="lucide:history" /> Phiên bản</h3>
