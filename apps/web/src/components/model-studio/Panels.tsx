@@ -292,19 +292,28 @@ export function Inspector({ doc, nodes, mutate }: { doc: ModelDoc; nodes: ModelN
  * Where the building stands on maps — the same lot classes, conditions and kinds of area (and
  * names) as the World Studio's settlements; several of each may be chosen.
  */
-export function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
-  const fit: LotFit = doc.fit ?? lotFitFromLegacy(doc.lotClass) ?? { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
-  const set = (label: string, next: LotFit) => mutate(label, (d) => { d.fit = next; delete d.lotClass; });
+/** The three rows of lot choices (classes, conditions, kinds of area). */
+function LotFitChips({ fit, set }: { fit: LotFit; set: (label: string, next: LotFit) => void }) {
   const toggle = <T extends string>(list: readonly T[], v: T, keep1: boolean): T[] => list.includes(v) ? (keep1 && list.length === 1 ? [...list] : list.filter((x) => x !== v)) : [...list, v];
-  return <div className={s.section}>
-    <h3>Đặt trên bản đồ</h3>
-    <p className={s.muted}>Dùng chung với World Studio: khi sinh khu vực, công trình được đặt vào những lô hợp với cả ba lựa chọn dưới đây.</p>
+  return <>
     <div className={s.row}><label>Loại lô</label><div className={s.chips}>{LOT_CLASSES.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.lots.includes(k) ? s.on : ''}`} onClick={() => set('Loại lô', { ...fit, lots: toggle(fit.lots, k, true) })}>{LOT_CLASS_NAMES[k]}</button>)}</div></div>
     <div className={s.row}><label>Tình trạng</label><div className={s.chips}>{BUILDING_CONDITIONS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.conditions.includes(k) ? s.on : ''}`} onClick={() => set('Tình trạng', { ...fit, conditions: toggle(fit.conditions, k, true) })}>{BUILDING_CONDITION_NAMES[k]}</button>)}</div></div>
     <div className={s.row}><label>Kiểu khu vực</label><div className={s.chips}>
       <button type="button" className={`${s.chip} ${fit.areas.length ? '' : s.on}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: [] })}>Mọi khu vực</button>
       {SETTLEMENT_AREA_IDS.map((k) => <button key={k} type="button" className={`${s.chip} ${fit.areas.includes(k) ? s.on : ''}`} onClick={() => set('Kiểu khu vực', { ...fit, areas: toggle(fit.areas, k, false) })}>{SETTLEMENT_AREA_NAMES[k]}</button>)}
     </div></div>
+  </>;
+}
+
+const DEFAULT_FIT: LotFit = { lots: ['residential', 'commercial'], conditions: ['intact'], areas: [] };
+
+export function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
+  const fit: LotFit = doc.fit ?? lotFitFromLegacy(doc.lotClass) ?? DEFAULT_FIT;
+  const set = (label: string, next: LotFit) => mutate(label, (d) => { d.fit = next; delete d.lotClass; });
+  return <div className={s.section}>
+    <h3>Đặt trên bản đồ</h3>
+    <p className={s.muted}>Dùng chung với World Studio: khi sinh khu vực, công trình được đặt vào những lô hợp với cả ba lựa chọn dưới đây. Muốn nhà có ở thành phố, khu dân cư bình thường thì phải bật <b>Nguyên vẹn</b>.</p>
+    <LotFitChips fit={fit} set={set} />
     <p className={s.muted}>{describeLotFit(fit)}{doc.fit ? '' : ' (mặc định)'}</p>
     <button type="button" className={s.tbtn} title="Suy ra từ tên, ghi chú, phòng, số tầng, vật liệu" onClick={() => {
       const c = classifyModel(doc);
@@ -502,6 +511,8 @@ export function VersionsPanel(p: {
   versions: VersionInfo[]; published: PublishedModel[]; projectId: string; trial: { active: number[]; saved: number[] } | null; busy: boolean;
   snapshot(note: string): void; preview(v: number): void; restore(v: number): void; exportGlb(mode: 'game' | 'editable'): void;
   publish(opts: { lotClass?: string; replaceAsset?: number }): void; unpublish(asset: number): void; setTrial(assets: number[]): void;
+  /** Changes where a published building stands on maps (no new export). */
+  setFit(asset: number, fit: LotFit): void;
   /** The model (its placement on maps is chosen right before publishing). */
   doc: ModelDoc; mutate: Mutate;
 }) {
@@ -516,6 +527,7 @@ export function VersionsPanel(p: {
           <button className={s.tbtn} disabled={p.busy} onClick={() => p.exportGlb('game')} title="Gộp theo vật liệu như game tải">GLB cho game</button>
         </div>
       </div>
+      <PublishedFits published={p.published} busy={p.busy} setFit={p.setFit} />
       <div className={s.section}>
         <h3><Icon name="lucide:rocket" /> Xuất bản vào game</h3>
         <LotFitEditor doc={p.doc} mutate={p.mutate} />
@@ -616,4 +628,30 @@ function TextureBrowser({ projectId, material, apply, clear }: { projectId: stri
       {err && <p style={{ color: '#ff8b80', fontSize: 12 }}>{err}</p>}
     </div>
   );
+}
+
+/**
+ * Where every published building stands on maps, at a glance and changeable on the spot (no new
+ * export): a house marked only "Bỏ hoang" appears only in abandoned places.
+ */
+function PublishedFits({ published, busy, setFit }: { published: PublishedModel[]; busy: boolean; setFit(asset: number, fit: LotFit): void }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const houses = published.filter((m) => m.def.category === 'structure' || m.def.fit || m.def.tags?.includes('kind:building'));
+  if (!houses.length) return null;
+  const fitOf = (m: PublishedModel): LotFit => (m.def.fit as LotFit | undefined) ?? lotFitFromLegacy(m.def.tags?.find((t) => t.startsWith('lot:'))?.slice(4)) ?? DEFAULT_FIT;
+  const intactless = houses.filter((m) => !fitOf(m).conditions.includes('intact')).length;
+  return <div className={s.section}>
+    <h3><Icon name="lucide:map-pin" /> Nơi đặt của các công trình đã xuất bản</h3>
+    {intactless > 0 && <p className={s.muted}>{intactless}/{houses.length} công trình chỉ hợp nơi bỏ hoang hoặc đổ nát (chưa bật Nguyên vẹn): chúng chỉ xuất hiện ở khu bỏ hoang.{' '}
+      <button type="button" className={s.tbtn} disabled={busy} onClick={() => { if (confirm(`Bật "Nguyên vẹn" cho ${intactless} công trình để chúng có ở mọi thành phố, khu dân cư?`)) for (const m of houses) { const f = fitOf(m); if (!f.conditions.includes('intact')) setFit(m.asset, { ...f, conditions: ['intact', ...f.conditions] }); } }}>Bật Nguyên vẹn cho tất cả</button></p>}
+    {houses.map((m) => {
+      const fit = fitOf(m);
+      return <div key={m.asset} className={s.card}>
+        <div className={s.row}><b>#{m.asset}</b><span className={s.grow}>{m.name}</span>
+          <button type="button" className={s.tbtn} onClick={() => setOpen(open === m.asset ? null : m.asset)}>{open === m.asset ? 'Xong' : 'Sửa'}</button></div>
+        <div className={s.muted}>{describeLotFit(fit)}{m.def.fit ? '' : ' (mặc định)'}</div>
+        {open === m.asset && <LotFitChips fit={fit} set={(_label, next) => { if (!busy) setFit(m.asset, next); }} />}
+      </div>;
+    })}
+  </div>;
 }

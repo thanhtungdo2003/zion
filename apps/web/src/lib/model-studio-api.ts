@@ -6,7 +6,7 @@ export interface ProjectSummary { id: string; name: string; kind: string; versio
 export interface ProjectFile { id: string; name: string; mime: string; size: number; createdAt?: string }
 export interface Project extends ProjectSummary { doc: ModelDoc; files: ProjectFile[] }
 export interface VersionInfo { version: number; note: string; author: string; createdAt: string; nodes: number }
-export interface PublishedModel { asset: number; name: string; projectId: string | null; projectVersion: number; version: number; def: { category: string; bounds: { radius: number; height: number }; tags?: string[] }; report: { triangles?: number; materials?: number; bytes?: number; refs?: number; warnings?: string[] } }
+export interface PublishedModel { asset: number; name: string; projectId: string | null; projectVersion: number; version: number; def: { category: string; bounds: { radius: number; height: number }; tags?: string[]; fit?: unknown }; report: { triangles?: number; materials?: number; bytes?: number; refs?: number; warnings?: string[] } }
 export interface AgentStep { at: number; kind: 'plan' | 'thought' | 'tool' | 'error' | 'info' | 'done'; text: string; tool?: string; args?: unknown; ok?: boolean; result?: unknown }
 export interface AgentJob {
   id: string; status: 'running' | 'done' | 'failed' | 'cancelled'; mode: 'ai' | 'offline'; model: string | null; prompt: string;
@@ -59,6 +59,8 @@ export const msApi = {
   },
   published: () => studioJson<PublishedModel[]>(`${P}/published`),
   publish: (id: string, body: { lotClass?: string; replaceAsset?: number; version?: number }) => studioJson<PublishedModel & { warnings: string[] }>(`${P}/projects/${id}/publish`, json({ confirm: true, ...body })),
+  /** Where a published building may stand on maps, changed without publishing it again. */
+  setFit: (asset: number, fit: unknown) => studioJson<PublishedModel>(`${P}/published/${asset}/fit`, json({ fit }, 'PUT')),
   unpublish: (asset: number) => studioJson<{ ok: true }>(`${P}/published/${asset}?confirm=1`, { method: 'DELETE' }),
   trial: () => studioJson<{ active: number[]; saved: number[] }>(`${P}/trial`),
   setTrial: (assets: number[]) => studioJson<{ active: number[]; saved: number[]; restartRequired: boolean }>(`${P}/trial`, json({ assets, confirm: true })),

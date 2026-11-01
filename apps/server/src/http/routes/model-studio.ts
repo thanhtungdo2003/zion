@@ -149,6 +149,9 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
       return r;
     } catch (err) { return fail(reply, err); }
   });
+  app.put<{ Params: { asset: string } }>('/api/studio/models/published/:asset/fit', pre, async (req, reply) => {
+    try { return await store.setFit(Number(req.params.asset), lotFitSchema.parse((req.body as { fit?: unknown } | null)?.fit)); } catch (err) { return fail(reply, err); }
+  });
   app.delete<{ Params: { asset: string }; Querystring: { confirm?: string } }>('/api/studio/models/published/:asset', pre, async (req, reply) => {
     if (req.query.confirm !== '1') return reply.code(400).send({ error: 'confirm', message: 'Cần xác nhận gỡ model khỏi game (confirm=1).' });
     await store.unpublish(Number(req.params.asset));

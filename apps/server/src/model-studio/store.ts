@@ -334,6 +334,23 @@ export class ModelStudioStore {
     return { ...model, warnings: out.warnings };
   }
 
+  /**
+   * Changes where a published building may stand on maps (lot classes, conditions, kinds of area)
+   * without exporting it again: the World Studio picks it up at its next look.
+   */
+  async setFit(asset: number, fit: LotFit): Promise<PublishedModel> {
+    const model = this.published.get(asset);
+    if (!model) throw Object.assign(new Error(`Model #${asset} chưa xuất bản.`), { statusCode: 404 });
+    const tags = (model.def.tags ?? []).filter((t) => !t.startsWith('lot:') && !t.startsWith('kind:'));
+    const def = { ...model.def, category: 'structure', tags: [...tags, 'kind:building'].slice(0, 16), fit } as AssetDefinitionInput;
+    createDefaultRegistry().registerUploaded(def);
+    await this.db.query('UPDATE model_assets SET def = $2::jsonb WHERE asset = $1', [asset, JSON.stringify(def)]);
+    const next = { ...model, def };
+    this.registry.registerUploaded(def);
+    this.published.set(asset, next);
+    return next;
+  }
+
   /** Takes a published model out of the game (maps that place it lose it at their next build). */
   async unpublish(asset: number): Promise<void> {
     await this.db.query('DELETE FROM model_assets WHERE asset = $1', [asset]);
