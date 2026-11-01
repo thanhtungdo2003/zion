@@ -1,4 +1,6 @@
 import { planRegion, regionRequestSchema } from '../../model-studio/region-planner';
+import { classifyWithAi } from '../../model-studio/ai-classify';
+import { parseDoc } from '@zion/assets/model-studio';
 import { lotFitSchema } from '@zion/shared';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
@@ -154,6 +156,10 @@ export function registerModelStudioRoutes(app: FastifyInstance, deps: HttpDeps, 
   // buildings it takes — the Model Studio's AI when connected, rules of thumb otherwise.
   app.post('/api/studio/world/plan-region', { ...pre, bodyLimit: 64 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     try { return await planRegion(regionRequestSchema.parse(req.body), store.publishedList(), ms.ai?.client() ?? null); } catch (err) { return fail(reply, err); }
+  });
+  // "Tự phân loại": the AI sorts the model out (rules of thumb without an AI connection).
+  app.post('/api/studio/models/classify', { ...pre, bodyLimit: 8 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try { return await classifyWithAi(parseDoc((req.body as { doc?: unknown } | null)?.doc), ms.ai?.client() ?? null); } catch (err) { return fail(reply, err); }
   });
   app.put<{ Params: { asset: string } }>('/api/studio/models/published/:asset/fit', pre, async (req, reply) => {
     try { return await store.setFit(Number(req.params.asset), lotFitSchema.parse((req.body as { fit?: unknown } | null)?.fit)); } catch (err) { return fail(reply, err); }

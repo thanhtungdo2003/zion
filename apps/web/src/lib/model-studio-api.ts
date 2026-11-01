@@ -1,3 +1,4 @@
+import type { LotFit } from '@zion/shared';
 import type { ModelDoc, ValidationReport } from '@zion/assets/model-studio';
 import { studioFetch, studioJson } from './api';
 
@@ -26,6 +27,8 @@ const P = '/api/studio/models';
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, body: JSON.stringify(body) });
 
 export const msApi = {
+  /** The AI sorts a model out: what it is, its building types and where it fits (rules without AI). */
+  classify: (doc: unknown) => studioJson<{ kind: string; fit: LotFit | null; summary: string; reasons: string[]; source: 'ai' | 'rules' }>(`${P}/classify`, json({ doc }, 'POST')),
   status: () => studioJson<{ ai: boolean; model: string | null; published: number }>(`${P}/status`),
   ai: () => studioJson<AiStatus>(`${P}/ai`),
   setAi: (body: { apiKey?: string; baseUrl?: string; model?: string; imageModel?: string }) => studioJson<AiStatus>(`${P}/ai`, json(body, 'PUT')),

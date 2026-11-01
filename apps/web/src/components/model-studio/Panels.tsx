@@ -318,15 +318,22 @@ const DEFAULT_FIT: LotFit = { lots: ['residential', 'commercial'], conditions: [
 export function LotFitEditor({ doc, mutate }: { doc: ModelDoc; mutate: Mutate }) {
   const fit: LotFit = doc.fit ?? lotFitFromLegacy(doc.lotClass) ?? DEFAULT_FIT;
   const set = (label: string, next: LotFit) => mutate(label, (d) => { d.fit = next; delete d.lotClass; });
+  const [sorting, setSorting] = useState(false), [note, setNote] = useState('');
   return <div className={s.section}>
     <h3>Đặt trên bản đồ</h3>
     <p className={s.muted}>Dùng chung với World Studio: khi sinh khu vực, công trình được đặt vào những lô hợp với cả ba lựa chọn dưới đây. Muốn nhà có ở thành phố, khu dân cư bình thường thì phải bật <b>Nguyên vẹn</b>.</p>
     <LotFitChips fit={fit} set={set} />
     <p className={s.muted}>{describeLotFit(fit)}{doc.fit ? '' : ' (mặc định)'}</p>
-    <button type="button" className={s.tbtn} title="Suy ra từ tên, ghi chú, phòng, số tầng, vật liệu" onClick={() => {
-      const c = classifyModel(doc);
-      mutate('Tự phân loại', (d) => { d.kind = c.kind; if (c.fit) { d.fit = c.fit; delete d.lotClass; } });
-    }}>Tự phân loại</button>
+    <button type="button" className={s.tbtn} disabled={sorting} title="AI đọc tên, ghi chú, phòng, số tầng, vật liệu và chọn loại công trình, loại lô, tình trạng, kiểu khu vực" onClick={async () => {
+      setSorting(true); setNote('');
+      // The AI of the Model Studio; the rules of thumb when it is not connected or does not answer.
+      let c: { kind: string; fit: LotFit | null; summary: string; reasons: string[]; source: string };
+      try { c = await msApi.classify(doc); } catch { c = { ...classifyModel(doc), source: 'rules' }; }
+      setSorting(false);
+      mutate('Tự phân loại', (d) => { d.kind = c.kind as typeof d.kind; if (c.fit) { d.fit = c.fit; delete d.lotClass; } });
+      setNote(`${c.source === 'ai' ? 'AI' : 'Quy tắc (chưa nối AI)'}: ${c.summary}${c.reasons.filter(Boolean).length ? ` — ${c.reasons.filter(Boolean).join('; ')}` : ''}`);
+    }}>{sorting ? 'AI đang phân loại…' : 'Tự phân loại (AI)'}</button>
+    {note && <p className={s.muted}>{note}</p>}
   </div>;
 }
 
