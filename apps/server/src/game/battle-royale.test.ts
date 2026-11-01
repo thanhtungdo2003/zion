@@ -8,6 +8,22 @@ function running() {
   match.tick(0); match.tick(30_000); return match;
 }
 describe('Battle Royale match', () => {
+  it('waits for players still loading the map: no countdown, and a countdown going holds', () => {
+    const match = new BattleRoyaleMatch(1, 1024);
+    match.join(1, 'a');
+    // One in, one still loading: long past the lobby wait, still waiting.
+    for (let t = 0; t <= 120_000; t += 1000) match.tick(t, 1, 1);
+    expect(match.phase).toBe('waiting');
+    match.tick(121_000, 1, 0);
+    expect(match.phase).toBe('countdown');
+    // Someone else starts loading during the countdown: it holds at a few seconds.
+    for (let t = 122_000; t <= 200_000; t += 1000) match.tick(t, 1, 1);
+    expect(match.phase).toBe('countdown');
+    // Loaded: the drop goes ahead (alone, it is won at once).
+    for (let t = 201_000; t <= 220_000; t += 1000) match.tick(t, 1, 0);
+    expect(['running', 'finished']).toContain(match.phase);
+  });
+
   it('waits for two players, cancels a depleted countdown and rejects late joins', () => {
     const match = new BattleRoyaleMatch(1, 1024);
     match.join(1, 'A'); match.tick(0); expect(match.phase).toBe('waiting');

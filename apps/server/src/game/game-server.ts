@@ -238,6 +238,8 @@ const HOLD_SPOTS = new WeakMap<object, HoldSpot[]>();
 export const REJOIN_GRACE_MS = 150_000;
 interface Rejoin { id: number; name: string; until: number; state: CharacterState; yaw: number; health: number; inventory: InventoryData; jumpPoint: { x: number; z: number } | null }
 
+/** How long a match waits for a player still loading the map before taking them in anyway. */
+const MATCH_LOAD_LIMIT_MS = 180_000;
 /** How long a broken window stays broken in the survival world. */
 const GLASS_REPAIR_MS = 30 * 60_000;
 
@@ -1943,7 +1945,7 @@ export class GameServer {
       this.battleWasOccupied = false; return;
     }
     this.joinBots(match, now);
-    match.tick(now, this.matchPlayers(now));
+    match.tick(now, this.matchPlayers(now), this.loadingPlayers());
     // Vehicles exist only once everyone is on the ground: hidden in the lobby and the plane.
     const vehicles = match.phase === 'running' && match.startedAt !== null && now - match.startedAt >= BATTLE_FLIGHT.durationMs;
     if (vehicles !== this.vehicles.available) {
@@ -2078,13 +2080,20 @@ export class GameServer {
     if (this.infection) { this.infection.join(p.id, p.username); this.syncLoadout(p); this.broadcastPlayerList(); }
   }
 
-  /** Players in matchmaking (loaded); still-loading ones wait outside it (2 min at most). */
+  /** Players in matchmaking (loaded); still-loading ones wait outside it (3 min at most). */
   private matchPlayers(now: number): number {
     let n = 0;
     for (const p of this.players.values()) {
-      if (p.pendingMatch && now - p.pendingMatch.since > 120_000) this.enterMatch(p);
+      if (p.pendingMatch && now - p.pendingMatch.since > MATCH_LOAD_LIMIT_MS) this.enterMatch(p);
       if (!p.pendingMatch) n++;
     }
+    return n;
+  }
+
+  /** Players still loading the map to join the match (it waits for them, up to the load limit). */
+  private loadingPlayers(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (p.pendingMatch) n++;
     return n;
   }
 

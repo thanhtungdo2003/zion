@@ -95,8 +95,16 @@ export class BattleRoyaleMatch {
   /**
    * `humans`: real players in the match (bots never count towards starting it). The countdown
    * starts once enough people are in, or after BATTLE_LOBBY_WAIT_MS with whoever came.
+   * `loading`: players still loading the map to join: the match waits for them (no countdown,
+   * and a countdown going holds at a few seconds), so nobody starts the round still loading.
    */
-  tick(now: number, humans = this.alive): void {
+  tick(now: number, humans = this.alive, loading = 0): void {
+    if (this.phase === 'waiting' && loading > 0) {
+      if (humans) this.lobbySince ??= now;
+      this.deadline = Math.max(this.deadline, now + BATTLE_COUNTDOWN_MS);
+      return;
+    }
+    if (this.phase === 'countdown' && loading > 0 && humans) this.deadline = Math.max(this.deadline, now + 3000);
     if (this.phase === 'waiting') {
       if (!humans) this.lobbySince = null;
       else this.lobbySince ??= now;
