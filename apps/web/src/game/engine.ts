@@ -2565,7 +2565,7 @@ export class GameEngine {
     if (lens && optic) {
       (this.scopeLens ??= new ScopeLens()).render(this.renderer, this.scene, this.camera, lens.mesh, this.viewModel!.scopeHidden, {
         magnification: optic.magnification ?? 1, reticle: optic.reticle ?? null, nightVision: !!optic.nightVision && this.nightVision,
-      }, !(settingsStore.get().shaders && this.sky));
+      }, !(settingsStore.get().shaders && this.sky) && !settingsStore.get().nearBlur);
     } else {
       this.scopeLens?.release();
       if (this.lensScopeReady() && (optic?.magnification ?? 1) > 1) (this.scopeLens ??= new ScopeLens()).warm(this.renderer, this.viewModel!.lens!.mesh, this.camera);
@@ -2581,8 +2581,11 @@ export class GameEngine {
         this.zombieOutline!.render(this.renderer, this.scene, this.camera, this.outlinedZombies, this.whiteOutlines, this.xrayOutlines);
         this.renderer.setRenderTarget(before);
       } : undefined, this.nearBlurStrength());
-    } else if (this.nearBlurStrength() > 0) {
-      // The near blur over the plain render (and the zombie outlines, when shown).
+    } else if (settingsStore.get().nearBlur) {
+      // The near blur over the plain render (and the zombie outlines, when shown) — kept on (at no
+      // strength) while scoped or driving: switching to a direct render needs every material in
+      // sight compiled again for the screen, a long stall the first time the scope came up or
+      // someone took a driver's seat.
       this.nearBlur ??= new NearBlur();
       const outlined = this.outlinedZombies.length > 0;
       if (outlined) this.zombieOutline ??= new ZombieOutline();
