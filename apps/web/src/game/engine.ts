@@ -147,6 +147,7 @@ import { MeleeFeel, type MeleeFeelFrame } from './melee-feel';
 import { ShaderPack } from './render/shader-pack';
 import { ImpostorCache } from './render/impostor-cache';
 import { StudioDoorRenderer } from './render/studio-doors';
+import { TerrainRelief, applyReliefToGround } from './render/terrain-relief';
 import { EnvironmentSystem, applyEnvironmentToGround, type EnvEffectsQuality } from './render/environment';
 import { readEnvironment } from '@zion/shared';
 import { weaponOptic } from '@zion/shared';
@@ -292,7 +293,9 @@ export class GameEngine {
    * A Studio map's weather, sky and local climate (none: the plain sky as before). The ground
    * reads the map's climate (tint, wetness, puddles) from the start, idle without one.
    */
-  private environment: EnvironmentSystem | null = (applyEnvironmentToGround(this.terrainMaterial), null);
+  private environment: EnvironmentSystem | null = (applyEnvironmentToGround(this.terrainMaterial), applyReliefToGround(this.terrainMaterial), null);
+  /** Real 3D relief of the ground round the player, from the texture layers (render/terrain-relief.ts). */
+  private relief: TerrainRelief | null = null;
   private readonly envRoof = makeRayHit();
   /** Doors of Model Studio houses (render/studio-doors.ts). */
   private studioDoors: StudioDoorRenderer | null = null;
@@ -987,6 +990,7 @@ export class GameEngine {
     this.props?.dispose();
     this.impostors?.dispose(); this.impostors = null;
     this.studioDoors?.dispose(); this.studioDoors = null;
+    this.relief?.dispose(); this.relief = null;
     this.building?.dispose();
     this.building = null;
     this.campLights?.dispose();
@@ -1501,6 +1505,8 @@ export class GameEngine {
     this.impostors?.dispose();
     this.impostors = new ImpostorCache(this.renderer, settingsStore.get().renderScale >= 1 ? 96 : 64);
     this.props = new PropRenderer(this.scene, this.library, () => this.store!.chunks.values(), this.impostors);
+    this.relief?.dispose();
+    this.relief = new TerrainRelief(this.scene, this.terrainMaterial, (cx, cz) => this.store?.get(cx, cz), () => this.groundTextures.heightMaps, world.seaLevel, world.cosmeticSeed);
     this.studioDoors?.dispose();
     this.studioDoors = new StudioDoorRenderer(this.scene, this.registry, () => this.store?.collision);
     this.impostors.onBaked = () => this.props?.markDirty();
@@ -1547,6 +1553,7 @@ export class GameEngine {
         if (chunk.props.length || prev?.props.length) this.props?.markDirty();
         if (chunk.lod === 0) this.vegetation?.invalidate(chunk.cx, chunk.cz);
         this.studioDoors?.addChunk(chunk);
+        this.relief?.invalidate(chunk.cx, chunk.cz);
       },
       onChunkRemoved: (chunk) => {
         const key = chunkKey(chunk.cx, chunk.cz);
@@ -1559,6 +1566,7 @@ export class GameEngine {
         this.vegetation?.invalidate(chunk.cx, chunk.cz);
         this.building?.forget(chunk);
         this.studioDoors?.removeChunk(chunk);
+        this.relief?.invalidate(chunk.cx, chunk.cz);
       },
     });
     this.hud.set({ status: 'loading', statusDetail: { key: 'status.streaming' }, username: m.username });
@@ -2294,6 +2302,13 @@ export class GameEngine {
     const buildDeadline = performance.now() + MESH_BUILD_BUDGET_MS;
     this.props?.update(px, pz, now, buildDeadline);
     this.impostors?.pump(buildDeadline);
+    if (this.relief) {
+      // Fine relief with detailed ground textures: 25 cm on the high setting, 33 cm on medium.
+      const detail = settingsStore.get().groundDetail;
+      this.relief.enabled = detail === 'high' || detail === 'medium';
+      this.relief.density = detail === 'high' ? 4 : 3;
+      this.relief.update(px, pz, buildDeadline);
+    }
     this.processBuildQueue(px, pz, buildDeadline);
     this.vegetation?.update(px, pz, false, buildDeadline);
     if (this.effects) this.vegetation?.emitBurning(this.clock.now(), (x, y, z) => {

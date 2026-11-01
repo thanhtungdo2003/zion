@@ -229,6 +229,14 @@ function arrayTexture(data: Uint8Array<ArrayBuffer>, size: number, anisotropy: n
   return t;
 }
 
+/** Metres one texture tile covers, per ground layer (as the shader tiles them). */
+export const GROUND_TILES: readonly number[] = GROUND_LAYERS.map((n) => TILE[n]);
+/**
+ * How far each layer's height map lifts and sinks the ground in 3D (m, whole range): rock most,
+ * stony and cracked ground some, soil a little, roads and paving none (terrain-relief.ts).
+ */
+export const GROUND_RELIEF: readonly number[] = GROUND_LAYERS.map((n) => ({ forest: .04, meadow: .03, mud: .03, sand: .04, cracked: .12, gravel: .07, rock: .32, asphalt: 0, concrete: 0, dirt: .07, snow: .04, dry: .04 })[n]);
+
 /** Owns the layer textures of the terrain material and swaps them with the quality setting. */
 export class GroundTextures {
   private readonly uniforms = {
@@ -237,6 +245,8 @@ export class GroundTextures {
     groundTile: { value: TEXTURE_LAYERS.map((n) => TILE[n]) },
   };
   private detail: GroundDetail = 'off';
+  /** The layers' height maps on the CPU (256 px, RGBA), for the 3D relief round the player. */
+  heightMaps: { data: Uint8Array; size: number } | null = null;
   private loading = 0;
 
   constructor(material: MeshStandardMaterial) {
@@ -265,7 +275,7 @@ export class GroundTextures {
     if (detail === this.detail) return;
     this.detail = detail;
     const ticket = ++this.loading;
-    if (detail === 'off') { this.uniforms.groundOn.value = 0; return; }
+    if (detail === 'off') { this.uniforms.groundOn.value = 0; this.heightMaps = null; return; }
     const size = SIZE[detail], dir = `/textures/ground/${size === 1024 ? 1024 : 512}`;
     const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     void Promise.all([loadLayers(dir, 'a.webp', size), loadLayers(dir, 'n.webp', size), loadLayers('/textures/ground/h', 'h.png', 256)])
@@ -275,6 +285,7 @@ export class GroundTextures {
         this.uniforms.groundAlbedo.value = arrayTexture(albedo, size, anisotropy);
         this.uniforms.groundNormal.value = arrayTexture(normal, size, anisotropy);
         this.uniforms.groundHeight.value = arrayTexture(height, 256, 1);
+        this.heightMaps = { data: height, size: 256 };
         this.uniforms.groundOn.value = 1;
       })
       .catch((err: unknown) => { console.warn('ground textures unavailable:', err); });
