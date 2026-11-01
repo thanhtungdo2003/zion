@@ -78,9 +78,31 @@ export function generateBattleLoot(existing: readonly PlacedItem[], random: () =
   if (fits.length && random() < .5) add(pick(fits));
   // A melee weapon in most crates, for fights up close or when ammunition runs out.
   if (random() < .7) add(pick(['katana', 'quam', 'shovel', 'fire_axe', 'long_sledgehammer', 'machete', 'baseball_bat', 'crowbar']));
+  // A backpack now and then (more room, a second rifle on the back).
+  if (random() < .25) add('military_backpack');
   for (let i = 0, n = 2 + Math.floor(random() * 3); i < n; i++) {
     const roll = random();
     add(roll < .55 ? pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g', 'ammo_762x54', 'ammo_762x51', 'ammo_57x28', 'ammo_357', 'ammo_300wm', 'ammo_pkm', 'ammo_50bmg']) : roll < .8 ? 'medkit' : roll < .86 ? 'grenade' : roll < .91 ? 'flashbang' : roll < .95 ? 'smoke_grenade' : pick(battleArmor));
   }
   return items;
+}
+
+/**
+ * What lies loose on a building's floor or table at the start of a battle royale match: mostly
+ * a gun (loaded) with a box of its ammunition beside it, or ammunition on its own; now and then
+ * a medkit, a grenade, a piece of armour, an attachment or a backpack. One to two items per spot.
+ */
+export function battleFloorLoot(random: () => number = Math.random): Array<{ itemId: string; count?: number; mag?: number }> {
+  const crate = generateBattleLoot([], random);
+  const gun = crate[0]!, ammoBox = crate[1];
+  const one = (itemId: string) => { const count = maxCount(ITEMS[itemId]!), mag = magazineOf(itemId); return { itemId, ...(count ? { count } : {}), ...(mag !== undefined ? { mag } : {}) }; };
+  const pick = (pool: readonly string[]) => pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))]!;
+  const roll = random();
+  if (roll < .34) return [{ itemId: gun.itemId, ...(gun.count ? { count: gun.count } : {}), ...(gun.mag !== undefined ? { mag: gun.mag } : {}) }, ...(ammoBox && random() < .7 ? [{ itemId: ammoBox.itemId, ...(ammoBox.count ? { count: ammoBox.count } : {}) }] : [])];
+  if (roll < .68) return [one(ammoBox?.itemId ?? 'ammo_9mm'), ...(random() < .35 ? [one(pick(['ammo_9mm', 'ammo_762', 'ammo_556', 'ammo_12g']))] : [])];
+  if (roll < .8) return [one(pick(['medkit', 'medkit', 'grenade', 'flashbang', 'smoke_grenade']))];
+  if (roll < .9) return [one(pick(battleArmor))];
+  if (roll < .96) return [one('military_backpack')];
+  const fits = Object.values(WEAPON_ATTACHMENTS[gun.itemId] ?? {}).flat();
+  return [one(fits.length ? pick(fits) : pick(['katana', 'machete', 'crowbar', 'baseball_bat']))];
 }

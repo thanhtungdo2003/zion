@@ -1,3 +1,4 @@
+import { buildingLootSpots } from './building-loot';
 import { SharedChests } from './chests';
 import { animatedBore } from './animated-bore';
 import { BaseBuilding } from './base-building';
@@ -26,7 +27,7 @@ import { FreeBodies } from './free-bodies';
 import { loadHitMeshes } from '../world/hit-meshes';
 import { uploadedHitMeshes } from '../world/uploaded-hit-meshes';
 import { attachmentModifier, droppedDirection, leanOf, leanOffset, opticOf, packAttachments, zeroDistance, type Attachments } from '@zion/shared';
-import { BATTLE_LOBBY_RADIUS, BATTLE_MAP, BATTLE_TIME_OF_DAY, keepInCircle, type BattleCircle, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
+import { BATTLE_LOBBY_RADIUS, BATTLE_MAP, BATTLE_TIME_OF_DAY, keepInCircle, type BattleCircle, battleFloorLoot, generateBattleLoot, vehicleOwner, VEHICLES, type ChestData, type GameMode, type InventoryData, type PlacedItem } from '@zion/shared';
 import { randomUUID } from 'node:crypto';
 import type { ProgressionService } from './progression';
 import { COLONEL_SEARCH_QUESTS } from '@zion/shared';
@@ -1995,12 +1996,17 @@ export class GameServer {
 
   /** Loose weapons, ammunition, armour and kits lying on building floors for each new match. */
   private scatterGroundLoot(): void {
-    const spots = authoredWorld(this.deps.world.generator).lootSpots();
+    const world = authoredWorld(this.deps.world.generator);
+    const spots = world.lootSpots();
     for (let i = spots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spots[i], spots[j]] = [spots[j]!, spots[i]!]; }
-    for (const spot of spots.slice(0, Math.min(320, Math.floor(spots.length * .35)))) {
-      const pool = generateBattleLoot([]), item = pool[Math.floor(Math.random() * pool.length)]!;
-      const id = this.nextGroundId++;
-      this.groundItems.set(id, { itemId: item.itemId, count: item.count, mag: item.mag, x: +(spot.x + (Math.random() - .5) * 1.2).toFixed(2), y: +spot.y.toFixed(2), z: +(spot.z + (Math.random() - .5) * 1.2).toFixed(2), expiresAt: Infinity });
+    // Every building of the map (the Model Studio's too): a few spots on its floors and tables.
+    const inBuildings = buildingLootSpots(this.deps.registry, world.structures());
+    for (const spot of [...spots.slice(0, Math.min(320, Math.floor(spots.length * .35))), ...inBuildings].slice(0, 2500)) {
+      // A gun with its ammunition beside it, ammunition, a medkit, armour, a backpack… never cleared away.
+      for (const item of battleFloorLoot()) {
+        const id = this.nextGroundId++;
+        this.groundItems.set(id, { itemId: item.itemId, count: item.count, mag: item.mag, x: +(spot.x + (Math.random() - .5) * .5).toFixed(2), y: +spot.y.toFixed(2), z: +(spot.z + (Math.random() - .5) * .5).toFixed(2), expiresAt: Infinity });
+      }
     }
   }
 
@@ -5216,7 +5222,8 @@ export class GameServer {
   /** An item lying at an exact spot (mined ore, planks that did not fit). */
   private spawnGroundItem(itemId: string, count: number | undefined, x: number, y: number, z: number): void {
     const id = this.nextGroundId++;
-    const g = { itemId, count, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.serverTime + GROUND_ITEM_LIFETIME_MS * 3 };
+    // Battle royale: whatever lies on the ground stays there for the whole match.
+    const g = { itemId, count, x: +x.toFixed(2), y: +y.toFixed(2), z: +z.toFixed(2), expiresAt: this.battle ? Infinity : this.serverTime + GROUND_ITEM_LIFETIME_MS * 3 };
     this.groundItems.set(id, g);
     this.broadcast({ t: 'ground', items: [{ id, itemId, count, x: g.x, y: g.y, z: g.z }] });
   }
