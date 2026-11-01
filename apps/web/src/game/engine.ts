@@ -904,6 +904,8 @@ export class GameEngine {
         const s = this.local?.state;
         return s ? this.listenerPos.set(s.x, s.y + 1.6, s.z) : this.camera.position;
       }, () => (this.mouseLook ? this.input.yaw : CAM_YAW));
+      // Nothing of the match is heard until the map is in and the loading screen gone.
+      this.sounds.setSilenced(true);
       await this.sounds.load((p) => this.hud.set({ loadProgress: 0.85 + p * 0.15 }));
       if (this.disposed) return;
       // Reload sounds and hands follow each gun's reload script (reload-scripts.ts).
@@ -4379,6 +4381,8 @@ export class GameEngine {
       }
       else if (status === 'dead') status = 'playing';
     }
+    // Loading (or rejoining after a dropped connection): the match is not heard yet.
+    this.sounds?.setSilenced(status === 'loading' || status === 'connecting');
     this.hud.set({
       vehicle: (() => {
         const v = this.vehicles?.rider(this.welcome!.playerId) ?? this.vehicles?.nearest(px, py, pz);

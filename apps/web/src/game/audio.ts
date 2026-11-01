@@ -116,13 +116,23 @@ export class SoundBank {
   private readonly releaseVolume: () => void;
   /** Hearing after a stun grenade (1 = normal), between the mix and the speakers. */
   private readonly deafen: GainNode;
+  /** Shut while the game is still loading: the match already going on is not heard yet. */
+  private readonly gate: GainNode;
+  private silenced = false;
+
+  /** While loading: no sounds start, those going (loops) fade out; on, they come back. */
+  setSilenced(on: boolean): void {
+    if (this.silenced === on || this.disposed) return;
+    this.silenced = on;
+    this.gate.gain.setTargetAtTime(on ? 0 : 1, this.ctx.currentTime, on ? .02 : .25);
+  }
 
   /**
    * Stun grenade: every sound cut, a piercing ring in the ears instead, then hearing slowly
    * returns over the following seconds. `strength` 0…1 scales how long and how hard.
    */
   stun(strength: number, ms: number): void {
-    if (this.disposed || strength <= 0) return;
+    if (this.disposed || this.silenced || strength <= 0) return;
     const now = this.ctx.currentTime, hold = ms / 1000 * strength, back = 2.5 * strength + .5;
     const g = this.deafen.gain;
     g.cancelScheduledValues(now);
@@ -162,7 +172,8 @@ export class SoundBank {
     this.master = this.ctx.createGain();
     this.releaseVolume = bindVolume(this.master.gain);
     this.deafen = this.ctx.createGain();
-    this.master.connect(this.deafen).connect(this.ctx.destination);
+    this.gate = this.ctx.createGain();
+    this.master.connect(this.gate).connect(this.deafen).connect(this.ctx.destination);
     this.buffers.set('airSwing', airSwing(this.ctx));
     this.buffers.set('glassBreak', glassBreak(this.ctx));
   }
@@ -195,6 +206,7 @@ export class SoundBank {
    * a fabric rustle with strap/buckle clicks; heavy (plated) gear adds a dull metal clank.
    */
   playEquip(heavy: boolean, volume = 0.7): void {
+    if (this.silenced) return;
     const key = heavy ? 'equipHeavy' : 'equip';
     let buf = this.synth.get(key);
     if (!buf) {
@@ -261,6 +273,7 @@ export class SoundBank {
     const buffer = this.buffers.get(name);
     if (!buffer) return 0;
     const length = buffer.duration / (opts.rate ?? 1);
+    if (this.silenced) return length;
     this.unlock();
     let volume = opts.volume ?? 1;
     let pan = 0;
