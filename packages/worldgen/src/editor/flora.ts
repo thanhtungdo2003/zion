@@ -22,7 +22,7 @@ export const FLORA_SPECIES = [
   { id: 'dead', name: 'Cây chết', group: 'tree', assets: [2452, 2453] },
   { id: 'bush', name: 'Bụi cây', group: 'bush', assets: [2460, 2461, 2462] },
   { id: 'shrub', name: 'Cây bụi rừng', group: 'bush', assets: [2612, 2613, 2614, 2615, 2616, 2635] },
-  { id: 'grass', name: 'Cỏ', group: 'grass', assets: [2640, 2641, 2642, 2644, 2645, 2646, 2647] },
+  { id: 'grass', name: 'Cỏ', group: 'grass', assets: [2647, 2647, 2644, 2645, 2646] },
   { id: 'meadow', name: 'Đồng cỏ hoa', group: 'grass', assets: [2650, 2651, 2648] },
   { id: 'reeds', name: 'Lau sậy', group: 'grass', assets: [2649, 2652] },
   { id: 'stone', name: 'Đá nhỏ', group: 'rock', assets: [2463, 2464, 2617, 2620, 2625] },
@@ -37,7 +37,8 @@ export const FLORA_SPECIES = [
   { id: 'limestone_blocks', name: 'Đá khối vôi', group: 'rock', assets: [2775, 2776, 2777] },
 ] as const;
 export type FloraSpecies = typeof FLORA_SPECIES[number]['id'];
-export const floraGroup = new Map<number, string>(FLORA_SPECIES.flatMap((s) => s.assets.map((a) => [a, s.group] as [number, string])));
+// (The blades and stylized clumps are no longer painted, but maps saved with them still hold them.)
+export const floraGroup = new Map<number, string>([...[2640, 2641, 2642, 2643].map((a) => [a, 'grass'] as [number, string]), ...FLORA_SPECIES.flatMap((s) => s.assets.map((a) => [a, s.group] as [number, string]))]);
 
 /** Painted biomes: a ground surface plus its plants and rocks, mixed in proportion. */
 export const BIOMES = [

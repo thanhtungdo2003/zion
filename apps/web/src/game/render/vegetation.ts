@@ -18,8 +18,8 @@ import { vegetationPatch } from './vegetation-pattern';
  * split into its kinds so they can be placed where they belong.
  */
 export const COVER_ASSETS = {
-  /** Short grass carpet: stylized clumps and blades (weighted: light blades most often), a low patch. */
-  carpet: [2643, 2640, 2641, 2642, 2645, 2644],
+  /** Short grass carpet: lush tufts most often (they replaced the thin blades and stylized clumps), low patches. */
+  carpet: [2647, 2647, 2647, 2647, 2645, 2644],
   /** Fuller grass patches on lush meadows. */
   patch: [2644, 2646],
   /** Taller meadow grass sheets on lush open ground. */
@@ -52,7 +52,7 @@ const CARPET: Partial<Record<Surface, number>> = {
 const GRASSY = new Set<Surface>([Surface.Grass, Surface.DryGrass, Surface.JungleFloor, Surface.RoadVerge, Surface.ForestFloor]);
 const CELL = .9;
 /** The kinds a grass patch may be made of (one per patch). */
-const PATCH_SPECIES = [2643, 2640, 2641, 2642, 2645, 2644];
+const PATCH_SPECIES = [2647, 2647, 2647, 2647, 2645, 2644];
 const VEG_RADIUS = 2;
 const MEADOW_MIN_CAMP_DISTANCE = 300;
 const MEADOW_FULL_CAMP_DISTANCE = 400;
