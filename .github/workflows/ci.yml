@@ -24,7 +24,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # Whole repo; covers the apps/web rules that `next build` enforces during the deploy.
+      # Type-aware rules load every package's program into one process: past Node's default ~2 GB
+      # heap on this repo (the run died out of memory), so it gets 8 GB of the runner's 16.
       - name: ESLint
         run: pnpm lint --quiet
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
       - name: Typecheck
         run: pnpm typecheck
