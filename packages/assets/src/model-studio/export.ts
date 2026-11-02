@@ -83,7 +83,8 @@ function materialTable(doc: ModelDoc, scene: GltfScene, opts: ExportOptions, war
     // Same look, but the game's collision ignores it (only opaque, textured surfaces collide):
     // a mask with an all-opaque texture draws exactly like the original.
     scene.materials.push({ ...base, name: `${m.name} (không va chạm)`, alphaMode: blend ? 'BLEND' : 'MASK', alphaCutoff: .01 });
-    table.set(m.id, { index, scale: m.texture.scale, noCollide: index + 1 });
+    // A picture (a sign's face) shows once: its UVs are already 0…1.
+    table.set(m.id, { index, scale: m.picture ? 1 : m.texture.scale, noCollide: index + 1 });
   }
   return table;
 }

@@ -158,6 +158,39 @@ function torus(b: MeshBuilder, R: number, r: number, seg: number): void {
   }
 }
 
+/** A sign board's outline (counter-clockwise seen from the front, +z), standing on y = 0. */
+export function signOutline(shape: string, w: number, h: number): Array<[number, number]> {
+  const ring = (n: number, start: number) => Array.from({ length: n }, (_, i) => { const a = start + i / n * Math.PI * 2; return [Math.cos(a) * w / 2, h / 2 + Math.sin(a) * h / 2] as [number, number]; });
+  switch (shape) {
+    case 'circle': return ring(32, -Math.PI / 2);
+    case 'octagon': return ring(8, -Math.PI / 2 + Math.PI / 8);
+    case 'triangle': return [[-w / 2, 0], [w / 2, 0], [0, h]];
+    case 'triangle_down': return [[0, 0], [w / 2, h], [-w / 2, h]];
+    case 'diamond': return [[0, 0], [w / 2, h / 2], [0, h], [-w / 2, h / 2]];
+    default: return [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]];
+  }
+}
+
+/**
+ * A sign board: the face (slot 'main') with UVs 0…1 over the board's width and height (v down,
+ * as glTF reads images) so a picture shows once and upright; the back ('back', mirrored so its
+ * picture reads right from behind) and the edges ('edge', in metres like any other part).
+ */
+export function signParts(shape: string, w: number, h: number, t: number): MeshPart[] {
+  const pts = signOutline(shape, w, h), z = t / 2;
+  const front = new MeshBuilder(), back = new MeshBuilder(), edge = new MeshBuilder();
+  for (const [x, y] of pts) front.vertex([x, y, z], [0, 0, 1], (x + w / 2) / w, (h - y) / h);
+  for (let i = 1; i + 1 < pts.length; i++) front.idx.push(0, i, i + 1);
+  for (const [x, y] of pts) back.vertex([x, y, -z], [0, 0, -1], (w / 2 - x) / w, (h - y) / h);
+  for (let i = 1; i + 1 < pts.length; i++) back.idx.push(0, i + 1, i);
+  for (let i = 0; i < pts.length; i++) {
+    const [ax, ay] = pts[i]!, [bx, by] = pts[(i + 1) % pts.length]!;
+    // Counter-clockwise outline: the outside of edge a→b is to its right.
+    edge.face([[ax, ay, z], [ax, ay, -z], [bx, by, -z], [bx, by, z]].map((p) => p as V3));
+  }
+  return [{ slot: 'main', mesh: front.build() }, { slot: 'back', mesh: back.build() }, { slot: 'edge', mesh: edge.build() }];
+}
+
 /** A primitive shape from its parameters (metres). Base on y = 0 unless noted. */
 export function primitiveMesh(shape: string, params: Record<string, number>): MeshData {
   const b = new MeshBuilder();

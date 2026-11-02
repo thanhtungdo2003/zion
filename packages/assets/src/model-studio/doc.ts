@@ -61,7 +61,9 @@ export const materialSchema = z.object({
    */
   maps: z.object({ albedo: z.string().max(64), normal: z.string().max(64).optional(), orm: z.string().max(64).optional() }).strict().optional(),
   /** Where the texture set came from (shown to the admin, kept with exports). */
-  source: z.object({ kind: z.enum(['polyhaven', 'ai', 'upload']), id: z.string().max(120), name: z.string().max(200), license: z.string().max(40).optional(), url: z.string().max(400).optional() }).strict().optional(),
+  source: z.object({ kind: z.enum(['polyhaven', 'ai', 'upload', 'web']), id: z.string().max(120), name: z.string().max(200), license: z.string().max(40).optional(), url: z.string().max(400).optional(), author: z.string().max(200).optional() }).strict().optional(),
+  /** The picture is shown once over a sign's face (its maps are not tiled by `texture.scale`). */
+  picture: z.boolean().optional(),
 }).strict();
 export type ModelMaterial = z.infer<typeof materialSchema>;
 
@@ -73,6 +75,10 @@ export type PrimitiveShape = (typeof PRIMITIVE_SHAPES)[number];
 
 export const STAIR_SHAPES = ['straight', 'l', 'u', 'spiral'] as const;
 export const STAIR_STYLES = ['solid', 'stringer', 'open'] as const;
+
+/** Outlines of a sign board (road signs: round, warning triangle, give-way triangle, stop octagon, diamond). */
+export const SIGN_SHAPES = ['rect', 'circle', 'triangle', 'triangle_down', 'octagon', 'diamond'] as const;
+export type SignShape = (typeof SIGN_SHAPES)[number];
 
 export const OPENING_KINDS = ['door', 'window', 'arch', 'hole'] as const;
 export const openingSchema = z.object({
@@ -154,6 +160,20 @@ export const nodeSchema = z.discriminatedUnion('kind', [
     material: z.string().max(64),
     /** The underside (the ceiling of the room below; else the slab material). */
     bottomMaterial: z.string().max(64).optional(),
+  }).strict(),
+  /**
+   * A sign board: a billboard, a shop sign, a poster, a road sign. Its face shows one image whole
+   * (the face material's picture stretched once over the board, upright), the back the back
+   * material (the picture again on a two-sided billboard, else plain), the edges the frame.
+   * Stands on y = 0, faces +z.
+   */
+  z.object({
+    ...nodeBase, kind: z.literal('sign'),
+    shape: z.enum(SIGN_SHAPES),
+    width: finite.min(.05).max(60), height: finite.min(.05).max(60), thickness: finite.min(.002).max(2),
+    material: z.string().max(64),
+    backMaterial: z.string().max(64).optional(),
+    frameMaterial: z.string().max(64).optional(),
   }).strict(),
   /** A model of the game (asset registry): reused as it is, never copied or changed. */
   z.object({ ...nodeBase, kind: z.literal('asset'), asset: z.number().int().min(1).max(65535) }).strict(),
@@ -306,10 +326,13 @@ export function freshId(doc: { nodes: { id: string }[]; materials?: { id: string
 }
 
 /** Every material a part uses (its main one and its other slots: inner face, underside, treads, rails…). */
+/** The node fields naming a material. */
+export const MATERIAL_KEYS = ['material', 'innerMaterial', 'bottomMaterial', 'treadMaterial', 'railMaterial', 'handrailMaterial', 'backMaterial', 'frameMaterial'] as const;
+
 export function materialRefs(n: ModelNode): string[] {
   const out: string[] = [];
-  const r = n as Partial<Record<'material' | 'innerMaterial' | 'bottomMaterial' | 'treadMaterial' | 'railMaterial' | 'handrailMaterial', string>>;
-  for (const k of ['material', 'innerMaterial', 'bottomMaterial', 'treadMaterial', 'railMaterial', 'handrailMaterial'] as const) if (r[k]) out.push(r[k]!);
+  const r = n as Partial<Record<(typeof MATERIAL_KEYS)[number], string>>;
+  for (const k of MATERIAL_KEYS) if (r[k]) out.push(r[k]!);
   return out;
 }
 

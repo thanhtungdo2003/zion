@@ -1,4 +1,4 @@
-import { freshId, identityTransform, type ModelDoc, type ModelMaterial, type ModelNode, type Opening, type PrimitiveShape, type Transform } from './doc';
+import { freshId, identityTransform, type ModelDoc, type ModelMaterial, type ModelNode, type Opening, type PrimitiveShape, type SignShape, type Transform } from './doc';
 import { materialFromPreset } from './materials';
 
 type V3 = [number, number, number];
@@ -53,6 +53,11 @@ export class DocBuilder {
 
   stairs(name: string, parent: string | null, width: number, rise: number, run: number, steps: number, material: string, at: Partial<Transform>): string {
     return this.add({ kind: 'stairs', name, parent, width, rise, run, steps, material, transform: tf(at) } as never).id;
+  }
+
+  /** A sign board showing a picture on its face (see the 'sign' node). */
+  sign(name: string, parent: string | null, spec: { shape: SignShape; width: number; height: number; thickness: number; backMaterial?: string; frameMaterial?: string }, material: string, at: Partial<Transform> = {}): string {
+    return this.add({ kind: 'sign', name, parent, ...spec, material, transform: tf(at) } as never).id;
   }
 
   rock(name: string, parent: string | null, params: Record<string, number>, material: string, at: Partial<Transform> = {}): string {

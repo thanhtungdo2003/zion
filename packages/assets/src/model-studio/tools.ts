@@ -2,7 +2,7 @@ import { classifyModel } from './classify';
 import { BUILDING_CONDITIONS, LOT_CLASSES, SETTLEMENT_AREA_IDS, describeLotFit, lotFitFromLegacy } from '@zion/shared';
 import { z } from 'zod';
 import { DocBuilder, tf } from './build';
-import { ASSET_KINDS, PRIMITIVE_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type FloorPlan, type ModelDoc, type ModelNode } from './doc';
+import { ASSET_KINDS, MATERIAL_KEYS, PRIMITIVE_SHAPES, SIGN_SHAPES, STAIR_SHAPES, STAIR_STYLES, TEXTURE_PATTERNS, planSchema, subtree, type FloorPlan, type ModelDoc, type ModelNode } from './doc';
 import { buildPlan, checkPlan, designStairs, fitStairs, planHash, planSummary, railSides, reviewStairs, snapPlan, stairFootprint, stairRise, stairRules, verifyBuilt, wellsFor } from './plans';
 import { evaluate, bounds } from './evaluate';
 import { FURNITURE_KINDS, furniture } from './furniture';
@@ -48,6 +48,20 @@ export interface ToolHost {
     download(id: string, res: '1k' | '2k'): Promise<TextureSetResult>;
     paint(prompt: string, opts: { roughness?: number; metalness?: number; scale?: number }): Promise<TextureSetResult>;
   };
+  /** Whole pictures for sign faces: found online (licences that allow use in the game) or painted by the AI. */
+  images?: {
+    canPaint: boolean;
+    search(query: string, limit: number, kind: 'sign' | 'photo' | 'any'): Promise<Array<{ id: string; title: string; source: string; license: string; author: string; width: number; height: number; page: string; description: string }>>;
+    download(id: string, opts: { age?: number }): Promise<PictureResult>;
+    paint(prompt: string, opts: { aspect?: 'square' | 'landscape' | 'portrait'; age?: number }): Promise<PictureResult>;
+  };
+}
+
+export interface PictureResult {
+  maps: { albedo: string };
+  width: number; height: number; aged: boolean;
+  source: { kind: 'web' | 'ai'; id: string; name: string; license?: string; url?: string; author?: string };
+  files: Array<{ id: string; name: string; mime: string; size: number }>;
 }
 
 export interface TextureSetResult {
@@ -55,6 +69,37 @@ export interface TextureSetResult {
   scale: number;
   source: { kind: 'polyhaven' | 'ai'; id: string; name: string; license?: string; url?: string };
   files: Array<{ id: string; name: string; mime: string; size: number }>;
+}
+
+/**
+ * Puts a picture on a material shown once over a sign's face (and the material on parts: a sign's
+ * face, or any part). `fit`: a rectangular sign takes the picture's proportions (its width kept).
+ */
+function applyPicture(state: ToolState, materialId: string, pic: PictureResult, opts: { assignTo?: string[]; name?: string; fit?: boolean }): Record<string, unknown> {
+  let m = state.doc.materials.find((x) => x.id === materialId);
+  if (!m) {
+    m = materialFromPreset(materialId, 'paint_metal', { name: opts.name ?? pic.source.name.slice(0, 80) });
+    state.doc.materials.push(m);
+  }
+  m.maps = pic.maps;
+  m.source = pic.source;
+  m.picture = true;
+  m.texture.scale = 1;
+  m.color = '#ffffff';
+  m.metalness = 0;
+  if (opts.name) m.name = opts.name;
+  const aspect = pic.width / Math.max(1, pic.height);
+  const fitted: string[] = [];
+  let assigned = 0;
+  for (const id of opts.assignTo ?? []) for (const n of subtree(state.doc, node(state.doc, id).id)) {
+    if (!('material' in n)) continue;
+    (n as { material: string }).material = m.id;
+    assigned++;
+    if (n.kind === 'sign' && n.shape === 'rect' && opts.fit !== false && Number.isFinite(aspect) && aspect > 0) { n.height = Math.max(.05, Math.min(60, +(n.width / aspect).toFixed(3))); fitted.push(n.id); }
+  }
+  state.host.files = [...(state.host.files ?? []), ...pic.files.map((f) => ({ id: f.id, name: f.name, kind: f.mime }))];
+  state.changed = true;
+  return { material: m.id, source: pic.source, size: [pic.width, pic.height], aspect: +aspect.toFixed(3), aged: pic.aged, assigned, ...(fitted.length ? { resizedToPicture: fitted } : {}) };
 }
 
 /** Puts a texture set on a material (and the material on parts). */
@@ -188,11 +233,12 @@ export const TOOLS: ToolDefinition<never>[] = [
       '- wall: { length, height, thickness, openings: [{kind: door|window|arch|hole, offset, width, height, sill}] } (dọc trục x, mặt +z là mặt ngoài)',
       '- slab: { width, depth, thickness, holes: [{x,z,width,depth}] }; stairs: { width, rise, run, steps, shape: straight|l|u|spiral, style: solid|stringer|open, turn: left|right, landing, railing, railMaterial } (đi lên theo +z); roof: { style: gable|hip|shed|flat, width, depth, rise, overhang, thickness, damage, seed }',
       `- furniture: params.kind ∈ ${FURNITURE_KINDS.join('|')} (gốc ở giữa mép sau, quay mặt +z)`,
+      `- sign: tấm biển (biển quảng cáo, biển hiệu, áp phích, biển báo giao thông) { shape: ${SIGN_SHAPES.join('|')}, width, height, thickness, backMaterial, frameMaterial } — mặt +z hiện NGUYÊN một ảnh (find_image/paint_image → apply_image), đứng trên y = 0; cột/khung dựng bằng primitive.`,
       'Mọi kiểu đều nhận name, parent, material (id vật liệu đã có hoặc tên preset), position [x,y,z] m, rotation [x,y,z] độ, scale.',
     ].join('\n'),
-    params: { type: 'house|rock|rock_formation|primitive|wall|slab|stairs|roof|furniture', name: 'string', parent: 'string id (tùy chọn)', material: 'string', position: '[x,y,z]', rotation: '[x,y,z] độ', scale: '[x,y,z]', params: 'object theo type' },
+    params: { type: 'house|rock|rock_formation|primitive|wall|slab|stairs|roof|furniture|sign', name: 'string', parent: 'string id (tùy chọn)', material: 'string', position: '[x,y,z]', rotation: '[x,y,z] độ', scale: '[x,y,z]', params: 'object theo type' },
     schema: z.object({
-      type: z.enum(['house', 'rock', 'rock_formation', 'primitive', 'wall', 'slab', 'stairs', 'roof', 'furniture']),
+      type: z.enum(['house', 'rock', 'rock_formation', 'primitive', 'wall', 'slab', 'stairs', 'roof', 'furniture', 'sign']),
       name: z.string().max(80).optional(), parent: z.string().nullable().optional(), material: z.string().max(64).optional(),
       position: vec3.optional(), rotation: vec3.optional(), scale: vec3.optional(),
       params: z.record(z.unknown()).optional(),
@@ -262,6 +308,16 @@ export const TOOLS: ToolDefinition<never>[] = [
         case 'roof': {
           const style = (['gable', 'hip', 'shed', 'flat'] as const).find((x) => x === p.style) ?? 'gable';
           return { node: b.roof(a.name ?? 'Mái', parent, { style, width: num('width', 8), depth: num('depth', 6), rise: num('rise', 2), overhang: num('overhang', .4), thickness: num('thickness', .14), damage: num('damage', 0), seed: num('seed', 3) }, mat('roof_tiles'), at) };
+        }
+        case 'sign': {
+          const shape = (SIGN_SHAPES as readonly string[]).includes(String(p.shape)) ? p.shape as typeof SIGN_SHAPES[number] : 'rect';
+          const round = shape !== 'rect';
+          const frame = typeof p.frameMaterial === 'string' ? p.frameMaterial : b.material('paint_metal', 'paint_metal').id;
+          const id = b.sign(a.name ?? 'Biển', parent, {
+            shape, width: num('width', round ? .7 : 3), height: num('height', round ? .7 : 2), thickness: num('thickness', round ? .02 : .08),
+            frameMaterial: frame, backMaterial: typeof p.backMaterial === 'string' ? p.backMaterial : frame,
+          }, mat('paint_metal'), at);
+          return { node: id, hint: 'Gắn ảnh cho mặt biển: find_image hoặc paint_image rồi apply_image (assign_to: [id này]).' };
         }
         case 'furniture': {
           const kind = (FURNITURE_KINDS as readonly string[]).includes(String(p.kind)) ? p.kind as typeof FURNITURE_KINDS[number] : 'table';
@@ -686,6 +742,39 @@ export const TOOLS: ToolDefinition<never>[] = [
     },
   }),
   defineTool({
+    name: 'find_image', permission: 'read',
+    description: 'Tìm ẢNH NGUYÊN TẤM trên mạng cho mặt tấm biển (type sign): biển báo giao thông (bản vẽ chuẩn, gồm bộ QCVN 41 của Việt Nam), áp phích, biển hiệu cũ, ảnh mặt tiền… Nguồn: Wikimedia Commons và Openverse, CHỈ ảnh có giấy phép cho dùng và sửa trong game (public domain, CC0, CC BY, CC BY-SA). Query TIẾNG ANH, cụ thể: "Vietnam road sign no parking", "Vietnam road sign P.123", "stop sign octagon", "old vintage poster", "rusty metal shop sign". kind: sign (bản vẽ biển báo, Wikimedia), photo (ảnh chụp), any. Quảng cáo/logo thương hiệu THẬT: không dùng — vẽ thương hiệu tự bịa bằng paint_image.',
+    params: { query: 'string (tiếng Anh)', kind: 'sign|photo|any', limit: 'number ≤ 20' },
+    schema: z.object({ query: z.string().min(2).max(160), kind: z.enum(['sign', 'photo', 'any']).optional(), limit: z.number().int().min(1).max(20).optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.images) throw new Error('Tìm ảnh không khả dụng ở đây.');
+      const hits = await s.host.images.search(a.query, a.limit ?? 10, a.kind ?? 'any');
+      return { results: hits.map((h) => ({ id: h.id, title: h.title, source: h.source, license: h.license, author: h.author, size: [h.width, h.height], about: h.description })), canPaint: s.host.images.canPaint, hint: hits.length ? 'Chọn ảnh khớp nhất (tiêu đề, kích thước) rồi apply_image.' : 'Không thấy: thử từ khác, hoặc paint_image.' };
+    },
+  }),
+  defineTool({
+    name: 'apply_image', permission: 'edit',
+    description: 'Tải ảnh tìm được (find_image, theo id) về dự án và đặt NGUYÊN TẤM lên mặt tấm biển: tạo/sửa vật liệu "ảnh" (không lặp như texture) và gán cho các phần assign_to (mặt trước tấm biển). Biển chữ nhật tự lấy tỉ lệ của ảnh (giữ chiều rộng; fit: false để giữ nguyên). age 0–1: làm cũ (bạc màu, bẩn, vệt gỉ, trầy) cho khu bỏ hoang; chỉ áp được cho ảnh PNG. Giấy phép và tác giả lưu theo vật liệu.',
+    params: { id: 'id từ find_image', material: 'id vật liệu (mới hoặc có sẵn)', name: 'tên vật liệu', assign_to: '[node id]', age: '0–1', fit: 'boolean' },
+    schema: z.object({ id: z.string().min(3).max(80), material: z.string().min(1).max(64), name: z.string().max(80).optional(), assign_to: z.array(z.string()).max(200).optional(), age: z.number().min(0).max(1).optional(), fit: z.boolean().optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.images) throw new Error('Tìm ảnh không khả dụng ở đây.');
+      const pic = await s.host.images.download(a.id, { ...(a.age ? { age: a.age } : {}) });
+      return applyPicture(s, a.material, pic, { ...(a.assign_to ? { assignTo: a.assign_to } : {}), ...(a.name ? { name: a.name } : {}), ...(a.fit !== undefined ? { fit: a.fit } : {}) });
+    },
+  }),
+  defineTool({
+    name: 'paint_image', permission: 'edit',
+    description: 'AI vẽ ẢNH NGUYÊN TẤM cho mặt tấm biển — biển quảng cáo, biển hiệu cửa hàng, áp phích — cho THƯƠNG HIỆU TỰ BỊA (không logo/nhãn hiệu thật), rồi đặt lên assign_to như apply_image. Mô tả TIẾNG ANH: nội dung, màu, phong cách, chữ (ghi đúng chữ cần in, ngắn; tiếng Việt có dấu được). aspect: landscape (biển ngang), portrait (áp phích dọc), square. age 0–1: làm cũ.',
+    params: { prompt: 'string (tiếng Anh)', material: 'id vật liệu', name: 'tên', aspect: 'landscape|portrait|square', assign_to: '[node id]', age: '0–1', fit: 'boolean' },
+    schema: z.object({ prompt: z.string().min(8).max(800), material: z.string().min(1).max(64), name: z.string().max(80).optional(), aspect: z.enum(['landscape', 'portrait', 'square']).optional(), assign_to: z.array(z.string()).max(200).optional(), age: z.number().min(0).max(1).optional(), fit: z.boolean().optional() }).strict(),
+    run: async (a, s) => {
+      if (!s.host.images?.canPaint) throw new Error('Không vẽ được ảnh (chưa có API key hoặc model ảnh). Dùng find_image/apply_image.');
+      const pic = await s.host.images.paint(a.prompt, { ...(a.aspect ? { aspect: a.aspect } : {}), ...(a.age ? { age: a.age } : {}) });
+      return applyPicture(s, a.material, pic, { ...(a.assign_to ? { assignTo: a.assign_to } : {}), ...(a.name ? { name: a.name } : {}), ...(a.fit !== undefined ? { fit: a.fit } : {}) });
+    },
+  }),
+  defineTool({
     name: 'edit_transform', permission: 'edit',
     description: 'Đổi vị trí/góc xoay (độ)/tỉ lệ, cha, tên, ẩn hiện, va chạm của một phần; mode "add" cộng thêm thay vì đặt; duplicate: nhân bản (cả phần con) rồi áp thay đổi lên bản sao; delete: xóa phần (và con) khỏi dự án.',
     params: { node: 'id', position: '[x,y,z]', rotation: '[x,y,z] độ', scale: '[x,y,z]', mode: 'set|add', parent: 'id|null', name: 'string', visible: 'boolean', collision: 'auto|mesh|none', duplicate: 'boolean', delete: 'boolean' },
@@ -752,7 +841,7 @@ export const TOOLS: ToolDefinition<never>[] = [
         for (const m of doc.materials) { const k = key(m); if (keep.has(k)) remap.set(m.id, keep.get(k)!); else keep.set(k, m.id); }
         for (const n of doc.nodes) {
           const r = n as Partial<Record<string, unknown>>;
-          for (const k of ['material', 'innerMaterial', 'bottomMaterial', 'treadMaterial', 'railMaterial', 'handrailMaterial']) if (typeof r[k] === 'string' && remap.has(r[k] as string)) r[k] = remap.get(r[k] as string);
+          for (const k of MATERIAL_KEYS) if (typeof r[k] === 'string' && remap.has(r[k] as string)) r[k] = remap.get(r[k] as string);
         }
         doc.materials = doc.materials.filter((m) => !remap.has(m.id));
         if (remap.size) s.changed = true;

@@ -46,6 +46,7 @@ import { AssetOverrideStore } from './model-studio/asset-overrides';
 import { ModelAgent } from './model-studio/agent';
 import { AiSettings } from './model-studio/ai-settings';
 import { TextureLibrary } from './model-studio/textures';
+import { ImageLibrary } from './model-studio/images';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL, config.LOG_PRETTY);
@@ -264,6 +265,8 @@ async function main(): Promise<void> {
   // Real texture sets: the Poly Haven library (CC0) and AI painting through the gateway.
   const textureLibrary = new TextureLibrary(modelStudio, aiSettings);
   modelAgent.textures = textureLibrary;
+  // Whole pictures for sign boards: Wikimedia Commons / Openverse (licences that allow it) and AI painting.
+  modelAgent.images = new ImageLibrary(modelStudio, aiSettings);
   logger.info({ ai: aiSettings.status().configured, source: aiSettings.status().source, model: aiSettings.status().model }, 'model studio agent ready');
 
   const app = await buildHttpApp({

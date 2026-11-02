@@ -1,5 +1,5 @@
 import type { ModelDoc, ModelNode, Transform } from './doc';
-import { primitiveMesh, roofMesh, rockMesh, slabParts, stairsDesign, stairsMesh, wallMesh, type MeshData, type MeshPart } from './mesh';
+import { primitiveMesh, roofMesh, rockMesh, signParts, slabParts, stairsDesign, stairsMesh, wallMesh, type MeshData, type MeshPart } from './mesh';
 
 /** Column-major 4×4 matrix (as glTF and three.js store them). */
 export type Mat4 = Float64Array;
@@ -70,6 +70,7 @@ export function nodeMeshes(n: ModelNode): Array<{ material: string; mesh: MeshDa
       ? slots(stairsDesign({ width: n.width, rise: n.rise, run: n.run, steps: n.steps, ...(n.shape ? { shape: n.shape } : {}), ...(n.style ? { style: n.style } : {}), ...(n.turn ? { turn: n.turn } : {}), ...(n.landing ? { landing: n.landing } : {}), ...(n.gap ? { gap: n.gap } : {}), ...(n.treadThickness ? { treadThickness: n.treadThickness } : {}), ...(n.railing !== undefined ? { railing: n.railing } : {}), ...(n.rails ? { rails: n.rails } : {}) }), { main: n.material, tread: n.treadMaterial ?? n.material, rail: n.railMaterial ?? n.material, handrail: n.handrailMaterial ?? n.railMaterial ?? n.material })
       : [{ material: n.material, mesh: stairsMesh(n.width, n.rise, n.run, n.steps) }];
     case 'slab': return slots(slabParts(n.width, n.depth, n.thickness, n.holes), { main: n.material, bottom: n.bottomMaterial ?? n.material });
+    case 'sign': return slots(signParts(n.shape, n.width, n.height, n.thickness), { main: n.material, back: n.backMaterial ?? n.frameMaterial ?? n.material, edge: n.frameMaterial ?? n.backMaterial ?? n.material });
     default: return [];
   }
 }

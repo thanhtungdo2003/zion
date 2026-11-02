@@ -206,6 +206,46 @@ describe('model studio: tools', () => {
     expect(readGltf(out.glb).images.filter((i) => i.mime === 'image/jpeg')).toHaveLength(6);
   });
 
+  it('puts a whole picture on a sign board: found online or painted, shown once and upright', async () => {
+    const s = state();
+    const made = await runTool('create_geometry', { type: 'sign', name: 'Biển quảng cáo', params: { shape: 'rect', width: 4, height: 2 } }, s);
+    expect(made.ok).toBe(true);
+    const id = (made as { result: { node: string } }).result.node;
+    const pic = (kind: 'web' | 'ai', w: number, h: number) => ({ maps: { albedo: `${kind}-pic` }, width: w, height: h, aged: true, source: { kind, id: kind, name: kind, ...(kind === 'web' ? { license: 'Public domain', author: 'someone' } : {}) }, files: [{ id: `${kind}-pic`, name: `${kind}.png`, mime: 'image/png', size: 1 }] });
+    s.host.images = {
+      canPaint: true,
+      search: async (q) => (q.includes('road sign') ? [{ id: 'wm:1', title: 'No parking', source: 'wikimedia', license: 'Public domain', author: '', width: 600, height: 600, page: 'https://x', description: '' }] : []),
+      download: async () => pic('web', 600, 600),
+      paint: async () => pic('ai', 1536, 1024),
+    };
+    const found = await runTool('find_image', { query: 'Vietnam road sign no parking', kind: 'sign' }, s);
+    expect(found.ok && (found.result as { results: Array<{ id: string }> }).results[0]!.id).toBe('wm:1');
+    // A painted billboard: the board takes the picture's proportions (width kept).
+    const painted = await runTool('paint_image', { prompt: 'billboard for a made-up beer brand "Bia Sao Đỏ"', material: 'qc', aspect: 'landscape', assign_to: [id], age: .6 }, s);
+    expect(painted.ok).toBe(true);
+    const board = s.doc.nodes.find((n) => n.id === id)!;
+    expect(board).toMatchObject({ kind: 'sign', material: 'qc', width: 4 });
+    expect((board as { height: number }).height).toBeCloseTo(4 / 1.5, 3);
+    const m = s.doc.materials.find((x) => x.id === 'qc')!;
+    expect(m.picture).toBe(true);
+    expect(m.source?.kind).toBe('ai');
+    // The face's UVs span 0…1 once (a picture material is not tiled); the back and edges use the frame.
+    const parts = evaluate(s.doc).draws.filter((d) => d.node === id);
+    const face = parts.find((d) => d.material === 'qc')!;
+    expect(Math.min(...face.mesh.uvs)).toBeCloseTo(0, 5);
+    expect(Math.max(...face.mesh.uvs)).toBeCloseTo(1, 5);
+    expect(parts.some((d) => d.material !== 'qc')).toBe(true);
+    // A round road sign from the web keeps its licence and author.
+    await runTool('create_geometry', { type: 'sign', name: 'Biển cấm đỗ', params: { shape: 'circle' } }, s);
+    const round = s.doc.nodes.at(-1)!;
+    const applied = await runTool('apply_image', { id: 'wm:1', material: 'cam_do', assign_to: [round.id] }, s);
+    expect(applied.ok).toBe(true);
+    expect(s.doc.materials.find((x) => x.id === 'cam_do')?.source).toMatchObject({ kind: 'web', license: 'Public domain', author: 'someone' });
+    expect(parseDoc(JSON.parse(JSON.stringify(s.doc)))).toBeTruthy();
+    // Every face of the boards points outwards.
+    expect(validateDoc(s.doc).issues.filter((i) => i.code === 'flipped-normals')).toEqual([]);
+  });
+
   it('builds a house through the tool and reports its rooms', async () => {
     const s = state();
     const r = await runTool('create_geometry', { type: 'house', params: { style: 'postapoc', floors: 2, rooms: ['living', 'kitchen', 'dining', 'bedroom', 'bedroom', 'bathroom'], abandonedYears: 200, seed: 11 } }, s);

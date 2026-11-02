@@ -6,6 +6,7 @@ import { LlmError, parseJsonObject, type ChatMessage, type LlmClient, type WireM
 import { offlinePlan } from './planner';
 import type { ModelStudioStore } from './store';
 import type { TextureLibrary } from './textures';
+import type { ImageLibrary } from './images';
 import { webResearch } from './web-research';
 
 /**
@@ -72,6 +73,8 @@ YÊU CẦU SỬA (vd "bỏ bức tường giữa sảnh và phòng khách", "m�
 
 Texture: mỗi bề mặt chính (tường ngoài, tường trong, sàn, mái, khung, đồ gỗ, kim loại) PHẢI có bộ texture thật hợp phong cách của yêu cầu — tự suy ra vẻ ngoài cần có rồi find_texture (query tiếng Anh) → download_texture, hoặc paint_texture khi thư viện không có. Ví dụ: biệt thự → "smooth white plaster", "polished concrete", "marble floor", "dark wood"; nhà xưởng bỏ hoang → "cracked dirty concrete", "rusty corrugated metal", "peeling paint"; nhà gỗ → "weathered wood planks". Không để bề mặt chính dùng texture sinh tự động của preset; mỗi dự án chọn texture riêng theo yêu cầu, không lặp lại một bộ quen thuộc.
 
+Biển và ảnh: biển quảng cáo, biển hiệu, áp phích, biển báo giao thông là create_geometry type sign (shape đúng loại biển: biển cấm/hiệu lệnh circle, biển nguy hiểm triangle, biển dừng octagon, biển nhường đường triangle_down; biển hiệu/quảng cáo rect) dựng trên cột/khung bằng primitive; mặt biển hiện NGUYÊN một ảnh: biển báo → find_image kind sign ("Vietnam road sign …", bộ QCVN 41) → apply_image; quảng cáo, biển hiệu → paint_image với THƯƠNG HIỆU TỰ BỊA (không logo, nhãn hiệu, người nổi tiếng thật), chữ ngắn đúng chính tả; ảnh chụp cũ (áp phích, bảng hiệu) → find_image kind photo. Khu bỏ hoang: age 0.4–0.9. Không lấy ảnh quảng cáo thật trên mạng.
+
 Nguyên tắc: tái dùng model game (cây, bàn ghế, xe…) bằng assemble_model; vật liệu chọn từ preset thật rồi chỉnh roughness/metalness theo vật liệu thực (metalness gần như 0 hoặc 1), thêm wear/dirt/moss/cracks theo tuổi và phong cách — không chỉ đổi màu; giữ số vật liệu ít để giảm draw call; cửa ≥ 0.9×2.1 m, bậc ≤ 0.19 m. Không xóa phần ngoài phạm vi yêu cầu. Không bao giờ tự xuất bản vào game.
 
 Mỗi lượt trả về DUY NHẤT một JSON object:
@@ -115,6 +118,8 @@ export class ModelAgent {
 
   /** Real texture sets (library and AI painting) for the agent's materials. */
   textures: TextureLibrary | null = null;
+  /** Whole pictures for sign faces (found online, or painted by the AI). */
+  images: ImageLibrary | null = null;
   /** Online research (Wikipedia, web search, the pages found). */
   research: (query: string) => Promise<string[]> = (q) => webResearch(q);
 
@@ -213,6 +218,12 @@ export class ModelAgent {
         download: (id: string, res: '1k' | '2k') => lib.download(job.projectId, id, res),
         paint: (prompt: string, o: { roughness?: number; metalness?: number; scale?: number }) => lib.paint(job.projectId, prompt, o),
       }))(this.textures) } : {}),
+      ...(this.images ? { images: ((lib) => ({
+        get canPaint() { return lib.canPaint; },
+        search: (q: string, limit: number, kind: 'sign' | 'photo' | 'any') => lib.search(q, limit, kind),
+        download: (id: string, o: { age?: number }) => lib.download(job.projectId, id, o),
+        paint: (prompt: string, o: { aspect?: 'square' | 'landscape' | 'portrait'; age?: number }) => lib.paint(job.projectId, prompt, o),
+      }))(this.images) } : {}),
       requestPublish: async (doc, o) => {
         const req: PublishRequest = { id: randomUUID(), note: o.note, doc: structuredClone(doc), ...(o.lotClass ? { lotClass: o.lotClass } : {}), ...(o.replaceAsset ? { replaceAsset: o.replaceAsset } : {}) };
         job.publishRequests.push(req);

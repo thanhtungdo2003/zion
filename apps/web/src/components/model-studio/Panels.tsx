@@ -4,7 +4,7 @@ import { BUILDING_TYPES, BUILDING_TYPE_INFO, BUILDING_CONDITIONS, BUILDING_CONDI
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetRegistry } from '@zion/assets';
 import {
-  ASSET_KINDS, MATERIAL_PRESETS, buildRoof, checkPlan, openLinks, OPENING_KINDS, placeWindows, planHash, roofCovers, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
+  ASSET_KINDS, MATERIAL_PRESETS, buildRoof, checkPlan, openLinks, OPENING_KINDS, SIGN_SHAPES, placeWindows, planHash, roofCovers, TEXTURE_PATTERNS, materialFromPreset, materialTextures, subtree,
   type Issue, type ModelDoc, type ModelMaterial, type ModelNode, type ValidationReport,
   classifyModel,
 } from '@zion/assets/model-studio';
@@ -280,6 +280,14 @@ export function Inspector({ doc, nodes, mutate }: { doc: ModelDoc; nodes: ModelN
           <h3>Sàn</h3>
           {(['width', 'depth', 'thickness'] as const).map((k) => <div className={s.row} key={k}><label>{({ width: 'Rộng', depth: 'Sâu', thickness: 'Dày' } as const)[k]}</label><Num value={n[k]} step={.05} onChange={(v) => edit(`Sàn ${k}`, (x) => { if (x.kind === 'slab') x[k] = Math.max(.01, v); })} /></div>)}
           <p className={s.muted}>{n.holes.length} lỗ (giếng thang).</p>
+        </div>
+      )}
+      {n.kind === 'sign' && (
+        <div className={s.section}>
+          <h3>Tấm biển</h3>
+          <div className={s.row}><label>Hình</label><select className={s.select} value={n.shape} onChange={(e) => edit('Hình biển', (x) => { if (x.kind === 'sign') x.shape = e.target.value as typeof n.shape; })}>{SIGN_SHAPES.map((k) => <option key={k} value={k}>{({ rect: 'Chữ nhật', circle: 'Tròn', triangle: 'Tam giác', triangle_down: 'Tam giác ngược', octagon: 'Bát giác', diamond: 'Thoi' } as const)[k]}</option>)}</select></div>
+          {(['width', 'height', 'thickness'] as const).map((k) => <div className={s.row} key={k}><label>{({ width: 'Rộng', height: 'Cao', thickness: 'Dày' } as const)[k]} (m)</label><Num value={n[k]} step={k === 'thickness' ? .005 : .05} onChange={(v) => edit(`Biển ${k}`, (x) => { if (x.kind === 'sign') x[k] = Math.max(.002, v); })} /></div>)}
+          {(['backMaterial', 'frameMaterial'] as const).map((k) => <div className={s.row} key={k}><label>{k === 'backMaterial' ? 'Mặt sau' : 'Viền'}</label><select className={s.select} value={n[k] ?? ''} onChange={(e) => edit(k === 'backMaterial' ? 'Mặt sau biển' : 'Viền biển', (x) => { if (x.kind === 'sign') { if (e.target.value) x[k] = e.target.value; else delete x[k]; } })}><option value="">(như mặt trước)</option>{doc.materials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></div>)}
         </div>
       )}
       {n.kind === 'asset' && <div className={s.section}><h3>Model game #{n.asset}</h3><p className={s.muted}>Tham chiếu model có sẵn — model gốc không bị sửa. Khi xuất cho game, nó được đặt kèm và vẽ instanced.</p></div>}
@@ -618,7 +626,7 @@ function TextureBrowser({ projectId, material, apply, clear }: { projectId: stri
     <div className={s.section}>
       <h3><Icon name="lucide:images" /> Texture thật</h3>
       {material.source
-        ? <div className={s.row}><span className={s.muted} style={{ flex: 1 }}>{material.source.kind === 'polyhaven' ? 'Thư viện' : 'AI vẽ'}: {material.source.name}{material.source.license ? ` · ${material.source.license}` : ''}</span><button className={s.tbtn} onClick={clear}>Bỏ</button></div>
+        ? <div className={s.row}><span className={s.muted} style={{ flex: 1 }}>{({ polyhaven: 'Thư viện', ai: 'AI vẽ', web: 'Ảnh mạng', upload: 'Tải lên' } as const)[material.source.kind]}: {material.source.url ? <a href={material.source.url} target="_blank" rel="noreferrer">{material.source.name}</a> : material.source.name}{material.source.license ? ` · ${material.source.license}` : ''}{material.source.author ? ` · ${material.source.author}` : ''}{material.picture ? ' · ảnh nguyên tấm' : ''}</span><button className={s.tbtn} onClick={clear}>Bỏ</button></div>
         : <p className={s.muted}>Đang dùng texture sinh tự động. Tìm bộ texture thật (ảnh scan PBR) hoặc để AI vẽ.</p>}
       <form className={s.row} onSubmit={(e) => { e.preventDefault(); void search(q); }}>
         <input className={s.text} value={q} placeholder="vd: smooth concrete, rusty metal, marble…" onChange={(e) => setQ(e.target.value)} />

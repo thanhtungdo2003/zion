@@ -283,7 +283,8 @@ export class ModelViewport {
     for (const [id, b] of this.built) if (!alive.has(id)) { b.object.removeFromParent(); for (const m of b.meshes) m.geometry.dispose(); this.built.delete(id); }
     for (const n of doc.nodes) {
       const { transform: _t, name: _n, parent: _p, visible: _v, locked: _l, ...shape } = n as ModelNode & { locked?: boolean };
-      const mats = 'material' in n ? [n.material, n.kind === 'wall' ? n.innerMaterial : undefined].map((id) => (id ? doc.materials.find((m) => m.id === id)?.texture.scale : undefined)) : [];
+      const tile = (id?: string) => { const m = id ? doc.materials.find((x) => x.id === id) : undefined; return m ? (m.picture ? 'picture' : m.texture.scale) : undefined; };
+      const mats = 'material' in n ? [n.material, n.kind === 'wall' ? n.innerMaterial : undefined, n.kind === 'sign' ? n.backMaterial : undefined, n.kind === 'sign' ? n.frameMaterial : undefined].map(tile) : [];
       const key = JSON.stringify([shape, mats, n.kind === 'asset' || n.kind === 'import' ? null : collides(doc, n)]);
       let b = this.built.get(n.id);
       if (!b || b.key !== key) {
@@ -295,7 +296,8 @@ export class ModelViewport {
         else if (n.kind === 'import') void this.addImport(object, n.file);
         else for (const p of nodeMeshes(n)) {
           const mat = doc.materials.find((m) => m.id === p.material);
-          const mesh = new Mesh(geometry(p.mesh, mat?.texture.scale ?? 1), this.materialFor(mat));
+          // A picture (a sign's face) shows once: its UVs are already 0…1.
+          const mesh = new Mesh(geometry(p.mesh, mat?.picture ? 1 : mat?.texture.scale ?? 1), this.materialFor(mat));
           mesh.castShadow = true; mesh.receiveShadow = true;
           mesh.userData.material = p.material;
           mesh.userData.collides = collides(doc, n);
