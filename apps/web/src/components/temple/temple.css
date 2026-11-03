@@ -1,0 +1,51 @@
+/* Chánh Điện: the scene box and its overlays (studio preview and the game screen). Sizes follow
+   the box (container units), so the same layout works on a phone, a desktop and an OBS source. */
+.tp-host { position: relative; overflow: hidden; background: #1a0f0a; container-type: size; width: 100%; height: 100%; }
+.tp-canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; display: block; }
+.tp-ui { position: absolute; inset: 0; pointer-events: none; font-family: system-ui, 'Segoe UI', sans-serif; color: #fbecd0; --u: min(1cqw, 1.8cqh); }
+.tp-labels { position: absolute; inset: 0; }
+.tp-bubble { position: absolute; transform: translate(-50%, -100%); max-width: 32cqw; padding: calc(var(--u) * .8) calc(var(--u) * 1.4); background: #fbf3e2f2; color: #3a2a20; border: 1px solid #c9a46a; border-radius: calc(var(--u) * 1.4); font: 500 calc(var(--u) * 2.1)/1.3 system-ui, sans-serif; text-align: center; overflow-wrap: anywhere; box-shadow: 0 2px 8px #0006; }
+.tp-guide, .tp-feed { position: absolute; top: calc(var(--u) * 2); padding: calc(var(--u) * 1.2) calc(var(--u) * 1.6); background: #2a1408c4; border: 1px solid #e2b54a; border-radius: calc(var(--u) * 1.2); box-shadow: 0 4px 14px #0007; }
+.tp-guide { left: calc(var(--u) * 2); max-width: 36cqw; }
+.tp-feed { right: calc(var(--u) * 2); width: 26cqw; }
+.tp-guide h2, .tp-feed h2 { margin: 0 0 calc(var(--u) * .7); font: 700 calc(var(--u) * 2.2)/1.1 system-ui, sans-serif; letter-spacing: .12em; color: #ffd987; text-align: center; }
+.tp-guide ul, .tp-feed ol { list-style: none; margin: 0; padding: 0; font-size: calc(var(--u) * 1.9); line-height: 1.45; }
+.tp-guide b { color: #ffd987; }
+.tp-feed li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid #e2b54a33; animation: tp-in .5s ease-out; }
+.tp-feed li.big { color: #ffd987; font-weight: 700; }
+@keyframes tp-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+.tp-card { position: absolute; left: 50%; bottom: calc(var(--u) * 9); transform: translateX(-50%); display: flex; align-items: center; gap: calc(var(--u) * 1.4); padding: calc(var(--u) * 1.2) calc(var(--u) * 2.4) calc(var(--u) * 1.2) calc(var(--u) * 1.2); background: linear-gradient(#7a1a1fee, #4a0e12ee); border: 2px solid #e2b54a; border-radius: 999px; box-shadow: 0 6px 22px #000a; animation: tp-pop .5s ease-out; }
+.tp-card[hidden], .tp-toast[hidden], .tp-status[hidden], .tp-photo[hidden] { display: none; }
+@keyframes tp-pop { from { opacity: 0; transform: translateX(-50%) scale(.7); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+.tp-photo { width: calc(var(--u) * 7); height: calc(var(--u) * 7); border-radius: 50%; border: 2px solid #ffd987; object-fit: cover; }
+.tp-card-info { display: flex; flex-direction: column; }
+.tp-card-info strong { font: 700 calc(var(--u) * 3)/1.15 system-ui, sans-serif; color: #fff4dc; max-width: 46cqw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-info span { font-size: calc(var(--u) * 2); color: #ffd987; }
+.tp-toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: calc(var(--u) * 1.2) calc(var(--u) * 2.6); background: #000b; color: #ffd987; border-radius: calc(var(--u) * 1.4); font: 700 calc(var(--u) * 2.4)/1.2 system-ui, sans-serif; white-space: nowrap; }
+.tp-status { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); padding: calc(var(--u) * 1) calc(var(--u) * 2.2); background: #000a; color: #fff; border-radius: calc(var(--u) * 1); font: 600 calc(var(--u) * 2.2)/1.2 system-ui, sans-serif; }
+.tp-ticker { position: absolute; left: 0; right: 0; bottom: 0; overflow: hidden; white-space: nowrap; padding: calc(var(--u) * .8) 0; background: #1a0e08cc; border-top: 1px solid #e2b54a88; color: #f6e3bd; font: 600 calc(var(--u) * 1.9)/1.2 system-ui, sans-serif; }
+.tp-ticker span { display: inline-block; padding-left: 100%; animation: tp-run 40s linear infinite; }
+@keyframes tp-run { to { transform: translateX(-100%); } }
+/* Portrait (phones, 9:16): the guide and feed share the top, the card sits above the ticker. */
+.tp-portrait { --u: min(1.6cqw, 1cqh); }
+.tp-portrait .tp-guide { max-width: 50cqw; }
+.tp-portrait .tp-feed { width: 40cqw; }
+.tp-portrait .tp-bubble { max-width: 50cqw; }
+
+/* The game screen (/chanh-dien): the scene fills the window. */
+.tp-page { position: fixed; inset: 0; background: #1a0f0a; }
+.tp-page .tp-host { width: 100vw; height: 100dvh; }
+
+/* Studio tab: preview in the middle, panels either side (stacked on narrow screens). */
+.tp-studio .tp-preview { position: relative; min-height: 0; }
+.tp-studio .tp-preview .tp-host { position: absolute; inset: 0; }
+.tp-studio .tp-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; }
+.tp-studio .tp-field input[type=text], .tp-studio .tp-field input[type=password], .tp-studio .tp-field select { padding: 8px 10px; border-radius: 6px; border: 1px solid #ffffff33; background: #0006; color: inherit; font: inherit; }
+.tp-studio .tp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tp-studio .tp-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; background: #ffffff14; }
+.tp-studio .tp-pill.on { background: #1f7a3a; } .tp-studio .tp-pill.err { background: #8a1f1f; } .tp-studio .tp-pill.wait { background: #8a6a1f; }
+.tp-studio h3 { margin: 18px 0 6px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
+.tp-studio .tp-note { font-size: 12px; opacity: .7; line-height: 1.45; }
+@media (max-width: 900px) {
+  .tp-studio.gs-page { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto auto; height: auto; min-height: 100dvh; overflow: auto; }
+}

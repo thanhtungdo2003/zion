@@ -20,6 +20,7 @@ import type { AtlasTile, GameMode, WorldAtlas } from '@zion/shared';
 import { registerGameRoutes } from './routes/game';
 import { registerHealthRoutes, type HealthProvider } from './routes/health';
 import { registerStudioRoutes, type StudioBackend } from './routes/studio';
+import { registerTempleRoutes } from './routes/temple';
 import type { NewsBackend } from '../repositories/news';
 import { registerLibraryRoutes } from './routes/library';
 import { registerWeaponRoutes } from './routes/weapons';
@@ -181,6 +182,7 @@ export async function buildHttpApp(deps: HttpDeps): Promise<FastifyInstance> {
     });
   }
   registerStudioRoutes(app, deps);
+  registerTempleRoutes(app, deps);
   if (deps.modelStudio) registerModelStudioRoutes(app, deps, deps.modelStudio);
   return app;
 }

@@ -22,3 +22,4 @@ coverage/
 
 # Fixed maps baked to disk by the server (apps/server world-service)
 data/chunk-bake/
+temple-settings.json
